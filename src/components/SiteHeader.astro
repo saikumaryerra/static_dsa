@@ -1,0 +1,44 @@
+---
+/**
+ * SiteHeader — global sticky header (site spec §9, designer M1 wireframe).
+ *
+ * Props: none. Marks the link matching the current URL with `aria-current="page"`.
+ *
+ * Layout per wireframe: sticky top, z-40, 56px tall (64px ≥768px), bg --bg with a
+ * 1px --border bottom rule; wordmark left, nav (Learn / Glossary / About) + theme
+ * toggle right. Labels flex-wrap instead of truncating (i18n headroom).
+ */
+import ThemeToggle from './ThemeToggle.astro';
+import { NAV_ITEMS } from '../lib/nav';
+
+// Normalize the trailing slash so /learn/ still marks "Learn" as current.
+const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
+---
+
+<header class="sticky top-0 z-40 border-b border-border bg-bg">
+  <div
+    class="flex h-14 items-center justify-between gap-4 px-4 md:h-16 md:px-6"
+  >
+    <a href="/" class="text-lg font-bold text-text">LearnDSA</a>
+    <nav aria-label="Main">
+      <ul class="flex flex-wrap items-center gap-5">
+        {
+          NAV_ITEMS.map((item) => (
+            <li>
+              <a
+                href={item.href}
+                class="nav-link"
+                aria-current={currentPath === item.href ? 'page' : undefined}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+        <li>
+          <ThemeToggle />
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>

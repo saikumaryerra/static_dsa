@@ -1,0 +1,153 @@
+---
+/**
+ * ThemeToggle — light/dark theme switcher island (designer M1 spec, site spec §9).
+ *
+ * Props: none.
+ *
+ * Behavior:
+ * - Two visible states; "system" is the implicit default while no `localStorage`
+ *   key exists. Clicking sets `data-theme` on <html> to the opposite of the
+ *   currently *resolved* theme and persists it under the key `theme`.
+ * - While no key exists the script follows OS `prefers-color-scheme` changes
+ *   live; once the user chooses, it unsubscribes.
+ * - Both icons ship in the static HTML; CSS `[data-theme]` selectors show the
+ *   right one pre-hydration (no flash, no layout shift). The icon shows the
+ *   *action*: moon in light mode ("switch to dark"), sun in dark mode.
+ * - Hidden entirely under <noscript> (rule lives in BaseLayout's head) because
+ *   the CSS media-query fallback already themes the page without JS.
+ */
+---
+
+<button
+  type="button"
+  class="theme-toggle"
+  data-theme-toggle
+  aria-label="Toggle theme"
+  aria-live="polite"
+>
+  <!-- Moon: shown in light mode; the action is "switch to dark". Inline SVG, no icon library. -->
+  <svg
+    class="theme-toggle__icon theme-toggle__icon--moon"
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+  </svg>
+  <!-- Sun: shown in dark mode; the action is "switch to light". -->
+  <svg
+    class="theme-toggle__icon theme-toggle__icon--sun"
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="4"></circle>
+    <path
+      d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+    ></path>
+  </svg>
+</button>
+
+<style is:global>
+  /* 40x40 hit area per designer spec; icon box is 20px so swapping icons causes
+     zero layout shift. */
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .theme-toggle:hover {
+    color: var(--text);
+  }
+
+  /* Icon visibility is pure CSS on the <html> attribute, so the correct icon is
+     shown even before the island's script runs. Default (light / no attribute):
+     moon. Dark: sun. Deliberately no transition — theme switching is instant. */
+  .theme-toggle__icon--sun {
+    display: none;
+  }
+
+  [data-theme='dark'] .theme-toggle__icon--moon {
+    display: none;
+  }
+
+  [data-theme='dark'] .theme-toggle__icon--sun {
+    display: block;
+  }
+</style>
+
+<script>
+  import { resolveTheme, THEME_STORAGE_KEY, type Theme } from '../lib/theme';
+
+  // Single toggle per page (header only in M1). If a second instance is ever
+  // added (e.g. a mobile menu), switch to querySelectorAll + a loop.
+  const button = document.querySelector<HTMLButtonElement>(
+    '[data-theme-toggle]',
+  );
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+
+  /** Reads the stored choice; storage can throw (blocked/private mode), which means "no choice". */
+  function readStored(): string | null {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Applies the theme to <html> and keeps the button's accessible name in sync. */
+  function apply(theme: Theme): void {
+    document.documentElement.setAttribute('data-theme', theme);
+    // The label describes the *action* (matches the visible icon).
+    button?.setAttribute(
+      'aria-label',
+      theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
+    );
+  }
+
+  /** Follows OS preference changes live — only active while the user has no stored choice. */
+  function onSystemChange(event: MediaQueryListEvent): void {
+    apply(resolveTheme(null, event.matches));
+  }
+
+  if (readStored() === null) {
+    media.addEventListener('change', onSystemChange);
+  }
+
+  button?.addEventListener('click', () => {
+    const next: Theme =
+      resolveTheme(readStored(), media.matches) === 'dark' ? 'light' : 'dark';
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      // Storage blocked: the toggle still works for this page view, it just won't persist.
+    }
+    // A stored key now exists (or the user clearly overrode the OS): stop following it.
+    media.removeEventListener('change', onSystemChange);
+    apply(next);
+  });
+
+  // Sync the aria-label with the theme the inline head script already applied.
+  apply(resolveTheme(readStored(), media.matches));
+</script>

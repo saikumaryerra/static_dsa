@@ -1,0 +1,227 @@
+/* LearnDSA global stylesheet — Tailwind wiring + base element styles (site spec §13, M1).
+   tokens.css is the single source of truth for every value; nothing below hardcodes a
+   color, size, or duration.
+
+   SPEC-GAP: the designer handoff assumed Tailwind v3 and a `tailwind.config.ts`.
+   Current Astro integrates Tailwind v4 (CSS-first, via @tailwindcss/vite), which has
+   no JS config file; the handoff's theme-extension table is translated 1:1 into the
+   `@theme` block below, still referencing the tokens.css variables. Utility names are
+   unchanged (bg-bg, text-muted, rounded-control, shadow-1, max-w-container, ...). */
+
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* v4 equivalent of the handoff's `darkMode: ['class', '[data-theme="dark"]']` —
+   unused in M1 (all colors flow through the CSS variables) but registered so later
+   milestones can use `dark:` variants consistently. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* `inline` makes utilities reference the token variables directly (e.g. `.bg-bg
+   { background-color: var(--bg) }`), so the light/dark override blocks in tokens.css
+   keep working. Same-name aliases (--radius-*, --shadow-*) emit a self-reference
+   inside `@layer theme`, which always loses the cascade to the unlayered tokens.css
+   declaration — verified against the built CSS, safe by construction.
+   Fonts (--font-sans/--font-mono) and font-size values (--text-*), leading
+   (--leading-*) and tracking (--tracking-*) need no mapping at all: tokens.css reuses
+   Tailwind's own namespace names, and its unlayered declarations override the
+   defaults emitted in @layer theme. Spacing is intentionally not overridden — the
+   default Tailwind scale is the same 4px base (designer handoff note). */
+@theme inline {
+  /* Color roles */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-brand: var(--brand);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-hl-compare: var(--hl-compare);
+  --color-hl-swap: var(--hl-swap);
+  --color-hl-active: var(--hl-active);
+  --color-hl-visited: var(--hl-visited);
+  --color-hl-frontier: var(--hl-frontier);
+  --color-hl-found: var(--hl-found);
+
+  /* Per-size line-height / letter-spacing pairs from the handoff's fontSize table */
+  --text-xs--line-height: var(--leading-normal);
+  --text-sm--line-height: var(--leading-normal);
+  --text-base--line-height: var(--leading-relaxed);
+  --text-lg--line-height: var(--leading-relaxed);
+  --text-xl--line-height: var(--leading-snug);
+  --text-2xl--line-height: var(--leading-snug);
+  --text-3xl--line-height: var(--leading-tight);
+  --text-3xl--letter-spacing: var(--tracking-tight);
+  --text-4xl--line-height: var(--leading-tight);
+  --text-4xl--letter-spacing: var(--tracking-tight);
+
+  /* Font weights → font-normal/medium/semibold/bold */
+  --font-weight-normal: var(--weight-normal);
+  --font-weight-medium: var(--weight-medium);
+  --font-weight-semibold: var(--weight-semibold);
+  --font-weight-bold: var(--weight-bold);
+
+  /* Radius & shadows (same-name aliases, see note above) */
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --shadow-1: var(--shadow-1);
+  --shadow-2: var(--shadow-2);
+
+  /* Layout widths → max-w-container / max-w-measure */
+  --container-container: var(--container-max);
+  --container-measure: var(--measure);
+}
+
+/* ---------- Base element styles (overridable by utilities) ---------- */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--bg);
+    color: var(--text);
+  }
+
+  body {
+    font-size: var(--text-base);
+    line-height: var(--leading-relaxed);
+    /* Sticky-footer shell: short pages (e.g. the future /404) keep the footer at
+       the bottom of the viewport instead of floating mid-screen. */
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  main {
+    flex: 1;
+  }
+
+  /* Prose defaults per the token type table: h1/h2 = 700, h3/h4 = 600; the
+     handoff's Tailwind mapping puts --leading-tight + --tracking-tight on 3xl/4xl
+     and --leading-snug on xl/2xl. Pages override with utilities where needed. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--text);
+    text-wrap: balance;
+  }
+
+  h1 {
+    font-size: var(--text-3xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+  }
+
+  h2 {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-snug);
+  }
+
+  h3 {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+  }
+
+  h4 {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-normal);
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ---------- Focus ring (unlayered on purpose: must never be overridden) ----------
+   Designer a11y checklist #2 / spec §12: visible focus on every interactive element.
+   :focus-visible only, so mouse clicks don't paint rings. */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* ---------- Shared component classes (M1 chrome) ---------- */
+@layer components {
+  /* Skip link: first tab stop; hidden above the viewport until focused (kept
+     focusable, unlike display:none). Appears instantly — no transition. */
+  .skip-link {
+    position: fixed;
+    top: var(--space-2);
+    left: var(--space-2);
+    z-index: 50;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-control);
+    background-color: var(--brand);
+    color: var(--brand-contrast);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    transform: translateY(calc(-100% - var(--space-4)));
+  }
+
+  .skip-link:focus {
+    transform: none;
+  }
+
+  /* Nav links, shared by header and footer nav. Hover and current-page state
+     both resolve to --text per the designer's state table. */
+  .nav-link {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    line-height: var(--leading-normal);
+    color: var(--text-muted);
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .nav-link:hover,
+  .nav-link[aria-current='page'] {
+    color: var(--text);
+  }
+
+  /* Primary CTA. Hover/active darken via a color-mix overlay of --text into
+     --brand (designer state table); :active compresses by fill only — no motion. */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--space-3) var(--space-5);
+    border-radius: var(--radius-control);
+    background-color: var(--brand);
+    color: var(--brand-contrast);
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-normal);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .btn-primary:hover {
+    background-color: color-mix(in srgb, var(--brand) 88%, var(--text));
+  }
+
+  .btn-primary:active {
+    background-color: color-mix(in srgb, var(--brand) 80%, var(--text));
+  }
+
+  /* Whole-card link for the home track cards. */
+  .track-card {
+    display: block;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: var(--space-6);
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .track-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-1);
+  }
+}

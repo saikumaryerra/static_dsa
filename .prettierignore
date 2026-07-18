@@ -1,0 +1,21 @@
+# Designer handoff mandates the token file and the inline FOUC script VERBATIM —
+# exempt from reformatting (prettier-plugin-astro reformats embedded scripts even
+# behind prettier-ignore comments). Both files are hand-kept in Prettier style
+# everywhere outside the verbatim blocks.
+src/styles/tokens.css
+src/layouts/BaseLayout.astro
+
+# Build output & generated files
+dist/
+.astro/
+node_modules/
+package-lock.json
+playwright-report/
+test-results/
+
+# Files owned by the orchestrator / other agents — do not touch
+docs/
+CLAUDE.md
+Agents.md
+opencode.json
+.opencode/

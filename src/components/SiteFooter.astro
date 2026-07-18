@@ -1,0 +1,40 @@
+---
+/**
+ * SiteFooter — global footer (site spec §9, designer M1 wireframe).
+ *
+ * Props: none.
+ *
+ * Layout per wireframe: 96px top margin, 1px --border top rule, stacked with
+ * --space-4 gaps on mobile, a space-between row ≥768px. Contents: wordmark +
+ * tagline, nav repeat, and the free/open-source line with copyright.
+ */
+import { NAV_ITEMS } from '../lib/nav';
+
+// Frozen at build time — fine for a fully static site rebuilt on every deploy.
+const year = new Date().getFullYear();
+---
+
+<footer class="mt-24 border-t border-border">
+  <div
+    class="flex flex-col gap-4 px-4 py-10 md:flex-row md:items-center md:justify-between md:px-6"
+  >
+    <p class="text-sm text-muted">
+      <span class="font-semibold text-text">LearnDSA</span> — see data structures
+      and algorithms in motion.
+    </p>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap gap-5">
+        {
+          NAV_ITEMS.map((item) => (
+            <li>
+              <a href={item.href} class="nav-link">
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+    <p class="text-xs text-muted">Free and open source. © {year} LearnDSA</p>
+  </div>
+</footer>

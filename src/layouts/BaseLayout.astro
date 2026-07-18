@@ -1,0 +1,80 @@
+---
+/**
+ * BaseLayout — document shell for every page (site spec §8).
+ *
+ * Props:
+ * - `title`       full document title (pages compose their own, e.g. "Glossary · LearnDSA").
+ * - `description` meta description, also used for Open Graph.
+ *
+ * Provides: head metadata (description, canonical, OG/Twitter tags), the pre-paint
+ * theme script (designer FOUC spec, verbatim), skip-to-content link, SiteHeader,
+ * the `main` landmark wrapping the page slot, and SiteFooter.
+ */
+import '../styles/global.css';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+
+// Astro.site is set in astro.config.mjs; §14 requires absolute canonical URLs.
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Pre-paint theme resolution (designer handoff, byte-verbatim — this file is
+         listed in .prettierignore to keep it that way): must run before any content
+         paints so the page never flashes the wrong theme. Mirrors
+         src/lib/theme.ts#resolveTheme — keep the two in sync. -->
+    <script is:inline>
+(function () {
+  try {
+    var t = localStorage.getItem('theme');
+    var dark = t ? t === 'dark'
+                 : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  } catch (e) { /* no-JS/blocked storage: CSS media-query fallback applies */ }
+})();
+    </script>
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="generator" content={Astro.generator} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="LearnDSA" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary" />
+    <!-- Without JS the CSS prefers-color-scheme fallback themes the page, so the
+         toggle would be a dead control — hide it (designer spec: no-JS behavior). -->
+    <noscript>
+      <style>
+        /* !important: this <style> sits in <head> BEFORE Astro's injected
+           stylesheet link, so the bundle's equal-specificity `.theme-toggle
+           { display: inline-flex }` would otherwise win on source order. A
+           noscript kill-switch must be unbeatable (QA DEFECT-1). */
+        .theme-toggle {
+          display: none !important;
+        }
+      </style>
+    </noscript>
+  </head>
+  <body>
+    <a href="#main" class="skip-link">Skip to content</a>
+    <SiteHeader />
+    <main id="main" class="mx-auto w-full max-w-container px-4 md:px-6">
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>

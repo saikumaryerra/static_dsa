@@ -1,0 +1,148 @@
+---
+/**
+ * Home page (site spec §8 "Home page", designer M1 wireframe).
+ *
+ * Sections: hero (value prop + subhead + primary CTA to /learn + secondary link),
+ * three feature blurbs (interactive / beginner-friendly / free), and two track
+ * cards linking to /learn. Header/footer/skip-link come from BaseLayout.
+ * /learn, /about and /glossary are built in later milestones (M2/M4/M5).
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+interface Feature {
+  title: string;
+  body: string;
+  /** Inline 24px stroke icon path data (drawn by hand — no icon library, spec §4). */
+  iconPaths: string[];
+}
+
+const features: Feature[] = [
+  {
+    title: 'Interactive by default',
+    body: 'Every lesson is built around a visualization you control: play, pause, step forward and back, or run the algorithm on your own input.',
+    // Play button in a circle — "press play on the algorithm".
+    iconPaths: [
+      'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z',
+      'M10 8l6 4-6 4V8z',
+    ],
+  },
+  {
+    title: 'Made for beginners',
+    body: 'Plain language, concrete examples, and every term defined the first time it appears. Start from zero and build up one lesson at a time.',
+    // Open book.
+    iconPaths: [
+      'M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z',
+      'M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z',
+    ],
+  },
+  {
+    title: 'Free, forever',
+    body: 'No account, no paywall, no tracking. The whole site is static and open source, and every lesson works offline once loaded.',
+    // Heart.
+    iconPaths: [
+      'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
+    ],
+  },
+];
+
+interface Track {
+  label: string;
+  title: string;
+  summary: string;
+  meta: string;
+}
+
+const tracks: Track[] = [
+  {
+    label: 'Track A',
+    title: 'Foundations & Data Structures',
+    summary:
+      'Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on.',
+    meta: '9 lessons · ~70 min',
+  },
+  {
+    label: 'Track B',
+    title: 'Algorithms',
+    summary:
+      'Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks.',
+    meta: '6 lessons · ~50 min',
+  },
+];
+---
+
+<BaseLayout
+  title="LearnDSA — see data structures and algorithms in motion"
+  description="Free, interactive lessons on data structures and algorithms. Play, pause, and step through every swap, pointer move, and recursive call — on your own input."
+>
+  <!-- Hero: left-aligned per wireframe (center-aligned rag breaks with longer strings). -->
+  <section class="py-16 md:pt-24 md:pb-20">
+    <h1 class="max-w-[22ch] text-4xl font-bold">
+      See data structures and algorithms in motion
+    </h1>
+    <p class="mt-4 max-w-[55ch] text-lg text-muted">
+      LearnDSA teaches the core of computer science with interactive,
+      step-by-step visualizations. Watch every swap, pointer move, and recursive
+      call happen — then run each algorithm on your own input.
+    </p>
+    <div class="mt-8 flex flex-wrap items-center gap-4">
+      <a href="/learn" class="btn-primary">Start learning</a>
+      {
+        /* Arrow lives in its own span so translated labels never bake it in (i18n note). */
+      }
+      <a href="/about" class="font-medium text-brand hover:underline">
+        How it works <span aria-hidden="true">→</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- Feature blurbs: borderless, whitespace-separated (editorial, not dashboard). -->
+  <section class="mt-16 md:mt-24">
+    <div class="grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-8">
+      {
+        features.map((feature) => (
+          <div>
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="text-brand"
+              aria-hidden="true"
+            >
+              {feature.iconPaths.map((d) => (
+                <path d={d} />
+              ))}
+            </svg>
+            <h2 class="mt-4 text-lg font-semibold">{feature.title}</h2>
+            <p class="mt-2 text-base text-muted">{feature.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- Track cards: whole card is one link (wireframe). -->
+  <section class="mt-16 md:mt-24">
+    <h2 class="mb-6 text-2xl font-bold">Two tracks, fifteen lessons</h2>
+    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+      {
+        tracks.map((track) => (
+          <a href="/learn" class="track-card">
+            <p class="text-xs tracking-[0.06em] text-muted uppercase">
+              {track.label}
+            </p>
+            <h3 class="mt-2 text-xl font-semibold text-text">{track.title}</h3>
+            <p class="mt-2 text-base text-muted">{track.summary}</p>
+            <p class="mt-4 text-sm text-muted">
+              {track.meta} <span aria-hidden="true">→</span>
+            </p>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>
