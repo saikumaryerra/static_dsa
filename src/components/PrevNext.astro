@@ -1,0 +1,94 @@
+---
+/**
+ * PrevNext — static lesson pagination (design §6.3, site spec §9).
+ *
+ * Props:
+ * - `prev` / `next` — `{ slug, title }` or `null` at a track boundary.
+ *
+ * Each present side is a whole-card link (reuses the `.track-card` treatment).
+ * A missing side is omitted entirely (no disabled placeholder), and the present
+ * side keeps its column via `justify-content`.
+ */
+interface Adjacent {
+  slug: string;
+  title: string;
+}
+
+interface Props {
+  prev: Adjacent | null;
+  next: Adjacent | null;
+}
+
+const { prev, next } = Astro.props;
+---
+
+<nav aria-label="Lesson navigation" class="prevnext">
+  {
+    prev && (
+      <a href={`/learn/${prev.slug}`} class="track-card prevnext__item">
+        <span class="prevnext__overline">
+          <span aria-hidden="true">←</span> Previous
+        </span>
+        <span class="prevnext__title">{prev.title}</span>
+      </a>
+    )
+  }
+  {
+    next && (
+      <a
+        href={`/learn/${next.slug}`}
+        class="track-card prevnext__item prevnext__item--next"
+      >
+        <span class="prevnext__overline">
+          Next <span aria-hidden="true">→</span>
+        </span>
+        <span class="prevnext__title">{next.title}</span>
+      </a>
+    )
+  }
+</nav>
+
+<style>
+  .prevnext {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  @media (min-width: 768px) {
+    .prevnext {
+      flex-direction: row;
+      justify-content: space-between;
+    }
+
+    .prevnext__item {
+      flex: 1;
+      max-width: calc(50% - var(--space-2));
+    }
+  }
+
+  .prevnext__item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-4);
+  }
+
+  .prevnext__item--next {
+    text-align: right;
+    margin-left: auto;
+  }
+
+  .prevnext__overline {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+
+  .prevnext__title {
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+</style>

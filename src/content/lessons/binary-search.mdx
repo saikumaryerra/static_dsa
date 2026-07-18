@@ -1,0 +1,173 @@
+---
+title: 'Binary Search'
+slug: 'binary-search'
+track: 'algorithms'
+order: 11
+summary: 'Find an element in a sorted array by repeatedly halving the search range.'
+difficulty: 'beginner'
+prerequisites: ['arrays', 'complexity-big-o']
+estimatedMinutes: 8
+complexity:
+  time: { best: 'O(1)', average: 'O(log n)', worst: 'O(log n)' }
+  space: { worst: 'O(1)' }
+tags: ['searching', 'divide-and-conquer']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def binary_search(arr, target):
+    lo, hi = 0, len(arr) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if arr[mid] == target:
+            return mid          # found it
+        if arr[mid] < target:
+            lo = mid + 1        # search the right half
+        else:
+            hi = mid - 1        # search the left half
+    return -1                   # not in the array`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function binarySearch(arr, target) {
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (arr[mid] === target) return mid; // found it
+    if (arr[mid] < target) lo = mid + 1; // search the right half
+    else hi = mid - 1;                   // search the left half
+  }
+  return -1;                             // not in the array
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static int binarySearch(int[] arr, int target) {
+    int lo = 0;
+    int hi = arr.length - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;    // avoids integer overflow
+        if (arr[mid] == target) return mid;  // found it
+        if (arr[mid] < target) lo = mid + 1; // search the right half
+        else hi = mid - 1;                   // search the left half
+    }
+    return -1;                           // not in the array
+}`,
+  },
+];
+
+## Intuition
+
+Think about looking up a word in a paper dictionary. You do not start at page one and read every entry. You flip to the middle, glance at the word there, and decide: is my word before this page or after it? That one glance lets you throw away half the dictionary. Flip to the middle of what is left, decide again, and throw away half of that. In a few flips you have gone from thousands of pages to the single one you need.
+
+**Binary search** is exactly that idea for a **sorted** list. Because the values are in order, checking the middle one tells you which half your target could be in — so you can discard the other half every single time. Halving again and again is astonishingly fast: a sorted list of a million items is found in about twenty checks.
+
+The one rule you must not forget: the list has to be **sorted first**. Without order, the middle value tells you nothing about which side to keep, and the whole trick falls apart.
+
+## How it works
+
+Keep track of the slice of the array you are still searching with two markers: **`lo`** (the first index that might hold the target) and **`hi`** (the last index that might). At the start, that slice is the whole array, so `lo` is `0` and `hi` is the last index.
+
+Each round does three things:
+
+1. Look at the **middle** index, `mid = (lo + hi) / 2` (rounded down).
+2. Compare `arr[mid]` with the target:
+   - If they are **equal**, you are done — the target is at `mid`.
+   - If `arr[mid]` is **less than** the target, the target can only be to the right, so move `lo` to `mid + 1` and discard the left half.
+   - If `arr[mid]` is **greater than** the target, discard the right half by moving `hi` to `mid - 1`.
+3. Repeat with the smaller slice.
+
+If the slice ever becomes empty — `lo` passes `hi` — there is nowhere left to look, so the target is not in the array.
+
+The visualization below makes the shrinking window concrete: watch `lo` and `hi` close in on the answer, and see which half gets discarded after every comparison.
+
+## Visualizer
+
+<Visualizer
+  algorithm="binary-search"
+  renderer="array"
+  input="[1,3,5,7,9,11] target=7"
+/>
+
+Press **Play** to run it automatically, or **Step forward** to move one comparison at a time. The highlighted band is the current search window; the lifted cell marked **mid** is the value being checked. Try your own sorted array and target to see how few steps it really takes.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Every comparison throws away half of the remaining items, so the number of checks grows with the **logarithm** of the array size — doubling the input adds just one more step. That is the `O(log n)` worst and average case. The best case is `O(1)`: the very first middle you check happens to be the target. Only a couple of index variables are needed, so the extra space is `O(1)`.
+
+## Code
+
+The same algorithm in three languages. Notice how closely each mirrors the steps above — and how the structure matches the trace you stepped through in the visualizer.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Binary search silently returns wrong answers on an **unsorted** array. If your
+  data is not already ordered, sort it first (or use a different search).
+</Callout>
+
+<Collapsible summary="Off-by-one errors with lo, hi, and mid">
+  The loop condition is `lo <= hi`, not `lo < hi` — with `<`, a target sitting on
+  the final one-element window is missed. Likewise the updates must be `mid + 1`
+  and `mid - 1`, never plain `mid`. Setting `lo = mid` (without the `+ 1`) can
+  leave the window the same size forever, causing an infinite loop.
+</Collapsible>
+
+<Collapsible summary="Integer overflow in (lo + hi) / 2">
+  In fixed-width integer languages like Java or C, `lo + hi` can overflow for
+  very large arrays. Writing `mid = lo + (hi - lo) / 2` computes the same
+  midpoint without ever adding two large numbers — that is why the Java sample
+  above uses it.
+</Collapsible>
+
+<Collapsible summary="Forgetting the sorted precondition">
+  Binary search's speed comes entirely from the array being sorted. If you
+  cannot guarantee order, a plain linear scan (`O(n)`) is correct where binary
+  search is not. Sorting first costs `O(n log n)`, so binary search pays off
+  when you search the same array many times.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. How many comparisons does binary search need, at most, to search a sorted array of 1,000 items?**
+
+<Collapsible summary="Show answer">
+  About 10. Each comparison halves the range, and 2¹⁰ = 1,024, which is just
+  over 1,000. In general the worst case is roughly `log₂(n)` comparisons.
+</Collapsible>
+
+**2. You run binary search for the value 4 on `[1, 3, 5, 7, 9]`. Walk through the windows — what does it return, and why?**
+
+<Collapsible summary="Show answer">
+  It returns `-1`. First `mid` is index 2 (value 5), which is greater than 4, so
+  `hi` drops to 1. Next `mid` is index 0 (value 1), less than 4, so `lo` rises to
+  1. Then `mid` is index 1 (value 3), less than 4, so `lo` rises to 2. Now
+  `lo (2) > hi (1)` — the window is empty, so 4 is not present.
+</Collapsible>
+
+**3. Why can't binary search be used on an unsorted array, even if the target is definitely somewhere in it?**
+
+<Collapsible summary="Show answer">
+  Because the middle value no longer tells you which half to keep. In a sorted
+  array, `arr[mid] < target` guarantees the target is to the right. Without order
+  that guarantee vanishes, so discarding a half could throw away the very element
+  you are looking for.
+</Collapsible>

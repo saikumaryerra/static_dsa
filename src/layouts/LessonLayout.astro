@@ -1,0 +1,352 @@
+---
+/**
+ * LessonLayout — wraps a rendered lesson's MDX body (design §1, site spec §8).
+ *
+ * Props:
+ * - `title`, `summary`, `difficulty`, `track`, `estimatedMinutes` — frontmatter.
+ * - `slug`            for MarkComplete's persistence key.
+ * - `readingMinutes`  computed prose reading time (design §1.4).
+ * - `headings`        Astro `MarkdownHeading[]` → TableOfContents (h2 only).
+ * - `prev` / `next`   adjacent lessons (or null at a boundary).
+ *
+ * Composes inside BaseLayout's `<main>`. Layout: breadcrumb, header (h1 +
+ * summary + meta row), responsive ToC, the 7-section MDX slot (prose capped at
+ * --measure, full-column breakout for viz/code/table), mark-complete, prev/next.
+ */
+import BaseLayout from './BaseLayout.astro';
+import Breadcrumb from '../components/Breadcrumb.astro';
+import DifficultyChip from '../components/DifficultyChip.astro';
+import TableOfContents from '../components/TableOfContents.astro';
+import MarkComplete from '../components/MarkComplete.astro';
+import PrevNext from '../components/PrevNext.astro';
+import type { MarkdownHeading } from 'astro';
+
+interface Adjacent {
+  slug: string;
+  title: string;
+}
+
+interface Props {
+  title: string;
+  summary: string;
+  difficulty: 'beginner' | 'intermediate';
+  track: 'foundations' | 'algorithms';
+  estimatedMinutes: number;
+  readingMinutes: number;
+  slug: string;
+  headings: MarkdownHeading[];
+  prev: Adjacent | null;
+  next: Adjacent | null;
+}
+
+const {
+  title,
+  summary,
+  difficulty,
+  track,
+  estimatedMinutes,
+  readingMinutes,
+  slug,
+  headings,
+  prev,
+  next,
+} = Astro.props;
+---
+
+<BaseLayout title={`${title} · LearnDSA`} description={summary}>
+  <div class="lesson">
+    <div class="lesson__grid">
+      <article class="lesson__article">
+        <Breadcrumb track={track} title={title} />
+
+        <header class="lesson__header">
+          <h1>{title}</h1>
+          <p class="lesson__summary">{summary}</p>
+          <div class="lesson__meta">
+            <DifficultyChip difficulty={difficulty} />
+            <span aria-hidden="true" class="lesson__dot">·</span>
+            <span class="lesson__meta-item">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 2"></path>
+              </svg>
+              {estimatedMinutes} min lesson
+            </span>
+            <span aria-hidden="true" class="lesson__dot">·</span>
+            <span class="lesson__meta-item">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+              </svg>
+              {readingMinutes} min read
+            </span>
+          </div>
+        </header>
+
+        <TableOfContents headings={headings} variant="inline" />
+
+        <hr class="lesson__rule" />
+
+        <div class="lesson-body">
+          <slot />
+        </div>
+
+        <hr class="lesson__rule lesson__rule--wide" />
+
+        <div class="lesson__complete">
+          <MarkComplete slug={slug} />
+        </div>
+
+        <div class="lesson__prevnext">
+          <PrevNext prev={prev} next={next} />
+        </div>
+      </article>
+
+      <aside class="lesson__rail">
+        <TableOfContents headings={headings} variant="rail" />
+      </aside>
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .lesson {
+    padding-block-start: var(--space-6);
+  }
+
+  @media (min-width: 768px) {
+    .lesson {
+      padding-block-start: var(--space-10);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .lesson__grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 15rem;
+      column-gap: var(--space-10);
+      align-items: start;
+    }
+  }
+
+  .lesson__article {
+    min-width: 0;
+  }
+
+  .lesson__header {
+    margin-top: var(--space-4);
+  }
+
+  .lesson__header h1 {
+    max-width: var(--measure);
+  }
+
+  .lesson__summary {
+    margin-top: var(--space-3);
+    max-width: var(--measure);
+    font-size: var(--text-lg);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  .lesson__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .lesson__meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+  }
+
+  .lesson__dot {
+    color: var(--text-muted);
+  }
+
+  .lesson__rule {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin-block: var(--space-6);
+  }
+
+  .lesson__rule--wide {
+    margin-block: var(--space-8);
+  }
+
+  .lesson__complete {
+    margin-block: var(--space-6);
+  }
+
+  .lesson__prevnext {
+    margin-top: var(--space-8);
+    margin-bottom: var(--space-16);
+  }
+
+  .lesson__rail {
+    display: none;
+  }
+
+  @media (min-width: 1024px) {
+    .lesson__rail {
+      display: block;
+    }
+  }
+
+  /* ---- Lesson body: prose capped at --measure; viz/code/table break out ---- */
+  .lesson-body :global(> *) {
+    max-width: var(--measure);
+  }
+
+  .lesson-body :global(> .viz),
+  .lesson-body :global(> .codetabs),
+  .lesson-body :global(> .complexity-table) {
+    max-width: 100%;
+  }
+
+  .lesson-body :global(h2) {
+    margin-top: var(--space-12);
+    margin-bottom: var(--space-4);
+    scroll-margin-top: 5.5rem;
+  }
+
+  .lesson-body :global(h3) {
+    margin-top: var(--space-8);
+    margin-bottom: var(--space-3);
+    scroll-margin-top: 5.5rem;
+  }
+
+  .lesson-body :global(p) {
+    margin-block: var(--space-4);
+  }
+
+  .lesson-body :global(ul),
+  .lesson-body :global(ol) {
+    margin-block: var(--space-4);
+    padding-left: var(--space-6);
+  }
+
+  .lesson-body :global(ul) {
+    list-style: disc;
+  }
+
+  .lesson-body :global(ol) {
+    list-style: decimal;
+  }
+
+  .lesson-body :global(li) {
+    margin-block: var(--space-2);
+  }
+
+  .lesson-body :global(li::marker) {
+    color: var(--text-muted);
+  }
+
+  .lesson-body :global(a) {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .lesson-body :global(strong) {
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+
+  /* Inline code (not inside a Shiki <pre>). */
+  .lesson-body :global(:not(pre) > code) {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.1em 0.35em;
+    font-size: 0.9em;
+  }
+
+  .lesson-body :global(blockquote) {
+    margin-block: var(--space-4);
+    padding-left: var(--space-4);
+    border-left: 3px solid var(--border);
+    color: var(--text-muted);
+  }
+</style>
+
+<script>
+  // Progressive enhancement (design §1.3): highlight the ToC entry for the
+  // section currently in view. The ToC is fully usable (anchor nav) without this.
+  const links = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]'),
+  );
+  if (links.length > 0 && 'IntersectionObserver' in window) {
+    // Map each heading id to all matching ToC links (inline + rail forms).
+    const linksById = new Map<string, HTMLAnchorElement[]>();
+    for (const link of links) {
+      const id = (link.dataset['tocLink'] ?? '').slice(1);
+      if (!id) continue;
+      const list = linksById.get(id) ?? [];
+      list.push(link);
+      linksById.set(id, list);
+    }
+
+    const visible = new Set<string>();
+
+    function highlight(): void {
+      // Choose the first heading (in document order) currently visible.
+      let current: string | null = null;
+      for (const id of linksById.keys()) {
+        if (visible.has(id)) {
+          current = id;
+          break;
+        }
+      }
+      for (const [id, group] of linksById) {
+        for (const link of group) {
+          if (id === current) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
+        }
+      }
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = entry.target.id;
+          if (entry.isIntersecting) visible.add(id);
+          else visible.delete(id);
+        }
+        highlight();
+      },
+      // Bias toward the heading nearest the top, below the sticky header.
+      { rootMargin: '-80px 0px -70% 0px' },
+    );
+
+    for (const id of linksById.keys()) {
+      const heading = document.getElementById(id);
+      if (heading) observer.observe(heading);
+    }
+  }
+</script>

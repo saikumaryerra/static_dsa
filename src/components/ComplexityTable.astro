@@ -1,0 +1,90 @@
+---
+/**
+ * ComplexityTable — static render of frontmatter `complexity` (design §6.4, §9).
+ *
+ * Props:
+ * - `complexity` the frontmatter object: `{ time: {best,average,worst}, space: {worst} }`.
+ *
+ * Absent keys render "—" (never crash). Full-column width (breakout, not
+ * measure-capped). Big-O values in the mono font; the explanatory sentence
+ * lives in the MDX prose below the table, not here.
+ */
+interface Complexity {
+  time: { best: string; average: string; worst: string };
+  space: { worst: string };
+}
+
+interface Props {
+  complexity: Complexity;
+}
+
+const { complexity } = Astro.props;
+const dash = '—';
+const time = complexity.time ?? {};
+const space = complexity.space ?? {};
+---
+
+<table class="complexity-table">
+  <caption class="sr-only">Time and space complexity</caption>
+  <thead>
+    <tr>
+      <th scope="col">Measure</th>
+      <th scope="col">Best</th>
+      <th scope="col">Average</th>
+      <th scope="col">Worst</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th scope="row">Time</th>
+      <td>{time.best ?? dash}</td>
+      <td>{time.average ?? dash}</td>
+      <td>{time.worst ?? dash}</td>
+    </tr>
+    <tr>
+      <th scope="row">Space</th>
+      <td>{dash}</td>
+      <td>{dash}</td>
+      <td>{space.worst ?? dash}</td>
+    </tr>
+  </tbody>
+</table>
+
+<style>
+  .complexity-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    font-size: var(--text-sm);
+  }
+
+  .complexity-table caption {
+    text-align: left;
+  }
+
+  .complexity-table th,
+  .complexity-table td {
+    padding: var(--space-3);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .complexity-table tbody tr:last-child th,
+  .complexity-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .complexity-table thead th,
+  .complexity-table tbody th {
+    color: var(--text-muted);
+    font-weight: var(--weight-semibold);
+  }
+
+  .complexity-table tbody td {
+    color: var(--text);
+    font-family: var(--font-mono);
+  }
+</style>

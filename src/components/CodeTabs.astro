@@ -1,0 +1,263 @@
+---
+/**
+ * CodeTabs — tabbed multi-language code, Shiki-highlighted (design §6.6, §9).
+ *
+ * Props:
+ * - `tabs` `{ label, lang, code }[]` — one fenced block per language. Highlighted
+ *   at build time by Astro's built-in Shiki (`astro:components` `<Code>`), so no
+ *   highlighter dependency and all tabs ship as static HTML.
+ *
+ * WAI-ARIA Tabs: `role="tablist"` + roving-tabindex `role="tab"` buttons control
+ * `role="tabpanel"`s (arrow keys wired in the script). Copy button per panel.
+ * JS-off: the `<noscript>` kill-switch hides the tablist/copy and reveals every
+ * panel stacked with a visible language heading (design §6.6 fallback).
+ */
+import { Code } from 'astro:components';
+
+interface Tab {
+  label: string;
+  lang: string;
+  code: string;
+}
+
+interface Props {
+  tabs: Tab[];
+}
+
+const { tabs } = Astro.props;
+
+// Unique id base per instance so multiple CodeTabs on a page don't collide.
+const uid = `ct-${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<div class="codetabs" data-codetabs>
+  <div role="tablist" aria-label="Code language" class="codetabs__tablist">
+    {
+      tabs.map((tab, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`${uid}-tab-${i}`}
+          aria-controls={`${uid}-panel-${i}`}
+          aria-selected={i === 0 ? 'true' : 'false'}
+          tabindex={i === 0 ? 0 : -1}
+          class="codetabs__tab"
+        >
+          {tab.label}
+        </button>
+      ))
+    }
+  </div>
+  {
+    tabs.map((tab, i) => (
+      <div
+        role="tabpanel"
+        id={`${uid}-panel-${i}`}
+        aria-labelledby={`${uid}-tab-${i}`}
+        tabindex="0"
+        class="codetabs__panel"
+        hidden={i !== 0}
+      >
+        <p class="codetabs__lang" aria-hidden="true">
+          {tab.label}
+        </p>
+        <button
+          type="button"
+          class="codetabs__copy"
+          aria-label={`Copy ${tab.label} code`}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="6" y="6" width="12" height="14" rx="2" />
+            <path d="M9 4h6v2H9z" />
+          </svg>
+          <span class="codetabs__copy-label">Copy</span>
+        </button>
+        <Code code={tab.code} lang={tab.lang as never} />
+      </div>
+    ))
+  }
+  <p class="sr-only" role="status" data-copy-status></p>
+</div>
+
+<noscript>
+  <style>
+    /* Kill-switch (mirrors ThemeToggle): without JS, tabs can't switch — show
+       every panel stacked with its language heading, hide the tablist + copy. */
+    .codetabs__tablist,
+    .codetabs__copy {
+      display: none !important;
+    }
+    .codetabs__panel[hidden] {
+      display: block !important;
+    }
+    .codetabs__lang {
+      position: static !important;
+      width: auto !important;
+      height: auto !important;
+      clip: auto !important;
+      clip-path: none !important;
+      white-space: normal !important;
+      margin: var(--space-4) 0 var(--space-2) !important;
+      font-weight: var(--weight-semibold) !important;
+      color: var(--text) !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  .codetabs {
+    margin-block: var(--space-4);
+  }
+
+  .codetabs__tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .codetabs__tab {
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .codetabs__tab:hover {
+    color: var(--text);
+  }
+
+  .codetabs__tab[aria-selected='true'] {
+    color: var(--text);
+    border-bottom-color: var(--brand);
+  }
+
+  .codetabs__panel {
+    position: relative;
+    margin-top: var(--space-3);
+  }
+
+  /* Language heading is only surfaced in the JS-off fallback. */
+  .codetabs__lang {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .codetabs__copy {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background-color: var(--bg);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .codetabs__copy:hover {
+    color: var(--text);
+  }
+
+  .codetabs :global(pre) {
+    margin: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    font-size: var(--text-sm);
+    overflow-x: auto;
+  }
+</style>
+
+<script>
+  // Progressive enhancement: WAI-ARIA tab behavior + copy. Without this script
+  // the noscript fallback shows all panels; with it, the tabs are interactive.
+  const groups = document.querySelectorAll<HTMLElement>('[data-codetabs]');
+
+  groups.forEach((group) => {
+    const tabs = Array.from(
+      group.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    );
+    const panels = Array.from(
+      group.querySelectorAll<HTMLElement>('[role="tabpanel"]'),
+    );
+    const status = group.querySelector<HTMLElement>('[data-copy-status]');
+
+    /** Selects tab `index`, updating aria + roving tabindex + panel visibility. */
+    function select(index: number, focus = true): void {
+      tabs.forEach((tab, i) => {
+        const selected = i === index;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+        panels[i]?.toggleAttribute('hidden', !selected);
+      });
+      if (focus) tabs[index]?.focus();
+    }
+
+    tabs.forEach((tab, i) => {
+      tab.addEventListener('click', () => select(i));
+      tab.addEventListener('keydown', (event) => {
+        let next: number;
+        if (event.key === 'ArrowRight') next = (i + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft')
+          next = (i - 1 + tabs.length) % tabs.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        select(next);
+      });
+    });
+
+    // Copy buttons: read the highlighted <pre> text, then confirm via role=status.
+    group
+      .querySelectorAll<HTMLButtonElement>('.codetabs__copy')
+      .forEach((button) => {
+        button.addEventListener('click', async () => {
+          const pre = button.parentElement?.querySelector('pre');
+          const code = pre?.textContent ?? '';
+          try {
+            await navigator.clipboard.writeText(code);
+            const label = button.querySelector('.codetabs__copy-label');
+            if (label) label.textContent = 'Copied';
+            if (status) status.textContent = 'Code copied to clipboard';
+            window.setTimeout(() => {
+              if (label) label.textContent = 'Copy';
+              if (status) status.textContent = '';
+            }, 1500);
+          } catch {
+            // Clipboard blocked (permissions/insecure context): leave code visible to copy manually.
+            if (status)
+              status.textContent =
+                'Copy failed — select the code to copy manually';
+          }
+        });
+      });
+  });
+</script>

@@ -1,0 +1,1023 @@
+---
+/**
+ * Visualizer — the interactive DSA visualization island (site spec §11.3, design §2).
+ *
+ * Props:
+ * - `algorithm`        registry AlgorithmId (string; validated at runtime).
+ * - `renderer`         registry RendererId (string; validated at runtime).
+ * - `input`            optional initial input, e.g. "[1,3,5,7,9,11] target=7";
+ *                      else the algorithm's defaultInput() (resolved client-side).
+ * - `allowCustomInput` show the custom-input form (default true).
+ * - `showMetrics`      show the metrics pills (default true).
+ *
+ * Architecture (§5): the `.astro` server-renders a real static SVG of the
+ * initial array (from the parsed `input` alone — no algorithm run, so the island
+ * stays decoupled from concrete algorithm modules; SPEC-GAP noted below) plus the
+ * full control surface (disabled) so the page is useful with JS off and before
+ * hydration. The bundled `<script>` attaches an IntersectionObserver, dynamically
+ * imports only this lesson's algorithm + renderer chunks on first intersection,
+ * runs the mount sequence, and wires the controls. The `<noscript>` kill-switch
+ * (mirrors ThemeToggle) hides the controls and reveals the "enable JS" note.
+ */
+interface Props {
+  algorithm: string;
+  renderer: string;
+  input?: string;
+  allowCustomInput?: boolean;
+  showMetrics?: boolean;
+}
+
+const {
+  algorithm,
+  renderer,
+  input,
+  allowCustomInput = true,
+  showMetrics = true,
+} = Astro.props;
+
+// Unique id base so multiple visualizers on one page don't collide.
+const uid = `viz-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * SPEC-GAP (architecture §5.5): the static fallback parses the array + target
+ * out of the `input` string with this tiny local parser, rather than importing
+ * the algorithm's `parseInput`, so the generic island stays decoupled from
+ * concrete algorithm modules. It draws step 0 only (whole array = search window,
+ * no probe). Values are display-only, so a loose parse is fine here.
+ */
+function parseInitial(raw?: string): {
+  array: number[];
+  target: number | null;
+} {
+  if (!raw) return { array: [], target: null };
+  const arrayMatch = raw.match(/\[([^\]]*)\]/);
+  const targetMatch = raw.match(/target\s*=\s*(-?\d+)/i);
+  const array = arrayMatch
+    ? arrayMatch[1]
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => /^-?\d+$/.test(t))
+        .map(Number)
+    : [];
+  return { array, target: targetMatch ? Number(targetMatch[1]) : null };
+}
+
+const initial = parseInitial(input);
+const n = initial.array.length;
+
+// --- SVG geometry: KEEP IN SYNC with ArrayRenderer's constants (§6) so the
+// static still and the hydrated renderer line up pixel-for-pixel (no CLS). ---
+const CELL = 54;
+const GAP = 8;
+const PAD_X = 10;
+const CELL_Y = 30;
+const CELL_H = 54;
+const BRACKET_Y = CELL_Y + CELL_H + 6;
+const INDEX_Y = CELL_Y + CELL_H + 22;
+const MARKER_Y = INDEX_Y + 18;
+const HEIGHT = MARKER_Y + 10;
+const cellX = (i: number): number => PAD_X + i * (CELL + GAP);
+const cellCenterX = (i: number): number => cellX(i) + CELL / 2;
+const svgWidth = Math.max(PAD_X * 2 + Math.max(n, 1) * (CELL + GAP) - GAP, 1);
+
+const step0Text =
+  initial.target !== null && n > 0
+    ? `Ready. Searching for ${initial.target} in a sorted array of ${n} ${n === 1 ? 'item' : 'items'}. Press Play or Step.`
+    : 'Ready. Press Play or Step to begin.';
+
+const explainId = `${uid}-explain`;
+const errId = `${uid}-err`;
+const stepId = `${uid}-step`;
+const speedId = `${uid}-speed`;
+const arrayId = `${uid}-array`;
+const targetId = `${uid}-target`;
+---
+
+<section
+  class="viz"
+  aria-label="Binary search visualization"
+  data-viz
+  data-algorithm={algorithm}
+  data-renderer={renderer}
+  data-input={input ?? ''}
+  data-show-metrics={showMetrics ? 'true' : 'false'}
+>
+  <figure class="viz-frame">
+    <div class="viz-canvas" data-viz-canvas>
+      <!-- Build-time static still: real initial array, upgraded in place on hydrate. -->
+      <svg
+        role="img"
+        viewBox={`0 0 ${svgWidth} ${HEIGHT}`}
+        preserveAspectRatio="xMidYMid meet"
+        width="100%"
+        style="max-width:100%;height:auto"
+        aria-labelledby={`${uid}-t ${uid}-d`}
+      >
+        <title id={`${uid}-t`}>Binary search on a sorted array</title>
+        <desc id={`${uid}-d`}>
+          {
+            initial.target !== null && n > 0
+              ? `Sorted array of ${n} items, searching for ${initial.target}. The whole array is the search window.`
+              : 'Array visualization.'
+          }
+        </desc>
+        <g class="viz-cells">
+          {
+            initial.array.map((value, i) => (
+              <g id={`i${i}`} class="viz-cell is-range">
+                <rect
+                  class="viz-cell__rect"
+                  x={cellX(i)}
+                  y={CELL_Y}
+                  width={CELL}
+                  height={CELL_H}
+                  rx="6"
+                />
+                <text
+                  class="viz-cell__value"
+                  x={cellCenterX(i)}
+                  y={CELL_Y + CELL_H / 2}
+                  text-anchor="middle"
+                  dominant-baseline="central"
+                >
+                  {value}
+                </text>
+                <text
+                  class="viz-cell__index"
+                  x={cellCenterX(i)}
+                  y={INDEX_Y}
+                  text-anchor="middle"
+                >
+                  {i}
+                </text>
+              </g>
+            ))
+          }
+        </g>
+        <g class="viz-markers">
+          {
+            n > 0 && (
+              <>
+                <line
+                  class="viz-range-bar"
+                  x1={cellX(0)}
+                  x2={cellX(n - 1) + CELL}
+                  y1={BRACKET_Y}
+                  y2={BRACKET_Y}
+                />
+                <text
+                  class="viz-marker"
+                  x={cellCenterX(0)}
+                  y={MARKER_Y}
+                  text-anchor="middle"
+                >
+                  lo
+                </text>
+                {n > 1 && (
+                  <text
+                    class="viz-marker"
+                    x={cellCenterX(n - 1)}
+                    y={MARKER_Y}
+                    text-anchor="middle"
+                  >
+                    hi
+                  </text>
+                )}
+              </>
+            )
+          }
+        </g>
+      </svg>
+    </div>
+
+    {
+      showMetrics && (
+        <div class="viz-metrics" data-viz-metrics aria-hidden="true" />
+      )
+    }
+
+    <p
+      class="viz-explain"
+      id={explainId}
+      aria-live="polite"
+      aria-atomic="true"
+      data-viz-explain
+    >
+      {step0Text}
+    </p>
+  </figure>
+
+  <div class="viz-controls" data-viz-controls>
+    <div class="viz-control-bar">
+      <div class="viz-scrub">
+        <label for={stepId} class="viz-scrub__label">Step</label>
+        <input
+          type="range"
+          id={stepId}
+          class="viz-slider"
+          min="0"
+          max="0"
+          step="1"
+          value="0"
+          disabled
+          data-viz-slider
+          aria-valuetext="Step 1 of 1"
+        />
+        <span class="viz-counter" data-viz-counter aria-hidden="true"
+          >– / –</span
+        >
+      </div>
+
+      <div class="viz-transport">
+        <button
+          type="button"
+          class="viz-btn"
+          data-viz-reset
+          aria-label="Reset to start"
+          disabled
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 12a8 8 0 1 0 2.3-5.6"></path>
+            <path d="M4 4v4h4"></path>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="viz-btn"
+          data-viz-back
+          aria-label="Step back"
+          disabled
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M17 5l-8 7 8 7z"></path>
+            <rect x="5.8" y="5" width="2.2" height="14"></rect>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="viz-btn viz-btn--play"
+          data-viz-play
+          aria-label="Play"
+          aria-pressed="false"
+          disabled
+        >
+          <svg
+            class="viz-play__play"
+            viewBox="0 0 24 24"
+            width="26"
+            height="26"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 5v14l11-7z"></path>
+          </svg>
+          <svg
+            class="viz-play__pause"
+            viewBox="0 0 24 24"
+            width="26"
+            height="26"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M6 5h4v14H6z"></path>
+            <path d="M14 5h4v14h-4z"></path>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="viz-btn"
+          data-viz-forward
+          aria-label="Step forward"
+          disabled
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M7 5l8 7-8 7z"></path>
+            <rect x="16" y="5" width="2.2" height="14"></rect>
+          </svg>
+        </button>
+      </div>
+
+      <div class="viz-speed">
+        <label for={speedId} class="viz-speed__label">Speed</label>
+        <select id={speedId} class="viz-select" data-viz-speed disabled>
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+          <option value="3">3×</option>
+        </select>
+      </div>
+    </div>
+
+    {
+      allowCustomInput && (
+        <form class="viz-custom" data-viz-form novalidate>
+          <p class="viz-custom__legend">Try your own input</p>
+          <div class="viz-custom__fields">
+            <div class="viz-field">
+              <label for={arrayId}>Array</label>
+              <input
+                type="text"
+                id={arrayId}
+                data-viz-array
+                placeholder="[1,3,5,7,9,11]"
+                aria-describedby={errId}
+              />
+            </div>
+            <div class="viz-field viz-field--target">
+              <label for={targetId}>Target</label>
+              <input
+                type="text"
+                id={targetId}
+                data-viz-target
+                inputmode="numeric"
+                placeholder="7"
+                aria-describedby={errId}
+              />
+            </div>
+            <button type="submit" class="btn-secondary" data-viz-run>
+              Run
+            </button>
+          </div>
+          <p class="viz-error" id={errId} role="alert" data-viz-error hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 3 2 20h20z" />
+              <path d="M12 10v4" />
+              <path d="M12 17h.01" />
+            </svg>
+            <span data-viz-error-text />
+          </p>
+        </form>
+      )
+    }
+  </div>
+
+  <p class="viz-nojs-note">
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9"></circle>
+      <path d="M12 16v-4"></path>
+      <path d="M12 8h.01"></path>
+    </svg>
+    <span>Enable JavaScript to play, step, and run this on your own input.</span
+    >
+  </p>
+</section>
+
+<noscript>
+  <style>
+    /* Kill-switch (mirrors ThemeToggle): JS off → hide interactive controls,
+       reveal the static-preview note. !important beats the bundled stylesheet. */
+    [data-viz] .viz-controls {
+      display: none !important;
+    }
+    [data-viz] .viz-nojs-note {
+      display: flex !important;
+    }
+  </style>
+</noscript>
+
+<style is:global>
+  /* ---- Region + frame ---- */
+  .viz {
+    margin-block: var(--space-8);
+  }
+
+  .viz-frame {
+    margin: 0;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
+    padding: var(--space-4);
+    overflow: hidden;
+  }
+
+  @media (min-width: 768px) {
+    .viz-frame {
+      padding: var(--space-6);
+    }
+  }
+
+  .viz-canvas {
+    margin-block-end: var(--space-4);
+  }
+
+  /* ---- SVG cells + markers (shared by static still and hydrated renderer) ---- */
+  .viz-cell__rect {
+    fill: var(--surface);
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+    transition:
+      fill var(--duration-base) var(--ease-standard),
+      stroke var(--duration-base) var(--ease-standard);
+  }
+
+  .viz-cell {
+    transition: transform var(--duration-base) var(--ease-standard);
+  }
+
+  .viz-cell__value {
+    fill: var(--text);
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: var(--weight-semibold);
+  }
+
+  .viz-cell__index {
+    fill: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .viz-cell.is-range .viz-cell__rect {
+    fill: color-mix(in srgb, var(--hl-active) 15%, var(--surface));
+  }
+
+  .viz-cell.is-active {
+    transform: translateY(-3px);
+  }
+
+  .viz-cell.is-active .viz-cell__rect {
+    fill: color-mix(in srgb, var(--hl-active) 15%, var(--surface));
+    stroke: var(--hl-active);
+    stroke-width: 3;
+  }
+
+  .viz-cell.is-found .viz-cell__rect {
+    fill: color-mix(in srgb, var(--hl-found) 18%, var(--surface));
+    stroke: var(--hl-found);
+    stroke-width: 3;
+  }
+
+  .viz-cell.is-eliminated {
+    opacity: 0.42;
+  }
+
+  .viz-range-bar {
+    stroke: var(--hl-active);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+
+  .viz-marker {
+    fill: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: var(--weight-semibold);
+  }
+
+  .viz-mid-label {
+    fill: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: var(--weight-bold);
+  }
+
+  .viz-found-mark {
+    fill: var(--hl-found);
+    font-size: 18px;
+    font-weight: var(--weight-bold);
+  }
+
+  /* ---- Metrics ---- */
+  .viz-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .viz-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    background-color: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .viz-pill b {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* ---- Explanation ---- */
+  .viz-explain {
+    margin: 0;
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-3);
+    min-height: 3rem;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- Control bar ---- */
+  .viz-control-bar {
+    display: grid;
+    row-gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  .viz-scrub {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .viz-scrub__label,
+  .viz-speed__label {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .viz-slider {
+    flex: 1;
+    min-height: 44px;
+    accent-color: var(--brand);
+    cursor: pointer;
+  }
+
+  .viz-slider:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .viz-counter {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    min-width: 5ch;
+    text-align: right;
+  }
+
+  .viz-transport {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .viz-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .viz-btn:hover:not(:disabled) {
+    color: var(--text);
+  }
+
+  .viz-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .viz-btn--play {
+    width: 56px;
+    height: 56px;
+    background-color: var(--brand);
+    color: var(--brand-contrast);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .viz-btn--play:hover:not(:disabled) {
+    color: var(--brand-contrast);
+    background-color: color-mix(in srgb, var(--brand) 88%, var(--text));
+  }
+
+  /* Play/Pause glyph swap driven by data-playing on the button. */
+  .viz-play__pause {
+    display: none;
+  }
+
+  .viz-btn--play[data-playing] .viz-play__play {
+    display: none;
+  }
+
+  .viz-btn--play[data-playing] .viz-play__pause {
+    display: inline;
+  }
+
+  .viz-speed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .viz-select {
+    min-height: 44px;
+    background-color: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    padding-inline: var(--space-3);
+  }
+
+  /* ---- Custom input ---- */
+  .viz-custom {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  .viz-custom__legend {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+
+  .viz-custom__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: end;
+  }
+
+  .viz-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    flex: 1;
+    min-width: 12rem;
+  }
+
+  .viz-field--target {
+    flex: 0 0 auto;
+    min-width: 6rem;
+    max-width: 8rem;
+  }
+
+  .viz-field label {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .viz-field input {
+    min-height: 44px;
+    background-color: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    padding-inline: var(--space-3);
+    font-family: var(--font-mono);
+  }
+
+  .viz-error {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--border-strong);
+    color: var(--text);
+    font-size: var(--text-sm);
+  }
+
+  .viz-error[hidden] {
+    display: none;
+  }
+
+  .viz-error svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  /* ---- JS-off note (revealed by the noscript kill-switch) ---- */
+  .viz-nojs-note {
+    display: none;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  /* Unavailable state (unknown id / chunk load failure). */
+  .viz-unavailable {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+</style>
+
+<script>
+  import { Player } from './core/player';
+  import { algorithms, renderers } from './registry';
+  import type { Algorithm, Renderer, Step } from './core/types';
+
+  /** Narrow a parseInput result to its error branch. */
+  function isParseError(value: unknown): value is { error: string } {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'error' in value &&
+      typeof (value as { error: unknown }).error === 'string'
+    );
+  }
+
+  /** Sets up one Visualizer container: observe → import → mount → wire. */
+  function setupViz(root: HTMLElement): void {
+    const algoId = root.dataset['algorithm'] ?? '';
+    const rendererId = root.dataset['renderer'] ?? '';
+    const rawInput = root.dataset['input'] ?? '';
+    const showMetrics = root.dataset['showMetrics'] === 'true';
+
+    // Query the pieces we drive.
+    const canvas = root.querySelector<HTMLElement>('[data-viz-canvas]');
+    const explain = root.querySelector<HTMLElement>('[data-viz-explain]');
+    const metricsBox = root.querySelector<HTMLElement>('[data-viz-metrics]');
+    const slider = root.querySelector<HTMLInputElement>('[data-viz-slider]');
+    const counter = root.querySelector<HTMLElement>('[data-viz-counter]');
+    const playBtn = root.querySelector<HTMLButtonElement>('[data-viz-play]');
+    const backBtn = root.querySelector<HTMLButtonElement>('[data-viz-back]');
+    const fwdBtn = root.querySelector<HTMLButtonElement>('[data-viz-forward]');
+    const resetBtn = root.querySelector<HTMLButtonElement>('[data-viz-reset]');
+    const speedSel = root.querySelector<HTMLSelectElement>('[data-viz-speed]');
+    const form = root.querySelector<HTMLFormElement>('[data-viz-form]');
+    const arrayInput = root.querySelector<HTMLInputElement>('[data-viz-array]');
+    const targetInput =
+      root.querySelector<HTMLInputElement>('[data-viz-target]');
+    const errorBox = root.querySelector<HTMLElement>('[data-viz-error]');
+    const errorText = root.querySelector<HTMLElement>('[data-viz-error-text]');
+
+    if (!canvas || !explain || !slider) return;
+
+    let player: Player<unknown> | null = null;
+    let algo: Algorithm<unknown, unknown> | null = null;
+
+    /** Renders the metrics pills for the current step. */
+    function renderMetrics(step: Step<unknown>): void {
+      if (!showMetrics || !metricsBox) return;
+      const metrics = step.metrics ?? {};
+      metricsBox.replaceChildren();
+      for (const [key, value] of Object.entries(metrics)) {
+        const label = key[0]!.toUpperCase() + key.slice(1);
+        const pill = document.createElement('span');
+        pill.className = 'viz-pill';
+        pill.append(`${label} `);
+        const b = document.createElement('b');
+        b.textContent = String(value);
+        pill.appendChild(b);
+        metricsBox.appendChild(pill);
+      }
+    }
+
+    /** Enable/disable transport buttons for the position (design §4 state table). */
+    function updateButtons(
+      index: number,
+      length: number,
+      playing: boolean,
+    ): void {
+      const atStart = index <= 0;
+      const atEnd = index >= length - 1;
+      if (backBtn) backBtn.disabled = atStart;
+      if (resetBtn) resetBtn.disabled = atStart;
+      if (fwdBtn) fwdBtn.disabled = atEnd;
+      if (playBtn) playBtn.disabled = atEnd && !playing;
+    }
+
+    /** onStep: sync explanation, slider, counter, metrics, and button states. */
+    function onStep(index: number, step: Step<unknown>): void {
+      const length = player?.length ?? 1;
+      explain!.textContent = step.explanation;
+      slider!.value = String(index);
+      slider!.setAttribute('aria-valuetext', `Step ${index + 1} of ${length}`);
+      if (counter) counter.textContent = `${index + 1} / ${length}`;
+      renderMetrics(step);
+      updateButtons(index, length, player?.isPlaying ?? false);
+    }
+
+    /** onPlayStateChange: swap the Play/Pause glyph + label + pressed state. */
+    function onPlayStateChange(playing: boolean): void {
+      if (!playBtn) return;
+      playBtn.toggleAttribute('data-playing', playing);
+      playBtn.setAttribute('aria-pressed', playing ? 'true' : 'false');
+      playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+      updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, playing);
+    }
+
+    /** Shows a friendly custom-input error without disturbing the current trace. */
+    function showError(message: string): void {
+      if (errorBox && errorText) {
+        errorText.textContent = message;
+        errorBox.hidden = false;
+      }
+      arrayInput?.setAttribute('aria-invalid', 'true');
+      arrayInput?.focus();
+    }
+
+    /** Clears a previously shown error. */
+    function clearError(): void {
+      if (errorBox) errorBox.hidden = true;
+      arrayInput?.removeAttribute('aria-invalid');
+    }
+
+    /** Points the slider bounds at the loaded trace and refreshes controls. */
+    function syncTraceBounds(): void {
+      if (!player) return;
+      slider!.max = String(Math.max(player.length - 1, 0));
+      slider!.disabled = false;
+    }
+
+    /** Renders a terminal "unavailable" state (unknown id / chunk failure). */
+    function renderUnavailable(): void {
+      canvas!.replaceChildren();
+      const box = document.createElement('p');
+      box.className = 'viz-unavailable';
+      box.textContent = 'Visualization unavailable.';
+      canvas!.appendChild(box);
+    }
+
+    /** The mount sequence (architecture §5.3). */
+    async function mount(): Promise<void> {
+      const algoThunk = (
+        algorithms as Record<string, () => Promise<Algorithm<unknown, unknown>>>
+      )[algoId];
+      const rendererThunk = (
+        renderers as Record<string, () => Promise<new () => Renderer<unknown>>>
+      )[rendererId];
+      if (!algoThunk || !rendererThunk) {
+        renderUnavailable();
+        return;
+      }
+
+      let RendererCtor: new () => Renderer<unknown>;
+      try {
+        algo = await algoThunk();
+        RendererCtor = await rendererThunk();
+      } catch {
+        renderUnavailable();
+        return;
+      }
+
+      // Resolve initial input: authored `input` prop, else defaultInput().
+      let input: unknown;
+      if (rawInput) {
+        const parsed = algo.parseInput(rawInput);
+        if (isParseError(parsed)) {
+          // Authored input is a build/dev bug — surface it in place.
+          renderUnavailable();
+          return;
+        }
+        input = parsed;
+      } else {
+        input = algo.defaultInput();
+      }
+
+      const trace = algo.run(input);
+      const rendererInstance = new RendererCtor();
+      // Replace the static still, then mount the live renderer in its place.
+      canvas!.replaceChildren();
+      rendererInstance.mount(canvas!);
+
+      player = new Player<unknown>({
+        trace,
+        renderer: rendererInstance,
+        onStep,
+        onPlayStateChange,
+      });
+      player.reset();
+      syncTraceBounds();
+      wireControls();
+      root.setAttribute('data-viz-ready', 'true');
+    }
+
+    /** Wires every control to the player once it exists. */
+    function wireControls(): void {
+      playBtn?.addEventListener('click', () => player?.toggle());
+      backBtn?.addEventListener('click', () => player?.stepBackward());
+      fwdBtn?.addEventListener('click', () => player?.stepForward());
+      resetBtn?.addEventListener('click', () => player?.reset());
+      slider!.addEventListener('input', () =>
+        player?.seek(Number(slider!.value)),
+      );
+      speedSel?.addEventListener('change', () =>
+        player?.setSpeed(Number(speedSel.value)),
+      );
+
+      // Enable controls now that a player exists.
+      [playBtn, backBtn, fwdBtn, resetBtn, speedSel].forEach((el) => {
+        if (el) el.disabled = false;
+      });
+      // updateButtons (via the reset->onStep already fired) sets correct bounds.
+      updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);
+
+      // Custom-input flow (§5.4): recompute on valid, keep trace on invalid.
+      form?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!algo || !player) return;
+        const raw = `${arrayInput?.value ?? ''} target=${targetInput?.value ?? ''}`;
+        const parsed = algo.parseInput(raw);
+        if (isParseError(parsed)) {
+          showError(parsed.error);
+          return;
+        }
+        clearError();
+        player.loadTrace(algo.run(parsed));
+        syncTraceBounds();
+      });
+
+      // Convenience keys inside the viz (design §3.3): Space=toggle, ←/→=step.
+      // Never hijack the slider's own arrows or typing in a text field.
+      root.addEventListener('keydown', (event) => {
+        const target = event.target as HTMLElement;
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+        if (event.key === ' ' || event.key === 'Spacebar') {
+          if (tag === 'BUTTON') return; // let the button's native click fire
+          event.preventDefault();
+          player?.toggle();
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          player?.stepBackward();
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          player?.stepForward();
+        }
+      });
+    }
+
+    // Defer the heavy work until the viz scrolls near the viewport (manual client:visible).
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver(
+        (entries, obs) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              obs.disconnect();
+              void mount();
+            }
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      observer.observe(root);
+    } else {
+      void mount();
+    }
+  }
+
+  document
+    .querySelectorAll<HTMLElement>('[data-viz]')
+    .forEach((root) => setupViz(root));
+</script>

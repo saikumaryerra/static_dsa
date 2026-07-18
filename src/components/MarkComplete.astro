@@ -1,0 +1,135 @@
+---
+/**
+ * MarkComplete — localStorage "done" toggle island (design §6.9, site spec §9).
+ *
+ * Props:
+ * - `slug` the lesson slug; persistence key is `lesson:{slug}:complete = "1"`.
+ *
+ * Mirrors the ThemeToggle pattern: `try/catch` localStorage read/write and an
+ * `apply()` that keeps icon + label + `aria-pressed` in sync. Both icons ship in
+ * the static HTML; the script upgrades state on load. Hidden under `<noscript>`
+ * (can't persist without JS) — same rationale/kill-switch as ThemeToggle. The
+ * /learn index reads the same key (M4).
+ */
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+---
+
+<button
+  type="button"
+  class="btn-secondary mark-complete"
+  data-mark-complete
+  data-slug={slug}
+  aria-pressed="false"
+>
+  <svg
+    class="mark-complete__icon mark-complete__icon--incomplete"
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="9"></circle>
+  </svg>
+  <svg
+    class="mark-complete__icon mark-complete__icon--complete"
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="9"></circle>
+    <path d="M8 12l3 3 5-6"></path>
+  </svg>
+  <span class="mark-complete__label">Mark as complete</span>
+</button>
+
+<noscript>
+  <style>
+    .mark-complete {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  .mark-complete {
+    color: var(--text);
+  }
+
+  /* Default (incomplete): show the empty circle, hide the check. */
+  .mark-complete__icon--complete {
+    display: none;
+  }
+
+  .mark-complete[aria-pressed='true'] {
+    color: var(--brand);
+    background-color: color-mix(in srgb, var(--brand) 12%, transparent);
+    border-color: var(--brand);
+  }
+
+  .mark-complete[aria-pressed='true'] .mark-complete__icon--incomplete {
+    display: none;
+  }
+
+  .mark-complete[aria-pressed='true'] .mark-complete__icon--complete {
+    display: inline;
+  }
+</style>
+
+<script>
+  const button = document.querySelector<HTMLButtonElement>(
+    '[data-mark-complete]',
+  );
+  const slug = button?.dataset['slug'];
+  const KEY = slug ? `lesson:${slug}:complete` : null;
+
+  /** Reads persisted completion; storage can throw (blocked/private mode). */
+  function readDone(): boolean {
+    if (!KEY) return false;
+    try {
+      return localStorage.getItem(KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Syncs the button's pressed state + visible label to `done`. */
+  function apply(done: boolean): void {
+    if (!button) return;
+    button.setAttribute('aria-pressed', done ? 'true' : 'false');
+    const label = button.querySelector('.mark-complete__label');
+    if (label) {
+      label.textContent = done ? 'Completed' : 'Mark as complete';
+    }
+  }
+
+  button?.addEventListener('click', () => {
+    const next = !readDone();
+    if (KEY) {
+      try {
+        if (next) localStorage.setItem(KEY, '1');
+        else localStorage.removeItem(KEY);
+      } catch {
+        // Storage blocked: the toggle still updates this view, it just won't persist.
+      }
+    }
+    apply(next);
+  });
+
+  // Reflect any previously stored state on load.
+  apply(readDone());
+</script>

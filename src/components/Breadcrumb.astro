@@ -1,0 +1,62 @@
+---
+/**
+ * Breadcrumb — static context nav (design §6.1, site spec §9).
+ *
+ * Props:
+ * - `track` the lesson's track ("foundations" | "algorithms"); rendered as a
+ *   readable label.
+ * - `title` the current lesson title (last crumb; plain text, `aria-current`).
+ *
+ * Inline `Learn / Track / Lesson`, muted, wraps (never truncates) for long/i18n
+ * titles. The /learn and track index pages are built in M4 — the first crumb
+ * links to /learn (may 404 until then, acceptable per task scope).
+ */
+interface Props {
+  track: 'foundations' | 'algorithms';
+  title: string;
+}
+
+const { track, title } = Astro.props;
+const trackLabel = track === 'algorithms' ? 'Algorithms' : 'Foundations';
+---
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+  <ol>
+    <li><a href="/learn">Learn</a></li>
+    <li aria-hidden="true" class="sep">/</li>
+    <li>{trackLabel}</li>
+    <li aria-hidden="true" class="sep">/</li>
+    <li><span aria-current="page">{title}</span></li>
+  </ol>
+</nav>
+
+<style>
+  .breadcrumb ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .breadcrumb a {
+    color: var(--text-muted);
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .breadcrumb a:hover {
+    color: var(--text);
+  }
+
+  .breadcrumb [aria-current='page'] {
+    color: var(--text);
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>

@@ -1,0 +1,78 @@
+---
+/**
+ * Collapsible — styled native `<details>` (design §6.8, site spec §9).
+ *
+ * Props:
+ * - `summary` the always-visible clickable label.
+ * - `open`    optional; render expanded by default.
+ *
+ * Native `<details>` = keyboard operable and fully functional with JS off. The
+ * chevron rotates on `[open]`; the rotation is gated by `prefers-reduced-motion`
+ * via the global `--duration-*` collapse. Content goes in the default slot.
+ */
+interface Props {
+  summary: string;
+  open?: boolean;
+}
+
+const { summary, open = false } = Astro.props;
+---
+
+<details class="collapsible" open={open}>
+  <summary>
+    <svg
+      class="collapsible__chevron"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 6l6 6-6 6"></path>
+    </svg>
+    <span>{summary}</span>
+  </summary>
+  <div class="collapsible__content">
+    <slot />
+  </div>
+</details>
+
+<style>
+  .collapsible {
+    border-top: 1px solid var(--border);
+  }
+
+  .collapsible summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+    cursor: pointer;
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+    list-style: none;
+  }
+
+  /* Remove the default disclosure marker so the custom chevron is the only cue. */
+  .collapsible summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .collapsible__chevron {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: transform var(--duration-base) var(--ease-standard);
+  }
+
+  .collapsible[open] .collapsible__chevron {
+    transform: rotate(90deg);
+  }
+
+  .collapsible__content {
+    padding-block: var(--space-3);
+  }
+</style>

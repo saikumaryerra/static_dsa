@@ -208,6 +208,31 @@
     background-color: color-mix(in srgb, var(--brand) 80%, var(--text));
   }
 
+  /* SPEC-GAP (design §7): secondary/outline action button. Parallels the
+     existing `.btn-primary`; composes only existing tokens (no new design
+     value). Used by the Visualizer's "Run" and by MarkComplete. */
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    background-color: var(--bg);
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-normal);
+    cursor: pointer;
+    transition: border-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--brand);
+  }
+
   /* Whole-card link for the home track cards. */
   .track-card {
     display: block;

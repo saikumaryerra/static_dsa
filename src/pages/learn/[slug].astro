@@ -1,0 +1,71 @@
+---
+/**
+ * Lesson page — renders one published lesson from the collection (architecture §1.2).
+ *
+ * `getStaticPaths` builds a page per PUBLISHED lesson, routing off frontmatter
+ * `data.slug` (Content Layer entry `id` is the filename, not the slug). A
+ * build-time guard throws on duplicate slugs — Zod can't enforce cross-entry
+ * uniqueness (SPEC-GAP, architecture §1.1). Prev/next derive from `order` within
+ * the same track. Reading time is computed from the raw MDX body prose.
+ */
+import { getCollection, render } from 'astro:content';
+import type { CollectionEntry } from 'astro:content';
+import LessonLayout from '../../layouts/LessonLayout.astro';
+import { readingTimeMinutes } from '../../lib/reading-time';
+
+export async function getStaticPaths() {
+  const lessons = await getCollection('lessons', ({ data }) => data.published);
+
+  // SPEC-GAP (architecture §1.1): enforce slug uniqueness here — Zod validates
+  // per-entry and cannot see collisions across files.
+  const seen = new Set<string>();
+  for (const lesson of lessons) {
+    if (seen.has(lesson.data.slug)) {
+      throw new Error(
+        `Duplicate lesson slug "${lesson.data.slug}" — slugs must be unique (see ${lesson.id}).`,
+      );
+    }
+    seen.add(lesson.data.slug);
+  }
+
+  return lessons.map((entry) => ({
+    params: { slug: entry.data.slug },
+    props: { entry, lessons },
+  }));
+}
+
+interface Props {
+  entry: CollectionEntry<'lessons'>;
+  lessons: CollectionEntry<'lessons'>[];
+}
+
+const { entry, lessons } = Astro.props;
+const { Content, headings } = await render(entry);
+
+// Prev/next: neighbours by `order` within the same track.
+const siblings = lessons
+  .filter((l) => l.data.track === entry.data.track)
+  .sort((a, b) => a.data.order - b.data.order);
+const position = siblings.findIndex((l) => l.data.slug === entry.data.slug);
+const toAdjacent = (l: CollectionEntry<'lessons'> | undefined) =>
+  l ? { slug: l.data.slug, title: l.data.title } : null;
+const prev = toAdjacent(siblings[position - 1]);
+const next = toAdjacent(siblings[position + 1]);
+
+const readingMinutes = readingTimeMinutes(entry.body ?? '');
+---
+
+<LessonLayout
+  title={entry.data.title}
+  summary={entry.data.summary}
+  difficulty={entry.data.difficulty}
+  track={entry.data.track}
+  estimatedMinutes={entry.data.estimatedMinutes}
+  readingMinutes={readingMinutes}
+  slug={entry.data.slug}
+  headings={headings}
+  prev={prev}
+  next={next}
+>
+  <Content />
+</LessonLayout>

@@ -1,0 +1,154 @@
+---
+/**
+ * TableOfContents — in-lesson section nav from rendered headings (design §1.3, §9).
+ *
+ * Props:
+ * - `headings` Astro's `MarkdownHeading[]` (`{ depth, slug, text }`); only h2
+ *   (depth 2) is shown — the 7 lesson sections.
+ * - `variant`  "inline" (mobile/tablet `<details>`) or "rail" (≥1024 sticky nav).
+ *
+ * Links are plain in-page anchors — fully functional with JS off. Active-section
+ * highlighting is a progressive enhancement wired by LessonLayout's script
+ * (`data-toc-link`); the list is fully usable without it.
+ */
+import type { MarkdownHeading } from 'astro';
+
+interface Props {
+  headings: MarkdownHeading[];
+  variant: 'inline' | 'rail';
+}
+
+const { headings, variant } = Astro.props;
+const items = headings.filter((h) => h.depth === 2);
+---
+
+{
+  variant === 'inline' ? (
+    <details class="toc toc--inline">
+      <summary>
+        <svg
+          class="toc__chevron"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+        <span>On this page</span>
+      </summary>
+      <nav aria-label="On this page">
+        <ol>
+          {items.map((h) => (
+            <li>
+              <a href={`#${h.slug}`} data-toc-link={`#${h.slug}`}>
+                {h.text}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </nav>
+    </details>
+  ) : (
+    <nav class="toc toc--rail" aria-label="On this page">
+      <p class="toc__label">On this page</p>
+      <ol>
+        {items.map((h) => (
+          <li>
+            <a href={`#${h.slug}`} data-toc-link={`#${h.slug}`}>
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  )
+}
+
+<style>
+  .toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--text-sm);
+  }
+
+  .toc a {
+    display: block;
+    padding-block: var(--space-1-5);
+    padding-left: var(--space-3);
+    border-left: 2px solid transparent;
+    color: var(--text-muted);
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .toc a:hover {
+    color: var(--text);
+  }
+
+  .toc a[aria-current='location'] {
+    color: var(--text);
+    border-left-color: var(--brand);
+  }
+
+  /* ---- Inline (mobile/tablet) form ---- */
+  .toc--inline {
+    display: block;
+  }
+
+  .toc--inline summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
+    cursor: pointer;
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+    list-style: none;
+  }
+
+  .toc--inline summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .toc__chevron {
+    color: var(--text-muted);
+    transition: transform var(--duration-base) var(--ease-standard);
+  }
+
+  .toc--inline[open] .toc__chevron {
+    transform: rotate(90deg);
+  }
+
+  /* ---- Rail (desktop) form ---- */
+  .toc--rail {
+    display: none;
+    position: sticky;
+    top: 5.5rem;
+    max-height: calc(100svh - 7rem);
+    overflow-y: auto;
+  }
+
+  .toc__label {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+  }
+
+  @media (min-width: 1024px) {
+    .toc--inline {
+      display: none;
+    }
+
+    .toc--rail {
+      display: block;
+    }
+  }
+</style>
