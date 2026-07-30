@@ -1,0 +1,188 @@
+---
+title: 'Complexity & Big-O'
+slug: 'complexity-big-o'
+track: 'foundations'
+order: 1
+summary: "Measure how an algorithm's work grows with input size, and compare O(1), O(log n), O(n), O(n log n), and O(n²)."
+difficulty: 'beginner'
+prerequisites: []
+estimatedMinutes: 9
+complexity:
+  time: { best: 'O(1)', average: 'O(n)', worst: 'O(n²)' }
+  space: { worst: 'O(1)' }
+tags: ['complexity', 'big-o', 'fundamentals']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `# O(1) constant: one step, regardless of size
+def first_element(arr):
+    return arr[0]
+# O(n) linear: work grows in step with the input
+def sum_all(arr):
+    total = 0
+    for x in arr:          # n iterations
+        total += x
+    return total
+# O(n^2) quadratic: a loop inside a loop
+def count_pairs(arr):
+    count = 0
+    for i in arr:          # n iterations ...
+        for j in arr:      # ... times n iterations
+            count += 1
+    return count`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `// O(1) constant: one step, regardless of size
+function firstElement(arr) {
+  return arr[0];
+}
+// O(n) linear: work grows in step with the input
+function sumAll(arr) {
+  let total = 0;
+  for (const x of arr) {       // n iterations
+    total += x;
+  }
+  return total;
+}
+// O(n^2) quadratic: a loop inside a loop
+function countPairs(arr) {
+  let count = 0;
+  for (const i of arr) {       // n iterations ...
+    for (const j of arr) {     // ... times n iterations
+      count += 1;
+    }
+  }
+  return count;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `// O(1) constant: one step, regardless of size
+static int firstElement(int[] arr) {
+    return arr[0];
+}
+// O(n) linear: work grows in step with the input
+static int sumAll(int[] arr) {
+    int total = 0;
+    for (int x : arr) {          // n iterations
+        total += x;
+    }
+    return total;
+}
+// O(n^2) quadratic: a loop inside a loop
+static int countPairs(int[] arr) {
+    int count = 0;
+    for (int i : arr) {          // n iterations ...
+        for (int j : arr) {      // ... times n iterations
+            count += 1;
+        }
+    }
+    return count;
+}`,
+  },
+];
+
+## Intuition
+
+Imagine two ways to find a friend's phone number. The first: you already have it saved, so you open the contact and read it — one action, done. The second: someone hands you a shuffled stack of a thousand business cards and you flip through until you find the right one. The saved contact takes the same effort whether you have ten contacts or ten million. The stack of cards gets worse as the stack grows.
+
+**Big-O notation** is a way to describe that difference precisely. Instead of timing code with a stopwatch — which depends on your laptop, the weather, and what else is running — Big-O asks a cleaner question: _as the input gets bigger, how fast does the amount of work grow?_ We call the input size **n**.
+
+The trick is that Big-O ignores constant factors and small details and keeps only the term that dominates as n grows large. A function that does `3n + 50` steps is just **O(n)** — because when n is huge, the `+ 50` and the `× 3` stop mattering compared to how the `n` itself scales.
+
+## How it works
+
+To find an algorithm's Big-O, count the steps in terms of n and keep the fastest-growing term:
+
+1. **No loop over the input** → the work does not grow with n. That is **O(1)**, "constant time."
+2. **One loop over the input** → about n steps. That is **O(n)**, "linear time."
+3. **A loop inside a loop**, each over the input → about n × n steps. That is **O(n²)**, "quadratic time."
+4. **Halving the problem each step** (like binary search) → about log₂(n) steps. That is **O(log n)**, "logarithmic time" — remarkably slow-growing.
+5. **Splitting and recombining** (like merge sort) → **O(n log n)**, which sits between linear and quadratic.
+
+The numbers matter. At n = 1,000, an O(log n) algorithm does about 10 steps, O(n) does 1,000, and O(n²) does 1,000,000. The visualization below plots all five curves at once so you can watch them separate. Step the input size **n** upward and see how far O(n²) pulls away from the rest.
+
+## Visualizer
+
+<Visualizer algorithm="growth-rates" renderer="chart" input="16" />
+
+Each curve is told apart by its **line style and end label**, not by color. Press **Play** to sweep the guide line from small n to large n, or **Step forward** one size at a time. Enter a larger maximum n in the box to watch the gaps grow even wider.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+This lesson compares functions rather than analyzing one algorithm, so the table summarizes the three code snippets below: the direct lookup is **O(1)** (best), the single loop is **O(n)** (average), and the nested loop is **O(n²)** (worst). None of them allocate extra space that grows with n, so each uses **O(1)** auxiliary space.
+
+## Code
+
+Three growth rates, side by side, in three languages. Count the loops: zero loops means constant, one loop means linear, a loop inside a loop means quadratic.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Big-O describes **growth**, not speed on a specific input. An O(n²) algorithm
+  can beat an O(n) one when n is tiny — the constants and overhead win at small
+  sizes. Big-O tells you who wins **as n gets large**.
+</Callout>
+
+<Collapsible summary="Dropping constants is intentional, not sloppy">
+  `O(2n)` and `O(n)` are the same class, and `O(n + 100)` is just `O(n)`. Big-O
+  deliberately hides constant factors so it can compare the _shape_ of growth. A
+  genuinely faster constant still matters in practice — it just is not what
+  Big-O measures.
+</Collapsible>
+
+<Collapsible summary="Best, average, and worst case can differ">
+  Many algorithms have different complexities depending on the input. Linear
+  search is O(1) if the target is first, but O(n) if it is last or missing. When
+  people quote "the complexity" they usually mean the **worst case** unless they
+  say otherwise.
+</Collapsible>
+
+<Collapsible summary="Nested loops are not always O(n²)">
+  A loop inside a loop is only O(n²) when _both_ loops scale with n. If the
+  inner loop runs a fixed number of times (say, always 5), the total is still
+  O(n). Read what each loop actually iterates over before assuming.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. What is the Big-O of a function that prints every item in a list exactly once?**
+
+<Collapsible summary="Show answer">
+  O(n). There is a single loop over the n items, so the work grows in direct
+  proportion to the list size.
+</Collapsible>
+
+**2. Algorithm A is O(n) and algorithm B is O(n²). For which input sizes might B actually run faster?**
+
+<Collapsible summary="Show answer">
+  For small n. Big-O ignores constant factors, so if B has much lower overhead
+  it can win while n is small. As n grows, A inevitably overtakes B — that
+  crossover is exactly what Big-O predicts.
+</Collapsible>
+
+**3. You double the input size and an algorithm's running time roughly quadruples. What is its likely complexity?**
+
+<Collapsible summary="Show answer">
+  O(n²). Doubling n multiplies n² by four (since (2n)² = 4n²). A linear
+  algorithm would only double, and a logarithmic one would barely change.
+</Collapsible>

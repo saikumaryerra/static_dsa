@@ -1,0 +1,192 @@
+---
+title: 'Hash Tables'
+slug: 'hash-tables'
+track: 'foundations'
+order: 6
+summary: 'Store keys by hashing them to buckets for near-instant lookup; handle collisions by chaining keys that land in the same bucket.'
+difficulty: 'beginner'
+prerequisites: ['arrays', 'linked-lists']
+estimatedMinutes: 10
+complexity:
+  time: { best: 'O(1)', average: 'O(1)', worst: 'O(n)' }
+  space: { worst: 'O(n)' }
+tags: ['hash-tables', 'hashing', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class HashTable:
+    def __init__(self, capacity=5):
+        self.capacity = capacity
+        self.buckets = [[] for _ in range(capacity)]
+    def _hash(self, key):
+        return key % self.capacity        # map key to a bucket index
+    def insert(self, key):
+        b = self.buckets[self._hash(key)]
+        if key not in b:                  # skip duplicates
+            b.append(key)                 # chain onto the bucket
+    def search(self, key):
+        b = self.buckets[self._hash(key)]
+        for k in b:                       # walk the chain
+            if k == key:
+                return True
+        return False`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class HashTable {
+  constructor(capacity = 5) {
+    this.capacity = capacity;
+    this.buckets = Array.from({ length: capacity }, () => []);
+  }
+  hash(key) {
+    return key % this.capacity;           // map key to a bucket index
+  }
+  insert(key) {
+    const b = this.buckets[this.hash(key)];
+    if (!b.includes(key)) {               // skip duplicates
+      b.push(key);                        // chain onto the bucket
+    }
+  }
+  search(key) {
+    const b = this.buckets[this.hash(key)];
+    return b.includes(key);               // walk the chain
+  }
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.*;
+class HashTable {
+    private final int capacity;
+    private final List<List<Integer>> buckets;
+    HashTable(int capacity) {
+        this.capacity = capacity;
+        this.buckets = new ArrayList<>();
+        for (int i = 0; i < capacity; i++) buckets.add(new ArrayList<>());
+    }
+    private int hash(int key) {
+        return key % capacity;            // map key to a bucket index
+    }
+    void insert(int key) {
+        List<Integer> b = buckets.get(hash(key));
+        if (!b.contains(key)) b.add(key); // chain onto the bucket
+    }
+    boolean search(int key) {
+        return buckets.get(hash(key)).contains(key); // walk the chain
+    }
+}`,
+  },
+];
+
+## Intuition
+
+Imagine a coat-check counter with a row of numbered hooks. When you hand over a coat, the attendant does not search for an empty hook — a quick rule turns your ticket number straight into a hook number, and the coat goes there. Later, the same rule points right back at the hook. No scanning, no guessing: compute the spot, go to the spot.
+
+A **hash table** works exactly like that for data. You have an array of slots called **buckets**. A **hash function** takes a key and turns it into a bucket index — for whole-number keys, a simple one is `key % number_of_buckets`. To store a key you hash it and drop it in that bucket; to find it you hash it again and look only in that one bucket. Because you jump straight to the right bucket instead of scanning everything, lookups are on average **O(1)** — constant time, no matter how many keys you have stored.
+
+There is one wrinkle. Two different keys can hash to the **same** bucket — that is a **collision**. Hash tables are defined by how they handle them, and the simplest way is the one this lesson shows.
+
+## How it works
+
+We handle collisions with **separate chaining**: each bucket holds a little list (a chain) of all the keys that hashed to it. The visualization draws the buckets as a vertical column of numbered slots; each bucket's chain grows to the right using the same node-and-arrow picture you saw for linked lists.
+
+1. **Hash** — compute `bucket = key % capacity`. The `▶` caret marks the bucket being probed.
+2. **Insert** — append the key to that bucket's chain. If the bucket was empty, the chain has one entry and there was no collision. If it already held a key, the new one is **chained** onto the end — a collision made visible, with a `+` marking the added entry.
+3. **Search** — hash the target to a bucket, then **walk the chain**, comparing the target against each stored key until you find a match (`✓`) or reach the end.
+
+The fewer keys share a bucket, the shorter the chains and the faster the lookups. The ratio of keys to buckets — the **load factor** — is the dial that controls this, and the visualization prints it after the inserts.
+
+## Visualizer
+
+<Visualizer
+  algorithm="hash-table-operations"
+  renderer="hashTable"
+  input="[11,24,6,15,20] cap=5 target=6"
+  inputLabel="Keys"
+  inputPlaceholder="[5,20,9,14] cap=5"
+  targetLabel="Search key"
+  targetPlaceholder="6"
+/>
+
+Press **Play**, or **Step forward** to move one hash, insert, or comparison at a time. Watch keys `11` and `6` collide in bucket 1 — and `15` and `20` collide in bucket 0 — forming chains, then see the search for `6` probe bucket 1 and walk the chain to the match. Try your own keys, bucket count (`cap=`), and search target.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+With a good hash function and enough buckets, keys spread out, chains stay short, and insert and search are on **average O(1)** — you compute the bucket and touch only a handful of entries. The **worst case is O(n)**: if every key collides into one bucket, that bucket becomes a linear list and you are back to scanning all `n` keys. The table stores every key, so space is **O(n)**. Keeping the load factor low (real hash tables grow and rehash once it passes roughly `0.75`) is what keeps you in the fast average case.
+
+## Code
+
+A separate-chaining hash table with the same three operations you stepped through: hash, insert with chaining, and search by walking a chain.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  A hash table's speed lives and dies by its hash function. A function that
+  sends many keys to the same bucket produces long chains and O(n) lookups. Real
+  implementations use far better hashing than `key % capacity` and resize the
+  bucket array as it fills.
+</Callout>
+
+<Collapsible summary="A hash table has no inherent order">
+  Because keys are scattered across buckets by their hash, iterating a hash
+  table does not visit keys in sorted order — or any predictable order. If you
+  need order, use a balanced tree (or sort the keys on the way out).
+</Collapsible>
+
+<Collapsible summary="The load factor is the dial that matters">
+  Load factor is `keys / buckets`. Low load factor means short chains and fast
+  lookups but wasted empty buckets; high load factor saves space but lengthens
+  chains. Growing the array and rehashing when the load factor crosses a
+  threshold keeps the average O(1).
+</Collapsible>
+
+<Collapsible summary="Keys must be hashable and comparable">
+  Hashing needs a stable rule for turning a key into an index, and searching a
+  chain needs a way to test two keys for equality. If a key's hash can change
+  after it is stored (a mutable key), you may never find it again — its bucket
+  moved out from under it.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. With capacity 5, which bucket does key `17` hash to, and which existing key would it collide with in the visualizer's table?**
+
+<Collapsible summary="Show answer">
+  `17 % 5 = 2`, so it lands in bucket 2. In the default table bucket 2 is empty,
+  so there is no collision — `17` would sit alone in bucket 2.
+</Collapsible>
+
+**2. Why is a hash-table lookup O(1) on average but O(n) in the worst case?**
+
+<Collapsible summary="Show answer">
+  On average, keys spread across buckets, so each bucket's chain is short and
+  you compare against only a few keys — constant work. In the worst case every
+  key hashes to the same bucket, forming one chain of length `n`, and searching
+  it is a linear scan of all `n` keys.
+</Collapsible>
+
+**3. You insert 8 keys into a table with 4 buckets. What is the load factor, and what does that tell you?**
+
+<Collapsible summary="Show answer">
+  Load factor is `8 / 4 = 2.0` — on average two keys per bucket. That is high:
+  chains are lengthening and lookups are slowing. A real hash table would have
+  grown its bucket array and rehashed before reaching this point.
+</Collapsible>

@@ -14,7 +14,7 @@
  */
 import type { Algorithm, Trace } from '../core/types';
 import { snapshot } from '../core/snapshot';
-import { cellId, curveId, edgeId, nodeId } from '../core/ids';
+import { cellId, curveId, edgeId, entryId, nodeId, slotId } from '../core/ids';
 
 /** Builds a tiny fixture `Algorithm` from a fixed, pre-authored trace. */
 function fixture<TState>(
@@ -295,4 +295,51 @@ export const demoGraph = fixture(
     nodes: { id: number; label?: string; pos?: { x: number; y: number } }[];
     edges: { from: number; to: number; weight?: number; directed?: boolean }[];
   }>,
+);
+
+// --- hashTable (separate chaining) ---
+// capacity 4; bucket 1 already holds a collision chain [5, 9] so the demo can
+// exercise a bucket probe (active), a chain compare (tie-line), a found ✓, a
+// pointer caret, and an insert into a fresh bucket. `key % 4` is the hash.
+type HashState = { buckets: { key: number; value?: number }[][]; capacity: 4 };
+const bucketsBase: HashState['buckets'] = [
+  [], // bucket 0
+  [{ key: 5 }, { key: 9 }], // bucket 1 — collision (5 % 4 = 9 % 4 = 1)
+  [{ key: 6 }], // bucket 2
+  [], // bucket 3
+];
+export const demoHashTable = fixture<HashState>(
+  'demo-hashtable',
+  'Hash table: hashing, collisions, and chaining',
+  [
+    {
+      state: { buckets: bucketsBase, capacity: 4 },
+      explanation:
+        'Searching for key 9. Hash 9 % 4 = 1, so probe bucket 1 (a collision chain).',
+      highlights: [{ kind: 'active', ids: [slotId(1)], meta: { label: 'h' } }],
+    },
+    {
+      state: { buckets: bucketsBase, capacity: 4 },
+      explanation:
+        "Walking bucket 1's chain: comparing the stored keys 5 and 9 against the target.",
+      highlights: [
+        { kind: 'compare', ids: [entryId(1, 0), entryId(1, 1)] },
+        { kind: 'pointer', ids: [entryId(1, 0)], meta: { label: 'curr' } },
+      ],
+    },
+    {
+      state: { buckets: bucketsBase, capacity: 4 },
+      explanation: 'Key 9 matches the second entry in bucket 1. Found 9.',
+      highlights: [{ kind: 'found', ids: [entryId(1, 1)] }],
+    },
+    {
+      state: {
+        buckets: [[], bucketsBase[1]!, bucketsBase[2]!, [{ key: 7 }]],
+        capacity: 4,
+      },
+      explanation:
+        'Inserting key 7. Hash 7 % 4 = 3, and bucket 3 is empty — no collision.',
+      highlights: [{ kind: 'insert', ids: [entryId(3, 0)] }],
+    },
+  ] as Trace<HashState>,
 );

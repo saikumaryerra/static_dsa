@@ -1,0 +1,199 @@
+---
+title: 'Graphs'
+slug: 'graphs'
+track: 'foundations'
+order: 9
+summary: 'Vertices joined by edges model networks; store them as an adjacency list or matrix, and choose which by trading space against edge-lookup speed.'
+difficulty: 'beginner'
+prerequisites: ['linked-lists']
+estimatedMinutes: 11
+complexity:
+  time: { best: 'O(1)', average: 'O(V)', worst: 'O(V)' }
+  space: { worst: 'O(V + E)' }
+tags: ['graphs', 'adjacency-list', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class Graph:
+    def __init__(self):
+        self.adj = {}                     # vertex -> list of (neighbor, weight)
+    def add_vertex(self, v):
+        self.adj.setdefault(v, [])
+    def add_edge(self, u, v, weight=1, directed=True):
+        self.add_vertex(u)
+        self.add_vertex(v)
+        self.adj[u].append((v, weight))   # edge u -> v
+        if not directed:
+            self.adj[v].append((u, weight))  # both ways when undirected
+    def has_edge(self, u, v):
+        return any(n == v for n, _ in self.adj.get(u, []))  # scan u's list`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class Graph {
+  constructor() {
+    this.adj = new Map();                 // vertex -> array of [neighbor, weight]
+  }
+  addVertex(v) {
+    if (!this.adj.has(v)) this.adj.set(v, []);
+  }
+  addEdge(u, v, weight = 1, directed = true) {
+    this.addVertex(u);
+    this.addVertex(v);
+    this.adj.get(u).push([v, weight]);    // edge u -> v
+    if (!directed) this.adj.get(v).push([u, weight]); // both ways if undirected
+  }
+  hasEdge(u, v) {
+    return (this.adj.get(u) || []).some(([n]) => n === v); // scan u's list
+  }
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.*;
+class Graph {
+    private final Map<Integer, List<int[]>> adj = new HashMap<>();
+    void addVertex(int v) {
+        adj.putIfAbsent(v, new ArrayList<>());
+    }
+    void addEdge(int u, int v, int weight, boolean directed) {
+        addVertex(u);
+        addVertex(v);
+        adj.get(u).add(new int[] {v, weight});        // edge u -> v
+        if (!directed) adj.get(v).add(new int[] {u, weight}); // both ways
+    }
+    boolean hasEdge(int u, int v) {
+        for (int[] e : adj.getOrDefault(u, List.of())) {
+            if (e[0] == v) return true;               // scan u's list
+        }
+        return false;
+    }
+}`,
+  },
+];
+
+## Intuition
+
+Almost anything made of things and connections is a **graph**: cities joined by roads, people joined by friendships, web pages joined by links. The things are **vertices** (also called nodes); the connections are **edges**. That is the entire vocabulary, and it is astonishingly general — trees and linked lists are just special, restricted kinds of graphs.
+
+Edges come in flavors. An edge can be **undirected** — a two-way street, friendship, "either can reach the other" — or **directed**, a one-way arrow from one vertex to another (a follows b, but not the reverse). An edge can also carry a **weight**: a number like a distance, a cost, or a capacity. A road network is a weighted graph; who-follows-whom on social media is a directed graph.
+
+The interesting question is not what a graph _is_ but how you **store** one so a program can work with it. Two representations dominate, and picking between them is a classic space-versus-speed trade-off.
+
+## How it works
+
+The visualization builds a small **directed, weighted** graph one piece at a time: first each vertex appears, then each edge is drawn with an arrowhead (its direction) and a weight label. Watch it assemble, then compare the two ways a program could store the very same graph.
+
+**Adjacency list.** Each vertex keeps a list of its neighbors (and edge weights). It stores only edges that actually exist, so it is compact for **sparse** graphs — the common case, where most possible connections are absent. For the graph in the visualizer:
+
+| Vertex | Neighbors (weight) |
+| ------ | ------------------ |
+| 0      | 1 (4), 2 (1)       |
+| 1      | 3 (5)              |
+| 2      | 1 (2), 3 (8)       |
+| 3      | —                  |
+
+**Adjacency matrix.** A `V × V` grid where cell `[u][v]` records the edge from `u` to `v` (its weight, or blank for none). Checking whether an edge exists is a single **O(1)** lookup, but the grid always uses `V²` space even when almost every cell is empty. The same graph as a matrix (rows are `from`, columns are `to`):
+
+| from \ to | 0   | 1   | 2   | 3   |
+| --------- | --- | --- | --- | --- |
+| **0**     | ·   | 4   | 1   | ·   |
+| **1**     | ·   | ·   | ·   | 5   |
+| **2**     | ·   | 2   | ·   | 8   |
+| **3**     | ·   | ·   | ·   | ·   |
+
+Notice the matrix is not symmetric — because the graph is directed. For an **undirected** graph you would store each edge in both directions, and the matrix would mirror across its diagonal.
+
+## Visualizer
+
+<Visualizer
+  algorithm="graph-representations"
+  renderer="graph"
+  input="0>1:4, 0>2:1, 2>1:2, 1>3:5, 2>3:8"
+/>
+
+Press **Play**, or **Step forward** to add the vertices, then each edge in turn — the arrowheads show direction, the pills show weights. Type your own edge list: `A-B` for an undirected edge, `A>B` for a directed one, and add `:weight` for a weight, e.g. `0-1:5, 1-2, 2>0`.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+The table above describes an adjacency **list**. Answering "is there an edge from `u` to `v`?" means scanning `u`'s neighbor list: **O(1)** if it is the first neighbor, up to **O(V)** if `u` connects to nearly every other vertex. Space is **O(V + E)** — one entry per vertex plus one per edge — which is small for sparse graphs. An adjacency **matrix** flips the trade: edge lookup is always **O(1)**, but space is **O(V²)** regardless of how few edges exist. Choose the list when the graph is sparse (usually), the matrix when it is dense or you need constant-time edge checks.
+
+## Code
+
+An adjacency-list graph that adds vertices and edges (directed or undirected, weighted or not) and checks whether an edge exists — the same structure the visualizer builds.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  For an undirected edge you must store it in *both* directions in an adjacency
+  list — add `v` to `u`'s neighbors and `u` to `v`'s. Forgetting the second half
+  turns your "undirected" graph into a directed one by accident, and traversals
+  will silently miss half their moves.
+</Callout>
+
+<Collapsible summary="Directed is not the same as undirected">
+  In a directed graph, an edge `u → v` says nothing about `v → u`; they are
+  separate edges that may or may not both exist. Treating a directed graph as
+  undirected (or vice versa) is one of the most common graph bugs — it changes
+  which vertices are reachable from where.
+</Collapsible>
+
+<Collapsible summary="List versus matrix: pick for your graph's density">
+  A graph with `V` vertices can have up to about `V²` edges. If it has far fewer
+  (sparse), an adjacency list saves enormous space. If it is close to fully
+  connected (dense), or you constantly ask "does this exact edge exist?", the
+  matrix's O(1) lookup and simple `V × V` storage can win.
+</Collapsible>
+
+<Collapsible summary="Weights are optional, and default to 1">
+  An unweighted graph is just a weighted graph where every edge has weight 1 (or
+  no weight at all). Many algorithms — shortest path, minimum spanning tree —
+  only make sense once edges carry weights, so it is worth storing them from the
+  start even if you do not use them yet.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A social network has 1,000,000 users, and each follows about 200 others. Adjacency list or matrix — and why?**
+
+<Collapsible summary="Show answer">
+  Adjacency list. The graph is extremely sparse: 1,000,000 × 200 = 200 million
+  edges, but a matrix would need 1,000,000² = a trillion cells, almost all
+  empty. The list stores only the edges that exist, using O(V + E) space instead
+  of O(V²).
+</Collapsible>
+
+**2. In the visualizer's graph, is there an edge from vertex 1 to vertex 2? From vertex 2 to vertex 1?**
+
+<Collapsible summary="Show answer">
+  From 1 to 2: no — vertex 1's only out-edge is to 3. From 2 to 1: yes, with
+  weight 2. Because the graph is directed, the two directions are independent,
+  and here only one of them exists.
+</Collapsible>
+
+**3. Why does an undirected graph's adjacency matrix always mirror across its diagonal?**
+
+<Collapsible summary="Show answer">
+  An undirected edge between `u` and `v` means you can go both ways, so both
+  cell `[u][v]` and cell `[v][u]` hold the edge. That symmetry across the main
+  diagonal is the visual signature of an undirected graph — a directed graph's
+  matrix has no such guarantee.
+</Collapsible>

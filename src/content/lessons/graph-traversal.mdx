@@ -1,0 +1,288 @@
+---
+title: 'Graph Traversal: BFS & DFS'
+slug: 'graph-traversal'
+track: 'algorithms'
+order: 14
+summary: 'Two ways to visit every node of a graph — breadth-first search with a queue, and depth-first search with a stack — and how the choice of frontier changes the order.'
+difficulty: 'intermediate'
+prerequisites: ['graphs', 'queues', 'stacks']
+estimatedMinutes: 13
+complexity:
+  time: { best: 'O(V + E)', average: 'O(V + E)', worst: 'O(V + E)' }
+  space: { worst: 'O(V)' }
+tags: ['graphs', 'traversal', 'bfs', 'dfs']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const bfsTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `from collections import deque
+def bfs(graph, start):
+    visited = {start}
+    queue = deque([start])
+    order = []
+    while queue:
+        node = queue.popleft()       # dequeue the front (FIFO)
+        order.append(node)
+        for nb in graph[node]:
+            if nb not in visited:
+                visited.add(nb)
+                queue.append(nb)     # enqueue undiscovered neighbors
+    return order`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function bfs(graph, start) {
+  const visited = new Set([start]);
+  const queue = [start];
+  const order = [];
+  while (queue.length > 0) {
+    const node = queue.shift();      // dequeue the front (FIFO)
+    order.push(node);
+    for (const nb of graph[node]) {
+      if (!visited.has(nb)) {
+        visited.add(nb);
+        queue.push(nb);              // enqueue undiscovered neighbors
+      }
+    }
+  }
+  return order;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.*;
+static List<Integer> bfs(Map<Integer, List<Integer>> graph, int start) {
+    Set<Integer> visited = new HashSet<>(List.of(start));
+    Queue<Integer> queue = new ArrayDeque<>(List.of(start));
+    List<Integer> order = new ArrayList<>();
+    while (!queue.isEmpty()) {
+        int node = queue.poll();         // dequeue the front (FIFO)
+        order.add(node);
+        for (int nb : graph.get(node)) {
+            if (!visited.contains(nb)) {
+                visited.add(nb);
+                queue.add(nb);           // enqueue undiscovered neighbors
+            }
+        }
+    }
+    return order;
+}`,
+  },
+];
+
+export const dfsTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def dfs(graph, start):
+    visited = set()
+    stack = [start]
+    order = []
+    while stack:
+        node = stack.pop()           # pop the top (LIFO)
+        if node in visited:
+            continue
+        visited.add(node)
+        order.append(node)
+        for nb in reversed(graph[node]):
+            if nb not in visited:
+                stack.append(nb)     # push undiscovered neighbors
+    return order`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function dfs(graph, start) {
+  const visited = new Set();
+  const stack = [start];
+  const order = [];
+  while (stack.length > 0) {
+    const node = stack.pop();        // pop the top (LIFO)
+    if (visited.has(node)) continue;
+    visited.add(node);
+    order.push(node);
+    for (const nb of [...graph[node]].reverse()) {
+      if (!visited.has(nb)) stack.push(nb);
+    }
+  }
+  return order;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.*;
+static List<Integer> dfs(Map<Integer, List<Integer>> graph, int start) {
+    Set<Integer> visited = new HashSet<>();
+    Deque<Integer> stack = new ArrayDeque<>(List.of(start));
+    List<Integer> order = new ArrayList<>();
+    while (!stack.isEmpty()) {
+        int node = stack.pop();          // pop the top (LIFO)
+        if (visited.contains(node)) continue;
+        visited.add(node);
+        order.add(node);
+        List<Integer> nbrs = graph.get(node);
+        for (int k = nbrs.size() - 1; k >= 0; k--) {
+            if (!visited.contains(nbrs.get(k))) stack.push(nbrs.get(k));
+        }
+    }
+    return order;
+}`,
+  },
+];
+
+## Intuition
+
+A graph is a web of nodes joined by edges — cities linked by roads, people linked by friendships, web pages linked by hyperlinks. A **traversal** answers a basic question: starting from one node, how do I visit every node I can reach, without going in circles?
+
+The trick is to keep a **frontier**: the set of nodes we have discovered but not yet explored. We repeatedly take a node from the frontier, mark it **visited**, and add its undiscovered neighbors to the frontier. The whole difference between the two classic traversals is _which_ frontier node we take next — and that choice is decided by the data structure we store the frontier in.
+
+- **Breadth-first search (BFS)** stores the frontier in a **queue** (first in, first out). It fans out in rings: all the start's neighbors first, then all of _their_ neighbors, and so on — nearest nodes before farther ones.
+- **Depth-first search (DFS)** stores the frontier in a **stack** (last in, first out). It plunges down one path as far as it can, then backtracks to the last fork and tries another branch.
+
+Same graph, same neighbors — only the frontier's discipline changes, and with it the order of discovery.
+
+## How it works
+
+Both traversals follow the same loop:
+
+1. Put the start node in the frontier.
+2. While the frontier is not empty, **remove** one node and, if it is new, mark it **visited**.
+3. Add each of that node's **undiscovered** neighbors to the frontier.
+4. A **visited set** guards against revisiting a node (and against looping forever on cycles).
+
+The only difference is step 2's "remove": BFS removes from the **front** of a queue, DFS removes from the **top** of a stack.
+
+Take this graph with edges `0-1, 0-2, 1-3, 2-3, 3-4, 4-5`, starting at node `0`. Following neighbors in ascending order, the frontier evolves like this:
+
+**BFS (queue, FIFO)** — dequeue front, enqueue neighbors at the back:
+
+- start: queue `[0]`
+- visit `0` → enqueue 1, 2 → queue `[1, 2]`
+- visit `1` → enqueue 3 → queue `[2, 3]`
+- visit `2` → (3 already queued) → queue `[3]`
+- visit `3` → enqueue 4 → queue `[4]` … and so on
+- **visit order: 0, 1, 2, 3, 4, 5** — nearest-first.
+
+**DFS (stack, LIFO)** — pop top, push neighbors on top:
+
+- start: stack `[0]`
+- visit `0` → push 2, 1 → stack `[2, 1]`
+- visit `1` (top) → push 3 → stack `[2, 3]`
+- visit `3` → push 4 (and 2) → dives deeper before returning to 2
+- **visit order: 0, 1, 3, 2, 4, 5** — deep-first, then backtrack.
+
+Step through both below. **Violet ✓** marks visited nodes, the **dashed ring** marks the frontier (the queue or stack), and the lifted blue node is the one being processed. Each step's caption shows the frontier's exact contents.
+
+### Breadth-first search
+
+<Visualizer
+  algorithm="bfs"
+  renderer="graph"
+  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
+  inputLabel="Edges"
+  inputPlaceholder="0-1,0-2,1-3"
+  targetLabel="Start node"
+  targetPlaceholder="0"
+/>
+
+### Depth-first search
+
+<Visualizer
+  algorithm="dfs"
+  renderer="graph"
+  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
+  inputLabel="Edges"
+  inputPlaceholder="0-1,0-2,1-3"
+  targetLabel="Start node"
+  targetPlaceholder="0"
+/>
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Both traversals visit each node once and examine each edge once (twice, in an undirected graph — once from each end), so the running time is **O(V + E)**, where `V` is the number of vertices and `E` the number of edges. That is optimal: you cannot visit a graph without at least looking at every node and edge. For space, the visited set holds up to `V` nodes and the frontier can hold up to `V` nodes as well, so both use **O(V)** extra memory.
+
+## Code
+
+BFS and DFS in Python, JavaScript, and Java, taking a graph as an adjacency map (node → list of neighbors). The only structural difference is the frontier: a queue for BFS, a stack for DFS.
+
+### Breadth-first search
+
+<CodeTabs tabs={bfsTabs} />
+
+### Depth-first search
+
+<CodeTabs tabs={dfsTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Skip the visited set and a graph with a cycle will loop forever — you keep
+  rediscovering nodes you already processed. Every traversal of a graph (unlike
+  a tree) needs a way to remember what it has already seen.
+</Callout>
+
+<Collapsible summary="BFS finds shortest paths; DFS does not">
+  Because BFS explores nodes in order of distance from the start, the first time
+  it reaches a node is along a path with the fewest edges — so BFS gives
+  shortest paths in an unweighted graph. DFS can reach the same node by a long,
+  winding route, so it offers no such guarantee.
+</Collapsible>
+
+<Collapsible summary="Recursive DFS versus an explicit stack">
+  DFS is often written recursively, letting the call stack *be* the frontier.
+  That is elegant but risks a stack overflow on very deep graphs. The explicit-
+  stack version shown here does the same work with a data structure you control,
+  and makes the frontier visible — which is exactly what the visualization
+  shows.
+</Collapsible>
+
+<Collapsible summary="When to choose which">
+  Use **BFS** for shortest paths, level-by-level processing, or finding the
+  nearest match. Use **DFS** for exploring all of a structure, detecting cycles,
+  topological sorting, or problems that naturally recurse (mazes, connected
+  components). Both find every reachable node; they just differ in order.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Which frontier structure does each traversal use, and how does that decide the visit order?**
+
+<Collapsible summary="Show answer">
+  BFS uses a **queue** (FIFO), so it processes nodes in the order they were
+  discovered — nearest first, in expanding rings. DFS uses a **stack** (LIFO),
+  so it processes the most recently discovered node first — plunging deep before
+  backtracking.
+</Collapsible>
+
+**2. Why does a graph traversal need a visited set when a tree traversal does not?**
+
+<Collapsible summary="Show answer">
+  A tree has no cycles and exactly one path to each node, so you never arrive
+  twice. A general graph can have cycles and multiple paths, so without a
+  visited set you would revisit nodes endlessly and never terminate.
+</Collapsible>
+
+**3. You want the fewest-edges route between two nodes in an unweighted graph. BFS or DFS, and why?**
+
+<Collapsible summary="Show answer">
+  BFS. It explores nodes in increasing distance from the start, so the first
+  time it reaches the destination is via a path with the minimum number of
+  edges. DFS might find the destination down a long branch first, giving no
+  shortest-path guarantee.
+</Collapsible>

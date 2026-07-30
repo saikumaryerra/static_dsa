@@ -1,0 +1,152 @@
+---
+/**
+ * LessonCard — one curriculum-index item (site spec §8, §9 component inventory).
+ *
+ * Props:
+ * - `slug`             lesson slug; the whole card links to `/learn/{slug}` and
+ *                      keys the completion reflect (`lesson:{slug}:complete`).
+ * - `order`            the lesson's global order number (§7 frontmatter).
+ * - `title`            lesson title (rendered as the card heading).
+ * - `summary`          one-line summary (§8).
+ * - `difficulty`       "beginner" | "intermediate" — passed to DifficultyChip.
+ * - `estimatedMinutes` reading estimate (§8).
+ * - `headingLevel`     "h3" (default) so the card heading nests under the index's
+ *                      section h2; overridable if a page's heading order differs.
+ *
+ * The whole card is a single `<a>` (only non-interactive content inside, so it
+ * stays a valid link). The done-checkmark is hidden by default and revealed only
+ * when the index page's reflect script sets `data-complete="true"` from
+ * localStorage — so with JS off no checkmark shows and the card is fully usable
+ * (spec §6 local "completed" state, §12 a11y). The check carries an sr-only
+ * "Completed" label so screen readers hear the status when it is shown.
+ */
+import DifficultyChip from './DifficultyChip.astro';
+
+interface Props {
+  slug: string;
+  order: number;
+  title: string;
+  summary: string;
+  difficulty: 'beginner' | 'intermediate';
+  estimatedMinutes: number;
+  headingLevel?: 'h2' | 'h3';
+}
+
+const {
+  slug,
+  order,
+  title,
+  summary,
+  difficulty,
+  estimatedMinutes,
+  headingLevel = 'h3',
+} = Astro.props;
+
+const Heading = headingLevel;
+---
+
+<a
+  href={`/learn/${slug}`}
+  class="lesson-card"
+  data-lesson-card
+  data-slug={slug}
+>
+  <div class="lesson-card__top">
+    <span class="lesson-card__order" aria-hidden="true">
+      {String(order).padStart(2, '0')}
+    </span>
+    <DifficultyChip difficulty={difficulty} />
+    <span class="lesson-card__check" data-lesson-check>
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M8 12l3 3 5-6"></path>
+      </svg>
+      <span class="sr-only">Completed</span>
+    </span>
+  </div>
+
+  <Heading class="lesson-card__title">{title}</Heading>
+  <p class="lesson-card__summary">{summary}</p>
+  <p class="lesson-card__meta">~{estimatedMinutes} min read</p>
+</a>
+
+<style>
+  /* Card treatment mirrors the home `.track-card` (surface, 1px border, card
+     radius, subtle hover lift) but lays its contents out as a column. */
+  .lesson-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: var(--space-5);
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .lesson-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-1);
+  }
+
+  .lesson-card__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .lesson-card__order {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Hidden until the reflect script marks the card complete (JS off = never). */
+  .lesson-card__check {
+    display: none;
+    align-items: center;
+    margin-left: auto;
+    color: var(--brand);
+  }
+
+  .lesson-card[data-complete='true'] .lesson-card__check {
+    display: inline-flex;
+  }
+
+  .lesson-card__title {
+    margin-top: var(--space-3);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+
+  .lesson-card__summary {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  /* Push the meta to the bottom so cards of uneven summary length align. */
+  .lesson-card__meta {
+    margin-top: auto;
+    padding-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+</style>

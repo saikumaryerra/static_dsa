@@ -1,0 +1,263 @@
+---
+title: 'Sorting II: Merge & Quick'
+slug: 'sorting-efficient'
+track: 'algorithms'
+order: 13
+summary: 'Two divide-and-conquer sorts — merge sort and quick sort — that break the array in half, sort the pieces, and combine them to reach O(n log n).'
+difficulty: 'intermediate'
+prerequisites: ['sorting-basics', 'recursion']
+estimatedMinutes: 14
+complexity:
+  time: { best: 'O(n log n)', average: 'O(n log n)', worst: 'O(n²)' }
+  space: { worst: 'O(n)' }
+tags: ['sorting', 'divide-and-conquer', 'recursion']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const mergeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def merge_sort(arr):
+    if len(arr) <= 1:
+        return arr
+    mid = len(arr) // 2
+    left = merge_sort(arr[:mid])        # sort each half
+    right = merge_sort(arr[mid:])
+    return merge(left, right)           # then combine them
+def merge(left, right):
+    result = []
+    i = j = 0
+    while i < len(left) and j < len(right):
+        if left[i] <= right[j]:
+            result.append(left[i])
+            i += 1
+        else:
+            result.append(right[j])
+            j += 1
+    result.extend(left[i:])
+    result.extend(right[j:])
+    return result`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function mergeSort(arr) {
+  if (arr.length <= 1) return arr;
+  const mid = Math.floor(arr.length / 2);
+  const left = mergeSort(arr.slice(0, mid));   // sort each half
+  const right = mergeSort(arr.slice(mid));
+  return merge(left, right);                    // then combine them
+}
+function merge(left, right) {
+  const result = [];
+  let i = 0, j = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] <= right[j]) result.push(left[i++]);
+    else result.push(right[j++]);
+  }
+  return result.concat(left.slice(i)).concat(right.slice(j));
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.Arrays;
+static int[] mergeSort(int[] arr) {
+    if (arr.length <= 1) return arr;
+    int mid = arr.length / 2;
+    int[] left = mergeSort(Arrays.copyOfRange(arr, 0, mid));
+    int[] right = mergeSort(Arrays.copyOfRange(arr, mid, arr.length));
+    return merge(left, right);
+}
+static int[] merge(int[] left, int[] right) {
+    int[] result = new int[left.length + right.length];
+    int i = 0, j = 0, k = 0;
+    while (i < left.length && j < right.length) {
+        if (left[i] <= right[j]) result[k++] = left[i++];
+        else result[k++] = right[j++];
+    }
+    while (i < left.length) result[k++] = left[i++];
+    while (j < right.length) result[k++] = right[j++];
+    return result;
+}`,
+  },
+];
+
+export const quickTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def quick_sort(arr, lo=0, hi=None):
+    if hi is None:
+        hi = len(arr) - 1
+    if lo >= hi:
+        return arr
+    p = partition(arr, lo, hi)          # pivot lands at its final spot
+    quick_sort(arr, lo, p - 1)          # sort the smaller side
+    quick_sort(arr, p + 1, hi)          # sort the larger side
+    return arr
+def partition(arr, lo, hi):
+    pivot = arr[hi]
+    i = lo
+    for j in range(lo, hi):
+        if arr[j] < pivot:
+            arr[i], arr[j] = arr[j], arr[i]
+            i += 1
+    arr[i], arr[hi] = arr[hi], arr[i]
+    return i`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function quickSort(arr, lo = 0, hi = arr.length - 1) {
+  if (lo >= hi) return arr;
+  const p = partition(arr, lo, hi);
+  quickSort(arr, lo, p - 1);
+  quickSort(arr, p + 1, hi);
+  return arr;
+}
+function partition(arr, lo, hi) {
+  const pivot = arr[hi];
+  let i = lo;
+  for (let j = lo; j < hi; j++) {
+    if (arr[j] < pivot) {
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      i++;
+    }
+  }
+  [arr[i], arr[hi]] = [arr[hi], arr[i]];
+  return i;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static void quickSort(int[] arr, int lo, int hi) {
+    if (lo >= hi) return;
+    int p = partition(arr, lo, hi);
+    quickSort(arr, lo, p - 1);
+    quickSort(arr, p + 1, hi);
+}
+static int partition(int[] arr, int lo, int hi) {
+    int pivot = arr[hi];
+    int i = lo;
+    for (int j = lo; j < hi; j++) {
+        if (arr[j] < pivot) {
+            int t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+            i++;
+        }
+    }
+    int t = arr[i]; arr[i] = arr[hi]; arr[hi] = t;
+    return i;
+}`,
+  },
+];
+
+## Intuition
+
+The O(n²) sorts get slow because every item is compared against nearly every other item. The fast sorts escape that trap with **divide and conquer**: split the problem into smaller pieces, solve each piece, and stitch the solutions together. Because splitting in half repeatedly reaches a single element in only about `log n` steps, and each level of splitting does `n` work, the total lands at **O(n log n)** — dramatically faster than O(n²) as `n` grows.
+
+**Merge sort** splits the array down the middle, sorts each half (by the same method, recursively), then **merges** the two sorted halves into one. The clever part is the merge: combining two _already-sorted_ lists is easy — just repeatedly take the smaller of the two front items.
+
+**Quick sort** takes the opposite tack. It picks a **pivot** value and **partitions** the array so everything smaller sits to the pivot's left and everything larger to its right. The pivot is now in its final place; it then sorts the two sides recursively. There is no merge step — the ordering happens during the partition.
+
+Both build on **recursion**: a problem solved in terms of smaller copies of itself.
+
+## How it works
+
+**Merge sort — split, then merge.** Keep halving the array until each piece has one element (which is trivially sorted). Then merge pairs of pieces back together: walk a finger down each sorted run and always copy the smaller front value into the result. Merging two runs of total length `k` costs `k` comparisons, and there are `log n` levels of merging, so the whole sort is **O(n log n)** — every time, guaranteed. The cost is memory: merging needs a temporary buffer, so merge sort uses **O(n)** extra space.
+
+**Quick sort — partition around a pivot.** Choose a pivot (here, the last element). Sweep a pointer across the range: each value smaller than the pivot is swapped into a growing "smaller" region on the left. Finally, drop the pivot just after that region — now everything left of it is smaller and everything right is larger, so the pivot is **fixed forever**. Recurse on the left and right sides. Quick sort sorts **in place** (only O(log n) stack space) and is usually the fastest in practice, but a bad pivot can make it slow.
+
+Step through both below. In merge sort, watch the `k` marker write merged values back into each region. In quick sort, watch the pivot (marked **pivot**) stay put while smaller values are swapped left, then land in its final ✓ spot.
+
+### Merge sort
+
+<Visualizer algorithm="merge-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+
+### Quick sort
+
+<Visualizer algorithm="quick-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Both sorts do `n` work across about `log n` levels, giving **O(n log n)** — merge sort _always_, and quick sort in the best and average cases. Quick sort's **worst case is O(n²)**: if the pivot is repeatedly the smallest or largest value (for example, an already-sorted array with a last-element pivot), the partitions are lopsided and the recursion degenerates into n levels of n work. Real implementations avoid this with a randomized or median-of-three pivot. On space, merge sort needs an **O(n)** buffer to merge, while quick sort sorts in place using only **O(log n)** stack for the recursion.
+
+## Code
+
+Merge sort and quick sort in Python, JavaScript, and Java. The quick-sort code uses the same last-element (Lomuto) partition you stepped through in the visualizer.
+
+### Merge sort
+
+<CodeTabs tabs={mergeTabs} />
+
+### Quick sort
+
+<CodeTabs tabs={quickTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Quick sort's O(n log n) depends on balanced partitions. With a fixed pivot, an
+  already-sorted (or reverse-sorted) input triggers the O(n²) worst case.
+  Randomize the pivot, or use median-of-three, before trusting it on real data.
+</Callout>
+
+<Collapsible summary="Merge sort's hidden memory cost">
+  Merging cannot be done comfortably in place, so merge sort allocates a
+  temporary array — O(n) extra space. That is the trade-off for its guaranteed
+  O(n log n) and its stability. When memory is tight, quick sort's in-place
+  partitioning is the reason it is often preferred.
+</Collapsible>
+
+<Collapsible summary="Stability: merge sort keeps ties in order, quick sort may not">
+  Merge sort is **stable** when the merge prefers the left run on a tie
+  (`left[i] <= right[j]`), so equal values keep their original order. Quick
+  sort's long-distance swaps make the standard version **unstable**. Choose merge
+  sort when a stable order matters.
+</Collapsible>
+
+<Collapsible summary="Why O(n log n) beats O(n²) so decisively">
+  For a million items, n² is a trillion operations; n log n is about twenty
+  million. That is roughly a 50,000× difference. The gap only widens with size,
+  which is why every practical general-purpose sort is O(n log n).
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Merge sort is O(n log n) on every input, but quick sort can be O(n²). What causes quick sort's worst case?**
+
+<Collapsible summary="Show answer">
+  A consistently bad pivot that splits the range into sizes 0 and n−1 instead of
+  roughly in half. Then there are `n` levels of recursion, each doing `n` work,
+  for O(n²). A sorted array with a fixed last-element pivot is the classic
+  trigger; randomizing the pivot fixes it.
+</Collapsible>
+
+**2. Why is merging two sorted halves cheaper than sorting them from scratch?**
+
+<Collapsible summary="Show answer">
+  Because each half is already ordered, you only need to compare the two front
+  elements and take the smaller one, advancing one finger at a time. That is a
+  single linear pass — O(k) for total length k — with no need to re-examine
+  earlier items.
+</Collapsible>
+
+**3. You must sort a huge array but memory is scarce, and stable ordering does not matter. Merge sort or quick sort?**
+
+<Collapsible summary="Show answer">
+  Quick sort. It sorts in place with only O(log n) stack space, whereas merge
+  sort needs an O(n) buffer. Since stability is not required, quick sort's
+  in-place speed makes it the better fit — just use a randomized pivot.
+</Collapsible>

@@ -1,0 +1,183 @@
+---
+title: 'Arrays'
+slug: 'arrays'
+track: 'foundations'
+order: 2
+summary: 'Contiguous, index-addressable storage: O(1) access, but O(n) insert and delete because elements must shift.'
+difficulty: 'beginner'
+prerequisites: ['complexity-big-o']
+estimatedMinutes: 8
+complexity:
+  time: { best: 'O(1)', average: 'O(n)', worst: 'O(n)' }
+  space: { worst: 'O(1)' }
+tags: ['arrays', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `# O(1) jump straight to any index
+def access(arr, i):
+    return arr[i]
+# O(n) shift the tail right to open a gap, then insert
+def insert_at(arr, i, value):
+    arr.append(arr[-1])            # grow by one slot
+    for j in range(len(arr) - 1, i, -1):
+        arr[j] = arr[j - 1]        # move each element right
+    arr[i] = value
+    return arr
+# O(n) shift the tail left to close the gap, then drop the last slot
+def delete_at(arr, i):
+    for j in range(i, len(arr) - 1):
+        arr[j] = arr[j + 1]        # move each element left
+    arr.pop()
+    return arr`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `// O(1) jump straight to any index
+function access(arr, i) {
+  return arr[i];
+}
+// O(n) shift the tail right to open a gap, then insert
+function insertAt(arr, i, value) {
+  arr.push(arr[arr.length - 1]);   // grow by one slot
+  for (let j = arr.length - 1; j > i; j--) {
+    arr[j] = arr[j - 1];           // move each element right
+  }
+  arr[i] = value;
+  return arr;
+}
+// O(n) shift the tail left to close the gap, then drop the last slot
+function deleteAt(arr, i) {
+  for (let j = i; j < arr.length - 1; j++) {
+    arr[j] = arr[j + 1];           // move each element left
+  }
+  arr.pop();
+  return arr;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `// O(1) jump straight to any index
+static int access(int[] arr, int i) {
+    return arr[i];
+}
+// O(n) shift the tail right to open a gap, then insert.
+// (Fixed-size arrays: caller passes an array with one free slot at the end.)
+static void insertAt(int[] arr, int size, int i, int value) {
+    for (int j = size; j > i; j--) {
+        arr[j] = arr[j - 1];       // move each element right
+    }
+    arr[i] = value;
+}
+// O(n) shift the tail left to close the gap
+static void deleteAt(int[] arr, int size, int i) {
+    for (int j = i; j < size - 1; j++) {
+        arr[j] = arr[j + 1];       // move each element left
+    }
+}`,
+  },
+];
+
+## Intuition
+
+An **array** is like a row of numbered lockers bolted to a wall. The lockers sit side by side in one continuous block of memory, and each has a fixed **index** — its position, counted from 0. Because the block is contiguous and every slot is the same size, the computer can compute the exact address of locker `i` with a single multiplication and go straight there. It never has to walk past the earlier lockers.
+
+That is the array's superpower and its weakness in one. **Reading any element is instant** — index 0 and index 999 cost exactly the same. But the lockers are bolted in place: to squeeze a new item into the middle, everything after it has to slide over to make room, and to remove an item, everything after it slides back to close the gap. Sliding a lot of elements is slow.
+
+## How it works
+
+Picture the array as boxed cells, each with its index printed underneath. The bracket beneath the row marks the valid index range — from the first index (**lo**) to the last (**hi**).
+
+- **Access index `i`** — the computer jumps directly to that slot using its address. One step, **O(1)**, no matter how large the array is.
+- **Insert `value` at index `i`** — first every element from `i` onward must shift one slot to the **right** to open a gap; only then can the value drop in. In the worst case (inserting at the front) all n elements move, so this is **O(n)**.
+- **Delete at index `i`** — removing the element leaves a hole, so every later element shifts one slot to the **left** to close it. Again up to n elements move: **O(n)**.
+
+Step through the visualization to watch a direct access, then an insert that ripples the tail rightward, then a delete that pulls it back leftward. The **shift** caret marks each element as it moves — count them to feel the O(n) cost.
+
+## Visualizer
+
+<Visualizer
+  algorithm="array-operations"
+  renderer="array"
+  input="[10,20,30,40,50] target=2"
+/>
+
+Press **Play**, or **Step forward** to move one shift at a time. The `+` marks the inserted value; the `✕` marks the element being deleted; each **shift** highlight is one element moving. Try your own array — the number in the second box picks which index gets the O(1) access.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Access is the best case at **O(1)** — a direct jump. Insert and delete are the worst case at **O(n)**, because shifting the tail touches up to every element. All of this happens in place, reusing the same storage, so the extra space is **O(1)**.
+
+## Code
+
+The same three operations you stepped through, in three languages. Notice the shifting loops in `insert_at` and `delete_at` — those loops _are_ the O(n) cost.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Inserting or deleting near the **front** of a large array is expensive because
+  almost every element shifts. If you do that often, a linked list or a deque
+  may fit better than a plain array.
+</Callout>
+
+<Collapsible summary="Off-by-one and out-of-bounds indices">
+  Valid indices run from `0` to `length - 1`. Reading `arr[length]` runs off the
+  end — some languages throw, others return garbage or `undefined`. Always check
+  that an index is in range before using it.
+</Collapsible>
+
+<Collapsible summary="Dynamic arrays hide a resize cost">
+  Python lists and JavaScript arrays grow automatically, but under the hood they
+  occasionally allocate a bigger block and copy everything over — an O(n) event.
+  Averaged over many appends this works out to O(1) each ("amortized"), but a
+  single append can occasionally be slow.
+</Collapsible>
+
+<Collapsible summary="Shifting must go in the right direction">
+  When inserting, copy from the **right end inward** so you never overwrite a
+  value before it has moved. When deleting, copy from the **gap outward** (left
+  to right). Reverse either loop and you will smear one value across the array.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why is reading `arr[500]` no slower than reading `arr[0]`?**
+
+<Collapsible summary="Show answer">
+  Because the array is contiguous and every slot is the same size, the computer
+  finds any element by arithmetic: address = start + index × slot_size. That is
+  a single calculation, so every index costs the same — O(1).
+</Collapsible>
+
+**2. You insert a value at the very beginning of an array of 1,000 elements. Roughly how many elements move?**
+
+<Collapsible summary="Show answer">
+  All 1,000. Every existing element must shift one slot to the right to open a
+  gap at index 0. That is the worst case for insertion, O(n).
+</Collapsible>
+
+**3. Deleting the last element of an array is cheap, but deleting the first is expensive. Why?**
+
+<Collapsible summary="Show answer">
+  Deleting the last element leaves no gap to close — nothing shifts, so it is
+  O(1). Deleting the first forces every remaining element to shift left by one
+  to fill the hole, which is O(n).
+</Collapsible>

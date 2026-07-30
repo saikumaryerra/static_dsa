@@ -21,8 +21,17 @@ export const nodeId = (i: number): string => `n${i}`;
 /** Edge between nodes `a` and `b` → `"e2_5"` (directed: from `a` to `b`). */
 export const edgeId = (a: number, b: number): string => `e${a}_${b}`;
 
-/** Stack / queue slot at index `i` → `"s2"`. */
+/** Stack / queue / hash-table-bucket slot at index `i` → `"s2"`. */
 export const slotId = (i: number): string => `s${i}`;
+
+/**
+ * Hash-table chain entry at bucket `b`, chain position `p` → `"h1_0"`. Buckets
+ * themselves use {@link slotId}; this names the individual entries WITHIN a
+ * bucket's chain so an algorithm and the HashTableRenderer agree on a colliding
+ * entry without coupling (the same TD-3 contract every other id here serves). The
+ * `h` prefix is distinct from `edgeId`'s `e`, so the two never alias.
+ */
+export const entryId = (b: number, p: number): string => `h${b}_${p}`;
 
 /** Call-stack frame at depth `i` → `"f1"` (0 = bottom of the stack). */
 export const frameId = (i: number): string => `f${i}`;

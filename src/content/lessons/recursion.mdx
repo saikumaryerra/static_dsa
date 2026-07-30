@@ -1,0 +1,151 @@
+---
+title: 'Recursion'
+slug: 'recursion'
+track: 'algorithms'
+order: 10
+summary: 'A function that calls itself, breaking a problem into a smaller version of itself until it reaches a base case — with the call stack keeping track.'
+difficulty: 'beginner'
+prerequisites: ['complexity-big-o']
+estimatedMinutes: 10
+complexity:
+  time: { best: 'O(n)', average: 'O(n)', worst: 'O(n)' }
+  space: { worst: 'O(n)' }
+tags: ['recursion', 'call-stack', 'divide-and-conquer']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def factorial(n):
+    if n <= 1:               # base case: 0! and 1! are both 1
+        return 1
+    return n * factorial(n - 1)  # recursive case: shrink n by one`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function factorial(n) {
+  if (n <= 1) return 1;          // base case
+  return n * factorial(n - 1);   // recursive case
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static long factorial(int n) {
+    if (n <= 1) return 1;          // base case
+    return n * factorial(n - 1);   // recursive case
+}`,
+  },
+];
+
+## Intuition
+
+Imagine you are standing in a long line and want to know your position, but you can only see the person directly in front of you. So you ask them: "What number are you?" They do not know either, so they ask the person in front of _them_, and so on. Eventually the question reaches the very first person, who can answer without asking anyone — "I am number one." That answer travels back down the line, each person adding one, until it reaches you.
+
+That is **recursion**: solving a problem by having it ask a _smaller version of the same problem_ for help, until the problem is small enough to answer directly. Two ingredients make it work — a **base case** that stops the asking (the first person in line), and a **recursive case** that reduces the problem a little and passes it along (asking the person in front).
+
+Recursion shines when a problem naturally contains smaller copies of itself: walking a folder tree, exploring a maze, or the divide-and-conquer sorts you will meet later. Anything you can write with recursion you _can_ also write with a loop — but for self-similar problems, the recursive version is often far clearer.
+
+## How it works
+
+Take `factorial(n)`, which multiplies `n × (n-1) × … × 1`. The insight is that `factorial(n)` is just `n × factorial(n - 1)` — the same problem, one size smaller.
+
+Every recursive function needs two parts:
+
+1. **Base case** — the smallest input you can answer immediately, with no further recursion. For factorial, `n ≤ 1` returns `1`. Forget this and the function calls itself forever.
+2. **Recursive case** — do a little work, then call yourself on a **smaller** input that moves _toward_ the base case. For factorial, return `n * factorial(n - 1)`.
+
+The piece that makes recursion tick is the **call stack**. Every time a function is called, the computer pushes a **frame** onto the stack holding that call's arguments and its unfinished work (the "returns: —" line). When a call finally returns a value, its frame is **popped**, and the value flows into the call that was waiting for it. So the stack grows as calls pile up, reaches its deepest point at the base case, then unwinds as each multiply completes.
+
+The visualization makes this concrete: watch the frames pile up as `factorial` calls itself, pause at the base case, then unwind — each frame filling in its return value on the way out.
+
+## Visualizer
+
+<Visualizer
+  algorithm="recursion-callstack"
+  renderer="callStack"
+  input="4"
+  inputLabel="n"
+  inputPlaceholder="5"
+  showTarget={false}
+/>
+
+Press **Play**, or **Step forward** one call at a time. The top card is the current (innermost) call. New calls are pushed with a **+**; when a call returns, its frame is marked with **✕** and popped, and its value flows into the frame below. Try a different `n` in the input box to see the stack grow taller.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+`factorial(n)` makes one call per value from `n` down to `1`, so it does **O(n)** work — the same as a loop would. The catch is space: at the base case, `n` frames are stacked up at once, so recursion uses **O(n)** memory for the call stack, where an equivalent loop would use **O(1)**. That hidden stack cost is the price of recursion's clarity, and the reason very deep recursion can overflow the stack.
+
+## Code
+
+The recursive `factorial` in three languages. Notice how tiny it is — two lines of logic — and how each mirrors the base-case / recursive-case split exactly.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  A recursion with no reachable base case never stops. Each call adds a stack
+  frame until the program runs out of stack space and crashes with a "stack
+  overflow" (or "maximum recursion depth exceeded"). Always make sure every
+  recursive call moves **closer** to the base case.
+</Callout>
+
+<Collapsible summary="Forgetting to return the recursive result">
+  Writing `factorial(n - 1)` instead of `return n * factorial(n - 1)` throws the
+  smaller answer away. The recursive call must be combined with the current
+  step's work and returned, or the values never travel back down the stack.
+</Collapsible>
+
+<Collapsible summary="Recursion is not free — mind the stack depth">
+  Because every pending call holds a frame, recursion depth is limited by stack
+  size (often a few thousand frames). For problems that recurse very deeply on a
+  single path, an explicit loop or an explicit stack avoids the overflow.
+</Collapsible>
+
+<Collapsible summary="Naive recursion can repeat work">
+  Some recursions (like a plain Fibonacci) call themselves on the *same* inputs
+  again and again, doing exponential work. Recognizing that overlap is the whole
+  motivation for the dynamic-programming techniques covered later.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. What are the two required parts of any recursive function, and what goes wrong if the base case is missing?**
+
+<Collapsible summary="Show answer">
+  A **base case** (a smallest input answered directly) and a **recursive case**
+  (which reduces the problem and calls itself). Without a reachable base case
+  the function recurses forever, piling up stack frames until it overflows the
+  stack.
+</Collapsible>
+
+**2. Trace `factorial(3)`. How many frames are on the stack when the base case is reached, and what value does each frame return?**
+
+<Collapsible summary="Show answer">
+  Three frames: `factorial(3)`, `factorial(2)`, `factorial(1)`. `factorial(1)`
+  hits the base case and returns `1`; `factorial(2)` returns `2 × 1 = 2`;
+  `factorial(3)` returns `3 × 2 = 6`. The frames pop in reverse order.
+</Collapsible>
+
+**3. A loop-based factorial uses O(1) extra space. Why does the recursive version use O(n)?**
+
+<Collapsible summary="Show answer">
+  Because all `n` calls are still open at the deepest point — each is waiting to
+  multiply by the result of the call below it — so `n` frames coexist on the
+  call stack at once. A loop keeps just one running product, needing constant
+  space.
+</Collapsible>

@@ -1,0 +1,200 @@
+---
+title: 'Queues'
+slug: 'queues'
+track: 'foundations'
+order: 5
+summary: 'A FIFO collection: enqueue at the rear, dequeue at the front, both O(1). A circular buffer reuses freed slots by wrapping around.'
+difficulty: 'beginner'
+prerequisites: ['stacks']
+estimatedMinutes: 8
+complexity:
+  time: { best: 'O(1)', average: 'O(1)', worst: 'O(1)' }
+  space: { worst: 'O(1)' }
+tags: ['queues', 'fifo', 'circular-buffer', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class CircularQueue:
+    def __init__(self, capacity):
+        self._slots = [None] * capacity
+        self._capacity = capacity
+        self._head = 0            # index of the front item
+        self._size = 0
+    def enqueue(self, value):     # add at the rear — O(1)
+        if self._size == self._capacity:
+            raise OverflowError("queue is full")
+        rear = (self._head + self._size) % self._capacity   # wraps around
+        self._slots[rear] = value
+        self._size += 1
+    def dequeue(self):            # remove from the front — O(1)
+        if self._size == 0:
+            raise IndexError("queue is empty")
+        value = self._slots[self._head]
+        self._slots[self._head] = None
+        self._head = (self._head + 1) % self._capacity      # wraps around
+        self._size -= 1
+        return value`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class CircularQueue {
+  constructor(capacity) {
+    this.slots = new Array(capacity).fill(null);
+    this.capacity = capacity;
+    this.head = 0;                // index of the front item
+    this.size = 0;
+  }
+  enqueue(value) {                // add at the rear — O(1)
+    if (this.size === this.capacity) {
+      throw new Error("queue is full");
+    }
+    const rear = (this.head + this.size) % this.capacity;   // wraps around
+    this.slots[rear] = value;
+    this.size += 1;
+  }
+  dequeue() {                     // remove from the front — O(1)
+    if (this.size === 0) {
+      throw new Error("queue is empty");
+    }
+    const value = this.slots[this.head];
+    this.slots[this.head] = null;
+    this.head = (this.head + 1) % this.capacity;            // wraps around
+    this.size -= 1;
+    return value;
+  }
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `class CircularQueue {
+    private final Integer[] slots;
+    private final int capacity;
+    private int head = 0;         // index of the front item
+    private int size = 0;
+    CircularQueue(int capacity) {
+        this.slots = new Integer[capacity];
+        this.capacity = capacity;
+    }
+    void enqueue(int value) {     // add at the rear — O(1)
+        if (size == capacity) {
+            throw new IllegalStateException("queue is full");
+        }
+        int rear = (head + size) % capacity;                // wraps around
+        slots[rear] = value;
+        size += 1;
+    }
+    int dequeue() {               // remove from the front — O(1)
+        if (size == 0) {
+            throw new IllegalStateException("queue is empty");
+        }
+        int value = slots[head];
+        slots[head] = null;
+        head = (head + 1) % capacity;                       // wraps around
+        size -= 1;
+        return value;
+    }
+}`,
+  },
+];
+
+## Intuition
+
+A **queue** is a line at a coffee shop. You join at the **back**, and the barista serves from the **front**. Whoever has waited longest is served next — no cutting in line. That is the opposite of a stack: a queue is **FIFO**, "first in, first out."
+
+The two operations are **enqueue** (join at the rear) and **dequeue** (leave from the front). Because the two ends are different, a queue naturally preserves arrival order — which is exactly what you want for a print spooler, a task scheduler, or the "to visit" list in a breadth-first search.
+
+There is a clever storage trick worth meeting early. If we keep the queue in a fixed array and just move the front index forward on each dequeue, the used region drifts rightward and eventually the front bumps into the end — even though the freed slots at the start are sitting empty. A **circular queue** (or **ring buffer**) fixes this by letting the rear **wrap around** to index 0, reusing those freed slots. The array is finite, but we treat it as if its ends were joined into a ring.
+
+## How it works
+
+The visualization always draws all the fixed slots, so you can see the ring's capacity. Empty slots show a dim `·`; the **front** and **rear** carets mark the live ends.
+
+1. **Enqueue** — write the value at the next rear position, computed as `(head + size) % capacity`. The `% capacity` is what makes the index wrap back to the start when it runs off the end. **O(1)**.
+2. **Dequeue** — read the value at `head`, clear that slot, and advance `head` by one (again with `% capacity`). **O(1)**.
+
+Step through the demo: it enqueues a few values, dequeues a couple — advancing the front and freeing early slots — then enqueues more until the rear **wraps around** to reuse slot 0. A dashed arc appears when the occupied run wraps past the end.
+
+## Visualizer
+
+<Visualizer algorithm="queue-operations" renderer="queue" input="[10,20,30]" />
+
+Press **Play**, or **Step forward** one operation at a time. The `+` marks an enqueue at the rear, the `✕` a dequeue at the front, and the carets track **front** and **rear**. The default run wraps around; enter your own values to fill a fresh ring.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Both enqueue and dequeue touch only one end and do a little index arithmetic, so they are **O(1)** — best, average, and worst case. Each operation needs just **O(1)** extra space; the fixed buffer's O(n) storage is the size of the data, not the cost of an operation.
+
+## Code
+
+A fixed-capacity circular queue in three languages. The heart of it is `% capacity` on both the rear and the head — that single modulo is what wraps the indices around the ring.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Track the queue's **size** (or a separate full/empty flag). With only a head
+  and a rear index, a completely full ring and a completely empty ring can look
+  identical — head and rear land on the same slot in both cases.
+</Callout>
+
+<Collapsible summary="Don't dequeue from the wrong end">
+  Enqueue must add at the rear and dequeue must remove from the front. Swap them
+  and you get a stack (LIFO), not a queue. The two different ends are what make
+  a queue first-in, first-out.
+</Collapsible>
+
+<Collapsible summary="A plain array queue can waste space or go O(n)">
+  If you dequeue by shifting every element left, each dequeue is O(n). If
+  instead you just advance a front index without wrapping, the freed front slots
+  are wasted and the queue "walks off" the end of the array. The circular buffer
+  solves both problems at once.
+</Collapsible>
+
+<Collapsible summary="Handling a full queue">
+  A fixed ring has no room once `size == capacity`. Decide the policy up front:
+  reject the enqueue (raise/return an error), overwrite the oldest item (a
+  common choice for streaming buffers), or grow to a larger array and copy
+  everything over (an occasional O(n) resize, like a dynamic array).
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You enqueue 1, 2, 3 into an empty queue, then dequeue once. What value leaves, and how does that differ from a stack?**
+
+<Collapsible summary="Show answer">
+  1 leaves. A queue is FIFO — first in, first out — so the earliest arrival goes
+  first. A stack (LIFO) would have removed 3, the most recent.
+</Collapsible>
+
+**2. In a circular queue of capacity 5 with `head = 3` and `size = 4`, at which index does the next enqueue write?**
+
+<Collapsible summary="Show answer">
+  Index 2. The rear is `(head + size) % capacity = (3 + 4) % 5 = 7 % 5 = 2`. The
+  index wrapped past the end of the array and back to the start — the circular
+  trick at work.
+</Collapsible>
+
+**3. Why does a circular queue use `% capacity` when moving the head and rear?**
+
+<Collapsible summary="Show answer">
+  The modulo wraps an index back to 0 once it reaches the end of the fixed
+  array, so freed slots at the front get reused instead of wasted. Without it,
+  the indices would run off the end and the queue could not reuse space.
+</Collapsible>

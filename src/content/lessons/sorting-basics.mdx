@@ -1,0 +1,273 @@
+---
+title: 'Sorting I: Bubble, Selection, Insertion'
+slug: 'sorting-basics'
+track: 'algorithms'
+order: 12
+summary: 'Three simple comparison sorts — bubble, selection, and insertion — that reorder an array in place by comparing and swapping, and why they all run in O(n²).'
+difficulty: 'beginner'
+prerequisites: ['arrays', 'complexity-big-o']
+estimatedMinutes: 12
+complexity:
+  time: { best: 'O(n)', average: 'O(n²)', worst: 'O(n²)' }
+  space: { worst: 'O(1)' }
+tags: ['sorting', 'comparison-sort', 'in-place']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const bubbleTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n - 1):
+        swapped = False
+        for j in range(n - 1 - i):          # last i items are already sorted
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                swapped = True
+        if not swapped:                     # a clean pass means we are done
+            break
+    return arr`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function bubbleSort(arr) {
+  for (let i = 0; i < arr.length - 1; i++) {
+    let swapped = false;
+    for (let j = 0; j < arr.length - 1 - i; j++) {
+      if (arr[j] > arr[j + 1]) {
+        [arr[j], arr[j + 1]] = [arr[j + 1], arr[j]];
+        swapped = true;
+      }
+    }
+    if (!swapped) break;
+  }
+  return arr;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static void bubbleSort(int[] arr) {
+    for (int i = 0; i < arr.length - 1; i++) {
+        boolean swapped = false;
+        for (int j = 0; j < arr.length - 1 - i; j++) {
+            if (arr[j] > arr[j + 1]) {
+                int t = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = t;
+                swapped = true;
+            }
+        }
+        if (!swapped) break;
+    }
+}`,
+  },
+];
+
+export const selectionTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def selection_sort(arr):
+    n = len(arr)
+    for i in range(n - 1):
+        min_idx = i
+        for j in range(i + 1, n):           # scan the unsorted part
+            if arr[j] < arr[min_idx]:
+                min_idx = j
+        if min_idx != i:
+            arr[i], arr[min_idx] = arr[min_idx], arr[i]
+    return arr`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function selectionSort(arr) {
+  for (let i = 0; i < arr.length - 1; i++) {
+    let minIdx = i;
+    for (let j = i + 1; j < arr.length; j++) {
+      if (arr[j] < arr[minIdx]) minIdx = j;
+    }
+    if (minIdx !== i) [arr[i], arr[minIdx]] = [arr[minIdx], arr[i]];
+  }
+  return arr;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static void selectionSort(int[] arr) {
+    for (int i = 0; i < arr.length - 1; i++) {
+        int minIdx = i;
+        for (int j = i + 1; j < arr.length; j++) {
+            if (arr[j] < arr[minIdx]) minIdx = j;
+        }
+        int t = arr[minIdx];
+        arr[minIdx] = arr[i];
+        arr[i] = t;
+    }
+}`,
+  },
+];
+
+export const insertionTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def insertion_sort(arr):
+    for i in range(1, len(arr)):
+        j = i
+        while j > 0 and arr[j - 1] > arr[j]:  # swap the value left into place
+            arr[j - 1], arr[j] = arr[j], arr[j - 1]
+            j -= 1
+    return arr`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function insertionSort(arr) {
+  for (let i = 1; i < arr.length; i++) {
+    let j = i;
+    while (j > 0 && arr[j - 1] > arr[j]) {
+      [arr[j - 1], arr[j]] = [arr[j], arr[j - 1]];
+      j--;
+    }
+  }
+  return arr;
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static void insertionSort(int[] arr) {
+    for (int i = 1; i < arr.length; i++) {
+        int j = i;
+        while (j > 0 && arr[j - 1] > arr[j]) {
+            int t = arr[j - 1];
+            arr[j - 1] = arr[j];
+            arr[j] = t;
+            j--;
+        }
+    }
+}`,
+  },
+];
+
+## Intuition
+
+Sorting means putting items in order — smallest to largest, A to Z, cheapest to priciest. It is one of the most common things a program does, and the first sorts you learn all share the same humble idea: **compare two items, and swap them if they are in the wrong order.** Do that enough times, in the right pattern, and the whole array falls into order.
+
+These three sorts are the way most people sort a hand of playing cards without thinking about it. **Bubble sort** keeps sweeping through, nudging bigger cards to the right. **Selection sort** repeatedly finds the smallest remaining card and lays it down next. **Insertion sort** picks up each new card and slides it back into the sorted cards already in your hand. All three are **comparison sorts** — they only ever ask "is this one bigger than that one?" — and all three are **in-place**, rearranging the array without needing a second copy.
+
+They are not fast on large inputs, and no one reaches for them to sort a million records. But they are the perfect place to _see_ sorting happen, and the ideas here — passes, a growing sorted region, comparing and swapping — carry straight into the faster sorts that follow.
+
+## How it works
+
+Each sort grows a **sorted region** and shrinks an **unsorted region**, just by a different route:
+
+- **Bubble sort** makes repeated passes over the unsorted part. On each pass it compares every adjacent pair and swaps the ones out of order, so the largest remaining value "bubbles" to the end. After each pass the tail is locked. If a whole pass makes no swaps, the array is already sorted and it stops early.
+- **Selection sort** scans the entire unsorted region to find its **minimum**, then swaps that minimum into the first unsorted slot. One swap per pass — the fewest of the three — but it always scans the whole remainder even if the data is already sorted.
+- **Insertion sort** takes the next unsorted value and swaps it **leftward** until the value to its left is no longer larger. The sorted region is a prefix that grows one item at a time. On nearly-sorted data it barely moves anything, which makes it the fastest of the three in practice.
+
+Watch all three below on the same numbers. Notice the dimmed cells: they are the part already locked in final position. The lifted cell is the value currently in play, and the dashed tie-line joins the two cells being compared. The bracket under the bars, labelled **`lo`** and **`hi`**, marks the current **active (unsorted) window** — the stretch the pass is still working over, which shrinks as the sorted region grows.
+
+### Bubble sort
+
+<Visualizer algorithm="bubble-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+
+### Selection sort
+
+<Visualizer algorithm="selection-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+
+### Insertion sort
+
+<Visualizer algorithm="insertion-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+All three do roughly `n` passes, and each pass looks at up to `n` items — so the work grows with `n × n`, giving **O(n²)** in the average and worst cases. That is why doubling the input roughly quadruples the time. The **best case** is **O(n)**, but only for bubble and insertion sort on already-sorted data: bubble sort's early-exit catches it in a single clean pass, and insertion sort never has to swap. Selection sort has no such shortcut — it always scans the full remainder, so it is **O(n²)** even on sorted input. Every one of them sorts **in place**, reusing the original array, so the extra space is **O(1)**.
+
+## Code
+
+Each sort in Python, JavaScript, and Java. The code mirrors the visualizations exactly — including the swap-based insertion sort, so what you watched is what runs.
+
+### Bubble sort
+
+<CodeTabs tabs={bubbleTabs} />
+
+### Selection sort
+
+<CodeTabs tabs={selectionTabs} />
+
+### Insertion sort
+
+<CodeTabs tabs={insertionTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  These sorts are for learning and for small or nearly-sorted inputs. On large
+  arrays their O(n²) cost is painful — reach for a built-in sort (or the O(n log
+  n) sorts in the next lesson) in real code.
+</Callout>
+
+<Collapsible summary="Stability: which of these preserve the order of equal items?">
+  A sort is **stable** if two equal values keep their original relative order.
+  Bubble and insertion sort, which only ever swap *adjacent* out-of-order items,
+  are stable. Selection sort's long-distance swap can jump an equal value past
+  its twin, so the plain version is **not** stable. Stability matters when you
+  sort records by one field and want ties to keep an earlier ordering.
+</Collapsible>
+
+<Collapsible summary="Off-by-one in the pass bounds">
+  Bubble sort's inner loop must stop at `n - 1 - i` (the last `i` items are
+  already sorted) and read `arr[j + 1]`, so `j` must never reach the final index
+  — otherwise you index past the end. Selection and insertion have similar
+  boundary conditions; get them wrong and you either skip an item or read out of
+  bounds.
+</Collapsible>
+
+<Collapsible summary="Comparisons versus swaps">
+  All three do about the same number of **comparisons** (~n²/2), but very
+  different numbers of **swaps**. Selection sort does at most `n - 1` swaps;
+  bubble and insertion can do many more. If a swap is expensive (moving large
+  records), selection sort's frugal swapping can win despite the extra scanning.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. On the already-sorted array `[1, 2, 3, 4]`, which of these three sorts finishes fastest, and why?**
+
+<Collapsible summary="Show answer">
+  Insertion sort (and bubble sort with its early-exit) finish in a single O(n)
+  pass, because no swaps are needed and they detect that. Selection sort still
+  scans the whole unsorted remainder on every pass, so it stays O(n²) even here.
+</Collapsible>
+
+**2. Why are all three called O(n²) even though selection sort does only n−1 swaps?**
+
+<Collapsible summary="Show answer">
+  Big-O counts the dominant operation. Selection sort still does about `n²/2`
+  **comparisons** while scanning for each minimum, and comparisons dominate the
+  running time. Fewer swaps lower the constant factor but not the O(n²) order.
+</Collapsible>
+
+**3. You need to sort records so that entries with equal keys keep their original order. Which of these sorts is safe to use as-is?**
+
+<Collapsible summary="Show answer">
+  Bubble or insertion sort — both are stable because they only swap adjacent
+  items. Plain selection sort is not stable, so it could reorder equal keys.
+</Collapsible>

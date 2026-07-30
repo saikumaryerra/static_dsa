@@ -1,0 +1,211 @@
+---
+title: 'Trees & Binary Search Trees'
+slug: 'trees-bst'
+track: 'foundations'
+order: 7
+summary: 'A binary search tree keeps values ordered — smaller on the left, larger on the right — so insert and search follow one path down and run in O(log n) when balanced.'
+difficulty: 'beginner'
+prerequisites: ['arrays', 'complexity-big-o']
+estimatedMinutes: 11
+complexity:
+  time: { best: 'O(1)', average: 'O(log n)', worst: 'O(n)' }
+  space: { worst: 'O(n)' }
+tags: ['trees', 'bst', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class Node:
+    def __init__(self, value):
+        self.value = value
+        self.left = None
+        self.right = None
+def insert(root, value):
+    if root is None:
+        return Node(value)                     # empty slot: place the node
+    if value < root.value:
+        root.left = insert(root.left, value)   # go left when smaller
+    else:
+        root.right = insert(root.right, value) # go right when larger
+    return root
+def search(root, target):
+    if root is None:
+        return False                           # fell off the tree: not found
+    if target == root.value:
+        return True                            # match
+    if target < root.value:
+        return search(root.left, target)       # smaller: search left
+    return search(root.right, target)          # larger: search right`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class Node {
+  constructor(value) {
+    this.value = value;
+    this.left = null;
+    this.right = null;
+  }
+}
+function insert(root, value) {
+  if (root === null) return new Node(value); // empty slot: place the node
+  if (value < root.value) {
+    root.left = insert(root.left, value);    // go left when smaller
+  } else {
+    root.right = insert(root.right, value);  // go right when larger
+  }
+  return root;
+}
+function search(root, target) {
+  if (root === null) return false;           // fell off the tree: not found
+  if (target === root.value) return true;    // match
+  return target < root.value
+    ? search(root.left, target)              // smaller: search left
+    : search(root.right, target);            // larger: search right
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `class Node {
+    int value;
+    Node left, right;
+    Node(int value) { this.value = value; }
+}
+class BST {
+    static Node insert(Node root, int value) {
+        if (root == null) return new Node(value);   // empty slot: place it
+        if (value < root.value) {
+            root.left = insert(root.left, value);   // go left when smaller
+        } else {
+            root.right = insert(root.right, value); // go right when larger
+        }
+        return root;
+    }
+    static boolean search(Node root, int target) {
+        if (root == null) return false;             // not found
+        if (target == root.value) return true;      // match
+        return target < root.value
+            ? search(root.left, target)             // smaller: search left
+            : search(root.right, target);           // larger: search right
+    }
+}`,
+  },
+];
+
+## Intuition
+
+A **tree** is a branching structure of **nodes**: one node at the top (the **root**), each node pointing to some **children** below it, with no loops. It is how you would draw a family tree or a company org chart — one box at the top, lines fanning downward.
+
+A **binary tree** restricts each node to at most two children, a **left** and a **right**. A **binary search tree** (BST) adds one powerful rule to a binary tree: for every node, everything in its **left** subtree is smaller than it, and everything in its **right** subtree is larger. That single ordering rule is the whole idea.
+
+Why does it help? Because at every node you can throw away half the tree. Looking for a value, you compare it to the current node: if it is smaller you go left, if larger you go right — the other entire branch cannot possibly hold it. It is binary search, but living in a linked structure you can cheaply grow by inserting new nodes. When the tree stays balanced, that halving makes search and insert **O(log n)**.
+
+## How it works
+
+The visualization draws the tree with the root at the top and children fanning downward; left children sit to the left, right children to the right, so the ordering rule is visible in the layout itself.
+
+**Insert** places a value by finding the empty slot where it belongs:
+
+1. Start at the root. Compare the new value to the current node.
+2. If it is smaller, move to the left child; if larger, move to the right.
+3. When you reach a missing child (an empty slot), attach the new node there (`+`). Because you followed the ordering rule down, the new node lands in a spot that keeps the whole tree valid.
+
+**Search** follows the very same path:
+
+1. Compare the target to the current node. If they match, you are done (`✓`).
+2. If the target is smaller go left, if larger go right, marking each visited node with a `✓` badge and lighting the edges you take.
+3. If you ever need a child that does not exist, the target is not in the tree.
+
+Both operations walk **one** root-to-leaf path — never the whole tree — which is where the speed comes from.
+
+## Visualizer
+
+<Visualizer
+  algorithm="bst-operations"
+  renderer="tree"
+  input="[50,30,70,20,40,60] target=40"
+/>
+
+Press **Play**, or **Step forward** to watch the tree build one insertion at a time, then search for `40`: from the root `50` go left, from `30` go right, and land on `40`. The highlighted edges trace the path; visited nodes get a `✓`. Try your own insertion sequence and search target — insert values in a different order and see how the shape changes.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Each step of insert or search moves down one level and discards the other subtree, so the cost is the tree's **height**. In a **balanced** tree the height is about `log n`, giving **O(log n)** — the best case is **O(1)** when the value is the root. But height is not guaranteed: insert already-sorted values and each new node hangs off the last, producing a lopsided chain of height `n` and **O(n)** operations — no better than a linked list. Space is **O(n)** to store the nodes. Keeping the tree balanced is what protects the log-time promise, which is exactly what self-balancing trees (AVL, red-black) are built to do.
+
+## Code
+
+Recursive `insert` and `search` — each mirrors the "compare, then go left or right" walk you stepped through. Notice how naturally the ordering rule turns into a single `if value < root.value`.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Insertion order decides the shape. Feed a BST already-sorted values and it
+  degenerates into a straight line of height `n`, turning every O(log n)
+  operation into O(n). Randomized insertion order — or a self-balancing tree —
+  avoids this trap.
+</Callout>
+
+<Collapsible summary="A binary tree is not automatically a BST">
+  Any node with two children is a binary tree. It only becomes a *search* tree
+  if the ordering rule holds everywhere: left subtree smaller, right subtree
+  larger. Break the rule for even one node and search can walk right past the
+  value it is looking for.
+</Collapsible>
+
+<Collapsible summary="Deleting a node is the tricky operation">
+  Insert and search are easy because they only walk down. Deleting a node with
+  two children is harder: you replace it with its in-order successor (the
+  smallest value in its right subtree) so the ordering rule survives. That is
+  why this lesson focuses on insert and search first.
+</Collapsible>
+
+<Collapsible summary="Balance is a promise, not a guarantee">
+  A plain BST does nothing to stay balanced — its height depends entirely on the
+  order values arrive in. The O(log n) figure assumes balance. Real-world code
+  that needs the guarantee reaches for a self-balancing variant that rotates
+  nodes to keep the height near `log n`.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Insert `55` into the visualizer's tree (`50, 30, 70, 20, 40, 60`). Which path does it take, and where does it land?**
+
+<Collapsible summary="Show answer">
+  Compare with `50`: `55` is larger, go right to `70`. Compare with `70`: `55`
+  is smaller, go left to `60`. Compare with `60`: `55` is smaller, go left — but
+  `60` has no left child, so `55` becomes `60`'s left child.
+</Collapsible>
+
+**2. You insert the values `1, 2, 3, 4, 5` into an empty BST in that order. What shape results, and what is the cost of searching it?**
+
+<Collapsible summary="Show answer">
+  Each value is larger than the last, so every node becomes the right child of
+  the one before — a straight line leaning right, height `5`. Searching it is
+  O(n), just like scanning a linked list. This is the degenerate case balancing
+  is meant to prevent.
+</Collapsible>
+
+**3. Why can a BST search ignore an entire subtree at every step?**
+
+<Collapsible summary="Show answer">
+  Because of the ordering rule. If your target is smaller than the current node,
+  it cannot be anywhere in the right subtree — every value there is larger. So
+  you safely discard that whole side and recurse into the left, halving the work
+  each time the tree is balanced.
+</Collapsible>

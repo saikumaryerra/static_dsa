@@ -1,16 +1,16 @@
 ---
-title: 'Binary Search'
+title: 'Linear & Binary Search'
 slug: 'binary-search'
 track: 'algorithms'
 order: 11
-summary: 'Find an element in a sorted array by repeatedly halving the search range.'
+summary: 'Find an element in an array two ways: linear search scans every item in O(n); binary search halves a sorted range in O(log n).'
 difficulty: 'beginner'
 prerequisites: ['arrays', 'complexity-big-o']
-estimatedMinutes: 8
+estimatedMinutes: 10
 complexity:
   time: { best: 'O(1)', average: 'O(log n)', worst: 'O(log n)' }
   space: { worst: 'O(1)' }
-tags: ['searching', 'divide-and-conquer']
+tags: ['searching', 'linear-search', 'divide-and-conquer']
 published: true
 ---
 
@@ -68,6 +68,38 @@ export const codeTabs = [
   },
 ];
 
+export const linearTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def linear_search(arr, target):
+    for i in range(len(arr)):
+        if arr[i] == target:
+            return i        # found it at index i
+    return -1               # scanned everything: not in the array`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function linearSearch(arr, target) {
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] === target) return i; // found it at index i
+  }
+  return -1;                          // not in the array
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static int linearSearch(int[] arr, int target) {
+    for (int i = 0; i < arr.length; i++) {
+        if (arr[i] == target) return i;  // found it at index i
+    }
+    return -1;                           // not in the array
+}`,
+  },
+];
+
 ## Intuition
 
 Think about looking up a word in a paper dictionary. You do not start at page one and read every entry. You flip to the middle, glance at the word there, and decide: is my word before this page or after it? That one glance lets you throw away half the dictionary. Flip to the middle of what is left, decide again, and throw away half of that. In a few flips you have gone from thousands of pages to the single one you need.
@@ -75,6 +107,10 @@ Think about looking up a word in a paper dictionary. You do not start at page on
 **Binary search** is exactly that idea for a **sorted** list. Because the values are in order, checking the middle one tells you which half your target could be in — so you can discard the other half every single time. Halving again and again is astonishingly fast: a sorted list of a million items is found in about twenty checks.
 
 The one rule you must not forget: the list has to be **sorted first**. Without order, the middle value tells you nothing about which side to keep, and the whole trick falls apart.
+
+### The baseline: linear search
+
+Before binary search, there is the obvious way to find something: start at the first item and check each one in turn until you hit the target or run out of items. That is **linear search**. It is dead simple and it works on **any** array — sorted or not — but it has no shortcut: in the worst case it inspects every element, so searching a million items can take a million comparisons. Binary search exists precisely to beat that steady one-at-a-time march, and the price of admission is that the data must already be sorted. Keep both in mind as you read on: linear search trades speed for zero requirements; binary search demands order and repays you with logarithmic speed.
 
 ## How it works
 
@@ -93,27 +129,53 @@ If the slice ever becomes empty — `lo` passes `hi` — there is nowhere left t
 
 The visualization below makes the shrinking window concrete: watch `lo` and `hi` close in on the answer, and see which half gets discarded after every comparison.
 
+### How linear search compares
+
+Linear search needs none of this bookkeeping. There is no `lo`, `hi`, or `mid`, and no sorted precondition — just a single index walking from `0` to the end, comparing each value with the target and stopping at the first match. The contrast is the whole point: where binary search **discards half** the remaining items per comparison, linear search **eliminates one**. On the sorted array `[1, 3, 5, 7, 9, 11]`, finding `11` takes linear search six comparisons but binary search only three.
+
 ## Visualizer
 
-<Visualizer
-  algorithm="binary-search"
-  renderer="array"
-  input="[1,3,5,7,9,11] target=7"
-/>
+<div id="viz-binary-search">
+  <Visualizer
+    algorithm="binary-search"
+    renderer="array"
+    input="[1,3,5,7,9,11] target=7"
+  />
+</div>
 
 Press **Play** to run it automatically, or **Step forward** to move one comparison at a time. The highlighted band is the current search window; the lifted cell marked **mid** is the value being checked. Try your own sorted array and target to see how few steps it really takes.
+
+### Linear search, step by step
+
+Here is linear search on an **unsorted** array, so you can see it march through every cell in turn. The lifted cell marked **curr** is the one being checked; cells to its left are already rejected. Notice there is no window to halve — it simply advances one index at a time until it finds the target or reaches the end.
+
+<Visualizer
+  algorithm="linear-search"
+  renderer="array"
+  input="[8,3,5,9,1,7] target=9"
+/>
 
 ## Complexity
 
 <ComplexityTable complexity={frontmatter.complexity} />
 
-Every comparison throws away half of the remaining items, so the number of checks grows with the **logarithm** of the array size — doubling the input adds just one more step. That is the `O(log n)` worst and average case. The best case is `O(1)`: the very first middle you check happens to be the target. Only a couple of index variables are needed, so the extra space is `O(1)`.
+The table above is for **binary search**. Every comparison throws away half of the remaining items, so the number of checks grows with the **logarithm** of the array size — doubling the input adds just one more step. That is the `O(log n)` worst and average case. The best case is `O(1)`: the very first middle you check happens to be the target. Only a couple of index variables are needed, so the extra space is `O(1)`.
+
+**Linear search** is the opposite trade: `O(n)` time in the average and worst cases (it may inspect every element), `O(1)` best case (the target is first), and `O(1)` space. Sorting an array first costs `O(n log n)`, so a single search is not worth sorting for — but if you will search the same array many times, sorting once and using binary search repeatedly wins big.
 
 ## Code
+
+### Binary search
 
 The same algorithm in three languages. Notice how closely each mirrors the steps above — and how the structure matches the trace you stepped through in the visualizer.
 
 <CodeTabs tabs={codeTabs} />
+
+### Linear search
+
+For comparison, the naive scan — a single loop with no sorted precondition and no halving.
+
+<CodeTabs tabs={linearTabs} />
 
 ## Common pitfalls
 

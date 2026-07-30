@@ -5,7 +5,10 @@
  * Props:
  * - `tabs` `{ label, lang, code }[]` — one fenced block per language. Highlighted
  *   at build time by Astro's built-in Shiki (`astro:components` `<Code>`), so no
- *   highlighter dependency and all tabs ship as static HTML.
+ *   highlighter dependency and all tabs ship as static HTML. Dual themes
+ *   (github-light / github-dark-default) emit CSS-variable tokens that follow the
+ *   site theme and both clear WCAG 1.4.3 for comments; the `.astro-code` dark
+ *   wiring lives in global.css. Keep the theme names in sync with astro.config.mjs.
  *
  * WAI-ARIA Tabs: `role="tablist"` + roving-tabindex `role="tab"` buttons control
  * `role="tabpanel"`s (arrow keys wired in the script). Copy button per panel.
@@ -82,7 +85,11 @@ const uid = `ct-${Math.random().toString(36).slice(2, 8)}`;
           </svg>
           <span class="codetabs__copy-label">Copy</span>
         </button>
-        <Code code={tab.code} lang={tab.lang as never} />
+        <Code
+          code={tab.code}
+          lang={tab.lang as never}
+          themes={{ light: 'github-light', dark: 'github-dark-default' }}
+        />
       </div>
     ))
   }

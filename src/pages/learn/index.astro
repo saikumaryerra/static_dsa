@@ -1,0 +1,180 @@
+---
+/**
+ * Curriculum index — `/learn` (site spec §6 site map, §8 layout).
+ *
+ * Data-driven: queries the published lessons, groups them into the two tracks
+ * (Foundations / Algorithms), and sorts each by `order`, so new lessons appear
+ * automatically as later M4 batches add `.mdx` files — this page never lists a
+ * lesson by hand. Each lesson renders as a `LessonCard`; a tiny reflect script
+ * reads the SAME `lesson:{slug}:complete` key `MarkComplete` writes and shows a
+ * done-checkmark. With JS off the script never runs, so no checkmark shows and
+ * every card stays a fully usable link (§6 local completed state, §12 a11y).
+ *
+ * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
+ * <h1>, then an <h2> per track section (empty tracks show a "coming soon" note so
+ * both labelled sections always render — spec §8 requires both).
+ */
+import { getCollection } from 'astro:content';
+import type { CollectionEntry } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import LessonCard from '../../components/LessonCard.astro';
+
+const published = await getCollection('lessons', ({ data }) => data.published);
+const byOrder = (
+  a: CollectionEntry<'lessons'>,
+  b: CollectionEntry<'lessons'>,
+) => a.data.order - b.data.order;
+
+/** The two curriculum tracks in their site-map order (§8). */
+const sections: {
+  id: 'foundations' | 'algorithms';
+  label: string;
+  blurb: string;
+  lessons: CollectionEntry<'lessons'>[];
+}[] = [
+  {
+    id: 'foundations',
+    label: 'Foundations & Data Structures',
+    blurb: 'The building blocks every algorithm relies on.',
+    lessons: published
+      .filter((l) => l.data.track === 'foundations')
+      .sort(byOrder),
+  },
+  {
+    id: 'algorithms',
+    label: 'Algorithms',
+    blurb: 'Classic algorithms, watched step by step until they click.',
+    lessons: published
+      .filter((l) => l.data.track === 'algorithms')
+      .sort(byOrder),
+  },
+];
+---
+
+<BaseLayout
+  title="Learn · LearnDSA"
+  description="The full LearnDSA curriculum: interactive data-structure and algorithm lessons, grouped into two tracks. Work through them in order or jump to any topic."
+>
+  <div class="learn">
+    <header class="learn__head">
+      <h1>Curriculum</h1>
+      <p class="learn__intro">
+        Fourteen core lessons across two tracks. Work through them in order, or
+        jump to any topic — each one is built around a visualization you can
+        play, pause, and run on your own input. Lessons you finish are checked
+        off on this device.
+      </p>
+    </header>
+
+    {
+      sections.map((section) => (
+        <section class="learn__section" aria-labelledby={`track-${section.id}`}>
+          <div class="learn__section-head">
+            <h2 id={`track-${section.id}`}>{section.label}</h2>
+            <p class="learn__section-blurb">{section.blurb}</p>
+          </div>
+
+          {section.lessons.length > 0 ? (
+            <ul class="learn__grid" role="list">
+              {section.lessons.map((lesson) => (
+                <li>
+                  <LessonCard
+                    slug={lesson.data.slug}
+                    order={lesson.data.order}
+                    title={lesson.data.title}
+                    summary={lesson.data.summary}
+                    difficulty={lesson.data.difficulty}
+                    estimatedMinutes={lesson.data.estimatedMinutes}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="learn__empty">Lessons for this track are coming soon.</p>
+          )}
+        </section>
+      ))
+    }
+  </div>
+</BaseLayout>
+
+<style>
+  .learn {
+    padding-block: var(--space-12) var(--space-16);
+  }
+
+  .learn__intro {
+    margin-top: var(--space-4);
+    max-width: var(--measure);
+    color: var(--text-muted);
+    font-size: var(--text-lg);
+  }
+
+  .learn__section {
+    margin-top: var(--space-12);
+  }
+
+  .learn__section-head {
+    margin-bottom: var(--space-6);
+  }
+
+  .learn__section-blurb {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+  }
+
+  .learn__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-6);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 640px) {
+    .learn__grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .learn__grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  .learn__empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+</style>
+
+<script>
+  /**
+   * Reflect completion from localStorage onto each card. Reads the exact key
+   * `MarkComplete` writes (`lesson:{slug}:complete = "1"`). Wrapped in try/catch
+   * so blocked/again-private storage simply yields no checkmarks (cards stay
+   * usable). Re-runs on `astro:page-load` so it survives View Transitions (M4).
+   */
+  function reflectCompletion(): void {
+    let store: Storage | null = null;
+    try {
+      store = window.localStorage;
+    } catch {
+      return; // storage blocked: no checkmarks, cards still fully usable
+    }
+    document
+      .querySelectorAll<HTMLElement>('[data-lesson-card]')
+      .forEach((card) => {
+        const slug = card.dataset['slug'];
+        if (!slug) return;
+        const done = store?.getItem(`lesson:${slug}:complete`) === '1';
+        if (done) card.setAttribute('data-complete', 'true');
+        else card.removeAttribute('data-complete');
+      });
+  }
+
+  reflectCompletion();
+  document.addEventListener('astro:page-load', reflectCompletion);
+</script>

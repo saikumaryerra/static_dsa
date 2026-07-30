@@ -21,6 +21,7 @@ import { chartRenderer } from '../../../src/viz/renderers/ChartRenderer';
 import { treeRenderer } from '../../../src/viz/renderers/TreeRenderer';
 import { heapRenderer } from '../../../src/viz/renderers/HeapRenderer';
 import { graphRenderer } from '../../../src/viz/renderers/GraphRenderer';
+import { hashTableRenderer } from '../../../src/viz/renderers/HashTableRenderer';
 
 type Pair = {
   name: string;
@@ -81,6 +82,11 @@ const pairs: Pair[] = [
     name: 'graph',
     algo: demos.demoGraph as Algorithm<unknown, unknown>,
     renderer: graphRenderer,
+  },
+  {
+    name: 'hashTable',
+    algo: demos.demoHashTable as Algorithm<unknown, unknown>,
+    renderer: hashTableRenderer,
   },
 ];
 

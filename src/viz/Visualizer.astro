@@ -9,6 +9,15 @@
  *                      else the algorithm's defaultInput().
  * - `allowCustomInput` show the custom-input form (default true).
  * - `showMetrics`      show the metrics pills (default true).
+ * - `inputLabel`/`inputPlaceholder`  label + placeholder for the FIRST field
+ *                      (default "Array" / "[1,3,5,7,9,11]"). Non-array lessons
+ *                      override these (e.g. graph "Edges", recursion "n").
+ * - `targetLabel`/`targetPlaceholder`  label + placeholder for the SECOND field
+ *                      (default "Target" / "7").
+ * - `showTarget`       render the second field (default true). Lessons whose input
+ *                      is a single value (e.g. recursion) hide it. LABELS ONLY —
+ *                      the client still composes the same raw string parseInput
+ *                      already accepts, so per-algorithm contracts are unchanged.
  *
  * Architecture (M3 §1, TD-1/TD-2): the `.astro` FRONTMATTER runs only at build
  * time and ships no client JS, so it `await`s the SAME lazy registry thunks the
@@ -30,6 +39,11 @@ interface Props {
   input?: string;
   allowCustomInput?: boolean;
   showMetrics?: boolean;
+  inputLabel?: string;
+  inputPlaceholder?: string;
+  targetLabel?: string;
+  targetPlaceholder?: string;
+  showTarget?: boolean;
 }
 
 const {
@@ -38,6 +52,12 @@ const {
   input,
   allowCustomInput = true,
   showMetrics = true,
+  // Defaults keep every array/search/sort lesson (incl. binary-search) unchanged.
+  inputLabel = 'Array',
+  inputPlaceholder = '[1,3,5,7,9,11]',
+  targetLabel = 'Target',
+  targetPlaceholder = '7',
+  showTarget = true,
 } = Astro.props;
 
 // Unique id base so multiple visualizers on one page don't collide.
@@ -242,26 +262,28 @@ const targetId = `${uid}-target`;
           <p class="viz-custom__legend">Try your own input</p>
           <div class="viz-custom__fields">
             <div class="viz-field">
-              <label for={arrayId}>Array</label>
+              <label for={arrayId}>{inputLabel}</label>
               <input
                 type="text"
                 id={arrayId}
                 data-viz-array
-                placeholder="[1,3,5,7,9,11]"
+                placeholder={inputPlaceholder}
                 aria-describedby={errId}
               />
             </div>
-            <div class="viz-field viz-field--target">
-              <label for={targetId}>Target</label>
-              <input
-                type="text"
-                id={targetId}
-                data-viz-target
-                inputmode="numeric"
-                placeholder="7"
-                aria-describedby={errId}
-              />
-            </div>
+            {showTarget && (
+              <div class="viz-field viz-field--target">
+                <label for={targetId}>{targetLabel}</label>
+                <input
+                  type="text"
+                  id={targetId}
+                  data-viz-target
+                  inputmode="numeric"
+                  placeholder={targetPlaceholder}
+                  aria-describedby={errId}
+                />
+              </div>
+            )}
             <button type="submit" class="btn-secondary" data-viz-run>
               Run
             </button>

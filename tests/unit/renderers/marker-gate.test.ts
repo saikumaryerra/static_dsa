@@ -30,6 +30,7 @@ import { chartRenderer } from '../../../src/viz/renderers/ChartRenderer';
 import { treeRenderer } from '../../../src/viz/renderers/TreeRenderer';
 import { heapRenderer } from '../../../src/viz/renderers/HeapRenderer';
 import { graphRenderer } from '../../../src/viz/renderers/GraphRenderer';
+import { hashTableRenderer } from '../../../src/viz/renderers/HashTableRenderer';
 
 type Pair = {
   name: string;
@@ -70,6 +71,11 @@ const pairs: Pair[] = [
   { name: 'tree', algo: A(demos.demoTree), renderer: treeRenderer },
   { name: 'heap', algo: A(demos.demoHeap), renderer: heapRenderer },
   { name: 'graph', algo: A(demos.demoGraph), renderer: graphRenderer },
+  {
+    name: 'hashTable',
+    algo: A(demos.demoHashTable),
+    renderer: hashTableRenderer,
+  },
 ];
 
 /**

@@ -1,0 +1,200 @@
+---
+title: 'Linked Lists'
+slug: 'linked-lists'
+track: 'foundations'
+order: 3
+summary: 'Nodes joined by pointers: O(1) insert and delete at a known spot, but O(n) to reach a position because there is no random access.'
+difficulty: 'beginner'
+prerequisites: ['arrays']
+estimatedMinutes: 9
+complexity:
+  time: { best: 'O(1)', average: 'O(n)', worst: 'O(n)' }
+  space: { worst: 'O(1)' }
+tags: ['linked-lists', 'pointers', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class Node:
+    def __init__(self, value, nxt=None):
+        self.value = value
+        self.next = nxt
+# O(n) no random access; follow next pointers to reach node k
+def traverse_to(head, k):
+    curr = head
+    for _ in range(k):
+        curr = curr.next          # one hop per step
+    return curr
+# O(1) splice a new node in after an existing one
+def insert_after(node, value):
+    node.next = Node(value, node.next)
+# O(1) unlink prev.next by routing it past the target
+def delete_after(prev):
+    if prev.next is not None:
+        prev.next = prev.next.next`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class Node {
+  constructor(value, next = null) {
+    this.value = value;
+    this.next = next;
+  }
+}
+// O(n) no random access; follow next pointers to reach node k
+function traverseTo(head, k) {
+  let curr = head;
+  for (let i = 0; i < k; i++) {
+    curr = curr.next;             // one hop per step
+  }
+  return curr;
+}
+// O(1) splice a new node in after an existing one
+function insertAfter(node, value) {
+  node.next = new Node(value, node.next);
+}
+// O(1) unlink prev.next by routing it past the target
+function deleteAfter(prev) {
+  if (prev.next !== null) {
+    prev.next = prev.next.next;
+  }
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `class Node {
+    int value;
+    Node next;
+    Node(int value, Node next) {
+        this.value = value;
+        this.next = next;
+    }
+}
+// O(n) no random access; follow next pointers to reach node k
+static Node traverseTo(Node head, int k) {
+    Node curr = head;
+    for (int i = 0; i < k; i++) {
+        curr = curr.next;         // one hop per step
+    }
+    return curr;
+}
+// O(1) splice a new node in after an existing one
+static void insertAfter(Node node, int value) {
+    node.next = new Node(value, node.next);
+}
+// O(1) unlink prev.next by routing it past the target
+static void deleteAfter(Node prev) {
+    if (prev.next != null) {
+        prev.next = prev.next.next;
+    }
+}`,
+  },
+];
+
+## Intuition
+
+An array is a row of lockers bolted in a fixed block. A **linked list** is the opposite idea: a treasure hunt. Each node is a scrap of paper holding a value _and_ directions to the next scrap — a **pointer**. The nodes can live anywhere in memory; what links them is the chain of pointers. You always start from a special pointer called **head**, which points at the first node.
+
+This flips the array's trade-offs. There is no "jump to index 5" — to reach the fifth node you must start at the head and follow the trail, one hop at a time. But once you are holding the right node, inserting or removing a neighbor is trivial: you just rewrite a couple of pointers. No sea of elements has to shift, because the nodes never move — only the arrows between them change.
+
+A **pointer** is simply a reference that says "the next node is over there." When we "reassign a pointer," we change where that arrow points.
+
+## How it works
+
+The visualization draws each node as a box with an arrow (`next`) to the following node; the final node points at `⌀` (null), meaning "end of list." Named carets under the boxes track our pointers.
+
+1. **Traverse** — to reach node `k`, start `curr` at the head and follow `next` `k` times. Each hop is one step, so reaching a deep node is **O(n)**. A `✓` badge marks nodes we have already passed.
+2. **Insert after** a node — create a new node, point its `next` at the current node's old `next`, then point the current node's `next` at the new node. Two arrows change; nothing shifts. That is **O(1)**.
+3. **Delete** a node — route the _previous_ node's `next` around the doomed node, so the chain skips it. The unlinked node is then freed. Again just one pointer changes: **O(1)**.
+
+Step through it and watch the arrows — not the boxes — do the work.
+
+## Visualizer
+
+<Visualizer
+  algorithm="linked-list-operations"
+  renderer="linkedList"
+  input="[12,34,56,78] target=1"
+/>
+
+Press **Play**, or **Step forward** to move one hop or pointer change at a time. Watch `curr` walk the list, the `+` splice a node in, and the `✕` unlink one. The number in the second box sets how far `curr` traverses before the insert.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Insert and delete are the best case at **O(1)** — _once you already hold the right node_, only a pointer or two change. But reaching that node is the worst case at **O(n)**, because there is no random access; you walk the chain. Each operation itself needs only **O(1)** extra space (a temporary pointer).
+
+## Code
+
+The same three operations, in three languages. Notice that `insert_after` and `delete_after` never loop — they just rewrite pointers — while `traverse_to` loops, and that loop is the O(n) cost.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Reassign pointers in the **right order**. When inserting, point the new node
+  at the rest of the list _before_ you point the previous node at the new one.
+  Do it backwards and you lose the reference to the remaining nodes — leaking
+  the whole tail of the list.
+</Callout>
+
+<Collapsible summary="Losing the head means losing the list">
+  The only handle you have on a singly linked list is `head`. If you overwrite
+  it without saving the old value, every node becomes unreachable. Keep a
+  temporary pointer whenever you move `head`.
+</Collapsible>
+
+<Collapsible summary="Deleting the head is a special case">
+  To delete a middle node you reroute its predecessor's `next`. But the head has
+  no predecessor, so removing it means moving `head` to `head.next` instead.
+  Many implementations use a "dummy" node before the head to avoid this special
+  case.
+</Collapsible>
+
+<Collapsible summary="Pointers cost memory, and cache misses hurt">
+  Every node stores an extra pointer, so a linked list uses more memory per
+  value than an array. And because nodes can be scattered across memory,
+  traversal jumps around instead of streaming through a contiguous block — often
+  making it slower in practice than its O(n) label suggests.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why can't you reach the 100th node of a linked list as quickly as `arr[99]` in an array?**
+
+<Collapsible summary="Show answer">
+  A linked list has no addresses to compute — the only way to a node is by
+  following `next` pointers from the head. Reaching the 100th node takes 99
+  hops, which is O(n), while an array computes the address directly in O(1).
+</Collapsible>
+
+**2. You are already holding a node and want to insert a value right after it. How many pointers change, and what is the cost?**
+
+<Collapsible summary="Show answer">
+  Two pointers change: the new node's `next` (set to the current node's old
+  next), and the current node's `next` (set to the new node). No elements shift,
+  so it is O(1).
+</Collapsible>
+
+**3. When inserting a new node, why must you set the new node's `next` _before_ updating the previous node's `next`?**
+
+<Collapsible summary="Show answer">
+  The previous node's `next` is your only link to the rest of the list. If you
+  overwrite it first, you lose that reference and cannot attach it to the new
+  node. Point the new node at the tail first, then redirect the previous node.
+</Collapsible>

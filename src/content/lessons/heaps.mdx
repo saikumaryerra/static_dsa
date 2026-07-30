@@ -1,0 +1,190 @@
+---
+title: 'Heaps'
+slug: 'heaps'
+track: 'foundations'
+order: 8
+summary: 'A binary heap is a complete tree kept in an array where every parent outranks its children, giving O(log n) insert and O(1) access to the max (or min).'
+difficulty: 'beginner'
+prerequisites: ['trees-bst', 'arrays']
+estimatedMinutes: 10
+complexity:
+  time: { best: 'O(1)', average: 'O(log n)', worst: 'O(log n)' }
+  space: { worst: 'O(1)' }
+tags: ['heaps', 'priority-queue', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class MaxHeap:
+    def __init__(self):
+        self.heap = []
+    def insert(self, value):
+        self.heap.append(value)          # add at the end
+        self._sift_up(len(self.heap) - 1)
+    def _sift_up(self, i):
+        while i > 0:
+            parent = (i - 1) // 2
+            if self.heap[i] <= self.heap[parent]:
+                break                    # parent is larger: stop
+            self.heap[i], self.heap[parent] = self.heap[parent], self.heap[i]
+            i = parent                   # keep moving up`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class MaxHeap {
+  constructor() {
+    this.heap = [];
+  }
+  insert(value) {
+    this.heap.push(value);              // add at the end
+    this.siftUp(this.heap.length - 1);
+  }
+  siftUp(i) {
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.heap[i] <= this.heap[parent]) break; // parent larger: stop
+      const t = this.heap[i];
+      this.heap[i] = this.heap[parent];
+      this.heap[parent] = t;
+      i = parent;                        // keep moving up
+    }
+  }
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.*;
+class MaxHeap {
+    private final List<Integer> heap = new ArrayList<>();
+    void insert(int value) {
+        heap.add(value);                       // add at the end
+        siftUp(heap.size() - 1);
+    }
+    private void siftUp(int i) {
+        while (i > 0) {
+            int parent = (i - 1) / 2;
+            if (heap.get(i) <= heap.get(parent)) break; // parent larger: stop
+            Collections.swap(heap, i, parent);
+            i = parent;                        // keep moving up
+        }
+    }
+}`,
+  },
+];
+
+## Intuition
+
+Picture a tournament bracket flipped upside down: the champion sits at the top, and everyone below is someone that player beat. You do not know the exact ordering of the losers, and you do not care — you only need to know who is on top. That is the deal a **heap** makes.
+
+A **binary heap** is a binary tree with one rule, the **heap property**: every parent **outranks** its children. In a **max-heap** that means every parent is greater than or equal to its children, so the largest value is always at the root. (A **min-heap** flips it: smallest on top.) Unlike a binary search tree, a heap makes no promise about left-versus-right order — it is a much weaker rule, and that weakness is exactly what makes heaps cheap to maintain.
+
+The payoff: the maximum is always sitting at the root, ready in **O(1)**, and adding a new value only has to bubble up one path, in **O(log n)**. That combination is why heaps power **priority queues** and the sorting algorithm heapsort.
+
+## How it works
+
+Two things make a heap efficient. First, it is a **complete binary tree**: every level is full except possibly the last, which fills left to right. Second, that shape lets you store the whole tree in a plain **array** with no pointers at all — the tree is implied by index arithmetic:
+
+- the node at index `i` has children at `2i + 1` and `2i + 2`,
+- and its parent is at `(i - 1) / 2` (rounded down).
+
+The visualization shows both views at once — the tree and its backing array — linked by a dashed tether so you can see that a node and its array cell are the same thing.
+
+To **insert** a value:
+
+1. **Append** it at the end of the array — the next open leaf of the complete tree.
+2. **Sift up**: compare it with its parent. If it outranks the parent (in a max-heap, if it is larger), **swap** them and repeat from the parent's position.
+3. Stop when the parent is already larger or you reach the root. At most `log n` swaps, because that is the height of the tree.
+
+Removing the max works in mirror image (move the last leaf to the root and **sift down**), but insert and sift-up are enough to see the whole idea.
+
+## Visualizer
+
+<Visualizer
+  algorithm="heap-operations"
+  renderer="heap"
+  input="[5,9,3,12,8,15]"
+/>
+
+Press **Play**, or **Step forward** to insert each value and watch it sift up. Every comparison and swap lights up in **both** the tree and the array at once — notice how swapping two tree nodes is the same as swapping two array cells. When the build finishes, the largest value has climbed to the root. Try your own list of numbers.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+A single insert appends in constant time, then sifts up at most the **height** of a complete tree, which is about `log n` — so insert is **O(log n)**, and the best case is **O(1)** when the new value is already smaller than its parent and no swaps happen. Reading the maximum is always **O(1)**: it is the root. The heap lives inside the array you already have, so a swap-based sift needs only **O(1)** extra space. (Building a heap by inserting `n` values is `O(n log n)`; a bottom-up heapify can do it in `O(n)`, a nice bonus worth knowing.)
+
+## Code
+
+An array-backed max-heap with `insert` and `siftUp` — the same append-then-bubble-up you watched, using index math instead of node pointers.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  A heap is not a sorted array and not a binary search tree. It only guarantees
+  that each parent outranks its children — siblings and cousins are unordered.
+  Do not expect an in-order walk of a heap to come out sorted; it will not.
+</Callout>
+
+<Collapsible summary="Off-by-one in the index formulas">
+  With a 0-based array, node `i`'s children are `2i + 1` and `2i + 2`, and its
+  parent is `(i - 1) / 2`. Mixing these up with the 1-based versions (`2i`, `2i
+  + 1`, `i / 2`) silently links the wrong nodes. Pick one convention and use it
+  everywhere.
+</Collapsible>
+
+<Collapsible summary="Sift up versus sift down">
+  Insert appends at the bottom and sifts **up** toward the root. Removing the
+  max moves the last leaf to the root and sifts **down** toward the leaves.
+  Using the wrong direction — sifting down after an insert — leaves the heap
+  property broken.
+</Collapsible>
+
+<Collapsible summary="Completeness is what lets you use an array">
+  The array trick only works because a heap is a *complete* tree filled left to
+  right, so there are never gaps in the array. If you allowed arbitrary holes,
+  the child/parent index math would point at empty cells and the whole scheme
+  would fall apart.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. In a max-heap stored as an array, where is the largest value, and where might the smallest be?**
+
+<Collapsible summary="Show answer">
+  The largest is always at index `0`, the root. The smallest must be a leaf (a
+  node with no children), because any parent is greater than or equal to its
+  children — but which leaf is not fixed, so you would have to scan the leaves
+  to find it.
+</Collapsible>
+
+**2. You insert `20` into the heap `[15, 9, 12, 5, 8, 3]`. Trace the sift-up.**
+
+<Collapsible summary="Show answer">
+  Append `20` at index `6`; its parent is index `2` (value `12`). `20 > 12`, swap,
+  now `20` is at index `2` with parent index `0` (value `15`). `20 > 15`, swap,
+  now `20` is at the root. Two swaps, and the new maximum has climbed to the top.
+</Collapsible>
+
+**3. Why is inserting into a heap O(log n) rather than O(n)?**
+
+<Collapsible summary="Show answer">
+  Sift-up only follows the single path from the new leaf up to the root,
+  swapping along the way. That path is as long as the tree is tall, and a
+  complete tree of `n` nodes has height about `log n` — so at most `log n`
+  comparisons and swaps, never a full scan of all `n` elements.
+</Collapsible>

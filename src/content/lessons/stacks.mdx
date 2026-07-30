@@ -1,0 +1,179 @@
+---
+title: 'Stacks'
+slug: 'stacks'
+track: 'foundations'
+order: 4
+summary: 'A LIFO collection: push and pop happen at one end, the top, and both are O(1).'
+difficulty: 'beginner'
+prerequisites: ['arrays']
+estimatedMinutes: 7
+complexity:
+  time: { best: 'O(1)', average: 'O(1)', worst: 'O(1)' }
+  space: { worst: 'O(1)' }
+tags: ['stacks', 'lifo', 'data-structures']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const codeTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `class Stack:
+    def __init__(self):
+        self._items = []
+    def push(self, value):        # add on top — O(1)
+        self._items.append(value)
+    def pop(self):                # remove from top — O(1)
+        if not self._items:
+            raise IndexError("pop from empty stack")
+        return self._items.pop()
+    def peek(self):               # look at the top without removing
+        return self._items[-1]
+    def is_empty(self):
+        return len(self._items) == 0`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `class Stack {
+  constructor() {
+    this._items = [];
+  }
+  push(value) {                   // add on top — O(1)
+    this._items.push(value);
+  }
+  pop() {                         // remove from top — O(1)
+    if (this._items.length === 0) {
+      throw new Error("pop from empty stack");
+    }
+    return this._items.pop();
+  }
+  peek() {                        // look at the top without removing
+    return this._items[this._items.length - 1];
+  }
+  isEmpty() {
+    return this._items.length === 0;
+  }
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `import java.util.ArrayDeque;
+import java.util.Deque;
+class Stack {
+    private final Deque<Integer> items = new ArrayDeque<>();
+    void push(int value) {        // add on top — O(1)
+        items.addLast(value);
+    }
+    int pop() {                   // remove from top — O(1)
+        if (items.isEmpty()) {
+            throw new IllegalStateException("pop from empty stack");
+        }
+        return items.removeLast();
+    }
+    int peek() {                  // look at the top without removing
+        return items.peekLast();
+    }
+    boolean isEmpty() {
+        return items.isEmpty();
+    }
+}`,
+  },
+];
+
+## Intuition
+
+Think of a stack of dinner plates. You add a clean plate to the **top** of the pile, and when you need one you take it from the **top** too. You never pull a plate out of the middle — the whole tower would topple. So the plate you grab is always the one you added most recently.
+
+That is a **stack**: a collection with one rule — **LIFO**, "last in, first out." The most recently added item is the first one to leave. Only the top is ever touched, which is exactly why a stack is so fast and so simple.
+
+The two operations have traditional names: **push** (add an item on top) and **pop** (remove the top item). A third, **peek**, looks at the top without removing it.
+
+## How it works
+
+The visualization draws the stack vertically, index 0 at the bottom, the newest item on top. A **top** caret always marks where the action happens.
+
+1. **Push** — place the new value on top. Because we only ever add at the top, nothing below moves. **O(1)**.
+2. **Pop** — remove the top value. Again nothing below moves. **O(1)**.
+
+Because the last item pushed sits on top, it is the first one popped. Watch the demo build the stack up by pushing several values, then tear it down by popping — the values come off in the exact reverse of the order they went on. That reversal is LIFO in action.
+
+## Visualizer
+
+<Visualizer algorithm="stack-operations" renderer="stack" input="[12,34,56]" />
+
+Press **Play**, or **Step forward** one operation at a time. The `+` marks a push, the `✕` marks a pop, and the **top** caret follows the top of the stack. Enter your own values to push — then watch them pop off in reverse.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Every stack operation touches only the top, so push, pop, and peek are all **O(1)** — best, average, and worst case alike. Each operation needs just **O(1)** extra space. (Storing n items uses O(n) memory overall, but that is the size of the data, not the cost of an operation.)
+
+## Code
+
+A stack built on the fast end of a resizable collection, in three languages. Note how `push` and `pop` map straight to adding and removing at one end — the end, where no shifting is needed.
+
+<CodeTabs tabs={codeTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Always check whether the stack is empty before you pop or peek. Popping an
+  empty stack is a classic bug — decide up front whether it should raise an
+  error or return a sentinel, and be consistent.
+</Callout>
+
+<Collapsible summary="Where stacks show up">
+  Stacks are everywhere: the **call stack** that tracks function calls, the
+  **undo** history in an editor, the back button's page history, and matching
+  brackets in a compiler. Any time you need "most recent first," reach for a
+  stack.
+</Collapsible>
+
+<Collapsible summary="Push and pop must use the same end">
+  A stack is only O(1) because both operations happen at the same end of the
+  underlying storage — the end, where no shifting is needed. If you pushed to
+  the end but popped from the front of a plain array, every pop would shift all
+  n elements and become O(n). Keep both at the top.
+</Collapsible>
+
+<Collapsible summary="Stack overflow is a real limit">
+  The program's call stack has a fixed size. Deep or infinite recursion keeps
+  pushing frames without popping them, eventually exhausting that space — the
+  famous "stack overflow" crash. It is the same LIFO structure, just managed by
+  the language runtime.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You push 1, 2, then 3 onto an empty stack, then pop once. What value comes off, and why?**
+
+<Collapsible summary="Show answer">
+  3. A stack is LIFO — last in, first out — and 3 was pushed most recently, so
+  it sits on top and is popped first.
+</Collapsible>
+
+**2. Why are both push and pop O(1) rather than O(n)?**
+
+<Collapsible summary="Show answer">
+  Both touch only the top of the stack. Nothing below the top ever moves, so the
+  cost does not depend on how many items the stack holds — it is constant, O(1).
+</Collapsible>
+
+**3. You push A, B, C, D. What sequence of pops returns them in the order D, C, B, A — and could a stack ever return them as A, B, C, D?**
+
+<Collapsible summary="Show answer">
+  Four pops in a row give D, C, B, A — the reverse of insertion order, which is
+  exactly what LIFO produces. Getting A, B, C, D back would require removing the
+  bottom item first, which a stack cannot do; that is a queue's job.
+</Collapsible>
