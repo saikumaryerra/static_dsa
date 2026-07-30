@@ -65,6 +65,12 @@ export type Trace<TState = unknown> = Step<TState>[];
 export interface Algorithm<TInput, TState> {
   /** Registry id, e.g. `'binary-search'`. */
   id: string;
+  /**
+   * Human label for this algorithm, e.g. `"Binary search on a sorted array"`.
+   * Used as the SVG `<title>` and to compose the section `aria-label`
+   * (architecture §1). The only metadata M3 adds to `Algorithm`.
+   */
+  label: string;
   /** Runs the algorithm and emits every meaningful state change as a `Step`. */
   run(input: TInput): Trace<TState>;
   /** A sensible starting input for the lesson's default view. */
@@ -77,15 +83,49 @@ export interface Algorithm<TInput, TState> {
 }
 
 /**
+ * Options common to the build-time still and the live mount (architecture §2).
+ */
+export interface RenderOpts {
+  /** SVG `<title>` text — the per-algorithm label (defaults handled by caller). */
+  title?: string;
+  /**
+   * Unique-per-instance seed for the `<title>`/`<desc>` element ids, so multiple
+   * visualizers on one page (e.g. the dev gallery) never collide on `aria-labelledby`.
+   * `renderStatic` defaults it when omitted (unit tests don't need uniqueness).
+   */
+  idBase?: string;
+}
+
+/**
  * A renderer for one data-structure family. Dumb by contract: it draws exactly
  * the `Step` it is handed and runs no algorithm logic (site spec §11.5).
  * `render` is idempotent — the same step in yields the same SVG out.
  */
 export interface Renderer<TState> {
-  /** Creates the SVG scaffold inside `container`. Call once before `render`. */
-  mount(container: HTMLElement): void;
+  /**
+   * Creates the SVG scaffold inside `container`. Call once before `render`.
+   * `opts.title` sets the per-algorithm `<title>` (architecture §2 TD-1).
+   */
+  mount(container: HTMLElement, opts?: RenderOpts): void;
   /** Draws exactly `step`; idempotent. */
   render(step: Step<TState>): void;
   /** Tears down DOM/listeners created by `mount`. */
   destroy(): void;
+}
+
+/**
+ * The registry-facing export shape for every renderer (architecture §2). Bundles
+ * the client DOM path (`create`) with the build/still/test path (`renderStatic`):
+ * both consume the same `core/svg` + `core/ids` + `core/highlight`, so the still
+ * is exactly `trace[0]` by construction and both paths share one geometry source.
+ */
+export interface RendererModule<TState> {
+  /** Client path: constructs a fresh DOM {@link Renderer}. */
+  create(): Renderer<TState>;
+  /**
+   * Build/still/test path: renders `step` to a complete, DOM-free `<svg>` string.
+   * Called at build time by the Visualizer frontmatter (zero client JS) and by
+   * the renderer unit tests (Node, no jsdom).
+   */
+  renderStatic(step: Step<TState>, opts: RenderOpts): string;
 }

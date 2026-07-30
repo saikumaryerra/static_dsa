@@ -9,7 +9,7 @@
  */
 import type { Algorithm, Highlight, Step, Trace } from '../core/types';
 import { snapshot } from '../core/snapshot';
-import { cellId } from '../renderers/ArrayRenderer';
+import { cellId } from '../core/ids';
 
 /** Typed input for binary search: a sorted array and the value to find. */
 export interface BinarySearchInput {
@@ -180,6 +180,7 @@ function parseInput(raw: string): BinarySearchInput | { error: string } {
 /** The registered Binary Search algorithm. */
 export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   id: 'binary-search',
+  label: 'Binary search on a sorted array',
   run,
   defaultInput: () => ({ array: [1, 3, 5, 7, 9, 11], target: 7 }),
   parseInput,

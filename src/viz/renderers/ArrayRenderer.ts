@@ -1,28 +1,39 @@
 /**
- * ArrayRenderer — dumb SVG renderer for an array with a search window
- * (site spec §11.5, architecture §6). It draws exactly the `Step` it is handed
- * and runs no algorithm logic. Imports only core types (architecture §8).
+ * ArrayRenderer — SVG renderer for an array, a search window, and a bars variant
+ * (site spec §11.5, architecture §4.1). Dumb by contract: draws exactly the
+ * `Step` it is handed and runs no algorithm logic.
  *
- * Id scheme (the contract algorithms rely on): the cell at index `n` is the
- * group `i${n}`. Algorithms name highlight targets with the exported
- * {@link cellId} helper so the two layers agree on ids without sharing
- * structure. Consumes highlight kinds: `range` (the lo..hi window), `active`
- * (the mid cell being read), `found` (the hit).
+ * TState: {@link ArrayWindowState} — an array plus optional search/sort extras.
+ * Id scheme: the cell at index `n` is the group `cellId(n)` (`"i3"`). Algorithms
+ * name highlight targets with `cellId` from `core/ids` so the two layers agree
+ * without sharing structure.
  *
- * Motion: the renderer only sets target classes/attributes; color/position
- * tween via CSS `transition` on the cell (see Visualizer's scoped styles).
- * `tokens.css` already collapses `--duration-*` under `prefers-reduced-motion`,
- * so the cell snaps automatically — the renderer needs no `matchMedia` branch.
+ * Honored highlights (via `core/highlight`): `range` (live window, lo/hi
+ * bracket), `active` (probe, named caret — default "mid"), `found` (✓), plus the
+ * general `compare` (tie-line), `swap` (↔), `insert` (+), `delete` (✕), `pointer`
+ * (named caret) so Search + Sorting + plain-array lessons all reuse this family.
+ *
+ * Two exports: {@link arrayRenderer} (boxed cells) and {@link barsRenderer}
+ * (value-scaled bars, `renderer="bars"`) — same ids/geometry/highlights.
+ *
+ * DOM path keeps M2's persistent cells (stable ids) so CSS tweens colour between
+ * steps; only the marker overlay is rebuilt each step. `renderStatic` reuses the
+ * SAME class + marker logic through `core/svg`, so still == hydrated step 0.
+ * Reduced motion is inherited from the token layer — no `matchMedia` here.
  */
-import type { Renderer, Step } from '../core/types';
+import type { Renderer, RenderOpts, Step } from '../core/types';
+import { cellId } from '../core/ids';
+import { applyHighlights } from '../core/highlight';
+import { esc, group, line, svgRoot, text } from '../core/svg';
 
-/** SVG namespace for `createElementNS`. */
+/** SVG namespace for `createElementNS` (client DOM path). */
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
- * State shape ArrayRenderer draws: the array plus an optional search window
- * (`lo`/`hi` bounds, the `mid` probe, and the `foundIndex`). All window fields
- * are optional so the renderer can also draw a plain array if reused later.
+ * State ArrayRenderer draws: the array plus optional search/sort extras. All
+ * extras are optional so the renderer also draws a plain array. The renderer is
+ * driven purely by `step.highlights`; these fields are informational for
+ * algorithms that also want to carry a window.
  */
 export interface ArrayWindowState {
   array: number[];
@@ -30,45 +41,274 @@ export interface ArrayWindowState {
   hi?: number;
   mid?: number | null;
   foundIndex?: number | null;
+  comparing?: number[];
+  swapping?: number[];
 }
 
-/** Stable renderer id for the array cell at index `i` (the algorithm↔renderer contract). */
-export const cellId = (i: number): string => `i${i}`;
+/** Draw variant: boxed cells or value-scaled bars. */
+type Variant = 'cells' | 'bars';
 
 // --- SVG geometry (viewBox units; the frame scales it responsively) ---
 const CELL = 54;
 const GAP = 8;
 const PAD_X = 10;
-const TOP = 26; // reserved band above cells for the "mid" caret / ✓ marker
-const CELL_Y = TOP + 4;
+const CELL_Y = 30; // top of a boxed cell (leaves a 26u marker band above)
 const CELL_H = 54;
-const BRACKET_Y = CELL_Y + CELL_H + 6; // range underbar
-const INDEX_Y = CELL_Y + CELL_H + 22; // index number under each cell
-const MARKER_Y = INDEX_Y + 18; // lo / hi labels
+const BASELINE = CELL_Y + CELL_H; // bar/box bottom edge (84)
+const BAR_MAX_H = CELL_H; // tallest bar = a full cell height
+const BRACKET_Y = BASELINE + 6; // range underbar
+const INDEX_Y = BASELINE + 22; // index number under each cell
+const MARKER_Y = BASELINE + 38; // lo / hi labels
+const CARET_Y = 16; // top band: mid caret / ✓ / +, ✕
 const HEIGHT = MARKER_Y + 10;
 
 const cellX = (i: number): number => PAD_X + i * (CELL + GAP);
 const cellCenterX = (i: number): number => cellX(i) + CELL / 2;
+const viewWidth = (n: number): number =>
+  Math.max(PAD_X * 2 + Math.max(n, 1) * (CELL + GAP) - GAP, 1);
+const viewBoxOf = (n: number): string => `0 0 ${viewWidth(n)} ${HEIGHT}`;
 
-/** Module-level counter so each instance's `<title>`/`<desc>` ids are unique. */
-let instanceCounter = 0;
+/** Index behind a `cellId` string (`"i3"` → 3). */
+const idIndex = (id: string): number => Number(id.slice(1));
+
+/** Bar height + top for a value under the current scale (bars variant). */
+function barMetrics(value: number, maxVal: number): { y: number; h: number } {
+  const h = Math.max(6, Math.round((Math.max(value, 0) / maxVal) * BAR_MAX_H));
+  return { y: BASELINE - h, h };
+}
+
+/** Max magnitude for the bars scale (≥ 1 so we never divide by zero). */
+const scaleMax = (array: number[]): number =>
+  Math.max(1, ...array.map((v) => Math.max(v, 0)));
 
 /**
- * Renders an array + search window to responsive SVG. Cell groups persist
- * across renders (stable ids) so CSS animates color changes; only the marker
- * overlay (lo/hi/mid labels, range bar, ✓) is rebuilt each step.
+ * Per-index CSS class list (M2 semantics, generalized). Base state comes from
+ * `applyHighlights` (precedence-correct); `is-eliminated` keeps M2's rule: a
+ * non-found, non-active cell is dimmed when it is outside an existing range, or
+ * — when no range remains — always (the collapsed-window "not found" state).
  */
-export class ArrayRenderer implements Renderer<ArrayWindowState> {
+function cellClasses(step: Step<ArrayWindowState>, n: number): string[] {
+  const highlights = step.highlights ?? [];
+  const base = applyHighlights(highlights);
+  const rangeIds = new Set<string>();
+  for (const h of highlights) {
+    if (h.kind === 'range') for (const id of h.ids) rangeIds.add(id);
+  }
+  const hasRange = rangeIds.size > 0;
+
+  const out: string[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const id = cellId(i);
+    const cls = base.get(id);
+    const isFound = cls === 'is-found';
+    const isActive = cls === 'is-active';
+    const inRange = rangeIds.has(id);
+    const eliminated = !isFound && !isActive && (hasRange ? !inRange : true);
+    out.push(
+      ['viz-cell', cls, eliminated ? 'is-eliminated' : undefined]
+        .filter(Boolean)
+        .join(' '),
+    );
+  }
+  return out;
+}
+
+/** One boxed-cell / bar as an SVG string (renderStatic path). */
+function cellMarkup(
+  i: number,
+  value: number,
+  cls: string,
+  variant: Variant,
+  maxVal: number,
+): string {
+  const { y, h } =
+    variant === 'bars' ? barMetrics(value, maxVal) : { y: CELL_Y, h: CELL_H };
+  const rect = `<rect class="viz-cell__rect" x="${cellX(i)}" y="${y}" width="${CELL}" height="${h}" rx="6"/>`;
+  const valueY = variant === 'bars' ? y - 6 : CELL_Y + CELL_H / 2;
+  const valueBaseline = variant === 'bars' ? 'auto' : 'central';
+  const valueText = text(value, {
+    class: 'viz-cell__value',
+    x: cellCenterX(i),
+    y: valueY,
+    'text-anchor': 'middle',
+    'dominant-baseline': valueBaseline,
+  });
+  const indexText = text(i, {
+    class: 'viz-cell__index',
+    x: cellCenterX(i),
+    y: INDEX_Y,
+    'text-anchor': 'middle',
+  });
+  return `<g id="${esc(cellId(i))}" class="${esc(cls)}">${rect}${valueText}${indexText}</g>`;
+}
+
+/** All cells for a step as one `<g class="viz-cells">` string. */
+function cellsMarkup(step: Step<ArrayWindowState>, variant: Variant): string {
+  const { array } = step.state;
+  const classes = cellClasses(step, array.length);
+  const maxVal = scaleMax(array);
+  const cells = array
+    .map((v, i) => cellMarkup(i, v, classes[i]!, variant, maxVal))
+    .join('');
+  return group(cells, { class: 'viz-cells' });
+}
+
+/**
+ * Marker overlay (the non-color layer, design §2.4). Every highlight kind draws
+ * its required marker so no `--hl-*` colour ever appears without a paired,
+ * colour-independent cue (design §3.2 QA gate).
+ */
+function markersMarkup(step: Step<ArrayWindowState>): string {
+  const highlights = step.highlights ?? [];
+  let out = '';
+
+  // range → underbar bracket + lo/hi labels across the window span.
+  const rangeIds = highlights
+    .filter((h) => h.kind === 'range')
+    .flatMap((h) => h.ids)
+    .map(idIndex);
+  if (rangeIds.length > 0) {
+    const lo = Math.min(...rangeIds);
+    const hi = Math.max(...rangeIds);
+    out += line({
+      class: 'viz-range-bar',
+      x1: cellX(lo),
+      x2: cellX(hi) + CELL,
+      y1: BRACKET_Y,
+      y2: BRACKET_Y,
+    });
+    out += text('lo', {
+      class: 'viz-marker',
+      x: cellCenterX(lo),
+      y: MARKER_Y,
+      'text-anchor': 'middle',
+    });
+    if (hi !== lo) {
+      out += text('hi', {
+        class: 'viz-marker',
+        x: cellCenterX(hi),
+        y: MARKER_Y,
+        'text-anchor': 'middle',
+      });
+    }
+  }
+
+  for (const h of highlights) {
+    if (h.kind === 'active' || h.kind === 'pointer') {
+      // Named caret above each cell (default "mid" keeps M2's binary-search cue).
+      const label =
+        typeof h.meta?.['label'] === 'string'
+          ? (h.meta['label'] as string)
+          : h.kind === 'active'
+            ? 'mid'
+            : 'p';
+      const cls = h.kind === 'active' ? 'viz-mid-label' : 'viz-caret';
+      for (const id of h.ids) {
+        out += text(label, {
+          class: cls,
+          x: cellCenterX(idIndex(id)),
+          y: CARET_Y,
+          'text-anchor': 'middle',
+        });
+      }
+    } else if (h.kind === 'found') {
+      for (const id of h.ids) {
+        out += text('✓', {
+          class: 'viz-found-mark',
+          x: cellCenterX(idIndex(id)),
+          y: CARET_Y,
+          'text-anchor': 'middle',
+        });
+      }
+    } else if (h.kind === 'insert') {
+      for (const id of h.ids) {
+        out += text('+', {
+          class: 'viz-insert-mark',
+          x: cellCenterX(idIndex(id)),
+          y: CARET_Y,
+          'text-anchor': 'middle',
+        });
+      }
+    } else if (h.kind === 'delete') {
+      for (const id of h.ids) {
+        const i = idIndex(id);
+        out += text('✕', {
+          class: 'viz-delete-mark',
+          x: cellCenterX(i),
+          y: CARET_Y,
+          'text-anchor': 'middle',
+        });
+        out += line({
+          class: 'viz-strike',
+          x1: cellX(i) + 8,
+          x2: cellX(i) + CELL - 8,
+          y1: CELL_Y + CELL_H / 2,
+          y2: CELL_Y + CELL_H / 2,
+        });
+      }
+    } else if (h.kind === 'compare' && h.ids.length >= 2) {
+      // Dashed tie-line joining the two compared cells (their top band).
+      const a = idIndex(h.ids[0]!);
+      const b = idIndex(h.ids[1]!);
+      out += line({
+        class: 'viz-tie',
+        x1: cellCenterX(a),
+        x2: cellCenterX(b),
+        y1: CARET_Y + 4,
+        y2: CARET_Y + 4,
+      });
+    } else if (h.kind === 'swap' && h.ids.length >= 2) {
+      const a = idIndex(h.ids[0]!);
+      const b = idIndex(h.ids[1]!);
+      out += text('↔', {
+        class: 'viz-swap-mark',
+        x: (cellCenterX(a) + cellCenterX(b)) / 2,
+        y: CARET_Y,
+        'text-anchor': 'middle',
+      });
+    }
+  }
+  return out;
+}
+
+/** Full still for a step + variant (shared by both `renderStatic` exports). */
+function renderArrayStatic(
+  step: Step<ArrayWindowState>,
+  opts: RenderOpts,
+  variant: Variant,
+): string {
+  const n = step.state.array.length;
+  const idBase = opts.idBase ?? 'viz';
+  return svgRoot(
+    {
+      viewBox: viewBoxOf(n),
+      title: opts.title ?? '',
+      desc: step.explanation,
+      titleId: `${idBase}-t`,
+      descId: `${idBase}-d`,
+    },
+    cellsMarkup(step, variant) +
+      group(markersMarkup(step), { class: 'viz-markers' }),
+  );
+}
+
+/** Monotonic seed so each mounted instance gets unique title/desc ids. */
+let domInstance = 0;
+
+/**
+ * DOM renderer. Cells persist across steps (stable ids → CSS colour tween); the
+ * marker overlay is rebuilt each step from the same pure `markersMarkup`.
+ */
+class ArrayDomRenderer implements Renderer<ArrayWindowState> {
   private svg: SVGSVGElement | null = null;
   private cellsGroup: SVGGElement | null = null;
   private markersGroup: SVGGElement | null = null;
   private descEl: SVGDescElement | null = null;
-  /** Length of the array the persistent cell groups were built for. */
   private builtLength = -1;
-  private readonly uid = `ar${(instanceCounter += 1)}`;
+  private readonly uid = `ar${(domInstance += 1)}`;
+  constructor(private readonly variant: Variant) {}
 
-  /** Creates the responsive `<svg>` scaffold inside `container`. */
-  mount(container: HTMLElement): void {
+  mount(container: HTMLElement, opts: RenderOpts = {}): void {
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('role', 'img');
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -79,7 +319,7 @@ export class ArrayRenderer implements Renderer<ArrayWindowState> {
 
     const titleEl = document.createElementNS(SVG_NS, 'title');
     titleEl.setAttribute('id', `${this.uid}-t`);
-    titleEl.textContent = 'Binary search on a sorted array';
+    titleEl.textContent = opts.title ?? '';
     const descEl = document.createElementNS(SVG_NS, 'desc');
     descEl.setAttribute('id', `${this.uid}-d`);
 
@@ -97,27 +337,29 @@ export class ArrayRenderer implements Renderer<ArrayWindowState> {
     this.markersGroup = markersGroup;
   }
 
-  /** Draws exactly `step` (idempotent). */
   render(step: Step<ArrayWindowState>): void {
     if (!this.svg || !this.cellsGroup || !this.markersGroup) return;
     const { array } = step.state;
 
-    // (Re)build persistent cell groups only when the array length changed.
     if (this.builtLength !== array.length) {
       this.buildCells(array);
       this.builtLength = array.length;
     } else {
-      this.updateCellValues(array);
+      this.updateCells(array);
     }
 
-    this.applyHighlights(step);
-    this.drawMarkers(step.state);
+    const classes = cellClasses(step, array.length);
+    for (let i = 0; i < array.length; i += 1) {
+      const cell = this.cellsGroup.querySelector<SVGGElement>(
+        `#${CSS.escape(cellId(i))}`,
+      );
+      if (cell) cell.setAttribute('class', classes[i]!);
+    }
 
-    // Root <desc> mirrors the step explanation so AT users get the meaning.
+    this.markersGroup.innerHTML = markersMarkup(step);
     if (this.descEl) this.descEl.textContent = step.explanation;
   }
 
-  /** Removes the SVG and clears cached references. */
   destroy(): void {
     this.svg?.remove();
     this.svg = null;
@@ -127,153 +369,47 @@ export class ArrayRenderer implements Renderer<ArrayWindowState> {
     this.builtLength = -1;
   }
 
-  /** Builds fresh persistent cell groups (rect + value + index) with stable ids. */
   private buildCells(array: number[]): void {
-    const group = this.cellsGroup!;
-    group.replaceChildren();
-    const width = PAD_X * 2 + Math.max(array.length, 1) * (CELL + GAP) - GAP;
-    this.svg!.setAttribute('viewBox', `0 0 ${Math.max(width, 1)} ${HEIGHT}`);
-
-    array.forEach((value, i) => {
-      const cell = document.createElementNS(SVG_NS, 'g');
-      cell.setAttribute('id', cellId(i));
-      cell.setAttribute('class', 'viz-cell');
-
-      const rect = document.createElementNS(SVG_NS, 'rect');
-      rect.setAttribute('class', 'viz-cell__rect');
-      rect.setAttribute('x', String(cellX(i)));
-      rect.setAttribute('y', String(CELL_Y));
-      rect.setAttribute('width', String(CELL));
-      rect.setAttribute('height', String(CELL_H));
-      rect.setAttribute('rx', '6');
-
-      const valueText = document.createElementNS(SVG_NS, 'text');
-      valueText.setAttribute('class', 'viz-cell__value');
-      valueText.setAttribute('x', String(cellCenterX(i)));
-      valueText.setAttribute('y', String(CELL_Y + CELL_H / 2));
-      valueText.setAttribute('text-anchor', 'middle');
-      valueText.setAttribute('dominant-baseline', 'central');
-      valueText.textContent = String(value);
-
-      const indexText = document.createElementNS(SVG_NS, 'text');
-      indexText.setAttribute('class', 'viz-cell__index');
-      indexText.setAttribute('x', String(cellCenterX(i)));
-      indexText.setAttribute('y', String(INDEX_Y));
-      indexText.setAttribute('text-anchor', 'middle');
-      indexText.textContent = String(i);
-
-      cell.append(rect, valueText, indexText);
-      group.appendChild(cell);
-    });
+    const groupEl = this.cellsGroup!;
+    groupEl.replaceChildren();
+    this.svg!.setAttribute('viewBox', viewBoxOf(array.length));
+    // Reuse the pure string builder for one geometry source, then adopt nodes.
+    groupEl.innerHTML = array
+      .map((v, i) =>
+        cellMarkup(i, v, 'viz-cell', this.variant, scaleMax(array)),
+      )
+      .join('');
   }
 
-  /** Updates cell value text in place (same length, e.g. re-render of same trace). */
-  private updateCellValues(array: number[]): void {
-    const group = this.cellsGroup!;
+  private updateCells(array: number[]): void {
+    const groupEl = this.cellsGroup!;
+    const maxVal = scaleMax(array);
     array.forEach((value, i) => {
-      const valueText = group.querySelector(
-        `#${CSS.escape(cellId(i))} .viz-cell__value`,
-      );
+      const cell = groupEl.querySelector(`#${CSS.escape(cellId(i))}`);
+      if (!cell) return;
+      const valueText = cell.querySelector('.viz-cell__value');
       if (valueText) valueText.textContent = String(value);
+      if (this.variant === 'bars') {
+        const rect = cell.querySelector('.viz-cell__rect');
+        const { y, h } = barMetrics(value, maxVal);
+        rect?.setAttribute('y', String(y));
+        rect?.setAttribute('height', String(h));
+        valueText?.setAttribute('y', String(y - 6));
+      }
     });
-  }
-
-  /** Toggles per-cell state classes from the step's highlights + window. */
-  private applyHighlights(step: Step<ArrayWindowState>): void {
-    const group = this.cellsGroup!;
-    const highlights = step.highlights ?? [];
-    const rangeIds = new Set<string>();
-    const activeIds = new Set<string>();
-    const foundIds = new Set<string>();
-    let hasRange = false;
-    for (const h of highlights) {
-      if (h.kind === 'range') {
-        hasRange = true;
-        h.ids.forEach((id) => rangeIds.add(id));
-      } else if (h.kind === 'active') {
-        h.ids.forEach((id) => activeIds.add(id));
-      } else if (h.kind === 'found') {
-        h.ids.forEach((id) => foundIds.add(id));
-      }
-    }
-
-    for (let i = 0; i < this.builtLength; i += 1) {
-      const id = cellId(i);
-      const cell = group.querySelector<SVGGElement>(`#${CSS.escape(id)}`);
-      if (!cell) continue;
-      const inRange = rangeIds.has(id);
-      const isActive = activeIds.has(id);
-      const isFound = foundIds.has(id);
-      // Eliminated = discarded from the search: outside an existing range, or
-      // (when no range remains) every non-answer cell. Dimming is a non-color
-      // cue so the window reads without relying on hue (design §3.4).
-      const eliminated = !isFound && (hasRange ? !inRange : true);
-
-      cell.classList.toggle('is-range', inRange && !isActive && !isFound);
-      cell.classList.toggle('is-active', isActive && !isFound);
-      cell.classList.toggle('is-found', isFound);
-      cell.classList.toggle('is-eliminated', eliminated && !isActive);
-    }
-  }
-
-  /** Rebuilds the marker overlay: lo/hi/mid labels, range underbar, ✓ on found. */
-  private drawMarkers(state: ArrayWindowState): void {
-    const group = this.markersGroup!;
-    group.replaceChildren();
-    const { lo, hi, mid, foundIndex } = state;
-    const last = this.builtLength - 1;
-    const within = (i: number | null | undefined): i is number =>
-      typeof i === 'number' && i >= 0 && i <= last;
-
-    // Range underbar bracket spanning lo..hi (drawn only for a non-empty window).
-    if (within(lo) && within(hi) && lo <= hi) {
-      const bar = document.createElementNS(SVG_NS, 'line');
-      bar.setAttribute('class', 'viz-range-bar');
-      bar.setAttribute('x1', String(cellX(lo)));
-      bar.setAttribute('x2', String(cellX(hi) + CELL));
-      bar.setAttribute('y1', String(BRACKET_Y));
-      bar.setAttribute('y2', String(BRACKET_Y));
-      group.appendChild(bar);
-
-      group.appendChild(this.label('lo', cellCenterX(lo), MARKER_Y));
-      // Avoid stacking "lo"/"hi" on the same cell when the window is one wide.
-      if (hi !== lo) {
-        group.appendChild(this.label('hi', cellCenterX(hi), MARKER_Y));
-      }
-    }
-
-    // "mid" caret above the probe cell (the non-color pairing for `active`).
-    if (within(mid)) {
-      group.appendChild(
-        this.label('mid', cellCenterX(mid), 16, 'viz-mid-label'),
-      );
-    }
-
-    // ✓ glyph above the found cell (the non-color pairing for `found`).
-    if (within(foundIndex)) {
-      const check = this.label(
-        '✓',
-        cellCenterX(foundIndex),
-        16,
-        'viz-found-mark',
-      );
-      group.appendChild(check);
-    }
-  }
-
-  /** Creates a small centered `<text>` marker. */
-  private label(
-    text: string,
-    x: number,
-    y: number,
-    className = 'viz-marker',
-  ): SVGTextElement {
-    const el = document.createElementNS(SVG_NS, 'text');
-    el.setAttribute('class', className);
-    el.setAttribute('x', String(x));
-    el.setAttribute('y', String(y));
-    el.setAttribute('text-anchor', 'middle');
-    el.textContent = text;
-    return el;
   }
 }
+
+/** Boxed-cell array renderer (`renderer="array"`). */
+export const arrayRenderer = {
+  create: () => new ArrayDomRenderer('cells'),
+  renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
+    renderArrayStatic(step, opts, 'cells'),
+};
+
+/** Value-scaled bars renderer (`renderer="bars"`); same ids/geometry (§4.1). */
+export const barsRenderer = {
+  create: () => new ArrayDomRenderer('bars'),
+  renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
+    renderArrayStatic(step, opts, 'bars'),
+};

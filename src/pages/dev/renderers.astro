@@ -1,0 +1,122 @@
+---
+/**
+ * Renderer gallery — DEV ONLY visual-regression surface (design §4, architecture §5).
+ *
+ * Every renderer is rendered through the REAL `<Visualizer>` (the production
+ * path) with a hand-authored sample that exercises ≥ 1 highlight. Stacked single
+ * column so light/dark, narrow/wide diffs are easy to scan.
+ *
+ * PROD-GATED: in a production build NONE of the `<Visualizer>` islands render,
+ * so NO renderer chunk (and none of the dev fixtures) is referenced by any
+ * shipped page — the no-ship guarantee (architecture §5 / design §4). DEVIATION:
+ * the architect suggested `Astro.rewrite('/404')`, but on a prerendered static
+ * page that accesses `Astro.request.headers` and emits a build warning (a §18 DoD
+ * violation). Conditional render is the equivalent, warning-free gate (the design
+ * SPEC-GAP explicitly allows "drop the page" when stricter). Not a lesson (lives
+ * outside `src/content`).
+ */
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Visualizer from '../../viz/Visualizer.astro';
+
+/** Dev-only: production builds render a stub with no renderer islands. */
+const isDev = import.meta.env.DEV;
+
+/** One gallery row: renderer name, the algorithm+renderer ids, and its sample. */
+const samples: {
+  name: string;
+  algorithm: string;
+  renderer: string;
+  input?: string;
+}[] = [
+  {
+    name: 'Array',
+    algorithm: 'binary-search',
+    renderer: 'array',
+    input: '[1,3,5,7,9,11] target=7',
+  },
+  {
+    name: 'Bars',
+    algorithm: 'linear-search',
+    renderer: 'bars',
+    input: '[8,3,5,9,1,7] target=9',
+  },
+  { name: 'Linked list', algorithm: 'demo-linkedlist', renderer: 'linkedList' },
+  { name: 'Stack', algorithm: 'demo-stack', renderer: 'stack' },
+  { name: 'Queue (circular)', algorithm: 'demo-queue', renderer: 'queue' },
+  { name: 'Tree (BST)', algorithm: 'demo-tree', renderer: 'tree' },
+  { name: 'Heap', algorithm: 'demo-heap', renderer: 'heap' },
+  { name: 'Graph', algorithm: 'demo-graph', renderer: 'graph' },
+  { name: 'Call stack', algorithm: 'demo-callstack', renderer: 'callStack' },
+  { name: 'Chart (Big-O)', algorithm: 'demo-chart', renderer: 'chart' },
+];
+---
+
+<BaseLayout
+  title="Renderer gallery (dev) · LearnDSA"
+  description="Dev-only renderer gallery — not shipped to production."
+>
+  {
+    /* Plain div, not <main>: BaseLayout already renders the page's <main id="main">. */
+  }
+  <div class="dev-gallery">
+    <header class="dev-gallery__head">
+      <h1>Renderer gallery</h1>
+      <p class="dev-gallery__note">
+        Dev-only. Not shipped to production. Each sample runs through the real
+        Visualizer, exercising at least one highlight.
+      </p>
+    </header>
+
+    {
+      isDev ? (
+        samples.map((sample) => (
+          <section class="dev-gallery__row">
+            <h2>
+              {sample.name} ({sample.renderer})
+            </h2>
+            <p class="dev-gallery__ids">
+              algorithm="{sample.algorithm}" renderer="{sample.renderer}"
+            </p>
+            <Visualizer
+              algorithm={sample.algorithm}
+              renderer={sample.renderer}
+              input={sample.input}
+              allowCustomInput={false}
+              showMetrics={true}
+            />
+          </section>
+        ))
+      ) : (
+        <p>This page is available in development only.</p>
+      )
+    }
+  </div>
+</BaseLayout>
+
+<style>
+  .dev-gallery {
+    max-width: var(--container-max);
+    margin-inline: auto;
+    padding: var(--space-8) var(--space-4);
+  }
+
+  .dev-gallery__head {
+    margin-bottom: var(--space-8);
+  }
+
+  .dev-gallery__note {
+    color: var(--text-muted);
+    margin-top: var(--space-2);
+  }
+
+  .dev-gallery__row {
+    margin-block: var(--space-12);
+  }
+
+  .dev-gallery__ids {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    margin-top: var(--space-1);
+  }
+</style>
