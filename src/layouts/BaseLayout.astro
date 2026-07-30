@@ -1,14 +1,23 @@
 ---
 /**
- * BaseLayout — document shell for every page (site spec §8).
+ * BaseLayout — document shell and single head hub for every page (spec §8, §14;
+ * M5 architecture §2).
  *
  * Props:
- * - `title`       full document title (pages compose their own, e.g. "Glossary · LearnDSA").
- * - `description` meta description, also used for Open Graph.
+ * - `title`         full document title (pages compose their own, e.g. "Glossary · LearnDSA").
+ * - `description`   meta description, also used for Open Graph/Twitter.
+ * - `canonicalPath` path for the canonical/OG URL (default: the current pathname).
+ * - `ogType`        Open Graph type — 'website' (default) or 'article' (lessons).
+ * - `ogImage`       site-relative image path (default `/og-default.png`), resolved
+ *                   to an absolute URL via `Astro.site`.
  *
- * Provides: head metadata (description, canonical, OG/Twitter tags), the pre-paint
- * theme script (designer FOUC spec, verbatim), skip-to-content link, SiteHeader,
- * the `main` landmark wrapping the page slot, and SiteFooter.
+ * This layout owns EVERY head tag from a single source of truth: pages never write
+ * their own `<title>`/`<meta>`; they pass props and inject extra head elements
+ * (JSON-LD, `noindex`) through the named `head` slot (arch §2.3).
+ *
+ * Provides: head metadata (description, canonical, full OG/Twitter tags), the
+ * pre-paint theme script (designer FOUC spec, verbatim), skip-to-content link,
+ * SiteHeader, the `main` landmark wrapping the page slot, and SiteFooter.
  */
 import '../styles/global.css';
 import SiteHeader from '../components/SiteHeader.astro';
@@ -17,12 +26,26 @@ import SiteFooter from '../components/SiteFooter.astro';
 interface Props {
   title: string;
   description: string;
+  canonicalPath?: string;
+  ogType?: 'website' | 'article';
+  ogImage?: string;
 }
 
-const { title, description } = Astro.props;
+const {
+  title,
+  description,
+  canonicalPath,
+  ogType = 'website',
+  // SPEC-GAP (arch §5): §14 "OG images" is satisfied dependency-free by one static
+  // 1200×630 default; per-page/per-lesson OG generation is deferred (would need a
+  // heavy build dep). Swap this default or pass `ogImage` once branded art lands.
+  ogImage = '/og-default.png',
+} = Astro.props;
 
 // Astro.site is set in astro.config.mjs; §14 requires absolute canonical URLs.
-const canonical = new URL(Astro.url.pathname, Astro.site);
+// canonicalPath lets pages override the self-referential default (e.g. 404 → "/").
+const canonical = new URL(canonicalPath ?? Astro.url.pathname, Astro.site);
+const ogImageUrl = new URL(ogImage, Astro.site);
 ---
 
 <!doctype html>
@@ -49,12 +72,19 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <link rel="canonical" href={canonical} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta name="generator" content={Astro.generator} />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="LearnDSA" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <!-- Per-page head injection (JSON-LD, 404 noindex) — arch §2.3. Every meta/OG
+         tag above is emitted ONCE from props; pages add head tags only via this slot. -->
+    <slot name="head" />
     <!-- Without JS the CSS prefers-color-scheme fallback themes the page, so the
          toggle would be a dead control — hide it (designer spec: no-JS behavior). -->
     <noscript>

@@ -1,13 +1,26 @@
 ---
 /**
- * Home page (site spec §8 "Home page", designer M1 wireframe).
+ * Home page (site spec §8 "Home page", M1 wireframe + M5 design §3 polish).
  *
  * Sections: hero (value prop + subhead + primary CTA to /learn + secondary link),
  * three feature blurbs (interactive / beginner-friendly / free), and two track
  * cards linking to /learn. Header/footer/skip-link come from BaseLayout.
- * /learn, /about and /glossary are built in later milestones (M2/M4/M5).
+ *
+ * M5: the track-card counts, total minutes, difficulty spread, AND the "N lessons"
+ * heading are DERIVED from the published lessons collection (design §3.5) — never
+ * hardcoded, so they can never drift from the real curriculum. Optional site-level
+ * WebSite JSON-LD is injected via the BaseLayout head slot (arch §3.3).
  */
+import { getCollection } from 'astro:content';
+import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { webSiteJsonLd } from '../lib/structured-data';
+
+const published = await getCollection('lessons', ({ data }) => data.published);
+const totalLessons = published.length;
+
+// WebSite JSON-LD (arch §3.3): static, zero client JS. Astro.site is always set.
+const jsonLd = webSiteJsonLd(Astro.site!);
 
 interface Feature {
   title: string;
@@ -46,40 +59,76 @@ const features: Feature[] = [
 ];
 
 interface Track {
+  id: 'foundations' | 'algorithms';
   label: string;
   title: string;
   summary: string;
-  meta: string;
 }
 
-const tracks: Track[] = [
+/** Static presentation for each track; counts/minutes/spread are derived below. */
+const trackDefs: Track[] = [
   {
+    id: 'foundations',
     label: 'Track A',
     title: 'Foundations & Data Structures',
     summary:
       'Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on.',
-    meta: '9 lessons · ~70 min',
   },
   {
+    id: 'algorithms',
     label: 'Track B',
     title: 'Algorithms',
     summary:
       'Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks.',
-    meta: '6 lessons · ~50 min',
   },
 ];
+
+/**
+ * Human-readable difficulty spread for a track's lessons (design §3.5) — e.g.
+ * "8 beginner · 1 intermediate" or "All beginner". Difficulty as words (never a
+ * color-only chip) keeps it accessible (§3.8, WCAG 1.4.1).
+ */
+function difficultySpread(lessons: CollectionEntry<'lessons'>[]): string {
+  const counts = { beginner: 0, intermediate: 0 };
+  for (const l of lessons) counts[l.data.difficulty]++;
+  const parts = (['beginner', 'intermediate'] as const)
+    .filter((d) => counts[d] > 0)
+    .map((d) => `${counts[d]} ${d}`);
+  // A single-difficulty track reads "All beginner" rather than "9 beginner".
+  return parts.length === 1
+    ? `All ${parts[0].split(' ')[1]}`
+    : parts.join(' · ');
+}
+
+// Derive per-track meta from the collection: count, minutes (summed, rounded to
+// the nearest 5), and the difficulty spread — anti-drift (design §3.5).
+const tracks = trackDefs.map((def) => {
+  const lessons = published.filter((l) => l.data.track === def.id);
+  const minutes = lessons.reduce((sum, l) => sum + l.data.estimatedMinutes, 0);
+  const roundedMinutes = Math.round(minutes / 5) * 5;
+  return {
+    ...def,
+    count: lessons.length,
+    totalMinutes: roundedMinutes,
+    spread: difficultySpread(lessons),
+  };
+});
 ---
 
 <BaseLayout
   title="LearnDSA — see data structures and algorithms in motion"
   description="Free, interactive lessons on data structures and algorithms. Play, pause, and step through every swap, pointer move, and recursive call — on your own input."
+  canonicalPath="/"
 >
-  <!-- Hero: left-aligned per wireframe (center-aligned rag breaks with longer strings). -->
+  <script type="application/ld+json" slot="head" set:html={jsonLd} is:inline />
+
+  <!-- Hero: left-aligned per wireframe (center-aligned rag breaks with longer
+       strings). H1 balances + caps at 20ch to avoid ragged breaks (design §3.2). -->
   <section class="py-16 md:pt-24 md:pb-20">
-    <h1 class="max-w-[22ch] text-4xl font-bold">
+    <h1 class="max-w-[20ch] text-4xl font-bold text-balance">
       See data structures and algorithms in motion
     </h1>
-    <p class="mt-4 max-w-[55ch] text-lg text-muted">
+    <p class="mt-5 max-w-[55ch] text-lg text-muted">
       LearnDSA teaches the core of computer science with interactive,
       step-by-step visualizations. Watch every swap, pointer move, and recursive
       call happen — then run each algorithm on your own input.
@@ -87,9 +136,14 @@ const tracks: Track[] = [
     <div class="mt-8 flex flex-wrap items-center gap-4">
       <a href="/learn" class="btn-primary">Start learning</a>
       {
-        /* Arrow lives in its own span so translated labels never bake it in (i18n note). */
+        /* Secondary stays a TEXT link (one clear primary); min-height 44px +
+           inline-flex aligns it to the button's baseline on the shared row
+           (design §3.3). Arrow in its own span so translations never bake it in. */
       }
-      <a href="/about" class="font-medium text-brand hover:underline">
+      <a
+        href="/about"
+        class="inline-flex min-h-[44px] items-center font-medium text-brand hover:underline"
+      >
         How it works <span aria-hidden="true">→</span>
       </a>
     </div>
@@ -125,20 +179,21 @@ const tracks: Track[] = [
     </div>
   </section>
 
-  <!-- Track cards: whole card is one link (wireframe). -->
+  <!-- Track cards: whole card is one link (wireframe). Count + meta data-driven. -->
   <section class="mt-16 md:mt-24">
-    <h2 class="mb-6 text-2xl font-bold">Two tracks, fifteen lessons</h2>
+    <h2 class="mb-6 text-2xl font-bold">Two tracks, {totalLessons} lessons</h2>
     <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
       {
         tracks.map((track) => (
-          <a href="/learn" class="track-card">
+          <a href={`/learn#track-${track.id}`} class="track-card">
             <p class="text-xs tracking-[0.06em] text-muted uppercase">
               {track.label}
             </p>
             <h3 class="mt-2 text-xl font-semibold text-text">{track.title}</h3>
             <p class="mt-2 text-base text-muted">{track.summary}</p>
-            <p class="mt-4 text-sm text-muted">
-              {track.meta} <span aria-hidden="true">→</span>
+            <p class="mt-4 text-sm text-muted tabular-nums">
+              {track.count} lessons · ~{track.totalMinutes} min · {track.spread}{' '}
+              <span aria-hidden="true">→</span>
             </p>
           </a>
         ))

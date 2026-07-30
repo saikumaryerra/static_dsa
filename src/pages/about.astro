@@ -1,0 +1,260 @@
+---
+/**
+ * About — `/about` (spec §6, §8; M5 design §2).
+ *
+ * A single readable column (capped at --measure): what LearnDSA is, who it's for,
+ * and — in plain language, not §11 jargon — how the visualizations work, closing
+ * with one live, trimmed Binary Search demo (tell-then-show on a meta page).
+ *
+ * The demo is the ONLY island on the page (`allowCustomInput` and `showMetrics`
+ * off). With JS disabled it degrades to the Visualizer's static still + "enable JS"
+ * note, so the page stays informative offline/JS-off.
+ *
+ * DEVIATION from design §2.4 ("client:visible"): the as-built Visualizer.astro is
+ * an Astro component that self-hydrates via its OWN bundled, intersection-gated
+ * `<script>` (it is NOT a framework component), so a hydration directive is invalid
+ * and unnecessary — lessons embed it the same bare way. Net effect is identical:
+ * the viz chunks load lazily on first scroll into view.
+ *
+ * Landmarks/headings: BaseLayout owns the landmarks; one <h1>, three <h2>s in
+ * reading order.
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Callout from '../components/Callout.astro';
+import Visualizer from '../viz/Visualizer.astro';
+
+/** "Who it's for" audiences — a compact list (design §2.2), not cards. */
+const audiences: { who: string; detail: string }[] = [
+  {
+    who: 'Beginners',
+    detail:
+      'meeting data structures for the first time and wanting to see, not just read, how they behave.',
+  },
+  {
+    who: 'Self-taught developers',
+    detail:
+      'filling the gaps a project-first path leaves behind, one topic at a time.',
+  },
+  {
+    who: 'Interview-preppers',
+    detail:
+      'refreshing the classics and rebuilding intuition for how each algorithm actually runs.',
+  },
+];
+---
+
+<BaseLayout
+  title="About · LearnDSA"
+  description="What LearnDSA is, who it's for, and how the interactive visualizations work."
+  canonicalPath="/about"
+>
+  <div class="about">
+    <header class="about__head">
+      <h1>About LearnDSA</h1>
+      <p class="about__lede">
+        LearnDSA makes data structures and algorithms visible: every lesson is
+        built around an animation you control and can run on your own input.
+      </p>
+    </header>
+
+    <hr class="about__rule" />
+
+    <section class="about__section" aria-labelledby="what">
+      <h2 id="what">What this is</h2>
+      <p>
+        LearnDSA is a free, static website — no accounts, no paywall, no
+        tracking. Around fifteen self-contained lessons cover the core of
+        computer science, from Big-O and arrays through sorting and graph
+        traversal.
+      </p>
+      <p>
+        Everything runs in your browser. There is no backend and no network
+        calls once a page has loaded, so a lesson keeps working offline and your
+        progress stays on your own device.
+      </p>
+    </section>
+
+    <section class="about__section" aria-labelledby="who">
+      <h2 id="who">Who it's for</h2>
+      <ul class="about__audience">
+        {
+          audiences.map((a) => (
+            <li>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="about__audience-icon"
+                aria-hidden="true"
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <span>
+                <strong>{a.who}</strong> {a.detail}
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section class="about__section" aria-labelledby="how">
+      <h2 id="how">How the visualizations work</h2>
+      <p>
+        Each lesson runs the real algorithm once and records every meaningful
+        moment — each comparison, swap, or pointer move — as a list of steps.
+        You're not watching a video; you're scrubbing through that list.
+      </p>
+      <p>
+        Play advances it, Step moves one operation forward or back, the slider
+        jumps anywhere, and Custom input re-runs it on numbers you type. Because
+        every step is recorded up front, stepping backward is instant and
+        nothing is faked.
+      </p>
+
+      <Callout variant="tip">
+        <p class="about__callout-title">How to read a visualization</p>
+        <ul class="about__controls">
+          <li>
+            <strong>Play / Pause</strong> — run the steps automatically, then stop.
+          </li>
+          <li>
+            <strong>Step ±</strong> — move exactly one operation forward or back.
+          </li>
+          <li>
+            <strong>Scrub</strong> — drag the slider to jump to any point.
+          </li>
+          <li>
+            <strong>Custom input</strong> — re-run the algorithm on your own values.
+          </li>
+        </ul>
+      </Callout>
+
+      <figure class="about__demo">
+        <Visualizer
+          algorithm="binary-search"
+          renderer="array"
+          input="[1,3,5,7,9,11] target=7"
+          allowCustomInput={false}
+          showMetrics={false}
+        />
+        <figcaption class="about__figcaption">
+          A live example — the same Binary Search visualization used in the
+          lessons. Press Play, or step through one comparison at a time.
+        </figcaption>
+      </figure>
+    </section>
+
+    <hr class="about__rule" />
+
+    <p class="about__cta">
+      Ready to start?{' '}
+      <a href="/learn" class="btn-primary">Browse the lessons</a>
+    </p>
+  </div>
+</BaseLayout>
+
+<style>
+  .about {
+    padding-block: var(--space-12) var(--space-16);
+    max-width: var(--measure);
+  }
+
+  @media (min-width: 768px) {
+    .about {
+      padding-block-start: var(--space-16);
+    }
+  }
+
+  .about__lede {
+    margin-top: var(--space-4);
+    font-size: var(--text-lg);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  .about__rule {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin-block: var(--space-8);
+  }
+
+  .about__section {
+    margin-top: var(--space-10);
+  }
+
+  .about__section:first-of-type {
+    margin-top: 0;
+  }
+
+  .about__section h2 {
+    scroll-margin-top: 4.5rem;
+  }
+
+  .about__section p {
+    margin-top: var(--space-4);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* "Who it's for": compact list, not cards (design §2.2). */
+  .about__audience {
+    margin-top: var(--space-4);
+    list-style: none;
+    padding: 0;
+  }
+
+  .about__audience li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    line-height: var(--leading-relaxed);
+  }
+
+  .about__audience-icon {
+    flex: none;
+    margin-top: 0.35em;
+    color: var(--brand);
+  }
+
+  .about__callout-title {
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+
+  .about__controls {
+    margin-top: var(--space-2);
+    padding-left: var(--space-5);
+    list-style: disc;
+  }
+
+  .about__controls li {
+    margin-top: var(--space-1);
+  }
+
+  .about__controls li::marker {
+    color: var(--text-muted);
+  }
+
+  .about__demo {
+    margin: var(--space-6) 0 0;
+  }
+
+  .about__figcaption {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .about__cta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+  }
+</style>

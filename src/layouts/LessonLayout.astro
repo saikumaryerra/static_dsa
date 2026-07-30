@@ -19,6 +19,8 @@ import DifficultyChip from '../components/DifficultyChip.astro';
 import TableOfContents from '../components/TableOfContents.astro';
 import MarkComplete from '../components/MarkComplete.astro';
 import PrevNext from '../components/PrevNext.astro';
+import { courseJsonLd } from '../lib/structured-data';
+import type { CollectionEntry } from 'astro:content';
 import type { MarkdownHeading } from 'astro';
 
 interface Adjacent {
@@ -27,6 +29,7 @@ interface Adjacent {
 }
 
 interface Props {
+  entry: CollectionEntry<'lessons'>;
   title: string;
   summary: string;
   difficulty: 'beginner' | 'intermediate';
@@ -40,6 +43,7 @@ interface Props {
 }
 
 const {
+  entry,
   title,
   summary,
   difficulty,
@@ -51,9 +55,20 @@ const {
   prev,
   next,
 } = Astro.props;
+
+// Course JSON-LD (arch §3.1). Built at build time and injected via the head slot;
+// `is:inline` + `set:html` keeps it static text with zero client JS. `Astro.site`
+// is always set (astro.config.mjs), so the non-null assertion is safe.
+const jsonLd = courseJsonLd(entry, Astro.site!);
 ---
 
-<BaseLayout title={`${title} · LearnDSA`} description={summary}>
+<BaseLayout
+  title={`${title} · LearnDSA`}
+  description={summary}
+  canonicalPath={`/learn/${slug}`}
+  ogType="article"
+>
+  <script type="application/ld+json" slot="head" set:html={jsonLd} is:inline />
   <div class="lesson">
     <div class="lesson__grid">
       <article class="lesson__article">

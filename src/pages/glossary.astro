@@ -1,0 +1,329 @@
+---
+/**
+ * Glossary — `/glossary` (spec §6, §8; M5 architecture §1, design §1).
+ *
+ * Static, ZERO island JS: the jump bar is native in-page anchors and CSS-only
+ * sticky/scroll-margin, so the page is fully usable with JavaScript disabled.
+ *
+ * Build-time validation (arch §1.3): every glossary `lessonSlug` is checked
+ * against the PUBLISHED lessons collection; an unknown/unpublished slug throws and
+ * FAILS THE BUILD, so a renamed or deleted lesson can never ship a dead cross-link.
+ * Lesson titles for the "Introduced in …" links are resolved from the collection
+ * (never hardcoded in glossary.ts).
+ *
+ * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
+ * <h1>, an <h2> per present letter, a labelled jump <nav>, and <dl>/<dt>/<dd>
+ * definition-list semantics. Empty letters are dimmed AND aria-disabled AND
+ * non-links (skipped in Tab order) — structural, never color-only.
+ */
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { glossary } from '../lib/glossary';
+import type { GlossaryTerm } from '../lib/glossary';
+
+const published = await getCollection('lessons', ({ data }) => data.published);
+
+// slug → title lookup, and a set for the validator.
+const titleBySlug = new Map(published.map((l) => [l.data.slug, l.data.title]));
+
+// Fail the build on any dead cross-link (arch §1.3) — mirrors the duplicate-slug
+// guard in learn/[slug].astro. Self-correcting: bad slugs never reach production.
+for (const term of glossary) {
+  if (!titleBySlug.has(term.lessonSlug)) {
+    throw new Error(
+      `Glossary term "${term.term}" → unknown/unpublished lesson "${term.lessonSlug}".`,
+    );
+  }
+}
+
+/** A glossary entry enriched with the resolved lesson title (design §1.7). */
+interface GlossaryEntry extends GlossaryTerm {
+  lessonTitle: string;
+}
+
+// Sort A–Z case-insensitively by term (arch §1.3 step 2).
+const sorted: GlossaryEntry[] = [...glossary]
+  .map((t) => ({ ...t, lessonTitle: titleBySlug.get(t.lessonSlug)! }))
+  .sort((a, b) => a.term.localeCompare(b.term, 'en', { sensitivity: 'base' }));
+
+/**
+ * First-letter bucket for a term. Non-alphabetic leads collapse to '#'.
+ * SPEC-GAP (arch §1.3): §8 is silent on numerics/symbols; '#' is the simplest
+ * correct single bucket. No terms currently fall here, but it is defensive.
+ */
+function bucketOf(term: string): string {
+  const first = term.charAt(0).toUpperCase();
+  return first >= 'A' && first <= 'Z' ? first : '#';
+}
+
+// Group into present buckets only (empty letters render NO section — design §1.2).
+const groups = new Map<string, GlossaryEntry[]>();
+for (const entry of sorted) {
+  const letter = bucketOf(entry.term);
+  const list = groups.get(letter) ?? [];
+  list.push(entry);
+  groups.set(letter, list);
+}
+
+// The 26 letters, each flagged present (has a section) or empty (dimmed chip).
+const ALPHABET = Array.from({ length: 26 }, (_, i) =>
+  String.fromCharCode(65 + i),
+);
+const presentLetters = new Set(groups.keys());
+
+// Ordered list of present sections (A→Z; the '#' bucket, if ever used, leads).
+const sections = ALPHABET.filter((l) => presentLetters.has(l))
+  .concat(presentLetters.has('#') ? ['#'] : [])
+  .map((letter) => ({ letter, entries: groups.get(letter)! }));
+
+/** Stable, URL-safe fragment id for a letter section ('#' → 'num'). */
+const sectionId = (letter: string) =>
+  `letter-${letter === '#' ? 'num' : letter.toLowerCase()}`;
+---
+
+<BaseLayout
+  title="Glossary · LearnDSA"
+  description="A–Z reference of the data-structure and algorithm terms used across LearnDSA, each linked to the lesson that introduces it."
+  canonicalPath="/glossary"
+>
+  <div class="glossary">
+    <header id="top" class="glossary__head">
+      <h1>Glossary</h1>
+      <p class="glossary__intro">
+        Every term the lessons introduce, defined in one or two sentences and
+        linked back to where you first meet it.
+      </p>
+    </header>
+
+    {
+      sections.length === 0 ? (
+        <p class="glossary__empty">
+          The glossary is being written — check back soon.
+        </p>
+      ) : (
+        <>
+          <nav class="glossary__jump" aria-label="Jump to letter">
+            <ul>
+              {ALPHABET.map((letter) =>
+                presentLetters.has(letter) ? (
+                  <li>
+                    <a class="glossary__chip" href={`#${sectionId(letter)}`}>
+                      {letter}
+                    </a>
+                  </li>
+                ) : (
+                  <li>
+                    <span
+                      class="glossary__chip glossary__chip--empty"
+                      aria-disabled="true"
+                    >
+                      {letter}
+                    </span>
+                  </li>
+                ),
+              )}
+              {/* Mobile-only "Top" jump (design §1.3): static bar wraps, so offer a
+                  quick way back to the header. Hidden ≥768px where the bar is sticky. */}
+              <li class="glossary__top-item">
+                <a class="glossary__chip" href="#top">
+                  Top
+                </a>
+              </li>
+            </ul>
+          </nav>
+
+          <div class="glossary__sections">
+            {sections.map(({ letter, entries }) => (
+              <section
+                id={sectionId(letter)}
+                aria-labelledby={`${sectionId(letter)}-h`}
+              >
+                <h2 id={`${sectionId(letter)}-h`} class="glossary__letter">
+                  {letter}
+                </h2>
+                <dl class="glossary__list">
+                  {entries.map((entry) => (
+                    <div class="glossary__entry">
+                      <dt class="glossary__term">{entry.term}</dt>
+                      <dd class="glossary__def">
+                        <p>{entry.definition}</p>
+                        <p class="glossary__xref-line">
+                          <a
+                            class="glossary__xref"
+                            href={`/learn/${entry.lessonSlug}`}
+                          >
+                            Introduced in {entry.lessonTitle}{' '}
+                            <span aria-hidden="true">→</span>
+                          </a>
+                        </p>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))}
+          </div>
+        </>
+      )
+    }
+  </div>
+</BaseLayout>
+
+<style>
+  .glossary {
+    padding-block: var(--space-12) var(--space-16);
+    max-width: var(--measure);
+  }
+
+  @media (min-width: 768px) {
+    .glossary {
+      padding-block-start: var(--space-16);
+    }
+  }
+
+  .glossary__intro {
+    margin-top: var(--space-4);
+    font-size: var(--text-lg);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  .glossary__empty {
+    margin-top: var(--space-8);
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* ---- Jump-to-letter bar (design §1.3) ---- */
+  .glossary__jump {
+    margin-top: var(--space-8);
+  }
+
+  .glossary__jump ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .glossary__chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    min-height: 2rem;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-control);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  a.glossary__chip:hover {
+    background-color: var(--surface);
+  }
+
+  /* Empty letters: dimmed, non-interactive, non-focusable (aria-disabled + span,
+     so Tab skips them). Dimming is a SECOND signal alongside aria-disabled — never
+     color-only (design §1.3, §1.8). */
+  .glossary__chip--empty {
+    color: color-mix(in srgb, var(--text-muted) 55%, transparent);
+    cursor: default;
+  }
+
+  /* Sticky bar ≥768px; static (wraps) below (design §1.3). Top offset clears the
+     64px sticky header. */
+  @media (min-width: 768px) {
+    .glossary__jump {
+      position: sticky;
+      top: 4rem;
+      z-index: 30;
+      background-color: var(--bg);
+      padding-block: var(--space-2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* The mobile "Top" jump is redundant once the bar is always in view. */
+    .glossary__top-item {
+      display: none;
+    }
+  }
+
+  /* ---- Sections ---- */
+  .glossary__sections {
+    margin-top: var(--space-10);
+  }
+
+  .glossary section {
+    /* Clear the sticky chrome so a letter heading is never hidden under it after
+       a jump (design §1.4). <768px: 56px header only. ≥768px: 64px header + the
+       sticky jump bar. */
+    scroll-margin-top: 4.5rem;
+  }
+
+  .glossary section + section {
+    margin-top: var(--space-12);
+  }
+
+  /* The #top sentinel shares the same offset so the mobile "Top" link lands cleanly. */
+  #top {
+    scroll-margin-top: 4.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .glossary section,
+    #top {
+      scroll-margin-top: 7.75rem;
+    }
+  }
+
+  .glossary__letter {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: var(--space-2);
+  }
+
+  .glossary__list {
+    margin-top: var(--space-4);
+  }
+
+  .glossary__entry + .glossary__entry {
+    margin-top: var(--space-6);
+  }
+
+  .glossary__term {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+
+  .glossary__def {
+    margin-inline-start: 0; /* reset default <dd> indent */
+    max-width: var(--measure);
+  }
+
+  .glossary__def p {
+    margin-top: var(--space-1);
+    line-height: var(--leading-relaxed);
+    color: var(--text);
+  }
+
+  .glossary__xref-line {
+    margin-top: var(--space-1);
+  }
+
+  .glossary__xref {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--brand);
+  }
+
+  .glossary__xref:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+</style>
