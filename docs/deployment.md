@@ -22,7 +22,7 @@ Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — id
 > - **Use the gate-only workflow in §5.2** (`.github/workflows/ci.yml`, already committed) — it runs lint/format/unit/e2e, which Cloudflare's build does *not*.
 > - **Do NOT add the §5.1 Actions+Wrangler workflow** — that is for the *Direct Upload* topology and would publish twice.
 > - Domain is the free `*.pages.dev` subdomain, resolved automatically (§2.1). No registration, TLS included.
-> - Dashboard build settings: build command `npm run build`, output directory `dist`, production branch `main`, Node from `.nvmrc` (or `NODE_VERSION=20`).
+> - Dashboard build settings: build command `npm run build`, output directory `dist`, production branch `main`, Node from `.nvmrc` (or `NODE_VERSION=24`).
 
 ---
 
@@ -30,7 +30,7 @@ Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — id
 
 | Requirement | Value | Notes |
 |---|---|---|
-| Node.js | **≥ 20** | Enforced by `package.json` `engines`. Use the same major in CI and on the build host. |
+| Node.js | **24** (floor: **≥ 22.12.0**) | Pinned in `.nvmrc` — the single source of truth read by Cloudflare Pages *and* `actions/setup-node`. **Astro 7 hard-requires `>=22.12.0` and refuses to build on Node 20**, so do not lower this (the ESLint Astro plugins additionally want `^22.22.3 \|\| ^24.16.0`). `package.json` `engines` states the floor. |
 | Package manager | **npm** | Commit-tracked `package-lock.json`; use `npm ci` in CI for reproducible installs. |
 | Build output | `dist/` | Static files; gitignored. This is the "publish directory" every host asks for. |
 | Server/adapter | **none** | Pure static. Do **not** add an SSR adapter (`@astrojs/node`, `@astrojs/vercel` serverless, etc.) — it's unnecessary and would change the output contract. |
@@ -128,14 +128,14 @@ npm run preview        # serves dist/ locally, defaults to http://localhost:4321
 
 ## 4. Host-specific deployment
 
-All hosts use the same two settings: **build command `npm run build`**, **publish/output directory `dist`**, **Node 20**. Pick one.
+All hosts use the same two settings: **build command `npm run build`**, **publish/output directory `dist`**, **Node 24**. Pick one.
 
 ### 4.1 Netlify
 
 **Dashboard:** New site → connect the repo →
 - Build command: `npm run build`
 - Publish directory: `dist`
-- Environment: `NODE_VERSION = 20`
+- Environment: `NODE_VERSION = 24`
 
 Or commit **`netlify.toml`** at the repo root:
 
@@ -145,7 +145,7 @@ Or commit **`netlify.toml`** at the repo root:
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "24"
 
 # Long-cache the content-hashed assets; keep HTML revalidated.
 [[headers]]
@@ -176,7 +176,7 @@ No `vercel.json` is required. If you add one, keep it minimal (do **not** add se
 - Framework preset: **Astro**
 - Build command: `npm run build`
 - Build output directory: `dist`
-- Environment variable: `NODE_VERSION = 20`
+- Environment variable: `NODE_VERSION = 24`
 
 Cloudflare Pages serves `404.html` for not-found routes automatically. For long-lived asset caching, add a **`public/_headers`** file (copied verbatim into `dist/`):
 
@@ -214,7 +214,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -266,7 +266,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci
       - run: npm run build       # astro check (type gate) + astro build → dist/
       - run: npm run lint
@@ -312,7 +312,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -382,7 +382,7 @@ Because deploys are immutable static bundles:
 | Canonical/OG show `learndsa.example.com` | `site` not swapped | §2.1 — set the real origin, rebuild. |
 | CSS/JS 404s, unstyled page on GitHub Pages project site | Missing `base` for the sub-path | §2.2 — set `base: '/repo/'`, rebuild. |
 | Assets 404 on a root domain after adding `base` | Stray `base` on a root deploy | Remove `base`; it's only for sub-path hosts. |
-| Build fails in CI but works locally | Type error caught by `astro check`, or Node < 20 | Fix the type error; pin `node-version: 20`. |
+| Build fails in CI but works locally | Type error caught by `astro check`, or Node below the 22.12.0 floor | Fix the type error; ensure the runner reads `.nvmrc` (Node 24). Astro 7 refuses to build on Node 20 with "Node.js vX is not supported by Astro!". |
 | `npm run test:e2e` fails in CI with "browser not found" | Playwright browsers not installed | Add `npx playwright install --with-deps chromium` before the e2e step. |
 | Duplicate/trailing-slash URL mismatch between canonical and sitemap | Host forces trailing slashes | `astro.config.mjs` sets `build.format: 'file'` — pages emit as `about.html` served at `/about` (no trailing slash), matching the no-slash canonicals + sitemap. Deploy to a host that serves `about.html` at `/about` without a 301 (Cloudflare Pages / Netlify do). If a host forces trailing slashes, either switch to `build.format: 'directory'` and add trailing slashes to the canonicals + sitemap, or pick a host that respects the file format. |
 | Code-block comments look low-contrast | An old single-theme Shiki config | Already fixed — dual-theme (`github-light`/`github-dark-default`) in `astro.config.mjs`; don't revert it (WCAG AA). |
@@ -392,7 +392,7 @@ Because deploys are immutable static bundles:
 ## Appendix — deployment facts at a glance
 
 - **Framework/output:** Astro `output: 'static'` → `dist/` (prerendered HTML/CSS/JS).
-- **Build:** `npm run build` = `astro check && astro build`. **Install:** `npm ci`. **Node:** ≥ 20.
+- **Build:** `npm run build` = `astro check && astro build`. **Install:** `npm ci`. **Node:** 24 via `.nvmrc` (floor ≥ 22.12.0 — Astro 7 will not build on Node 20).
 - **Publish dir:** `dist`. **Server/adapter:** none. **Runtime secrets/env:** none.
 - **Single build-time config:** `site` in `astro.config.mjs` (+ `base` only for sub-path hosts).
 - **SEO artifacts (auto-generated):** `dist/sitemap.xml`, `dist/robots.txt`, per-page canonical/OG/Twitter, `Course`/`WebSite` JSON-LD.
