@@ -1,4 +1,13 @@
+# Response headers for _headers-aware hosts (Cloudflare Pages / Netlify).
+# Ignored by hosts that don't read this file (e.g. GitHub Pages).
+
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
+
+# Content-hashed assets never change under a given name — cache them forever.
+# (HTML is intentionally left on the host default so it revalidates and picks up
+# new asset hashes on each deploy.)
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable

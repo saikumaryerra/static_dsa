@@ -6,6 +6,17 @@ How to build and deploy LearnDSA to production. The site is a **fully static, pr
 
 ---
 
+## 0. Recommended mechanism (DevOps recommendation)
+
+**Primary: Cloudflare Pages, with GitHub Actions running the full gate and deploying `dist/` on green. Runner-up: Netlify** (near-identical fit — pick it if you're already in that ecosystem). §4 documents every host generically; this is the recommended pick for *this* repo, and two facts in the repo drive it:
+
+1. **`public/_headers` already exists** — that format is honored by **Cloudflare Pages and Netlify only**; GitHub Pages silently ignores it, so the security headers this project ships would not take effect there.
+2. **`build.format: 'file'`** produces clean, no-trailing-slash URLs (`/about`, `/learn/binary-search`) that match the canonicals + sitemap exactly; Cloudflare/Netlify serve them natively.
+
+Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — ideal for an educational site that may get bursty traffic — at **$0**. Explicitly **not** recommended for this workload: Kubernetes/containers, Terraform/Bicep/IaC, an SSR adapter, or S3+CloudFront — there is no server, state, or runtime secret, so heavier infra adds cost and attack surface with zero benefit. Use the **combined gate-and-deploy workflow in §5.1** (preferred over the split gate-only/deploy-only snippets, which remain as generic references).
+
+---
+
 ## 1. Prerequisites
 
 | Requirement | Value | Notes |
@@ -214,7 +225,64 @@ Then in the repo: **Settings → Pages → Source = "GitHub Actions."** For a cu
 
 ## 5. Continuous integration (recommended)
 
-Gate every push/PR on the full DoD so a broken build never deploys. **`.github/workflows/ci.yml`**:
+### 5.1 Recommended: combined gate-and-deploy (Cloudflare Pages)
+
+The one workflow that both **gates on the full DoD** and **deploys the verified artifact on green** (main → production, any PR branch → a preview URL). This is the recommended pipeline (§0); the split gate-only (§5.2) and per-host deploy-only (§4.4) snippets remain as generic references. Keep it uncommitted until the GitHub remote + Cloudflare project + secrets exist (§4.3, prerequisites below).
+
+```yaml
+# .github/workflows/deploy.yml
+name: CI/CD
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  deployments: write            # lets Cloudflare post a deployment status
+
+concurrency:                    # a newer push cancels an in-flight run of the same ref
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:                       # the Definition-of-Done gate (spec §18) — nothing deploys unless green
+    name: DoD gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npm run build       # astro check (type gate) + astro build → dist/
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        with: { name: dist, path: dist, retention-days: 3 }  # deploy the exact verified bytes
+
+  deploy:
+    name: Cloudflare Pages
+    needs: verify                # hard gate on the full DoD
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.fork != true    # secrets unavailable to fork PRs
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist, path: dist }
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=learndsa --branch=${{ github.head_ref || github.ref_name }}
+```
+
+Prerequisites: a **GitHub remote** (currently none — `git remote -v` is empty), a free **Cloudflare account** + a Pages project named `learndsa` (Direct Upload — Actions does the build), and two GitHub Actions **secrets** `CLOUDFLARE_API_TOKEN` (scope: Account → Cloudflare Pages → Edit) + `CLOUDFLARE_ACCOUNT_ID` (deploy-time only, never shipped). Build-in-CI is chosen over Cloudflare's host-native build so the Playwright/axe suite runs as a deploy gate. **Branch protection:** require the `DoD gate` check + PR review before merge to `main`, so only a green `main` deploys.
+
+### 5.2 Alternative: gate-only
+
+Gate every push/PR on the full DoD without deploying (use with a host that builds natively). **`.github/workflows/ci.yml`**:
 
 ```yaml
 name: CI
@@ -302,7 +370,7 @@ Because deploys are immutable static bundles:
 | Assets 404 on a root domain after adding `base` | Stray `base` on a root deploy | Remove `base`; it's only for sub-path hosts. |
 | Build fails in CI but works locally | Type error caught by `astro check`, or Node < 20 | Fix the type error; pin `node-version: 20`. |
 | `npm run test:e2e` fails in CI with "browser not found" | Playwright browsers not installed | Add `npx playwright install --with-deps chromium` before the e2e step. |
-| Duplicate/trailing-slash URL mismatch between canonical and sitemap | Host forces trailing slashes | Config uses Astro defaults (`build.format: 'directory'`, `trailingSlash: 'ignore'`); if a host rewrites, set `trailingSlash` in `astro.config.mjs` to match and rebuild. |
+| Duplicate/trailing-slash URL mismatch between canonical and sitemap | Host forces trailing slashes | `astro.config.mjs` sets `build.format: 'file'` — pages emit as `about.html` served at `/about` (no trailing slash), matching the no-slash canonicals + sitemap. Deploy to a host that serves `about.html` at `/about` without a 301 (Cloudflare Pages / Netlify do). If a host forces trailing slashes, either switch to `build.format: 'directory'` and add trailing slashes to the canonicals + sitemap, or pick a host that respects the file format. |
 | Code-block comments look low-contrast | An old single-theme Shiki config | Already fixed — dual-theme (`github-light`/`github-dark-default`) in `astro.config.mjs`; don't revert it (WCAG AA). |
 
 ---
