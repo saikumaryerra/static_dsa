@@ -31,6 +31,7 @@ import { treeRenderer } from '../../../src/viz/renderers/TreeRenderer';
 import { heapRenderer } from '../../../src/viz/renderers/HeapRenderer';
 import { graphRenderer } from '../../../src/viz/renderers/GraphRenderer';
 import { hashTableRenderer } from '../../../src/viz/renderers/HashTableRenderer';
+import { tableRenderer } from '../../../src/viz/renderers/TableRenderer';
 
 type Pair = {
   name: string;
@@ -76,6 +77,7 @@ const pairs: Pair[] = [
     algo: A(demos.demoHashTable),
     renderer: hashTableRenderer,
   },
+  { name: 'table', algo: A(demos.demoTable), renderer: tableRenderer },
 ];
 
 /**

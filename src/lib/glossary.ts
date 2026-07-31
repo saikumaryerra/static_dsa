@@ -6,9 +6,6 @@
  * cross-checked against the published lessons collection in `glossary.astro`, so a
  * renamed/removed lesson fails the build rather than shipping a dead cross-link.
  * Definitions are hand-authored (spec §15 — no lorem) at one or two sentences.
- *
- * SPEC-GAP: `memoization` is deliberately omitted — it belongs to the dynamic-
- * programming lesson, which does not exist until M6. Add it there, not here.
  */
 
 /** One glossary entry: a term, its definition, and the lesson that introduces it. */
@@ -321,5 +318,38 @@ export const glossary: GlossaryTerm[] = [
       'A graph traversal that follows one path as far as it can before backtracking to explore alternatives, using a stack or recursion. It is well suited to cycle detection and topological ordering.',
     lessonSlug: 'graph-traversal',
     aliases: ['DFS'],
+  },
+
+  // ---- Dynamic programming (dynamic-programming) ----
+  {
+    term: 'Dynamic programming',
+    definition:
+      'A technique that solves a problem by breaking it into overlapping subproblems, solving each one only once, and reusing the stored results. It turns exponential recursion into efficient, reusable work.',
+    lessonSlug: 'dynamic-programming',
+    aliases: ['DP'],
+  },
+  {
+    term: 'Memoization',
+    definition:
+      'Top-down dynamic programming: run the natural recursion but cache each subproblem’s answer the first time it is computed, so it is looked up rather than recomputed on later calls.',
+    lessonSlug: 'dynamic-programming',
+  },
+  {
+    term: 'Tabulation',
+    definition:
+      'Bottom-up dynamic programming: fill a table of subproblem answers in dependency order, smallest first, so every value a cell needs is already present when you reach it.',
+    lessonSlug: 'dynamic-programming',
+  },
+  {
+    term: 'Overlapping subproblems',
+    definition:
+      'The property that a recursive solution keeps solving the same smaller problem again and again. It is the signal that caching those answers — dynamic programming — will pay off.',
+    lessonSlug: 'dynamic-programming',
+  },
+  {
+    term: 'Optimal substructure',
+    definition:
+      'The property that an optimal answer to a problem is built directly from optimal answers to its subproblems. It is what lets dynamic programming combine smaller results into the full solution.',
+    lessonSlug: 'dynamic-programming',
   },
 ];

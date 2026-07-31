@@ -172,21 +172,21 @@ test.describe('glossary with JavaScript disabled', () => {
 // ---------------------------------------------------------------------------
 // 3. Home — track cards are data-driven (design §3.5), never hardcoded.
 // ---------------------------------------------------------------------------
-test('home track cards + heading reflect the real 14-lesson curriculum', async ({
+test('home track cards + heading reflect the real 15-lesson curriculum', async ({
   page,
 }) => {
   await page.goto('/');
 
-  // Data-driven heading: two tracks, 14 published lessons.
+  // Data-driven heading: two tracks, 15 published lessons (M6 adds DP → 15).
   await expect(
-    page.getByRole('heading', { name: 'Two tracks, 14 lessons' }),
+    page.getByRole('heading', { name: 'Two tracks, 15 lessons' }),
   ).toBeVisible();
 
   const cardText = await page.locator('.track-card').allInnerTexts();
   const joined = cardText.join(' | ');
-  // Foundations 9 (all beginner) + Algorithms 5 (mixed difficulty) — spread as text.
+  // Foundations 9 (all beginner) + Algorithms 6 (mixed difficulty) — spread as text.
   expect(joined).toMatch(/9 lessons/);
-  expect(joined).toMatch(/5 lessons/);
+  expect(joined).toMatch(/6 lessons/);
   expect(joined).toMatch(/All beginner/);
   expect(joined).toMatch(/beginner · \d+ intermediate|intermediate/);
   // Both cards link into the /learn track anchors.
@@ -255,9 +255,9 @@ test('sitemap.xml + robots.txt are served and cross-referenced', async ({
   const sitemap = await request.get('/sitemap.xml');
   expect(sitemap.status()).toBe(200);
   const xml = await sitemap.text();
-  // Four static routes + the 14 published lessons = 18 <loc> entries; no /404, /dev.
+  // Four static routes + the 15 published lessons = 19 <loc> entries; no /404, /dev.
   const locs = xml.match(/<loc>/g) ?? [];
-  expect(locs.length).toBe(18);
+  expect(locs.length).toBe(19);
   expect(xml).toContain('/glossary</loc>');
   expect(xml).toContain('/learn/binary-search</loc>');
   expect(xml).not.toContain('/404');

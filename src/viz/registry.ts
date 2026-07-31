@@ -83,6 +83,11 @@ export const algorithms = {
   // renderer="graph" — Graph Traversal
   bfs: () => import('./algorithms/bfs').then((m) => m.bfs),
   dfs: () => import('./algorithms/dfs').then((m) => m.dfs),
+  // M6 (stretch) — Dynamic Programming (site spec §5 L15). renderer="table".
+  'dp-fib-tabulation': () =>
+    import('./algorithms/dp-fib-tabulation').then((m) => m.dpFibTabulation),
+  'dp-fib-memoization': () =>
+    import('./algorithms/dp-fib-memoization').then((m) => m.dpFibMemoization),
   // Dev-only renderer fixtures for /dev/renderers (prod-gated). Not lessons.
   'demo-stack': () => import('./algorithms/demos').then((m) => m.demoStack),
   'demo-callstack': () =>
@@ -96,6 +101,7 @@ export const algorithms = {
   'demo-graph': () => import('./algorithms/demos').then((m) => m.demoGraph),
   'demo-hashtable': () =>
     import('./algorithms/demos').then((m) => m.demoHashTable),
+  'demo-table': () => import('./algorithms/demos').then((m) => m.demoTable),
 } satisfies Record<string, () => Promise<Algorithm<unknown, unknown>>>;
 
 /** Renderer id → thunk resolving to the `RendererModule` (own chunk). */
@@ -115,6 +121,8 @@ export const renderers = {
   // Separate-chaining hash table (site spec §5 L6); reuses the LinkedList layout.
   hashTable: () =>
     import('./renderers/HashTableRenderer').then((m) => m.hashTableRenderer),
+  // 1-D dynamic-programming table (site spec §5 L15); forks the array cell.
+  table: () => import('./renderers/TableRenderer').then((m) => m.tableRenderer),
 } satisfies Record<string, () => Promise<RendererModule<unknown>>>;
 
 /** Exact string-literal union of registered algorithm ids. */

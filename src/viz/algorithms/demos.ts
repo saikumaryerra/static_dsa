@@ -343,3 +343,38 @@ export const demoHashTable = fixture<HashState>(
     },
   ] as Trace<HashState>,
 );
+
+// --- table (1-D DP table: fill dp[i] from its two dependencies) ---
+// Exercises every honored kind: active dp[i], compare deps + tie-lines, a visited
+// cache hit (✓), an insert (+), and the final found (✓).
+export const demoTable = fixture(
+  'demo-table',
+  'DP table: dp[i] = dp[i-1] + dp[i-2]',
+  [
+    {
+      state: { table: [0, 1, 1, null, null], n: 4 },
+      explanation:
+        'dp[3] = dp[2] + dp[1] = 1 + 1 = 2. Both dependencies are already filled.',
+      highlights: [
+        { kind: 'active', ids: [cellId(3)], meta: { label: 'dp[3]' } },
+        { kind: 'compare', ids: [cellId(2)] },
+        { kind: 'compare', ids: [cellId(1)] },
+      ],
+    },
+    {
+      state: { table: [0, 1, 1, 2, null], n: 4 },
+      explanation:
+        'dp[2] is already computed (1) — reusing the cached value instead of recomputing it.',
+      highlights: [
+        { kind: 'active', ids: [cellId(4)], meta: { label: 'dp[4]' } },
+        { kind: 'visited', ids: [cellId(2)] },
+        { kind: 'insert', ids: [cellId(3)] },
+      ],
+    },
+    {
+      state: { table: [0, 1, 1, 2, 3], n: 4 },
+      explanation: 'Done: dp[4] = 3 is the answer.',
+      highlights: [{ kind: 'found', ids: [cellId(4)] }],
+    },
+  ] as Trace<{ table: (number | null)[]; n: number }>,
+);

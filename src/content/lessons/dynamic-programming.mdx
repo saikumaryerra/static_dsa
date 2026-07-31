@@ -1,0 +1,244 @@
+---
+title: 'Intro to Dynamic Programming'
+slug: 'dynamic-programming'
+track: 'algorithms'
+order: 15
+summary: 'Dynamic programming solves a problem by breaking it into overlapping subproblems, solving each once, and reusing the answers — turning exponential recursion into O(n) work.'
+difficulty: 'beginner'
+prerequisites: ['recursion', 'complexity-big-o']
+estimatedMinutes: 12
+complexity:
+  time: { best: 'O(n)', average: 'O(n)', worst: 'O(n)' }
+  space: { worst: 'O(n)' }
+tags: ['dynamic-programming', 'memoization', 'tabulation', 'fibonacci']
+published: true
+---
+
+import Visualizer from '../../viz/Visualizer.astro';
+import ComplexityTable from '../../components/ComplexityTable.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
+import Collapsible from '../../components/Collapsible.astro';
+import Callout from '../../components/Callout.astro';
+
+export const tabulationTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def fib(n):
+    if n == 0:
+        return 0
+    dp = [0] * (n + 1)     # dp[i] will hold Fibonacci(i)
+    dp[1] = 1              # base cases: dp[0] = 0, dp[1] = 1
+    for i in range(2, n + 1):
+        dp[i] = dp[i - 1] + dp[i - 2]  # every value is already filled
+    return dp[n]`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function fib(n) {
+  if (n === 0) return 0;
+  const dp = new Array(n + 1).fill(0); // dp[i] will hold Fibonacci(i)
+  dp[1] = 1;                           // base cases: dp[0]=0, dp[1]=1
+  for (let i = 2; i <= n; i++) {
+    dp[i] = dp[i - 1] + dp[i - 2];     // both are already filled
+  }
+  return dp[n];
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static int fib(int n) {
+    if (n == 0) return 0;
+    int[] dp = new int[n + 1];        // dp[i] will hold Fibonacci(i)
+    dp[1] = 1;                        // base cases: dp[0]=0, dp[1]=1
+    for (int i = 2; i <= n; i++) {
+        dp[i] = dp[i - 1] + dp[i - 2]; // both are already filled
+    }
+    return dp[n];
+}`,
+  },
+];
+
+export const memoTabs = [
+  {
+    label: 'Python',
+    lang: 'python',
+    code: `def fib(n, memo=None):
+    if memo is None:
+        memo = {}
+    if n <= 1:                 # base cases: fib(0)=0, fib(1)=1
+        return n
+    if n in memo:              # cache hit: reuse, do not recompute
+        return memo[n]
+    memo[n] = fib(n - 1, memo) + fib(n - 2, memo)
+    return memo[n]`,
+  },
+  {
+    label: 'JavaScript',
+    lang: 'javascript',
+    code: `function fib(n, memo = {}) {
+  if (n <= 1) return n;          // base cases: fib(0)=0, fib(1)=1
+  if (n in memo) return memo[n]; // cache hit: reuse, do not recompute
+  memo[n] = fib(n - 1, memo) + fib(n - 2, memo);
+  return memo[n];
+}`,
+  },
+  {
+    label: 'Java',
+    lang: 'java',
+    code: `static int fib(int n) {
+    return fib(n, new int[n + 1]);   // memo[k] == 0 means "not yet computed"
+}
+static int fib(int n, int[] memo) {
+    if (n <= 1) return n;            // base cases: fib(0)=0, fib(1)=1
+    if (memo[n] != 0) return memo[n]; // cache hit: reuse, do not recompute
+    memo[n] = fib(n - 1, memo) + fib(n - 2, memo);
+    return memo[n];
+}`,
+  },
+];
+
+## Intuition
+
+Try computing the Fibonacci numbers the obvious recursive way: `fib(n) = fib(n-1) + fib(n-2)`. It looks elegant, but it hides an explosion of repeated work. Computing `fib(5)` recomputes `fib(3)` three separate times and `fib(2)` five times — and the deeper you go, the worse it gets. For larger `n` the same tiny subproblems are recalculated millions of times, and the running time balloons to roughly `O(2ⁿ)`. You saw this exact trap in the [Recursion](/learn/recursion) lesson, where the call stack for `fib(5)` recomputed the same calls over and over.
+
+**Dynamic programming** fixes precisely that waste. It rests on two properties:
+
+- **Overlapping subproblems** — the same smaller problem shows up again and again. `fib(3)` is needed by `fib(4)`, by `fib(5)`, and by everything above them. When a problem keeps re-asking the same questions, that is the signal DP will help.
+- **Optimal substructure** — the big answer is built directly from smaller answers. `fib(i)` is nothing more than `fib(i-1) + fib(i-2)`, so once you know the smaller answers you can assemble the larger one with no extra guessing.
+
+Put those together and you get the whole idea in one sentence:
+
+**Dynamic programming is recursion without the recomputation — solve each subproblem once, write the answer in a table, and reuse it forever after.**
+
+## How it works
+
+Give every subproblem a slot in a table. For Fibonacci that table is a 1-D array `dp`, where `dp[i]` will hold `Fibonacci(i)`. The recurrence tells you how one slot depends on others:
+
+```
+dp[i] = dp[i - 1] + dp[i - 2]
+```
+
+with the two base cases fixed outright: `dp[0] = 0` and `dp[1] = 1`.
+
+There are two ways to fill that table, and they are the two faces of DP:
+
+1. **Bottom-up (tabulation).** Start at the base cases and fill left to right. By the time you reach `dp[i]`, both `dp[i-1]` and `dp[i-2]` are already sitting in the table, so each cell costs a single addition.
+2. **Top-down (memoization).** Keep the natural recursion, but before recomputing any `dp[k]`, check the table first. If it is already filled, return the stored value immediately — a **cache hit**. If not, compute it once and record it so the next request is instant.
+
+Either way, each of the `n + 1` cells is computed exactly once. The visualizers below show the same table filling in both orders — watch which cells light up, and when a value gets reused instead of recomputed.
+
+## Visualizer
+
+Watch the same Fibonacci table fill in two different ways. Each `dp[i]` lights up its two dependency cells (dashed tie-lines) so you can see `dp[i] = dp[i-1] + dp[i-2]` happen.
+
+### Bottom-up (tabulation)
+
+<Visualizer
+  algorithm="dp-fib-tabulation"
+  renderer="table"
+  input="6"
+  inputLabel="n"
+  showTarget={false}
+/>
+
+Tabulation fills left → right; every value is ready before it is needed. There is nothing to look up because nothing is ever missing.
+
+<Callout variant="tip">
+  **Same table, two directions.** Tabulation fills bottom-up, left to right —
+  dull but complete. Memoization starts from the top (`dp[n]`), recurses down to
+  the base cases, then fills back up — and whenever it needs a value it already
+  has, it **reuses it** (the ✓) instead of recomputing. Both do `O(n)` work and
+  use `O(n)` space; they only differ in the order the cells light up.
+</Callout>
+
+### Top-down (memoization)
+
+<Visualizer
+  algorithm="dp-fib-memoization"
+  renderer="table"
+  input="6"
+  inputLabel="n"
+  showTarget={false}
+/>
+
+Memoization recurses down from `dp[n]`, then backfills on the way up. A ✓ marks a value reused from the cache — the same subproblem the naive recursion would have recomputed. Memoization is simply the recursion lesson's `fib` call structure plus a lookup table.
+
+## Complexity
+
+<ComplexityTable complexity={frontmatter.complexity} />
+
+Each of the `n + 1` table cells is computed exactly once, and each costs a single addition, so the total work is `O(n)` — a dramatic improvement over the naive recursion's `O(2ⁿ)`. Because both variants store the whole table, the space is `O(n)`. (Fibonacci specifically can drop to `O(1)` space by keeping only the last two values, but the general DP shape keeps the full table.) Tabulation and memoization have identical `O(n)` time and `O(n)` space — they differ only in fill order, not in cost.
+
+## Code
+
+### Bottom-up (tabulation)
+
+An explicit `dp` array filled in a loop. The structure matches the left → right fill you stepped through above.
+
+<CodeTabs tabs={tabulationTabs} />
+
+### Top-down (memoization)
+
+The recursion lesson's `fib`, now remembering its answers. The `if n in memo` guard is the code embodiment of the ✓ cache hit in the visualizer.
+
+<CodeTabs tabs={memoTabs} />
+
+## Common pitfalls
+
+<Callout variant="warning">
+  Memoization without an actual cache is just slow recursion. If you forget the
+  lookup-and-store step, you get the exponential blow-up back — the cache is the
+  entire point.
+</Callout>
+
+<Collapsible summary="Filling the table in the wrong order (tabulation)">
+  Bottom-up only works if a cell's dependencies are filled before the cell
+  itself. For Fibonacci that means iterating `i` from `2` upward — start from
+  the top and `dp[i-1]` or `dp[i-2]` would still be empty when you read them.
+</Collapsible>
+
+<Collapsible summary="Sharing one mutable cache across calls">
+  In Python, a default argument like `memo={}` is created once and reused across
+  every call, silently leaking answers between unrelated inputs. Initialize the
+  cache inside the function (`memo=None` then `memo = {}`) or pass a fresh one
+  in, as the samples above do.
+</Collapsible>
+
+<Collapsible summary="Missing or wrong base cases">
+  The recurrence `dp[i] = dp[i-1] + dp[i-2]` is meaningless until `dp[0]` and
+  `dp[1]` are set by hand. Forgetting them (or setting `dp[1] = 0`) shifts or
+  zeroes the entire sequence — every derived value inherits the mistake.
+</Collapsible>
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Naively, `fib(5)` recomputes `fib(2)` five times. How many times does the memoized version compute `fib(2)`?**
+
+<Collapsible summary="Show answer">
+  Exactly once. The first call to `fib(2)` computes and stores it; every later
+  request is a cache hit that returns the stored value without recursing. That
+  is the whole saving — each subproblem is solved a single time.
+</Collapsible>
+
+**2. What are the two properties a problem must have for dynamic programming to apply, and which one does plain Fibonacci recursion reveal first?**
+
+<Collapsible summary="Show answer">
+  It needs **overlapping subproblems** (the same smaller problem recurs) and
+  **optimal substructure** (the answer is built from subproblem answers). The
+  naive recursion reveals the overlap first — you literally watch `fib(3)` and
+  `fib(2)` get recomputed — which is the signal DP will pay off.
+</Collapsible>
+
+**3. Tabulation and memoization both run in `O(n)` time and `O(n)` space here. Name one practical reason you might still prefer each.**
+
+<Collapsible summary="Show answer">
+  Tabulation avoids recursion entirely, so it cannot overflow the call stack and
+  is often marginally faster (no call overhead). Memoization keeps the code
+  shape of the natural recurrence, so it is easier to write correctly and only
+  computes the subproblems actually needed to answer the query.
+</Collapsible>
