@@ -55,6 +55,25 @@ describe('bfs.run', () => {
     trace[trace.length - 1]!.state.nodes.push({ id: 99 });
     expect(trace[0]!.state.nodes).toHaveLength(6);
   });
+
+  it('final step marks only the reached set on a disconnected graph (B2)', () => {
+    // Graph 0-1, 2-3 with start 0: only {0,1} are reachable; the terminal step
+    // must NOT falsely mark 2 and 3 visited.
+    const trace = bfs.run({
+      nodeIds: [0, 1, 2, 3],
+      edges: [
+        { from: 0, to: 1 },
+        { from: 2, to: 3 },
+      ],
+      start: 0,
+    });
+    const last = trace[trace.length - 1]!;
+    const visited = (last.highlights ?? []).filter((h) => h.kind === 'visited');
+    const visitedIds = new Set(visited.flatMap((h) => h.ids));
+    expect(visitedIds).toEqual(new Set(['n0', 'n1']));
+    expect(visitedIds.has('n2')).toBe(false);
+    expect(visitedIds.has('n3')).toBe(false);
+  });
 });
 
 describe('bfs.parseInput', () => {

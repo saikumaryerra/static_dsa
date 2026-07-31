@@ -60,10 +60,10 @@ const sections: {
     <header class="learn__head">
       <h1>Curriculum</h1>
       <p class="learn__intro">
-        Fourteen core lessons across two tracks. Work through them in order, or
-        jump to any topic — each one is built around a visualization you can
-        play, pause, and run on your own input. Lessons you finish are checked
-        off on this device.
+        {published.length} core lessons across two tracks. Work through them in order,
+        or jump to any topic — each one is built around a visualization you can play,
+        pause, and run on your own input. Lessons you finish are checked off on this
+        device.
       </p>
     </header>
 
@@ -170,7 +170,15 @@ const sections: {
       .forEach((card) => {
         const slug = card.dataset['slug'];
         if (!slug) return;
-        const done = store?.getItem(`lesson:${slug}:complete`) === '1';
+        // getItem itself can throw in blocked-methods mode (Safari private):
+        // guard it (mirrors MarkComplete.readDone) so a throw yields no
+        // checkmark and never becomes an uncaught pageerror.
+        let done: boolean;
+        try {
+          done = store?.getItem(`lesson:${slug}:complete`) === '1';
+        } catch {
+          return; // storage read blocked: leave this card unmarked, keep going
+        }
         if (done) card.setAttribute('data-complete', 'true');
         else card.removeAttribute('data-complete');
       });

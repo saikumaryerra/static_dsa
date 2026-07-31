@@ -36,8 +36,5 @@ export const entryId = (b: number, p: number): string => `h${b}_${p}`;
 /** Call-stack frame at depth `i` → `"f1"` (0 = bottom of the stack). */
 export const frameId = (i: number): string => `f${i}`;
 
-/** Value-scaled bar at index `i` → `"b4"` (bars variant's own vocabulary). */
-export const barId = (i: number): string => `b${i}`;
-
 /** Big-O curve for growth function `fn` (`"n2"`, `"logn"`, …) → `"c-n2"`. */
 export const curveId = (fn: string): string => `c-${fn}`;

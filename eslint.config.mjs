@@ -22,8 +22,9 @@ export default defineConfig(
   astro.configs['flat/recommended'],
   {
     rules: {
-      // §18 DoD: no console.log in shipped code (warn/error stay available for
-      // genuinely exceptional paths, of which M1 has none).
+      // §18 DoD: zero console usage ships — `'no-console': 'error'` bans ALL
+      // console methods (console.log, .warn, .error, everything). The strict ban
+      // is intentional; no exceptional path in this codebase logs.
       'no-console': 'error',
     },
   },

@@ -76,6 +76,29 @@ describe('graphRepresentations.parseInput', () => {
     } satisfies GraphRepresentationsInput);
   });
 
+  it('strips the client-composed trailing "target=" tail (B1 regression)', () => {
+    // The Visualizer client always composes `${edges} target=${target}`; with an
+    // empty target field the raw string ends in ` target=`. It must not corrupt
+    // the last edge token — parseInput has to succeed and ignore the tail.
+    expect(graphRepresentations.parseInput('0-1,1-2 target=')).toEqual({
+      nodeIds: [0, 1, 2],
+      edges: [
+        { from: 0, to: 1, directed: false },
+        { from: 1, to: 2, directed: false },
+      ],
+    } satisfies GraphRepresentationsInput);
+  });
+
+  it('parses a normal directed edge list with a trailing target tail', () => {
+    expect(graphRepresentations.parseInput('0>1:4, 2>3 target=9')).toEqual({
+      nodeIds: [0, 1, 2, 3],
+      edges: [
+        { from: 0, to: 1, weight: 4, directed: true },
+        { from: 2, to: 3, directed: true },
+      ],
+    } satisfies GraphRepresentationsInput);
+  });
+
   it('rejects an empty edge list', () => {
     expect(graphRepresentations.parseInput('')).toEqual({
       error: 'Type an edge list, e.g. 0>1:4, 0>2:1, 2>1:2',

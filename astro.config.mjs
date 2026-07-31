@@ -10,6 +10,10 @@ export default defineConfig({
   // tags are structurally correct; swap this one value when the real host is known.
   site: 'https://learndsa.example.com',
   output: 'static',
+  // C1: emit `about.html` (served at /about, no redirect) instead of
+  // `about/index.html` (served at /about/), so the no-slash canonicals + sitemap
+  // are literally correct and consistent across every route.
+  build: { format: 'file' },
   integrations: [mdx()],
   markdown: {
     // Dual-theme Shiki (spec §12/§13 AA): emit CSS-variable tokens so code blocks

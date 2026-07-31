@@ -269,6 +269,7 @@ const targetId = `${uid}-target`;
                 data-viz-array
                 placeholder={inputPlaceholder}
                 aria-describedby={errId}
+                disabled
               />
             </div>
             {showTarget && (
@@ -281,10 +282,11 @@ const targetId = `${uid}-target`;
                   inputmode="numeric"
                   placeholder={targetPlaceholder}
                   aria-describedby={errId}
+                  disabled
                 />
               </div>
             )}
-            <button type="submit" class="btn-secondary" data-viz-run>
+            <button type="submit" class="btn-secondary" data-viz-run disabled>
               Run
             </button>
           </div>
@@ -1014,6 +1016,7 @@ const targetId = `${uid}-target`;
     const arrayInput = root.querySelector<HTMLInputElement>('[data-viz-array]');
     const targetInput =
       root.querySelector<HTMLInputElement>('[data-viz-target]');
+    const runBtn = root.querySelector<HTMLButtonElement>('[data-viz-run]');
     const errorBox = root.querySelector<HTMLElement>('[data-viz-error]');
     const errorText = root.querySelector<HTMLElement>('[data-viz-error-text]');
 
@@ -1198,8 +1201,19 @@ const targetId = `${uid}-target`;
         { signal },
       );
 
-      // Enable controls now that a player exists.
-      [playBtn, backBtn, fwdBtn, resetBtn, speedSel].forEach((el) => {
+      // Enable controls now that a player exists. The custom-input fields + Run
+      // button ship `disabled` in SSR (A3) so a pre-hydration click can't submit
+      // the actionless form and trigger a full-page reload; enable them here.
+      [
+        playBtn,
+        backBtn,
+        fwdBtn,
+        resetBtn,
+        speedSel,
+        arrayInput,
+        targetInput,
+        runBtn,
+      ].forEach((el) => {
         if (el) el.disabled = false;
       });
       updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);

@@ -55,8 +55,12 @@ const samples: {
 
 <BaseLayout
   title="Renderer gallery (dev) · LearnDSA"
-  description="Dev-only renderer gallery — not shipped to production."
+  description="Dev-only renderer gallery."
 >
+  {
+    /* Emitted to dist but never a real content page — keep crawlers out (mirrors 404). */
+  }
+  <meta name="robots" content="noindex" slot="head" />
   {
     /* Plain div, not <main>: BaseLayout already renders the page's <main id="main">. */
   }

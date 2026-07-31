@@ -35,6 +35,10 @@ test.describe('no-JS degradation (spec §4)', () => {
     page,
   }) => {
     await page.goto('/');
+    // Settle the just-started preview server before asserting prose visibility:
+    // under full parallelism a cold-start goto can resolve before the document is
+    // parsed, racing the paragraph check (T1 flake). Wait for parse to complete.
+    await page.waitForLoadState('domcontentloaded');
 
     // All prose content must be fully readable without JS.
     await expect(page.locator('h1')).toBeVisible();

@@ -16,6 +16,7 @@
  * panel stacked with a visible language heading (design §6.6 fallback).
  */
 import { Code } from 'astro:components';
+import { nextUid } from './uid';
 
 interface Tab {
   label: string;
@@ -29,8 +30,9 @@ interface Props {
 
 const { tabs } = Astro.props;
 
-// Unique id base per instance so multiple CodeTabs on a page don't collide.
-const uid = `ct-${Math.random().toString(36).slice(2, 8)}`;
+// Module-scoped per-instance counter so multiple CodeTabs on a page get distinct
+// id bases WITHOUT Math.random() — deterministic build output, no id collisions.
+const uid = `ct-${nextUid()}`;
 ---
 
 <div class="codetabs" data-codetabs>

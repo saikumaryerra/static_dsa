@@ -128,7 +128,14 @@ Step through the demo: it enqueues a few values, dequeues a couple — advancing
 
 ## Visualizer
 
-<Visualizer algorithm="queue-operations" renderer="queue" input="[10,20,30]" />
+<Visualizer
+  algorithm="queue-operations"
+  renderer="queue"
+  input="[10,20,30]"
+  showTarget={false}
+  inputLabel="Values"
+  inputPlaceholder="[10,20,30]"
+/>
 
 Press **Play**, or **Step forward** one operation at a time. The `+` marks an enqueue at the rear, the `✕` a dequeue at the front, and the carets track **front** and **rear**. The default run wraps around; enter your own values to fill a fresh ring.
 

@@ -126,7 +126,10 @@ function run(
 function parseInput(
   raw: string,
 ): GraphRepresentationsInput | { error: string } {
-  const text = raw.trim();
+  // The Visualizer client always composes the raw string as
+  // `${edges} target=${target}`; strip a trailing `target=...` tail before
+  // tokenizing (mirrors bfs.ts/dfs.ts) so it never corrupts the last edge token.
+  const text = raw.replace(/target\s*=.*/i, '').trim();
   if (text.length === 0) {
     return { error: 'Type an edge list, e.g. 0>1:4, 0>2:1, 2>1:2' };
   }

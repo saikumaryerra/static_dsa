@@ -161,7 +161,9 @@ function run(input: TraversalInput): Trace<TraversalState> {
   }
 
   push(`DFS complete. The stack is empty. Visit order: ${order.join(' → ')}.`, [
-    { kind: 'visited', ids: input.nodeIds.map((id) => nodeId(id)) },
+    // Only the REACHED set is visited — on a disconnected graph, unreached
+    // vertices must not get a false ✓ (site spec §11 non-color markers).
+    { kind: 'visited', ids: order.map((id) => nodeId(id)) },
   ]);
   return trace;
 }

@@ -21,7 +21,7 @@
  * SAME class + marker logic through `core/svg`, so still == hydrated step 0.
  * Reduced motion is inherited from the token layer — no `matchMedia` here.
  */
-import type { Renderer, RenderOpts, Step } from '../core/types';
+import type { Renderer, RendererModule, RenderOpts, Step } from '../core/types';
 import { cellId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { esc, group, line, svgRoot, text } from '../core/svg';
@@ -401,14 +401,14 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
 }
 
 /** Boxed-cell array renderer (`renderer="array"`). */
-export const arrayRenderer = {
+export const arrayRenderer: RendererModule<ArrayWindowState> = {
   create: () => new ArrayDomRenderer('cells'),
   renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
     renderArrayStatic(step, opts, 'cells'),
 };
 
 /** Value-scaled bars renderer (`renderer="bars"`); same ids/geometry (§4.1). */
-export const barsRenderer = {
+export const barsRenderer: RendererModule<ArrayWindowState> = {
   create: () => new ArrayDomRenderer('bars'),
   renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
     renderArrayStatic(step, opts, 'bars'),
