@@ -13,7 +13,16 @@ How to build and deploy LearnDSA to production. The site is a **fully static, pr
 1. **`public/_headers` already exists** — that format is honored by **Cloudflare Pages and Netlify only**; GitHub Pages silently ignores it, so the security headers this project ships would not take effect there.
 2. **`build.format: 'file'`** produces clean, no-trailing-slash URLs (`/about`, `/learn/binary-search`) that match the canonicals + sitemap exactly; Cloudflare/Netlify serve them natively.
 
-Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — ideal for an educational site that may get bursty traffic — at **$0**. Explicitly **not** recommended for this workload: Kubernetes/containers, Terraform/Bicep/IaC, an SSR adapter, or S3+CloudFront — there is no server, state, or runtime secret, so heavier infra adds cost and attack surface with zero benefit. Use the **combined gate-and-deploy workflow in §5.1** (preferred over the split gate-only/deploy-only snippets, which remain as generic references).
+Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — ideal for an educational site that may get bursty traffic — at **$0**. Explicitly **not** recommended for this workload: Kubernetes/containers, Terraform/Bicep/IaC, an SSR adapter, or S3+CloudFront — there is no server, state, or runtime secret, so heavier infra adds cost and attack surface with zero benefit.
+
+> ### ✅ Current setup: Cloudflare Pages **git integration**
+>
+> The Pages project is connected directly to the GitHub repo, so **Cloudflare builds and deploys itself on every push to `main`** (and gives every PR a preview URL). Consequences:
+>
+> - **Use the gate-only workflow in §5.2** (`.github/workflows/ci.yml`, already committed) — it runs lint/format/unit/e2e, which Cloudflare's build does *not*.
+> - **Do NOT add the §5.1 Actions+Wrangler workflow** — that is for the *Direct Upload* topology and would publish twice.
+> - Domain is the free `*.pages.dev` subdomain, resolved automatically (§2.1). No registration, TLS included.
+> - Dashboard build settings: build command `npm run build`, output directory `dist`, production branch `main`, Node from `.nvmrc` (or `NODE_VERSION=20`).
 
 ---
 
@@ -32,20 +41,25 @@ Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — id
 
 ## 2. Pre-deploy configuration (required)
 
-### 2.1 Set the production domain — the critical step
+### 2.1 The production origin — resolved automatically
 
-Edit **`astro.config.mjs`** and replace the placeholder `site` with your real origin (scheme + host, no trailing path):
+**This is already configured** — `astro.config.mjs` resolves the origin at build time instead of hardcoding it:
 
 ```js
-// astro.config.mjs
-export default defineConfig({
-  site: 'https://your-real-domain.com',   // ← was 'https://learndsa.example.com'
-  output: 'static',
-  // ...
-});
+const PRODUCTION_URL = 'https://static-dsa.pages.dev';   // free Cloudflare Pages subdomain
+const site =
+  process.env.SITE_URL ||                                                  // 1. explicit override
+  (process.env.CF_PAGES_BRANCH === 'main' ? process.env.CF_PAGES_URL : '') // 2. Cloudflare production
+  || PRODUCTION_URL;                                                       // 3. local + previews
 ```
 
-This single value propagates to **every** absolute URL the site emits:
+1. **`SITE_URL`** — explicit override, wins over everything.
+2. **`CF_PAGES_URL` on the production branch** — Cloudflare injects this at build time; on `main` it *is* `https://<project>.pages.dev`. This makes the deployed canonicals correct **even if `PRODUCTION_URL` is stale or misspelled**.
+3. **`PRODUCTION_URL`** — used for local builds and preview branches. Previews deliberately canonicalize to production so they never compete with it in search.
+
+> **Adding a custom domain later:** a custom domain does **not** change `CF_PAGES_URL`, so update `PRODUCTION_URL` (or set a `SITE_URL` build variable in the Cloudflare dashboard) — otherwise canonicals keep pointing at the `pages.dev` origin.
+
+The resolved value propagates to **every** absolute URL the site emits:
 - `<link rel="canonical">` on every page
 - `og:url` / `og:image` / `twitter:*` tags
 - `dist/sitemap.xml` `<loc>` entries

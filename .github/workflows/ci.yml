@@ -1,0 +1,56 @@
+# Definition-of-Done gate (spec §18).
+#
+# Cloudflare Pages is connected directly to this GitHub repo and runs its own build
+# (`npm run build`) on every push — but that only type-checks and builds. This
+# workflow runs the checks Cloudflare does not: lint, format, unit, and the
+# Playwright/axe e2e suite. Make `DoD gate` a required status check on `main`
+# (Settings → Branches) so a red build can never reach the production branch.
+#
+# This workflow deliberately does NOT deploy — Cloudflare's git integration owns
+# deployment. Adding a Wrangler deploy step here would publish twice.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A newer push supersedes an in-flight run of the same ref.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: DoD gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc # single source of truth, shared with Cloudflare
+          cache: npm
+
+      - run: npm ci # lockfile-exact, reproducible
+
+      - run: npm run build # astro check (type gate) + astro build
+
+      - run: npm run lint
+
+      - run: npm run format:check
+
+      - run: npm run test # Vitest unit suite
+
+      # Only the e2e job needs a browser; --with-deps installs the system libs.
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e # Playwright smoke + axe a11y
+
+      # Keep the report on failure so a red run is diagnosable without a local repro.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

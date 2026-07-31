@@ -1,14 +1,33 @@
 // @ts-check
+import process from 'node:process';
 import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import tailwindcss from '@tailwindcss/vite';
 
+/**
+ * Production origin — every canonical, OG/Twitter tag, sitemap <loc>, robots
+ * Sitemap: line, and JSON-LD url derives from it (spec §14).
+ *
+ * Resolution order:
+ *  1. `SITE_URL` — explicit override. SET THIS (or edit PRODUCTION_URL below) when a
+ *     custom domain is added: a custom domain does NOT change CF_PAGES_URL, so
+ *     without it canonicals would keep pointing at the pages.dev origin.
+ *  2. `CF_PAGES_URL` on the production branch — Cloudflare Pages injects this at
+ *     build time, and on the production branch it IS https://<project>.pages.dev.
+ *     Deriving it means the deployed canonicals are correct even if PRODUCTION_URL
+ *     below is stale/misspelled.
+ *  3. PRODUCTION_URL — used for local builds and preview branches. Previews
+ *     deliberately canonicalize to production so they never compete with it in search.
+ */
+const PRODUCTION_URL = 'https://static-dsa.pages.dev';
+const site =
+  process.env.SITE_URL ||
+  (process.env.CF_PAGES_BRANCH === 'main' ? process.env.CF_PAGES_URL : '') ||
+  PRODUCTION_URL;
+
 // https://astro.build/config
 export default defineConfig({
-  // SPEC-GAP: no production domain is specified anywhere in the spec (§14 requires
-  // canonical URLs, which need an absolute origin). Placeholder used so canonical/OG
-  // tags are structurally correct; swap this one value when the real host is known.
-  site: 'https://learndsa.example.com',
+  site,
   output: 'static',
   // C1: emit `about.html` (served at /about, no redirect) instead of
   // `about/index.html` (served at /about/), so the no-slash canonicals + sitemap
