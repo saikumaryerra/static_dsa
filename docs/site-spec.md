@@ -71,7 +71,7 @@ The whole site is prerendered to static HTML/CSS/JS and deployable to any static
 - **Testing:** Vitest (unit, esp. algorithm traces) + Playwright (a few smoke/e2e + a11y checks).
 - **Lint/format:** ESLint + Prettier.
 - **Package manager:** npm.
-- **Node:** LTS (>= 20).
+- **Node:** LTS (>= 22.12 — Astro 7's floor; `package.json` `engines`, `.nvmrc` and CI pin 24).
 
 **Hard constraints:**
 - Total JS shipped to any single lesson page ≤ **60 KB gzipped** (excluding the one visualization island's logic, which should still be small).
@@ -120,7 +120,19 @@ Ship these lessons in v1, grouped into two tracks. Each lesson gets its own page
 
 - **Global nav:** logo → Home; "Learn"; "Glossary"; "About"; a light/dark theme toggle.
 - **In-lesson nav:** breadcrumb (Learn / Track / Lesson), prev/next lesson, and an on-page table of contents (sticky on desktop).
-- **Local "completed" state:** a lesson can be marked done; store in `localStorage` only (no server). Show a subtle checkmark in the index. This is the *only* client persistence.
+- **Local "completed" state:** a lesson can be marked done; store in `localStorage` only (no server). Show a subtle checkmark in the index (M8 renders it as the first of three mastery pips — see `docs/m8-gamification.md`).
+- **Client persistence (amended M7/M8).** `localStorage` remains the *only* persistence mechanism
+  (no `sessionStorage`, no cookies) and there is never a server. The permitted keys are enumerated
+  here; anything else needs a spec change.
+  - *Progress keys* — **cleared by the reset-progress control** (M7.2): `lesson:{slug}:complete`
+    (completion; the source of truth, never migrated away), `progress:v1:{slug}` (M8 mastery),
+    `ld:challenges:v1`, `ld:finalrun:v1`, `ld:days:v1` (M8 trials, Final Runs, learning days).
+  - *Preference keys* — **not** cleared by the reset-progress control: `theme`, `pref:viz-speed`,
+    `pref:code-lang`.
+
+  Every key must be version-prefixed where its shape can evolve and read/written inside `try/catch`
+  (private mode). No behavioral tracking of any kind — store only explicit user acts and
+  self-reports. The M8 Predict toggle is deliberately **not** persisted at all.
 
 ---
 
@@ -155,7 +167,11 @@ Lesson body sections (authors follow this order; enforce with a lint/checklist, 
 4. **Complexity** — auto-rendered from frontmatter + a sentence of explanation.
 5. **Code** — `<CodeTabs>` with the same algorithm in **Python, JavaScript, and Java** (pick these three; each tab is a fenced code block).
 6. **Common pitfalls / edge cases** — collapsible.
-7. **Practice / check yourself** — 2–3 conceptual questions (no grading; answers in `<details>`).
+7. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
+8. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson.
+
+Optional frontmatter added by M8: `explainPrompt` (the "why does this work?" question for the
+Explain-it-back note). Lessons without it render nothing.
 
 ---
 
@@ -164,10 +180,10 @@ Lesson body sections (authors follow this order; enforce with a lint/checklist, 
 Implement these as Astro layouts/pages. Keep them composable.
 
 - **`BaseLayout`** — `<head>` (meta, OG tags, theme init inline script to avoid FOUC), skip-to-content link, global header, footer, theme toggle.
-- **`LessonLayout`** — wraps MDX content; adds breadcrumb, sticky ToC (generated from headings), prev/next, complexity table slot, "mark complete" control, reading-time.
-- **Home page** — hero (one-line value prop + subhead), 2–3 feature blurbs (interactive / beginner-friendly / free), track cards linking to `/learn`, footer.
-- **Curriculum index** — two columns/sections (Foundations, Algorithms); each lesson as a card: number, title, one-line summary, difficulty chip, estimated minutes, done-checkmark.
-- **Glossary** — alphabetical; jump-to-letter bar; each entry: term, 1–2 sentence definition, "introduced in →" link.
+- **`LessonLayout`** — wraps MDX content; adds breadcrumb, sticky ToC (generated from headings), prev/next, complexity table slot, "mark complete" control, reading-time. *M7 adds:* a "Builds on:" prerequisites row (from frontmatter, build-validated against real slugs) and an end-of-lesson **"What's next"** section merging mark-complete with the next-lesson card. Prev/next follow **global** lesson order, naming the track when it changes — never dead-ending at a track boundary (§3 "no dead ends").
+- **Home page** — hero (one-line value prop + subhead), 2–3 feature blurbs (interactive / beginner-friendly / free), track cards linking to `/learn`, footer. *M7 adds:* a hero **product demo panel** at ≥1024px — a build-time `renderStatic()` frame of a real trace (never a hand-drawn mock), stacking below the CTA on mobile.
+- **Curriculum index** — two columns/sections (Foundations, Algorithms); each lesson as a card: number, title, one-line summary, difficulty chip, estimated minutes, done-checkmark. *M7 adds:* a resume CTA, per-track progress, and a reset-progress control. *M8.2 adds:* a ready-to-review strip directly under the page head — at most two cards, zero DOM when empty, never any "overdue"/countdown vocabulary. *M8 amends:* the done-checkmark becomes the first of three **mastery pips** (the existing check glyph is pip 1's fill, preserving the mental model); the per-track counter is drawn as a ring showing `N of M complete · Practiced n · Mastered n` — the self-reported completion count is never displayed alone. Difficulty-chip treatment may become semantic soft-fill (M7.3, designer sign-off) — the difficulty **word** is always retained.
+- **Glossary** — alphabetical; jump-to-letter bar (sticky at every breakpoint, single-row scrollable on mobile); each entry: term, per-term anchor id, 1–2 sentence definition, `Also called:` aliases, "introduced in →" link.
 
 ---
 
@@ -190,6 +206,18 @@ Build these reusable components (Astro components unless they need interactivity
 | `Collapsible` | static | wraps native `<details>` with styling |
 | `MarkComplete` | island | localStorage checkmark |
 | `Visualizer` | island | **the interactive DSA visualization — see §11** |
+| `PracticeCheck` | island (minimal) | *M8* — wraps a Practice answer with one-tap **self**-grading |
+| `TrackArc` | island (minimal) | *M8* — per-track progress ring + mastery counts on `/learn` |
+| `Challenge` | island (minimal) | *M8.3* — input-crafting trial validated against the run's final metrics; a build-time `witness` input proves solvability or the build fails |
+| `FinalRun` | island (minimal) | *M8.3* — one numeric prediction per lesson; truth computed at build time |
+
+**Gamification components (M8) inherit every rule in this spec plus the design stance in
+`docs/m8-gamification.md`:** mastery states are the only progress currency; nothing rewards
+presence or punishes absence; no accuracy ratios during a learning act; the review strip is the
+only surface that ever prompts the user, capped at two cards and rendering zero DOM when empty.
+Those calm invariants are enforced by tests, not by intention (pure halves in Vitest, DOM/storage
+halves in Playwright — Vitest runs in `node` with no DOM). Each gamification component ships its own
+`<noscript>` kill-switch so JS-off pages are unaffected.
 
 ---
 
@@ -207,7 +235,7 @@ Every `<Visualizer />` on every lesson must support this common control set (see
 
 Accessibility for the visualization:
 - All controls are real buttons/inputs, keyboard-operable, with `aria-label`s.
-- The current-step explanation is exposed to screen readers via an `aria-live="polite"` region.
+- The current-step explanation is exposed to screen readers via an `aria-live="polite"` region. *M7 exception:* during autoplay faster than 1× the region may be muted to avoid an unusable announcement flood, provided the final step is announced once on auto-pause and every manual step still announces normally.
 - Color is never the *only* signal (pair color highlights with labels/patterns/icons).
 
 ---
@@ -257,16 +285,32 @@ export type Trace<TState = unknown> = Step<TState>[];
 // Every instrumented algorithm implements this shape.
 export interface Algorithm<TInput, TState> {
   id: string;                    // e.g. 'binary-search'
+  label: string;                 // human label; SVG <title> + section aria-label
   run(input: TInput): Trace<TState>;
   defaultInput(): TInput;        // sensible starting input for the lesson
   parseInput(raw: string): TInput | { error: string }; // for the custom-input box
+
+  // M8, optional: powers Predict-the-Step. Pure; grades against the trace the
+  // player already holds. Return null where a step has nothing worth predicting
+  // (including the last step, which has no successor). `choices` is capped at 4.
+  // Algorithms without it simply don't offer predict mode (the toggle hides).
+  predictStep?(trace: Trace<TState>, i: number, input: TInput):
+    { prompt: string; choices: string[]; correctIndex: number } | null;
 }
 
 // Renderer contract (one per structure family).
 export interface Renderer<TState> {
-  mount(container: HTMLElement): void;
+  mount(container: HTMLElement, opts?: RenderOpts): void;
   render(step: Step<TState>): void;   // idempotent: draw exactly this step
   destroy(): void;
+}
+
+// The registry-facing export shape. `renderStatic` is the build-time, DOM-free
+// path: it produces the pre-hydration still, and M7.3's hero demo panel and
+// M8.3's build-time answer computation both depend on it.
+export interface RendererModule<TState> {
+  create(): Renderer<TState>;
+  renderStatic(step: Step<TState>, opts: RenderOpts): string;
 }
 ```
 
@@ -284,7 +328,12 @@ export interface Renderer<TState> {
 
 - The island looks up the `Algorithm` and `Renderer` from a **registry** (`src/viz/registry.ts`) by string id.
 - On mount: run the algorithm → get the trace → hand to the `Player` → render step 0.
-- On custom input: `parseInput` → if valid, recompute trace and reset player; if invalid, show inline error, keep previous trace.
+- On custom input: `parseInput` → if valid, recompute trace and reset player; if invalid, show inline error attributed to the offending field, keep previous trace. A "Restore example" control returns to the authored input.
+- *M8:* on a successful custom run the island dispatches a bubbling `viz:run` CustomEvent
+  `{ algorithmId, input, finalStep }` — the hook `Challenge` validates against. Purely additive:
+  pages without a challenge are unaffected.
+- Gamification never forks the pipeline: predict mode and challenges **consume** the same precomputed
+  trace (§11.1). No mechanic may add algorithm logic to the island, the Player, or a renderer.
 
 ### 11.4 Rules for instrumented algorithms
 - Keep the *real* algorithm logic recognizable — a reader comparing the code sample to the instrumented version should see the same structure. Emit a `Step` at each compare/swap/visit/pointer-move.
@@ -394,7 +443,7 @@ Astro + TS + Tailwind + MDX configured. `BaseLayout`, header/footer, theme toggl
 
 **M2 — Content model & one lesson end-to-end (vertical slice).**
 Content collection + schema; `LessonLayout` (ToC, breadcrumb, prev/next, complexity table, code tabs, mark-complete). Author **one full lesson: Binary Search**, including a working `<Visualizer>` via the §11 pipeline with `ArrayRenderer`.
-*Accept:* `/learn/binary-search` renders all seven lesson sections; the visualizer supports play/pause/step±/reset/speed/scrub/custom input; custom input `[1,3,5,7]` target `5` produces a correct trace ending in `found`; unit test for the binary-search trace passes; page works with JS off (viz shows a static fallback).
+*Accept:* `/learn/binary-search` renders all seven required lesson sections; the visualizer supports play/pause/step±/reset/speed/scrub/custom input; custom input `[1,3,5,7]` target `5` produces a correct trace ending in `found`; unit test for the binary-search trace passes; page works with JS off (viz shows a static fallback).
 
 **M3 — Visualization framework hardening + remaining renderers.**
 Generalize `Player` and the registry. Implement `Array`, `LinkedList`, `Stack`, `Queue`, `Tree`, `Heap`, `Graph`, `CallStack`, `Chart` renderers as needed by §5.
@@ -410,6 +459,48 @@ Glossary auto-linked to lessons; About explains the project; home hero polished;
 
 **M6 — (Stretch) Lesson 15 (Intro DP)** if time remains; otherwise ship as `published:false` with a "coming soon" card.
 
+**M7 — UX overhaul.** Plan: `docs/m7-ux-overhaul.md` (produced by the 2026-08 UX audit — 81
+verified findings). Three phases, each independently shippable:
+- **M7.1 Repair** — no spec changes: a visual/aria baseline captured *first*, then the sticky-rail
+  bug, keyboard focus loss in the player, aria-hidden metrics, contrast repairs, replay, global
+  prev/next, disabled states, ARIA toggle hygiene, error attribution, platform metas/icons.
+  *Accept:* §18 DoD; tokens-contrast unit test added and green; focus-retention e2e journey added as
+  `test.fixme` (it cannot pass until M7.2's focus fix) and flipped live in M7.2.
+- **M7.2 Close the loops** — progress system (resume CTA, per-track counts, reset control,
+  "What's next"), player v2 (consolidated bar, legend, lifecycle states, `aria-disabled` focus
+  fix), wayfinding (scroll-spy v2, mobile mini-ToC, glossary A–Z + anchors + aliases,
+  prerequisites row, mobile viz legibility floor).
+  *Accept:* §18 DoD; focus-retention test green; `/learn` + pre-hydration axe scans added; with JS
+  off every touched surface stays usable and exposes no JS-only control — newly server-rendered
+  content (prerequisites row, "What's next", glossary aliases) is expected to appear, while the viz
+  input helper text stays hidden with the rest of the controls by the existing kill-switch.
+- **M7.3 Raise the brand** — hero demo panel, OG card system, elevation inversion + brand tints +
+  display tier, card affordance, five-state control recipe, print stylesheet, forced-colors block.
+  *Accept:* §18 DoD; §14 Lighthouse targets verified manually against `npm run preview` and pasted
+  into the PR (no Lighthouse tooling in the repo); OG preview verified before deploy; any
+  difficulty-chip change ships with its §8 amendment in the same PR.
+
+**M8 — Gamification ("the mastery loop").** Design + plan: `docs/m8-gamification.md`. Depends on
+M7.2's progress system and reset control. Mastery states (Learned → Practiced → Mastered) are the
+**only** progress currency in the product.
+- **M8.1** shared progress store + `PracticeCheck` self-grading + mastery pips + `TrackArc` +
+  the single Quiet Milestone.
+- **M8.2** Predict-the-Step (binary-search + bubble/insertion sort first — quick-sort and
+  selection-sort defer swaps and need bespoke predictors) + the spaced review queue.
+- **M8.3** Trace Trials + Final Run + Explain-it-back + optional learning-days line. *Trims first
+  under budget pressure; the M8.1–8.2 spine is never sacrificed.*
+
+*Accept (every phase):* §18 DoD; calm-invariant tests green (review strip ≤2 cards and zero DOM when
+empty, no "overdue"/countdown vocabulary, the Predict toggle never persisted, no accuracy ratios
+during a learning act) — split into pure-function unit tests and Playwright for the DOM/storage
+halves, since Vitest runs in `node` with no DOM; **JS-off:** every gamification component ships its
+own `<noscript>` kill-switch, so no gamification affordance appears without JS (no pip, ring,
+milestone, challenge or review card) — only static prompt copy differs from M7; gamification JS
+re-measured by hand against its self-imposed ~5 KB slice of the §4 budget.
+*Additionally — M8.2:* predictor unit tests beside each algorithm's trace tests. *M8.3:* the
+challenge predicate evaluator is unit-tested such that a `witness` failing its own predicate throws
+(so the build guard is covered in CI without committing a broken fixture).
+
 ---
 
 ## 18. Definition of Done (every PR / final delivery)
@@ -418,7 +509,7 @@ Glossary auto-linked to lessons; About explains the project; home hero polished;
 - [ ] `npm run lint` and `npm run format:check` clean.
 - [ ] `npm run test` (Vitest) green, incl. a trace test for each shipped algorithm.
 - [ ] Playwright smoke + axe checks pass (no critical a11y violations).
-- [ ] Each shipped lesson has: all 7 sections, a working stepper visualization with custom input, correct 3-language code, correct complexity table.
+- [ ] Each shipped lesson has: all 7 required sections (§7.1–7.7; §7.8 Final Run is optional), a working stepper visualization with custom input, correct 3-language code, correct complexity table.
 - [ ] Keyboard-only walkthrough of one lesson works, including all viz controls.
 - [ ] JS-disabled: all prose/code readable; viz degrades gracefully.
 - [ ] Meets JS budget (§4) and Lighthouse targets (§14).
@@ -430,6 +521,14 @@ Glossary auto-linked to lessons; About explains the project; home hero polished;
 - Final font + exact brand color: pick tasteful defaults; easy to swap in tokens.
 - Do we want a lightweight "was this helpful?" thumbs (no backend, localStorage only)? Default: skip for v1.
 - Exact three code languages: spec says Python / JavaScript / Java — confirm before M4 if there's a preference.
+- **M7.3 difficulty chips** — semantic soft-fill vs badge-the-exception reverses a documented
+  neutral-chip decision; needs designer sign-off before implementation (§8).
+- **Glossary search island** (~1 KB) — beyond the §8 glossary definition; the zero-JS
+  "Also called:" aliases ship regardless. Owner decision.
+- **Astro prefetch** for lesson links — needs an architect ruling on whether §4's "no runtime
+  network calls" bars same-origin prefetch. Default: skip.
+- **Progress export/import code** — the only no-backend answer to "cleared browser data = lost
+  progress" (M8). Deferred; revisit only if users ask.
 
 ---
 

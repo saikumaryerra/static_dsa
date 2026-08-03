@@ -20,3 +20,6 @@ CLAUDE.local.md
 
 # OS / editor noise
 .DS_Store
+
+# Playwright MCP scratch output (audit screenshots, a11y snapshots)
+.playwright-mcp/
