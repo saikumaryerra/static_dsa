@@ -38,7 +38,14 @@ const {
   ogType = 'website',
   // SPEC-GAP (arch §5): §14 "OG images" is satisfied dependency-free by one static
   // 1200×630 default; per-page/per-lesson OG generation is deferred (would need a
-  // heavy build dep). Swap this default or pass `ogImage` once branded art lands.
+  // heavy build dep). M7.3 SEO-2 replaced the flat indigo placeholder with a
+  // branded card — wordmark, tagline, and a binary-search frame that is the REAL
+  // renderer's `renderStatic()` output rather than a redrawing of it (CLAUDE.md:
+  // never hand-mock the product). BOTH files are generated: run `npm run og`
+  // (scripts/build-og.mjs; manual, deliberately NOT part of `npm run build`) to
+  // rewrite public/og-source.svg — the reviewable source — and rasterize it to
+  // public/og-default.png. Edit the script, never either output. Pass `ogImage`
+  // for any future per-track card.
   ogImage = '/og-default.png',
 } = Astro.props;
 
@@ -56,12 +63,13 @@ const ogImageUrl = new URL(ogImage, Astro.site);
     {/* M7.1 THM-1: browser chrome matches the canvas (--bg per theme). Media-scoped
         so it works with JS off; the first theme-color whose media matches wins, so
         ThemeToggle inserts an un-scoped meta AHEAD of these when the user overrides
-        the OS. M7.3 (elevation inversion) must change the light value to #F8FAFC
-        when --bg picks up the tint, here AND in ThemeToggle's copy.
+        the OS. M7.3 (elevation inversion) moved the light value from #FFFFFF to
+        #F8FAFC with --bg; ThemeToggle carries the same literal for the override
+        path, so the two must be changed together.
         JSX-form comment, not an HTML one: Astro emits HTML comments verbatim into
         every built page, so maintainer notes would ship in the head of all 21 of
         them, ahead of the render-blocking CSS. This form is stripped at build. */}
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F8FAFC" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B1220" />
     <!-- Pre-paint theme resolution (designer handoff, byte-verbatim — this file is
          listed in .prettierignore to keep it that way): must run before any content

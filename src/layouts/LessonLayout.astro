@@ -400,9 +400,20 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
     color: var(--text);
   }
 
-  /* Inline code (not inside a Shiki <pre>). */
+  /* Inline code (not inside a Shiki <pre>). Elevation level -1 (M7.3 VD-3):
+     global.css assigns "code chrome" to `--surface-sunken`, and after the
+     inversion `--surface` is the level-1 CARD fill — a `token` span left on it
+     both contradicted the model (code read as raised) and, inside a callout or
+     a complexity-table cell, painted exactly the same colour as the box it sits
+     in, leaving only the keyline. The `--border` keyline stays because a well
+     dropped straight onto the canvas is only 1.08:1 light / 1.06:1 dark and
+     needs an edge to exist at all; inside a level-1 card it is 1.12:1 / 1.21:1,
+     which is the step the model intends. Text is well clear of AA on the new
+     fill: `--text` on `--surface-sunken` is 15.87:1 light / 14.36:1 dark, and
+     where the code falls inside a prose link it inherits `--brand` at 5.59:1 /
+     5.94:1. */
   .lesson-body :global(:not(pre) > code) {
-    background-color: var(--surface);
+    background-color: var(--surface-sunken);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 0.1em 0.35em;

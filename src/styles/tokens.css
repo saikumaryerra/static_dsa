@@ -15,6 +15,11 @@
   --text-2xl:  clamp(1.5rem, 1.353rem + 0.652vw, 1.875rem);    /* 24→30px */
   --text-3xl:  clamp(1.875rem, 1.63rem + 1.087vw, 2.5rem);     /* 30→40px */
   --text-4xl:  clamp(2.25rem, 1.859rem + 1.739vw, 3.25rem);    /* 36→52px */
+  /* Display tier (M7.3): the HOME HERO h1 ONLY. Every other h1 on the site stays
+     --text-3xl and interior heroes stay --text-4xl — one page is allowed to
+     shout, or nothing does. Pair it with --weight-heavy and --tracking-tighter
+     (the three are a set; --leading-tight already covers the line height). */
+  --text-5xl:  clamp(2.75rem, 2.2rem + 2.4vw, 4.25rem);        /* 44→68px */
 
   --leading-tight:   1.1;   /* --text-4xl hero */
   --leading-snug:    1.25;  /* headings 2xl/3xl */
@@ -25,7 +30,12 @@
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
+  /* Display weight (M7.3), --text-5xl only. Windows' static Segoe UI / Roboto
+     have no 800 face and snap to the nearest weight (700) — accepted: the tier
+     still reads as display through size and tracking on those machines. */
+  --weight-heavy: 800;
   --tracking-tight: -0.015em; /* 3xl/4xl only */
+  --tracking-tighter: -0.025em; /* --text-5xl display only */
 
   /* ---------- Layout ---------- */
   --container-max: 72rem;   /* 1152px site shell */
@@ -90,8 +100,39 @@
   --disabled-opacity: 0.5;
 
   /* ---------- Color: LIGHT ---------- */
-  --bg: #FFFFFF;
-  --surface: #F6F7F9;
+  /* M7.3 VD-3 — the elevation INVERSION. Light mode used to have exactly one
+     surface level: a #F6F7F9 card on a #FFFFFF page is 1.07:1, and shadows only
+     appeared on hover, so nothing on the page was pre-attentively distinguishable
+     until you pointed at it. The canvas is now tinted and cards are white, with a
+     RESTING --shadow-1 (elevation model in global.css), and --surface-sunken adds
+     a well one level BELOW THE CARD for the chips that sit inside the viz frame,
+     the pressed state of the outline controls, and inline code.
+
+     Everything the swap moved, measured — all still AA, and the viz matrix
+     actually gained headroom because its tints now mix over white:
+       --text          17.85:1 on --surface (was 16.65), 17.06:1 on --bg (17.85)
+       --text-muted     7.58 / 7.24            --border-strong  4.76 / 4.55
+       --accent-warn    5.02 / 4.80            --brand          6.29 / 6.01
+       weakest --hl-* stroke on its own tint  3.92:1 (was 3.70)
+       weakest marker glyph on --surface      5.02:1 (was 4.68)
+     tests/unit/tokens-contrast.test.ts is the standing guard for that matrix. */
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  /* Level -1, and it is a well against the CARD, not against the canvas: 1.12:1
+     on --surface (1.21:1 dark) but only 1.08:1 on --bg (1.06:1 dark, where it is
+     actually a shade LIGHTER than the canvas). A well that sits on the page
+     itself therefore needs a --border keyline to exist at all. Consumers today:
+     prose inline code (LessonLayout's `.lesson-body :not(pre) > code`), .viz-pill
+     inside the viz frame, and .btn-secondary:active / .viz-btn:active. NOT the
+     viz input fields — VD-8 moved those up to --surface, because they sit on the
+     canvas rather than on a card. */
+  --surface-sunken: #EEF2F6;
+  /* Level 2 in LIGHT is this fill + --shadow-2 + a --text-muted keyline (7.58:1
+     here), so it is the same white as level 1 by design — the depth comes from
+     the shadow, and setting the fill is a deliberate no-op that lets one recipe
+     serve both themes. Declared all the same: a component written against the
+     dark scale must never read an undefined variable. */
+  --surface-raised: #FFFFFF;
   --text: #0F172A;
   --text-muted: #475569;
   --border: #E2E8F0;         /* decorative separators only */
@@ -99,12 +140,25 @@
   --brand: #4F46E5;
   --brand-contrast: #FFFFFF;
 
+  /* Brand tint family (M7.3): a soft fill, a soft keyline and the pressed/hover
+     shade for brand-filled controls, so a panel can read as brand-owned without
+     a saturated indigo block. On --brand-soft: --text 15.97:1, --text-muted
+     6.78:1, --brand 5.62:1 — it takes body copy safely. --brand-hover is 7.90:1
+     against --brand-contrast, so a hovered primary button stays AA.
+     --brand-border is DECORATIVE, exactly like --border (1.49:1 on --surface):
+     it may tint an edge, but it must never be the only thing defining an
+     interactive control's boundary — that job stays --border-strong's. */
+  --brand-soft: #EEF2FF;
+  --brand-border: #C7D2FE;
+  --brand-hover: #4338CA;
+
   /* M7.1 A11Y-4: --hl-swap and --hl-found darkened (were #DB2777 @ 4.29:1 and
      #16A34A @ 3.07:1 on --surface). These tokens also fill the SVG <text> marker
      glyphs — the ✓/+/✕/↔ band above the cells — which are the designated
      NON-color layer of the highlight system, so they are text and owe WCAG 1.4.3
      4.5:1, not the 3:1 a stroke owes. Axe cannot catch this: it skips SVG text.
-     Now 5.63:1 and 4.68:1, and still >=3:1 against their own tinted cell fills
+     Now 6.04:1 and 5.02:1 (5.63 and 4.68 before M7.3's inversion lifted
+     --surface to white), and still >=3:1 against their own tinted cell fills
      (color-mix 15/18% on --surface) where they serve as strokes. The dark values
      already pass on --surface #1E293B — deliberately untouched. */
   --hl-compare:  #B45309;
@@ -123,11 +177,13 @@
      Contrast, measured (the "4.9:1" this comment used to assert was never
      computed, and it is a text colour at --text-xs on `.codetabs__copy` as well
      as a 1.4.11 keyline, so both floors matter):
-       light #B45309 — 5.02:1 on --bg, 4.68:1 on --surface
+       light #B45309 — 4.80:1 on --bg, 5.02:1 on --surface
        dark  #F59E0B — 8.72:1 on --bg, 6.81:1 on --surface
-     All four clear 4.5:1 as text and 3:1 as a non-text keyline, so a surface
-     swap on either side is the thing to re-measure — the light pair has the
-     least headroom. */
+     All four clear 4.5:1 as text and 3:1 as a non-text keyline. The light pair
+     has the least headroom and M7.3's inversion is exactly the surface swap
+     this note warned to re-measure: the two light numbers traded places and
+     both still pass, so `.codetabs__copy` is AA whether it fills with --bg or
+     (post-VD-8) --surface. */
   --accent-warn: #B45309;
 
   --shadow-1: 0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
@@ -140,12 +196,35 @@
 [data-theme="dark"] {
   --bg: #0B1220;
   --surface: #1E293B;
+  /* Dark keeps its canvas and card and gains the two extra levels the light
+     scale now has, so a component can express depth in either theme with one
+     token name. --text is 14.36:1 on sunken and 10.18:1 on raised.
+     --surface-raised does the work --shadow-2 cannot do here: a shadow on this
+     canvas is nearly invisible (even fully opaque black is 1.12:1 on --bg), so
+     level 2 in dark IS the fill move — 1.17:1 above --surface, which is small
+     but, unlike the shadow, actually survives.
+     ONE CONSTRAINT worth knowing before you reach for --surface-raised: a
+     --border-strong keyline on it is 2.64:1, i.e. BELOW 1.4.11. That is why the
+     level-2 recipe in global.css draws its keyline in --text-muted (4.89:1) —
+     use the same token for any meaningful boundary on a raised panel. On
+     --bg / --surface / --surface-sunken (3.93 / 3.07 / 3.72) --border-strong is
+     fine as-is. */
+  --surface-sunken: #0F182B;
+  --surface-raised: #273449;
   --text: #E2E8F0;
   --text-muted: #94A3B8;
   --border: #334155;
   --border-strong: #64748B;
   --brand: #818CF8;
   --brand-contrast: #0B1220;
+
+  /* Mirror of the light tint family: --brand-soft carries --text at 11.82:1 and
+     --brand at 4.88:1; --brand-hover LIGHTENS here (dark's brand-filled controls
+     brighten on hover) and is 9.39:1 against --brand-contrast; --brand-border is
+     decorative only, same rule as light. */
+  --brand-soft: #1E2749;
+  --brand-border: #37418F;
+  --brand-hover: #A5B4FC;
 
   --hl-compare:  #F59E0B;
   --hl-swap:     #F472B6;
@@ -156,7 +235,9 @@
 
   --accent-warn: #F59E0B;
 
-  /* Dark elevation is primarily surface+border; shadows add depth only */
+  /* Dark elevation is carried by the surface and the border; the shadows are a
+     grace note, not the signal — see the --surface-raised note above for why
+     (1.12:1 is the ceiling for ANY shadow on this canvas). */
   --shadow-1: 0 1px 2px 0 rgb(0 0 0 / 0.50);
   --shadow-2: 0 2px 4px -1px rgb(0 0 0 / 0.45), 0 8px 20px -2px rgb(0 0 0 / 0.55);
 
@@ -169,12 +250,17 @@
   :root:not([data-theme]) {
     --bg: #0B1220;
     --surface: #1E293B;
+    --surface-sunken: #0F182B;
+    --surface-raised: #273449;
     --text: #E2E8F0;
     --text-muted: #94A3B8;
     --border: #334155;
     --border-strong: #64748B;
     --brand: #818CF8;
     --brand-contrast: #0B1220;
+    --brand-soft: #1E2749;
+    --brand-border: #37418F;
+    --brand-hover: #A5B4FC;
     --hl-compare:  #F59E0B;
     --hl-swap:     #F472B6;
     --hl-active:   #60A5FA;

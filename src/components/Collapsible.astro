@@ -9,6 +9,13 @@
  * Native `<details>` = keyboard operable and fully functional with JS off. The
  * chevron rotates on `[open]`; the rotation is gated by `prefers-reduced-motion`
  * via the global `--duration-*` collapse. Content goes in the default slot.
+ *
+ * M7.3 CMP-13: opening a multi-paragraph Practice answer used to snap the page
+ * open under the reader, so the answer arrived with the surrounding text already
+ * shoved elsewhere. The expand is now animated — CSS only, zero JS — and the
+ * whole ruleset is a progressive enhancement: an engine without
+ * `::details-content` (pre-Chrome 131 / Safari 18.4 / Firefox 139) drops it and
+ * keeps today's instant open.
  */
 interface Props {
   summary: string;
@@ -44,6 +51,52 @@ const { summary, open = false } = Astro.props;
 <style>
   .collapsible {
     border-top: 1px solid var(--border);
+    /* Inherited by ::details-content, and the reason `block-size: 0 -> auto`
+       below interpolates at all: without it `auto` is not an animatable value
+       and the transition silently animates nothing. */
+    interpolate-size: allow-keywords;
+  }
+
+  /* Both endpoints are stated explicitly — a `transition` on its own has nothing
+     to interpolate between, since the UA only flips content-visibility.
+     `--duration-slow` is the token documented for exactly this ("collapsible
+     expand"); reduced motion collapses it to 0.01ms globally, which is why no
+     duration is written by hand and there is no second media query here.
+     `overflow-y: clip` (not `hidden`, which would create a scroll container)
+     keeps the still-tall content inside the shrinking box.
+     The print sheet's `details::details-content { … !important }` (global.css)
+     out-ranks the `block-size: 0` here, so answers still print revealed.
+
+     The two directions get DIFFERENT transitions, deliberately — a transition
+     declared on a state applies when moving TO that state. This is the same
+     directional split `TableOfContents` uses for its inline panel, for the same
+     reason and against the same measurement recorded there.
+
+     Closing (base rule) animates `content-visibility` with `allow-discrete`, so
+     the panel stays rendered for the length of the collapse instead of vanishing
+     at frame one and leaving an empty box to shrink.
+
+     Opening (the `[open]` rule) animates `block-size` ONLY. Listing
+     `content-visibility` here too — which is what a single shared transition
+     does — keeps the subtree SKIPPED for the first frames of the expand
+     (measured in Chromium 149: `hidden` at the moment `open` is set, `visible`
+     two frames later), and a skipped subtree is in neither the render nor the
+     accessibility tree. That would leave a just-revealed Practice answer briefly
+     absent for assistive tech, and any focusable content an answer ever grows
+     jumped over by the very next Tab. Disclosed content has to be present the
+     instant it is disclosed; the animation is only polish, and splitting the
+     directions keeps the polish without paying for it. */
+  .collapsible::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      content-visibility var(--duration-slow) allow-discrete,
+      block-size var(--duration-slow) var(--ease-standard);
+  }
+
+  .collapsible[open]::details-content {
+    block-size: auto;
+    transition: block-size var(--duration-slow) var(--ease-standard);
   }
 
   .collapsible summary {

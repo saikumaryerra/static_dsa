@@ -30,12 +30,17 @@
   /* Color roles */
   --color-bg: var(--bg);
   --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
   --color-text: var(--text);
   --color-muted: var(--text-muted);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-brand: var(--brand);
   --color-brand-contrast: var(--brand-contrast);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+  --color-brand-hover: var(--brand-hover);
   --color-hl-compare: var(--hl-compare);
   --color-hl-swap: var(--hl-swap);
   --color-hl-active: var(--hl-active);
@@ -54,6 +59,10 @@
   --text-3xl--letter-spacing: var(--tracking-tight);
   --text-4xl--line-height: var(--leading-tight);
   --text-4xl--letter-spacing: var(--tracking-tight);
+  /* Display tier (M7.3) — home hero h1 only; the font-size itself comes from
+     tokens.css, which already owns Tailwind's `--text-*` namespace. */
+  --text-5xl--line-height: var(--leading-tight);
+  --text-5xl--letter-spacing: var(--tracking-tighter);
 
   /* Font weights → font-normal/medium/semibold/bold */
   --font-weight-normal: var(--weight-normal);
@@ -182,17 +191,37 @@
    the explicit [data-theme="dark"] (set by BaseLayout/ThemeToggle) and, for the
    JS-off path, OS dark with no explicit choice — byte-mirroring tokens.css. This
    makes comments AA-clean in BOTH themes (github-dark-default comment 6.15:1 vs
-   the old fixed github-dark 3.05:1). `!important` beats Shiki's inline styles. */
-[data-theme='dark'] .astro-code,
-[data-theme='dark'] .astro-code span {
-  color: var(--shiki-dark) !important;
-  background-color: var(--shiki-dark-bg) !important;
-  font-style: var(--shiki-dark-font-style) !important;
-  font-weight: var(--shiki-dark-font-weight) !important;
-  text-decoration: var(--shiki-dark-text-decoration) !important;
+   the old fixed github-dark 3.05:1). `!important` beats Shiki's inline styles.
+
+   SCREEN ONLY, and that is what makes code printable (M7.3 PRN-1). The print
+   block at the foot of this file forces the light TOKENS, but code colours do
+   not come from tokens at all: Shiki emits the light theme as inline style
+   attributes (`style="color:#D73A49;--shiki-dark:#FF7B72"` — verified in the
+   built HTML) and there is no `--shiki-light` variable for a print rule to point
+   at, while these two rules are `!important` and therefore outrank the inline
+   light colours no matter how specific a print selector is written. So the fix
+   is to take the dark binding off paper entirely; the inline light values then
+   apply and a lesson printed from either dark path prints github-light on white
+   (#24292E on #FFFFFF = 14.67:1) instead of near-white text the printer drops
+   the background out from under. Verified in Chromium under
+   `emulateMedia({ media: 'print', colorScheme: 'dark' })` on both paths.
+   Stated as `screen` rather than as a nested `@media not print`, because `not`
+   negates the WHOLE media query: the two can never be flattened into one prelude
+   (`not print and (prefers-color-scheme: dark)` means NOT(print AND dark), which
+   is true on a LIGHT screen and would unbind dark there). A positive media type
+   composes with the colour-scheme query and leaves nothing to get wrong. */
+@media screen {
+  [data-theme='dark'] .astro-code,
+  [data-theme='dark'] .astro-code span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+    text-decoration: var(--shiki-dark-text-decoration) !important;
+  }
 }
 
-@media (prefers-color-scheme: dark) {
+@media screen and (prefers-color-scheme: dark) {
   :root:not([data-theme]) .astro-code,
   :root:not([data-theme]) .astro-code span {
     color: var(--shiki-dark) !important;
@@ -203,10 +232,90 @@
   }
 }
 
+/* ---------- Elevation model & the five-state recipe (M7.3 VD-3 / CMP-8) ----------
+   ELEVATION — four levels; a component picks exactly one and never invents a
+   fifth. The levels are about SURFACES — cards, panels, wells. An in-flow control
+   expresses depth through fill and border alone and takes no elevation shadow
+   (`.btn-primary`, `.btn-secondary`, `.viz-btn` are all shadowless), even where
+   its pressed state borrows the level -1 fill; a control that FLOATS over the
+   page is the exception, and level 2 below says what it owes.
+
+     level 0   canvas    `--bg`. The page itself. Never a component fill.
+     level 1   resting   `--surface` + 1px `--border` + `--shadow-1`. Cards, the
+                         viz frame, panels at rest. The shadow is RESTING, not a
+                         hover reward: before the inversion a light card was
+                         1.07:1 against the page and only grew a shadow when you
+                         pointed at it, so nothing was pre-attentively findable.
+                         Consumers: `.track-card` below — the reference
+                         implementation, which `.lesson-card` and PrevNext's next
+                         card compose rather than restate — and `.viz-frame`.
+     level 2   raised    `--surface-raised` + 1px `--text-muted` + `--shadow-2`.
+                         The hover of a level-1 card (`.track-card:hover`), and
+                         anything that floats over the page (`.skip-link` WHILE
+                         FOCUSED, which keeps its brand fill and takes the shadow
+                         alone: the fill/keyline pair exists to lift a NEUTRAL
+                         panel off the page, and a brand fill already does that.
+                         At rest it is parked off-screen by a transform, and a
+                         transform does not clip a shadow — so resting it at
+                         level 2 smudged every page).
+                         Both halves of that pair are load-bearing:
+                         · the FILL moves because in dark a shadow cannot. Even a
+                           fully opaque black is 1.12:1 against `--bg`, so a
+                           shadow-only hover leaves the 1px border doing all the
+                           work — the pre-M7.3 behaviour VD-3 exists to replace.
+                           `--surface-raised` is 1.17:1 above `--surface` in dark;
+                           in LIGHT it is the same white as level 1 by
+                           construction, so the line is a no-op there and
+                           `--shadow-2` carries the whole step, by design.
+                         · the KEYLINE is `--text-muted` — 7.58:1 light and 4.89:1
+                           dark on the raised fill — and NOT `--border-strong`,
+                           which is only 2.64:1 on the dark raised fill and so
+                           fails the 3:1 WCAG 1.4.11 asks of a boundary that
+                           carries meaning. A normative recipe gets copied; this
+                           one has to pass its own standard.
+     level -1  sunken    `--surface-sunken`. Wells that things sit INSIDE. It is a
+                         well relative to the CARD, not to the canvas: 1.12:1
+                         light / 1.21:1 dark against `--surface`, but only 1.08:1
+                         / 1.06:1 against `--bg` (and in dark it is a shade
+                         LIGHTER than the canvas rather than darker), so a well
+                         dropped straight onto the page needs a `--border` keyline
+                         to exist at all. Consumers: prose inline code
+                         (`.lesson-body :not(pre) > code`), `.viz-pill` (the
+                         metric and legend chips INSIDE the viz frame), and the
+                         pressed state of the outline controls
+                         (`.btn-secondary:active` below, `.viz-btn:active`). NOT
+                         the viz input fields: VD-8 moved those up to `--surface`,
+                         because they sit on the canvas rather than on a card.
+
+   FIVE STATES — every control family declares all five, in this order, so
+   "pressed" and "unavailable" read identically everywhere:
+     default         the recipe above.
+     :hover          always guarded `:not(:disabled)` — a dead control must never
+                     preview an affordance it does not have (M7.1 CMP-3).
+     :focus-visible  NOTHING here. The unlayered global ring owns it; a component
+                     rule could only weaken it.
+     :active         a FILL change only, never a transform. Motion belongs to the
+                     visualization, and a button that jumps under the finger
+                     fights 2.3.3. (`.skip-link` is the one exemption: it is
+                     visible only while focused and is activated with Enter,
+                     which paints no :active — the rule would never run.)
+     :disabled       `--disabled-opacity` + `cursor: not-allowed`, never a
+                     bespoke grey. A family that can only ever be a link — the
+                     `.btn-primary` on all four pages that ship it is an `<a>` —
+                     declares no disabled state rather than a rule that can't fire.
+
+   Attention states (errors, warnings, invalid input) use `--accent-warn`; the six
+   `--hl-*` roles stay reserved for the visualization (design-tokens-m1.md
+   Decision 3), so no chrome surface may read one. */
+
 /* ---------- Shared component classes (M1 chrome) ---------- */
 @layer components {
   /* Skip link: first tab stop; hidden above the viewport until focused (kept
-     focusable, unlike display:none). Appears instantly — no transition. */
+     focusable, unlike display:none). Appears instantly — no transition.
+     The one thing this file floats over the page, so it takes level 2's
+     `--shadow-2` (elevation model above): without it the focused chip sits flat
+     on whatever it covers, which on a lesson page is body copy. Brand fill, not
+     `--surface-raised` — see the level-2 note on branded floats. */
   .skip-link {
     position: fixed;
     top: var(--space-2);
@@ -221,8 +330,14 @@
     transform: translateY(calc(-100% - var(--space-4)));
   }
 
+  /* Level 2 belongs on the FOCUSED state, not the resting one. The link parks
+     itself off-screen with a transform, but a transform does not clip: a resting
+     `box-shadow` still paints, smudging the top-left corner of every page in
+     both themes for a control nobody can see. It floats over the page only while
+     focused, so that is the only moment it owes a shadow. */
   .skip-link:focus {
     transform: none;
+    box-shadow: var(--shadow-2);
   }
 
   /* Nav links, shared by header and footer nav. Hover and current state both
@@ -233,6 +348,19 @@
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
     line-height: var(--leading-normal);
+    /* RSP-5 — target size. Unpadded, these links are only as tall as the font's
+       content box: 19px at --text-sm's 14px floor and 20px at its 15px ceiling
+       (measured in Chromium with the system stack), so the site's PRIMARY
+       navigation shipped a hit box under the 24px WCAG 2.2 SC 2.5.8 minimum — on
+       the viewport where it matters most. Vertical padding on an INLINE box is
+       painted and hit-tested but does not grow the line box, so this buys 12px
+       of target and changes no layout at all: the <ul> row keeps its unpadded
+       height and the header keeps whatever --header-h says (56/64px), which the
+       32px target then sits inside. 6px rather than 4px because that content box
+       is font-metric dependent — on the tightest system faces (Roboto's ~1.17em)
+       4px would land within a pixel of the floor. The aria-current underline
+       below travels with the padded box. */
+    padding-block: var(--space-1-5);
     color: var(--text-muted);
     transition: color var(--duration-fast) var(--ease-standard);
   }
@@ -240,6 +368,12 @@
   .nav-link:hover,
   .nav-link[aria-current] {
     color: var(--text);
+  }
+
+  /* Pressed. --text is already the hover colour, so the press has to travel
+     somewhere else to be visible at all: brand, which is 6.01:1 on the canvas. */
+  .nav-link:active {
+    color: var(--brand);
   }
 
   /* M7.1 VD-9: colour alone made "current" byte-identical to "hover", so the
@@ -251,8 +385,11 @@
     box-shadow: inset 0 -2px 0 var(--brand);
   }
 
-  /* Primary CTA. Hover/active darken via a color-mix overlay of --text into
-     --brand (designer state table); :active compresses by fill only — no motion. */
+  /* Primary CTA. Hover is the brand family's own shade (M7.3): --brand-hover
+     darkens in light and lightens in dark, which is the direction each theme
+     reads as "closer". :active goes one step further in whichever direction the
+     theme travels by mixing --text in — fill only, no motion. --brand-contrast
+     stays >=7.9:1 on both shades in both themes. */
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -269,11 +406,11 @@
   }
 
   .btn-primary:hover {
-    background-color: color-mix(in srgb, var(--brand) 88%, var(--text));
+    background-color: var(--brand-hover);
   }
 
   .btn-primary:active {
-    background-color: color-mix(in srgb, var(--brand) 80%, var(--text));
+    background-color: color-mix(in srgb, var(--brand-hover) 88%, var(--text));
   }
 
   /* SPEC-GAP (design §7): secondary/outline action button. Parallels the
@@ -288,19 +425,34 @@
     padding: var(--space-2) var(--space-4);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-control);
-    background-color: var(--bg);
+    /* --surface, not --bg (M7.3 VD-8): the canvas is tinted now, so a --bg fill
+       would make an outlined button read as a hole in whatever it sits on. */
+    background-color: var(--surface);
     color: var(--text);
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     line-height: var(--leading-normal);
     cursor: pointer;
-    transition: border-color var(--duration-fast) var(--ease-standard);
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
   }
 
   /* Guarded so a disabled control never previews the brand border it can't act
-     on (M7.1 CMP-3); the disabled state itself uses the shared token recipe. */
+     on (M7.1 CMP-3); the disabled state itself uses the shared token recipe.
+     The hover fill is --brand-soft rather than a stronger border alone: on a
+     white card the border move was the only signal and read as a rendering
+     artefact. --text is 15.97:1 (light) / 11.82:1 (dark) on it. */
   .btn-secondary:not(:disabled):hover {
     border-color: var(--brand);
+    background-color: var(--brand-soft);
+  }
+
+  /* Pressed: the outline button sinks into the surface it sits on (level -1)
+     while keeping the brand border, so the press is a fill move, not motion. */
+  .btn-secondary:not(:disabled):active {
+    border-color: var(--brand);
+    background-color: var(--surface-sunken);
   }
 
   .btn-secondary:disabled {
@@ -318,20 +470,212 @@
     --toc-bar-h: 2.75rem;
   }
 
-  /* Whole-card link for the home track cards. */
+  /* Whole-card link for the home track cards — the reference implementation of
+     elevation level 1 (see the model above). The resting --shadow-1 is the point
+     of VD-3: the card is separable from the page BEFORE anyone points at it. */
   .track-card {
     display: block;
     background-color: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
     padding: var(--space-6);
     transition:
       border-color var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard),
       box-shadow var(--duration-fast) var(--ease-standard);
   }
 
+  /* Level 2, all three parts of it. The FILL is what makes this hover survive in
+     dark, where --shadow-2 has nowhere to go (a black shadow tops out at 1.12:1
+     on --bg): --surface-raised is 1.17:1 above --surface there, and is the same
+     white as level 1 in light, so the line costs nothing and the shadow carries
+     that theme. The keyline is --text-muted, not --border-strong, which is 2.64:1
+     on the dark raised fill — both numbers and the reasoning are in the model
+     above. */
   .track-card:hover {
-    border-color: var(--border-strong);
+    border-color: var(--text-muted);
+    background-color: var(--surface-raised);
+    box-shadow: var(--shadow-2);
+  }
+
+  /* Pressed: straight back down to level 1 — the card compresses without ever
+     changing position. :hover still matches while the pointer is down, so each
+     of the three properties it moved has to be restated here. */
+  .track-card:active {
+    border-color: var(--border);
+    background-color: var(--surface);
     box-shadow: var(--shadow-1);
+  }
+}
+
+/* ---------- Print (M7.3 PRN-1) ----------
+   "Print this lesson" has to yield a study sheet, not a paper screenshot of a web
+   app. Six jobs, in the order they appear below: force the light palette, drop
+   every control that cannot be used on paper, keep the drawing whole, put the
+   Practice answers back, say where the sheet came from, and break between pages
+   where a reader would. Unlayered on purpose — @layer utilities would otherwise
+   outrank it. */
+@media print {
+  /* 1. FORCE THE LIGHT TOKEN SET. A dark-theme print is near-white text on white
+     paper: browsers drop background COLOURS by default but never text colours,
+     so the page would arrive almost blank. The three selectors mirror the three
+     theme blocks in tokens.css and are each written to beat theirs:
+     `[data-theme='dark']` (0,1,0) loses to `:root[data-theme='dark']` (0,2,0),
+     and the no-JS `:root:not([data-theme])` mirror (0,2,0) inside
+     `prefers-color-scheme: dark` — which still matches while printing — is met at
+     equal specificity and beaten on source order, since tokens.css is @imported
+     at the top of this file.
+
+     These values are a FOURTH copy of the light palette, the same deliberate
+     duplication tokens.css already carries for its no-JS mirror. They MUST stay
+     identical to that file's `:root` colour block; change one, change both.
+     Identical in VALUE, not in bytes: tokens.css is in .prettierignore and keeps
+     uppercase hex and `0.10`, while this file is Prettier-formatted and is
+     rewritten to lowercase and `0.1`. A test pinning the two together has to
+     normalise case and number form before comparing — do not "fix" the casing
+     here, it only comes back.
+
+     CODE BLOCKS are not covered by this palette and cannot be repaired from
+     inside `@media print`: Shiki's colours are inline style attributes, not
+     tokens, and the dark theme is bound through `--shiki-dark*` with
+     `!important`, which beats those inline LIGHT values. A rule here could
+     out-important that binding, but it would have nothing to put back — Astro
+     emits no `--shiki-light` variable to re-assert. So the binding is declared
+     `@media screen` at its own site above and paper falls through to the inline
+     github-light colours (#24292E on #FFFFFF = 14.67:1, measured). */
+  :root,
+  :root[data-theme='dark'],
+  :root:not([data-theme]) {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-sunken: #eef2f6;
+    --surface-raised: #ffffff;
+    --text: #0f172a;
+    --text-muted: #475569;
+    --border: #e2e8f0;
+    --border-strong: #64748b;
+    --brand: #4f46e5;
+    --brand-contrast: #ffffff;
+    --brand-soft: #eef2ff;
+    --brand-border: #c7d2fe;
+    --brand-hover: #4338ca;
+    --hl-compare: #b45309;
+    --hl-swap: #be185d;
+    --hl-active: #0072b2;
+    --hl-visited: #7c3aed;
+    --hl-frontier: #0f766e;
+    --hl-found: #15803d;
+    --accent-warn: #b45309;
+    --shadow-1:
+      0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+    --shadow-2:
+      0 2px 4px -1px rgb(15 23 42 / 0.06), 0 6px 16px -2px rgb(15 23 42 / 0.1);
+    color-scheme: light;
+  }
+
+  /* 2. CHROME THAT MEANS NOTHING ON PAPER. `!important` throughout: every one of
+     these lives in a component-SCOPED stylesheet whose generated
+     `.viz-controls[data-astro-cid-…]` selector outspecifies anything this file
+     can write — the same unbeatable-rule rationale as the noscript kill-switches.
+     `.whats-next` goes wholesale: it holds only the mark-complete button (a
+     device-local control) and prev/next (navigation). `.codetabs__copy` is a
+     clipboard button sitting on top of the code it would obscure. */
+  .skip-link,
+  .site-header,
+  body > footer,
+  .lesson__rail,
+  .toc--rail,
+  .toc--inline,
+  .viz-controls,
+  .viz-nojs-note,
+  .codetabs__copy,
+  .whats-next {
+    display: none !important;
+  }
+
+  /* The flex column shell is a screen device (sticky footer, `main { flex: 1 }`)
+     and flex fragmentation across printed pages is where engines disagree; the
+     sheet only needs normal block flow. */
+  body {
+    display: block;
+    min-height: 0;
+  }
+
+  /* With the rail hidden, the lesson grid would still reserve its 15rem column
+     on any paper wide enough to match the 1024px query. */
+  .lesson__grid {
+    display: block !important;
+  }
+
+  /* 3. KEEP THE DRAWING WHOLE. The static SVG still and its step-0 explanation
+     are the reason a lesson is worth printing, but on screen `.viz-frame` clips
+     and `.viz-canvas` scrolls — on paper there is no scrolling, so a wide trace
+     would print with its right-hand cells sliced off. Let it lay out at page
+     width instead, and freeze anything mid-transition so a page printed during a
+     step change captures a settled frame. */
+  .viz-frame,
+  .viz-canvas {
+    overflow: visible !important;
+  }
+
+  .viz-canvas > svg {
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  .viz-frame,
+  .viz-frame * {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* 4. PUT THE ANSWERS BACK. A printed Practice section with every answer still
+     collapsed is a worksheet, not a study sheet. `::details-content` is the only
+     handle a UA offers on closed content (Chrome 131+, Safari 18.4+, Firefox
+     139+); older engines print the answers collapsed, which is the safe
+     degradation. The classic `details > *:not(summary) { display: block }` hack
+     is deliberately NOT here — verified inert in Chromium 149, because the
+     content is hidden through the UA's own slot rather than the child's box. */
+  details::details-content {
+    content-visibility: visible !important;
+    block-size: auto !important;
+  }
+
+  /* 5. WHERE THIS SHEET CAME FROM. CSS cannot read the document URL, but the
+     canonical <link> BaseLayout emits on every page already carries it. The UA
+     stylesheet hides `link`/`meta`/`script`/`style`/`title` INDIVIDUALLY as well
+     as hiding `head`, so lifting `head` alone leaks nothing else — verified in
+     Chromium 149: no JSON-LD, no inline theme script, no duplicated title. An
+     engine that declines to render head elements simply omits the line. */
+  head {
+    display: block;
+  }
+
+  head link[rel='canonical'] {
+    display: block;
+    margin-bottom: var(--space-4);
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+  }
+
+  head link[rel='canonical']::after {
+    content: attr(href);
+  }
+
+  /* 6. Break hygiene: a heading is never the last line on a page, and the block
+     types that become unreadable when split stay whole. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid;
+  }
+
+  pre,
+  table,
+  .viz-frame {
+    break-inside: avoid;
   }
 }

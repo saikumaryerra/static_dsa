@@ -99,22 +99,26 @@ Heading weights: h1/h2 = 700, h3/h4 = 600, UI emphasis = 500–600, body = 400. 
 
 ### Decision 3 — Color
 
-Neutrals are cool slate (calm, editorial). Brand is indigo — confident, link-recognizable, and unused by any highlight role so it never collides with algorithm state. The six highlight roles are the only saturated colors; co-occurring sets were chosen for hue-family + luminance separation under deutan/protan simulation: sorting shows {compare amber-brown, swap magenta, active blue}; traversal shows {active blue, visited violet, frontier teal, found green}. The weakest CVD pair is frontier/found (teal vs green) — separated by luminance in both modes and, per §10, always paired with labels/icons; renderers must never let those two be the sole differentiator.
+Neutrals are cool slate (calm, editorial). Brand is indigo — confident, link-recognizable, and unused by any highlight role so it never collides with algorithm state. The six highlight roles are the only saturated colors **in the visualization**, and they stay viz-exclusive: M7.2 added a separate `--accent-warn` for chrome attention states (warning callouts, `[aria-invalid]`, viz input errors) precisely so no chrome surface has to borrow one. M7.3 evaluated spending a hue on the difficulty chip and **design review rejected it** — the chip stays neutral, because at ~1.05:1 the soft fill did no work and colouring the 13 beginner lessons as loudly as the 2 intermediate ones inverts the exception-signalling it was meant to provide. "Badge the exception" (render the chip only for non-beginner) remains open and would need a spec §8 amendment, since §8 enumerates the chip as a card element. Co-occurring sets were chosen for hue-family + luminance separation under deutan/protan simulation: co-occurring sets were chosen for hue-family + luminance separation under deutan/protan simulation: sorting shows {compare amber-brown, swap magenta, active blue}; traversal shows {active blue, visited violet, frontier teal, found green}. The weakest CVD pair is frontier/found (teal vs green) — separated by luminance in both modes and, per §10, always paired with labels/icons; renderers must never let those two be the sole differentiator.
 
 **Contrast ratios (WCAG 2.1, computed):**
 
+The light column below is **post-M7.3**: VD-3 inverted the light elevation model, so `--bg` is the
+tinted canvas `#F8FAFC` and `#FFFFFF` moved to `--surface`. Every light figure was recomputed
+against the new backdrops; the dark column is unchanged.
+
 | Pair | Light | Dark |
 |---|---|---|
-| `--text` on `--bg` | 17.8:1 | 15.2:1 |
-| `--text` on `--surface` | 16.6:1 | 11.9:1 |
-| `--text-muted` on `--bg` | 7.6:1 | 7.3:1 |
-| `--text-muted` on `--surface` | 7.0:1 | 5.7:1 |
-| `--brand` (link text) on `--bg` | 6.3:1 | 6.3:1 |
-| `--brand` (link text) on `--surface` | 5.9:1 | 4.9:1 |
+| `--text` on `--bg` | 17.1:1 | 15.2:1 |
+| `--text` on `--surface` | 17.9:1 | 11.9:1 |
+| `--text-muted` on `--bg` | 7.2:1 | 7.3:1 |
+| `--text-muted` on `--surface` | 7.6:1 | 5.7:1 |
+| `--brand` (link text) on `--bg` | 6.0:1 | 6.3:1 |
+| `--brand` (link text) on `--surface` | 6.3:1 | 4.9:1 |
 | `--brand-contrast` on `--brand` (buttons) | 6.3:1 | 6.3:1 |
-| `--border-strong` (input borders/icons) on `--bg` | 4.8:1 | 3.9:1 |
-| Highlights on `--bg` (all six, non-text graphics, min) | 5.0:1 (found) | 6.9:1 (visited) |
-| Marker-glyph highlights on `--surface` (SVG `<text>`, so 4.5:1) | 4.7:1 (found) | 8.4:1 (found) |
+| `--border-strong` (input borders/icons) on `--bg` | 4.5:1 | 3.9:1 |
+| Highlights on `--bg` (all six, non-text graphics, min) | 4.8:1 (found) | 6.9:1 (visited) |
+| Marker-glyph highlights on `--surface` (SVG `<text>`, so 4.5:1) | 5.0:1 (found) | 8.4:1 (found) |
 
 Every text pair clears 4.5:1; every UI/graphic pair clears 3:1. The two marker-glyph tokens were
 re-tuned in M7.1 (A11Y-4): `--hl-found` and `--hl-swap` also color the ✓/+/✕/↔ glyphs, which are

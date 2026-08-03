@@ -50,6 +50,18 @@
  * - RSP-2's mobile legibility floor: the canvas scrolls rather than shrinking the
  *   drawing below readable, and becomes a keyboard-reachable scroll region for
  *   exactly as long as it actually overflows.
+ *
+ * M7.3 changes only how this island is PAINTED — no markup, no script, no new
+ * token, no new key:
+ * - the elevation inversion (VD-8) flipped what `--bg` and `--surface` mean, so
+ *   every consumer of either was re-audited against the level model `global.css`
+ *   now owns. The verdict per consumer, and the ratio behind it, is the
+ *   "Elevation audit" comment at the top of the stylesheet;
+ * - forced-colors hardening (HCM-1): in Windows High Contrast the UA overrides
+ *   author fill and stroke, so the eight `--hl-*` cell/node states collapse into
+ *   one system colour — in the one module the site exists for. The block at the
+ *   end of the stylesheet re-encodes every state on the channels forced colours
+ *   preserve (stroke width, dash pattern, and the marker glyphs, which are text).
  */
 import { algorithms, renderers } from './registry';
 import { collectLegend } from './core/legend';
@@ -563,6 +575,59 @@ const targetId = `${uid}-target`;
 </noscript>
 
 <style is:global>
+  /* ---- Elevation audit (M7.3 VD-8) ----
+     The inversion made the page canvas the TINTED level (`--bg` #F8FAFC) and
+     cards white (`--surface`), which changes the meaning of every fill in this
+     file without changing a single token name. Each consumer below was re-read
+     against the level model in `global.css` (0 canvas · 1 resting surface · 2
+     raised · -1 sunken well) and either moved or deliberately kept, with the
+     ratio that keeps it legal. Ratios are WCAG 2.1, computed from the token hex
+     values, quoted light / dark.
+
+       .viz-frame ................ level 1, unchanged token. It is now the light
+         surface rather than the grey one, and its resting `--shadow-1` finally
+         reads against a tinted page.
+       .viz-cell__rect,
+       .viz-node__circle ......... level 1, KEPT at `--surface` on purpose. Cell
+         and frame have always shared this token (they were #F6F7F9 on #F6F7F9
+         before), so the inversion changed nothing about their relationship: the
+         boundary is, and always was, the 1.5px `--border-strong` stroke —
+         4.76:1 / 3.07:1, both >= the 3:1 that WCAG 1.4.11 asks of it, and the
+         light figure IMPROVED with the inversion (4.55:1 before). `--surface-
+         sunken` was measured as the alternative (stroke 4.23:1 / 3.72:1, plus a
+         1.12:1 / 1.21:1 fill delta against the frame) and rejected: three other
+         places restate this exact recipe against `--surface` — the guard test
+         `tests/unit/tokens-contrast.test.ts`, the home hero's `renderStatic()`
+         still and the 404 still — and the two stills exist to show readers the
+         real product, so the lesson must not paint its cells differently.
+       highlight `color-mix()` fills . unchanged, and for the same reason: the
+         tints mix over `--surface`. Each `--hl-*` stroke on its own tint is
+         >= 3.92:1 / 4.20:1 (1.4.11 wants 3:1), `--text` on those tints is
+         >= 13.87:1 / 7.95:1, and the marker glyphs — text, so they owe 4.5:1 —
+         are >= 5.02:1 / 5.38:1 on the frame they are drawn over.
+       .viz-weight-pill .......... level 1, kept. It MASKS the frame behind an
+         edge weight, so being the frame's own colour is its whole job.
+       .viz-pill ................. `--bg` -> `--surface-sunken`. Metric and
+         legend chips are the only consumers here that sit INSIDE the frame, so
+         the plan's blanket "move to --surface" would have painted them white on
+         white; their `--border` keyline is just 1.22:1 there, so the fill has to
+         carry the shape. A sunken chip on a level-1 card is 1.12:1 / 1.21:1 —
+         faint by design, and the readable part clears AA either way
+         (`--text-muted` 6.74:1 / 6.91:1, the `<b>` value 15.87:1 / 14.36:1).
+       .viz-btn, .viz-select,
+       .viz-field input,
+       .viz-keys kbd ............. `--bg` -> `--surface`. These sit OUTSIDE the
+         frame, on the page canvas, where level 1 is the raised reading — the
+         move `.btn-secondary` already made. `--border-strong` is 4.55:1 on the
+         canvas and 4.76:1 on their own fill; a sunken fill would have been
+         1.06:1 against the canvas, i.e. gone.
+       .viz-btn[aria-disabled] ... `--surface` -> `--bg`. The bound state works
+         by flattening into the background, so it has to follow the background.
+         `--text-muted` on it is 7.24:1 / 7.30:1 before the shared 0.5 opacity.
+       .viz-slider thumb ring .... `--surface` -> `--bg`. The ring punches the
+         thumb out of what is behind the slider, which is the canvas; against
+         the brand-filled track it reads at 6.01:1 / 6.28:1. */
+
   /* ---- Region + frame ---- */
   .viz {
     margin-block: var(--space-8);
@@ -978,11 +1043,14 @@ const targetId = `${uid}-target`;
     margin-bottom: var(--space-3);
   }
 
+  /* A chip INSIDE the level-1 frame, so it is a sunken well, not a raised
+     control (elevation audit above): on a white card `--surface` would be
+     invisible and `--bg` nearly so. */
   .viz-pill {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    background-color: var(--bg);
+    background-color: var(--surface-sunken);
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
     padding: var(--space-1) var(--space-3);
@@ -1009,7 +1077,9 @@ const targetId = `${uid}-target`;
   /* The swatch repeats the cell recipe exactly — the same token, the same 15%
      tint over the same --surface backdrop — so it reads as a sample of the
      drawing rather than a decorative dot. --legend-hl is set inline from
-     HIGHLIGHTS[kind].token, which keeps the token mapping in ONE place. */
+     HIGHLIGHTS[kind].token, which keeps the token mapping in ONE place. It
+     survives the pill's move to a sunken fill (M7.3): the tint still samples the
+     cell, and the 2px --hl-* border is >= 4.46:1 / 6.51:1 against the chip. */
   .viz-legend__swatch {
     flex-shrink: 0;
     width: 0.875rem;
@@ -1133,7 +1203,9 @@ const targetId = `${uid}-target`;
     width: 18px;
     height: 18px;
     margin-top: -6px; /* centre the thumb on the 6px track */
-    border: 2px solid var(--surface);
+    /* The ring punches the thumb out of what is BEHIND the slider, which is the
+       page canvas — `--bg` since the M7.3 inversion, not `--surface`. */
+    border: 2px solid var(--bg);
     border-radius: var(--radius-full);
     background-color: var(--brand);
   }
@@ -1142,7 +1214,7 @@ const targetId = `${uid}-target`;
     box-sizing: border-box;
     width: 18px;
     height: 18px;
-    border: 2px solid var(--surface);
+    border: 2px solid var(--bg);
     border-radius: var(--radius-full);
     background-color: var(--brand);
   }
@@ -1203,9 +1275,11 @@ const targetId = `${uid}-target`;
   }
 
   /* Transport buttons now have a resting SURFACE, in the same idiom as
-     `.btn-secondary` (bg + 1px --border-strong + --radius-control): four
+     `.btn-secondary` (surface + 1px --border-strong + --radius-control): four
      ghost icons on a card gave the reader nothing to aim at and made the
-     disabled delta a colour shift of a colour they had never seen enabled. */
+     disabled delta a colour shift of a colour they had never seen enabled.
+     They sit on the page canvas, so `--surface` is the RAISED level here
+     (M7.3 VD-8) — the same move `.btn-secondary` made. */
   .viz-btn {
     display: inline-flex;
     align-items: center;
@@ -1214,7 +1288,7 @@ const targetId = `${uid}-target`;
     height: 44px;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-control);
-    background-color: var(--bg);
+    background-color: var(--surface);
     color: var(--text);
     cursor: pointer;
     transition:
@@ -1222,8 +1296,21 @@ const targetId = `${uid}-target`;
       background-color var(--duration-fast) var(--ease-standard);
   }
 
+  /* Five-state recipe (CMP-8), matching `.btn-secondary` exactly: hover moves
+     the fill as well as the border, because on a near-white canvas a 1px border
+     colour change on its own reads as a rendering artefact; :active sinks to the
+     well level — a fill move, never a transform, since motion in this component
+     belongs to the drawing. :focus-visible is deliberately absent: the global
+     ring owns it. --text is 15.97:1 / 11.82:1 on --brand-soft and 15.87:1 /
+     14.36:1 on --surface-sunken. */
   .viz-btn:not(:disabled):not([aria-disabled='true']):hover {
     border-color: var(--brand);
+    background-color: var(--brand-soft);
+  }
+
+  .viz-btn:not(:disabled):not([aria-disabled='true']):active {
+    border-color: var(--brand);
+    background-color: var(--surface-sunken);
   }
 
   /* Play keeps the brand fill but drops 56px → 44px: it now sits in one row with
@@ -1234,9 +1321,17 @@ const targetId = `${uid}-target`;
     color: var(--brand-contrast);
   }
 
+  /* The brand family's own shades, like `.btn-primary`: --brand-hover darkens in
+     light and lightens in dark, and :active takes one more step in whichever
+     direction the theme travels. --brand-contrast stays >= 7.90:1 on both. */
   .viz-btn--play:not(:disabled):not([aria-disabled='true']):hover {
     color: var(--brand-contrast);
-    background-color: color-mix(in srgb, var(--brand) 88%, var(--text));
+    background-color: var(--brand-hover);
+  }
+
+  .viz-btn--play:not(:disabled):not([aria-disabled='true']):active {
+    color: var(--brand-contrast);
+    background-color: color-mix(in srgb, var(--brand-hover) 88%, var(--text));
   }
 
   /* Play/Pause glyph swap driven by data-playing on the button. */
@@ -1260,7 +1355,7 @@ const targetId = `${uid}-target`;
 
   .viz-select {
     min-height: 44px;
-    background-color: var(--bg);
+    background-color: var(--surface);
     color: var(--text);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-control);
@@ -1309,7 +1404,7 @@ const targetId = `${uid}-target`;
 
   .viz-field input {
     min-height: 44px;
-    background-color: var(--bg);
+    background-color: var(--surface);
     color: var(--text);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-control);
@@ -1342,11 +1437,15 @@ const targetId = `${uid}-target`;
      tab order (a `disabled` element drops focus to <body>, taking the island's
      ←/→ shortcuts with it), while the Player clamps the action to a no-op. It
      must READ as unavailable all the same, so it shares the opacity recipe above
-     AND flattens: the surface drops to the card colour and the border softens,
-     which is the obvious delta the old ghost buttons could not express. */
+     AND flattens: the fill drops to whatever it is sitting on and the border
+     softens, which is the obvious delta the old ghost buttons could not express.
+     Post-inversion (M7.3) that backdrop is the page canvas, so this follows
+     `--bg` — pointing it at `--surface` would now paint the bound state in the
+     RESTING colour and erase the delta entirely. `--text-muted` on `--bg` is
+     7.24:1 / 7.30:1 before the shared 0.5 opacity. */
   .viz-btn[aria-disabled='true'] {
     border-color: var(--border);
-    background-color: var(--surface);
+    background-color: var(--bg);
     color: var(--text-muted);
   }
 
@@ -1388,7 +1487,8 @@ const targetId = `${uid}-target`;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);
     padding: 0 var(--space-1);
-    background-color: var(--bg);
+    /* A keycap is a raised thing; on the tinted canvas that is `--surface`. */
+    background-color: var(--surface);
     color: var(--text);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
@@ -1444,6 +1544,187 @@ const targetId = `${uid}-target`;
     border-left: 2px solid var(--accent-warn);
     color: var(--text);
     font-size: var(--text-sm);
+  }
+
+  /* ---- Forced colors / Windows High Contrast (M7.3 HCM-1) ----
+     Forced-colors mode overrides author `fill` and `stroke`, so the drawing's
+     entire colour layer — eight `--hl-*` states, each a `color-mix()` fill plus
+     a matching stroke — collapses into one system colour, and "current window",
+     "comparing" and "found" stop being different pictures in the one module
+     this site exists for. Everything below re-encodes that state on the channels
+     forced colours DO preserve, and paints in system colours, which are the one
+     kind of author colour this mode does not override (same contract as the
+     slider rules further up: the reader's palette wins).
+
+     `forced-color-adjust: none` is deliberately NOT used. The spec does sanction
+     it for meaningful data-visualization colour, but it opts an element out per
+     property group rather than per layer: keeping a pale tinted rect while the
+     value text inside it is still forced to the reader's text colour is exactly
+     how you get white-on-pale-tint, and opting the whole drawing out instead
+     would discard the palette they deliberately chose. It is never applied to
+     chrome or to the focus ring.
+
+     THE MAPPING — extend it here, in this one place. Widths are ordinal
+     (thicker = more important right now) and every dash pattern is unique:
+
+       state        width  dasharray         glyph that survives as text
+       resting       1.5   solid             —
+       is-range      1.5   1 4  fine dots    range bar / underbar
+       is-frontier   2     4 3  dashes       dashed ring (graph)
+       is-compare    2     10 4 long dashes  dashed tie-line
+       is-visited    2     1 3  dots         ✓ badge
+       is-swap       2     2 2  short dashes ↔
+       is-insert     2     10 3 2 3 dash-dot +
+       is-delete     2     2 6  sparse dots  ✕ + strikethrough
+       is-active     3     solid             caret label + the 3px lift
+       is-found      4     solid             ✓
+
+     Only the DELTAS are declared below; where the everyday rules already carry
+     the right channel (is-active's 3px, is-frontier's `4 3`, every 2px state)
+     they are left to the cascade, so tuning a state in one theme tunes it here
+     too. Two states need no rule and are named so the next reader knows they
+     were checked, not missed: `is-pointer` draws no rect treatment at all (it is
+     a caret), and `is-eliminated` dims through `opacity`, which forced colours
+     leave alone. The legend needs none either — each pill carries the glyph and
+     the plain word, and frontier's dashed swatch is a border-STYLE. */
+  @media (forced-colors: active) {
+    /* Repaint the drawing in system colours. The `:is()` list ties the per-state
+       fill rules at (0,3,0) and wins on source order; without it `fill: Canvas`
+       would lose to every `color-mix()` tint and the UA's own substitution — one
+       flat colour for fill and stroke alike — would be all that is left. */
+    .viz-cell__rect,
+    .viz-node__circle,
+    .viz-weight-pill,
+    .viz-cell:is(
+        .is-range,
+        .is-active,
+        .is-found,
+        .is-compare,
+        .is-swap,
+        .is-visited,
+        .is-frontier,
+        .is-insert,
+        .is-delete
+      )
+      .viz-cell__rect,
+    .viz-node:is(
+        .is-range,
+        .is-active,
+        .is-found,
+        .is-compare,
+        .is-swap,
+        .is-visited,
+        .is-frontier,
+        .is-insert,
+        .is-delete
+      )
+      .viz-node__circle {
+      fill: Canvas;
+      stroke: CanvasText;
+    }
+
+    /* The glyph band and every label. Said explicitly rather than left to the
+       UA: engines disagree about whether SVG `fill` is forced at all, and a
+       `--hl-found` ✓ left standing on a black Canvas would be ~2:1. */
+    .viz-cell__value,
+    .viz-cell__index,
+    .viz-node__value,
+    .viz-node__label,
+    .viz-marker,
+    .viz-mid-label,
+    .viz-caret,
+    .viz-found-mark,
+    .viz-insert-mark,
+    .viz-delete-mark,
+    .viz-swap-mark,
+    .viz-badge,
+    .viz-null,
+    .viz-frame-label,
+    .viz-frame-meta,
+    .viz-weight,
+    .viz-curve-label,
+    .viz-axis-label,
+    .viz-arrow,
+    .viz-arrow.is-path {
+      fill: CanvasText;
+    }
+
+    /* Line work. `is-path` keeps its own dash + 2.5px width, which is what tells
+       a path edge from a plain one once both are CanvasText. */
+    .viz-edge,
+    .viz-edge.is-path,
+    .viz-range-bar,
+    .viz-tie,
+    .viz-tether,
+    .viz-divider,
+    .viz-strike,
+    .viz-axis,
+    .viz-gridline,
+    .viz-curve,
+    .viz-curve.is-emph,
+    .viz-curve.is-emph-compare {
+      stroke: CanvasText;
+    }
+
+    /* The state vocabulary (table above). */
+    .viz-cell.is-range .viz-cell__rect,
+    .viz-node.is-range .viz-node__circle {
+      stroke-dasharray: 1 4;
+    }
+
+    .viz-cell.is-compare .viz-cell__rect,
+    .viz-node.is-compare .viz-node__circle {
+      stroke-dasharray: 10 4;
+    }
+
+    .viz-cell.is-visited .viz-cell__rect,
+    .viz-node.is-visited .viz-node__circle {
+      stroke-dasharray: 1 3;
+    }
+
+    .viz-cell.is-swap .viz-cell__rect,
+    .viz-node.is-swap .viz-node__circle {
+      stroke-dasharray: 2 2;
+    }
+
+    .viz-cell.is-insert .viz-cell__rect,
+    .viz-node.is-insert .viz-node__circle {
+      stroke-dasharray: 10 3 2 3;
+    }
+
+    .viz-cell.is-delete .viz-cell__rect,
+    .viz-node.is-delete .viz-node__circle {
+      stroke-dasharray: 2 6;
+    }
+
+    /* Terminal state: the only 4px stroke anywhere on the canvas. */
+    .viz-cell.is-found .viz-cell__rect,
+    .viz-node.is-found .viz-node__circle {
+      stroke-width: 4;
+    }
+
+    /* Chart: which curve the step is talking about is encoded in colour alone
+       (`--hl-active` / `--hl-compare` against `--text-muted`). Widen the gap the
+       emphasis already opens — is-emph keeps its 3px — and dash the comparison
+       curve. Each curve is also named by its own `.viz-curve-label`. */
+    .viz-curve {
+      stroke-width: 1.5;
+    }
+
+    .viz-curve.is-emph-compare {
+      stroke-dasharray: 10 4;
+    }
+
+    /* Chrome, not drawing: once colours flatten, the bound transport state is
+       carried by `--disabled-opacity` alone, and dimming is not a cue the reader
+       asked for. `GrayText` is the system colour that means exactly
+       "unavailable" and the icon inherits it through `currentColor`. A repaint
+       in system colours, not an opt-out — the focus ring is untouched. */
+    .viz-btn[aria-disabled='true'] {
+      opacity: 1;
+      border-color: GrayText;
+      color: GrayText;
+    }
   }
 </style>
 

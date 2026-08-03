@@ -16,6 +16,10 @@
  * that sticks under the site header, so wayfinding survives a 7,000px lesson on
  * a phone. It stays a NATIVE `<details>` (zero JS to open/close), and its open
  * list is absolutely positioned so expanding it never pushes the article down.
+ *
+ * M7.3: the current entry gains a `--brand-soft` tint on top of its brand bar,
+ * and the inline panel fades in and out instead of popping. Both are decoration
+ * layered over cues that already carry the meaning — see the stylesheet notes.
  */
 import type { MarkdownHeading } from 'astro';
 
@@ -91,19 +95,31 @@ const items = headings.filter((h) => h.depth === 2);
   .toc a {
     display: block;
     padding-block: var(--space-1-5);
-    padding-left: var(--space-3);
+    padding-inline: var(--space-3) var(--space-2);
     border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     color: var(--text-muted);
-    transition: color var(--duration-fast) var(--ease-standard);
+    transition:
+      color var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
   }
 
   .toc a:hover {
     color: var(--text);
   }
 
+  /* M7.3: the current section gets the brand TINT as well as the brand bar, so
+     "you are here" is a shape the eye lands on rather than a 2px edge. The bar
+     and `aria-current` are the non-color cues and both stay — the fill is the
+     reinforcement, never the signal. `--text` on `--brand-soft` is 15.97:1 light
+     / 11.82:1 dark; the tint itself is quiet against what it sits on (1.07:1 on
+     the rail's `--bg`, 1.12:1 on the inline panel's `--surface`, and in dark it
+     is luminance-identical to `--surface` by construction), which is precisely
+     why it may not carry meaning alone. */
   .toc a[aria-current='location'] {
     color: var(--text);
     border-left-color: var(--brand);
+    background-color: var(--brand-soft);
   }
 
   /* ---- Inline form: the sticky mini-ToC bar below 1024px (M7.2) ---- */
@@ -175,6 +191,51 @@ const items = headings.filter((h) => h.depth === 2);
     border: 1px solid var(--border);
     border-radius: 0 0 var(--radius-card) var(--radius-card);
     box-shadow: var(--shadow-2);
+  }
+
+  /* CMP-13 in its inline form: the panel fades instead of popping. Same
+     mechanism as `Collapsible` — `::details-content` + `allow-discrete`, the
+     same `--duration-slow`, and the same "an engine without the pseudo-element
+     drops the whole ruleset and keeps today's instant open" fallback — but a
+     DIFFERENT animated property, deliberately. `.toc__panel` is absolutely
+     positioned so that opening the bar shifts no article text (M7.2), so it
+     contributes no height whatsoever and `block-size: 0 -> auto` would
+     interpolate between two zeroes here. Opacity is the pair of endpoints that
+     actually exists. Nothing clips it for the same reason: the panel's
+     containing block is the sticky <details>, an ancestor of the pseudo. */
+  /* The two directions get DIFFERENT transitions, deliberately — a transition
+     declared on a state applies when moving TO that state.
+
+     Closing (base rule) animates `content-visibility` with `allow-discrete`, so
+     the panel stays rendered for the length of the fade instead of vanishing
+     mid-way.
+
+     Opening (the `[open]` rule) animates opacity ONLY. Including
+     `content-visibility` here would keep the subtree skipped for the first frame
+     of the fade, and a skipped subtree is not focusable: a keyboard user who
+     opened the panel and pressed Tab was thrown PAST the navigation they had
+     just opened (measured: `content-visibility: hidden` at 0ms, `visible` by
+     50ms). Navigation has to be operable the instant it opens; the fade is only
+     polish, and this keeps it without buying it at the cost of focus order. */
+  .toc--inline::details-content {
+    opacity: 0;
+    transition:
+      content-visibility var(--duration-slow) allow-discrete,
+      opacity var(--duration-slow) var(--ease-standard);
+  }
+
+  .toc--inline[open]::details-content {
+    opacity: 1;
+    transition: opacity var(--duration-slow) var(--ease-standard);
+  }
+
+  /* `allow-discrete` keeps the closing panel rendered for the length of the
+     fade, which would otherwise leave it tappable while it is invisible — a
+     stray tap on a link the reader can no longer see. Set on the panel itself,
+     not on the pseudo-element: inheritance runs down the DOM tree and never
+     passes through ::details-content. */
+  .toc--inline:not([open]) .toc__panel {
+    pointer-events: none;
   }
 
   /* ---- Rail (desktop) form ---- */

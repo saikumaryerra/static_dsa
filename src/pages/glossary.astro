@@ -345,11 +345,27 @@ for (const term of glossary) {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--text);
-    transition: background-color var(--duration-fast) var(--ease-standard);
+    transition:
+      background-color var(--duration-fast) var(--ease-standard),
+      color var(--duration-fast) var(--ease-standard);
   }
 
+  /* Hover, on the same idiom every other filled-control hover in M7.3 uses
+     (`.btn-secondary` in global.css, `.viz-btn` in Visualizer.astro): a
+     `--brand-soft` fill plus a brand-coloured edge. The fill it replaced was
+     `--surface`: in light that is white on this `--bg` bar, 1.05:1, which is no
+     perceptible feedback at all on 26 targets (1.28:1 in dark).
+     `--brand-soft` alone would barely be better as a LUMINANCE move (1.07:1
+     light / 1.29:1 dark on the bar; it is a hue shift that does the work), so
+     the letter takes the brand as well — the chip has no border to carry the
+     other half of the idiom the way those two controls do. `--brand` on
+     `--brand-soft` is 5.62:1 light / 4.88:1 dark, so the label stays AA while
+     hovered, as it is at rest (`--text` on `--bg`, 17.06:1 / 15.19:1).
+     Scoped to `a.` on purpose: the empty letters are non-interactive `<span>`s
+     and must never preview an affordance they do not have. */
   a.glossary__chip:hover {
-    background-color: var(--surface);
+    background-color: var(--brand-soft);
+    color: var(--brand);
   }
 
   /* Empty letters: dimmed, non-interactive, non-focusable (aria-disabled + span,

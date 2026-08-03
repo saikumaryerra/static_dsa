@@ -7,9 +7,30 @@
  *
  * Meaning is never color-only: every callout shows a 16px icon AND a bold label.
  * To keep the palette calm (saturated color reserved for the viz), accents stay
- * in-system — Note/Tip use `--brand`; Warning uses `--border-strong` + a warning
- * triangle (icon + word carry the semantics; no red token introduced). Body
- * prose goes in the default slot.
+ * in-system — Note/Tip use `--brand`; Warning uses `--accent-warn`. Body prose
+ * goes in the default slot.
+ *
+ * M7.3 CMP-11 inverted the severity encoding, which used to run backwards: the
+ * warning — the only variant that exists to stop a reader making a real mistake
+ * — had the WEAKEST accent of the three (a grey `--border-strong` keyline and a
+ * plain `--text` head) while note and tip got the brand. It now routes both its
+ * keyline and its head through `--accent-warn`, the chrome-side attention token
+ * (`--hl-compare` is NOT reachable from chrome: the six highlight roles belong
+ * to the visualization). Still not a red, and still not color-carried: the
+ * triangle glyph and the bold word "Warning" remain the non-color layer.
+ * `--accent-warn` on `--surface` is 5.02:1 light / 6.81:1 dark, so the head
+ * clears 1.4.3 as text and the 4px keyline clears 1.4.11 as a graphic (against
+ * the canvas it borders on its other side it is 4.80:1 light / 8.72:1 dark).
+ *
+ * M7.3 VD-3 also moves the box onto elevation level 1 — `--surface` + 1px
+ * `--border` + a resting `--shadow-1`, the same recipe `.track-card` uses. The
+ * fill alone stopped doing the job when the canvas inverted: `--surface` against
+ * `--bg` is 1.05:1 light (#FFFFFF on #F8FAFC) and 1.28:1 dark, so a borderless,
+ * shadowless callout read as an indented paragraph with a bar. Neither the
+ * keyline nor the shadow is a 1.4.11 boundary and neither is asked to be
+ * (`--border` on the canvas is 1.18:1 light / 1.81:1 dark, the decorative
+ * register the token is documented for) — they separate the box, while the icon
+ * and the bold label are what actually name it.
  */
 type Variant = 'note' | 'tip' | 'warning';
 
@@ -60,15 +81,21 @@ const icons: Record<Variant, string[]> = {
 </aside>
 
 <style>
+  /* Elevation level 1 (global.css). `border-left` is declared AFTER the
+     shorthand on purpose: the shorthand paints all four edges `--border`, then
+     the accent keyline overrides the left one — reorder these two and the
+     accent disappears. */
   .callout {
     background-color: var(--surface);
-    border-radius: var(--radius-card);
+    border: 1px solid var(--border);
     border-left: 4px solid var(--brand);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
     padding: var(--space-4);
   }
 
   .callout--warning {
-    border-left-color: var(--border-strong);
+    border-left-color: var(--accent-warn);
   }
 
   .callout__head {
@@ -80,7 +107,7 @@ const icons: Record<Variant, string[]> = {
   }
 
   .callout--warning .callout__head {
-    color: var(--text);
+    color: var(--accent-warn);
   }
 
   .callout__label {

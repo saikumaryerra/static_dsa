@@ -19,6 +19,13 @@
  * localStorage — so with JS off no checkmark shows and the card is fully usable
  * (spec §6 local "completed" state, §12 a11y). The check carries an sr-only
  * "Completed" label so screen readers hear the status when it is shown.
+ *
+ * M7.3 CMP-1: the card said "link" to nobody — hover moved a 1px border and
+ * nothing else, there was no pressed state, and the home track cards carried a
+ * "→" convention these 15 contradicted. It now COMPOSES `.track-card`
+ * (global.css) instead of restating a lookalike recipe, so the elevation model's
+ * level 1 → 2 → pressed steps are defined once for both card families and cannot
+ * drift again, and it ends with the same explicit "Start lesson →" affordance.
  */
 import DifficultyChip from './DifficultyChip.astro';
 
@@ -47,7 +54,7 @@ const Heading = headingLevel;
 
 <a
   href={`/learn/${slug}`}
-  class="lesson-card"
+  class="track-card lesson-card"
   data-lesson-card
   data-slug={slug}
 >
@@ -77,28 +84,31 @@ const Heading = headingLevel;
 
   <Heading class="lesson-card__title">{title}</Heading>
   <p class="lesson-card__summary">{summary}</p>
-  <p class="lesson-card__meta">~{estimatedMinutes} min read</p>
+
+  <div class="lesson-card__foot">
+    <p class="lesson-card__meta">~{estimatedMinutes} min read</p>
+    <span class="lesson-card__cta">
+      Start lesson <span aria-hidden="true">→</span>
+    </span>
+  </div>
 </a>
 
 <style>
-  /* Card treatment mirrors the home `.track-card` (surface, 1px border, card
-     radius, subtle hover lift) but lays its contents out as a column. */
+  /* Fill, border, radius and the whole elevation ladder (resting --shadow-1;
+     hover --surface-raised + --shadow-2 + a --text-muted keyline; pressed back
+     to level 1) come from `.track-card` in global.css — deliberately NOT
+     restated here. The hover keyline is --text-muted, NOT --border-strong:
+     --border-strong on --surface-raised measures 2.64:1 in dark, below the 3:1
+     a meaningful boundary owes (M7.3 review). Only the
+     column layout and the denser padding a 15-card grid wants are local, and
+     both are state-independent: component styles are unlayered and would
+     otherwise beat `@layer components`' hover/active rules from the resting
+     state. Never declare border-color or box-shadow in this block. */
   .lesson-card {
     display: flex;
     flex-direction: column;
     height: 100%;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
     padding: var(--space-5);
-    transition:
-      border-color var(--duration-fast) var(--ease-standard),
-      box-shadow var(--duration-fast) var(--ease-standard);
-  }
-
-  .lesson-card:hover {
-    border-color: var(--border-strong);
-    box-shadow: var(--shadow-1);
   }
 
   .lesson-card__top {
@@ -132,6 +142,15 @@ const Heading = headingLevel;
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
     color: var(--text);
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  /* The title picks up the brand with the card's own hover, so the thing being
+     pointed at reads as the link it is. Decorative: the underlying signal is
+     that the entire card is one <a>, and the "Start lesson →" line below states
+     it in words for anyone who never hovers. */
+  .lesson-card:hover .lesson-card__title {
+    color: var(--brand);
   }
 
   .lesson-card__summary {
@@ -141,12 +160,32 @@ const Heading = headingLevel;
     line-height: var(--leading-normal);
   }
 
-  /* Push the meta to the bottom so cards of uneven summary length align. */
-  .lesson-card__meta {
+  /* Push the foot to the bottom so cards of uneven summary length align. It
+     wraps rather than shrinks: at 320px with a long localized CTA the two halves
+     stack instead of the reading estimate being squeezed to two lines. */
+  .lesson-card__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
     margin-top: auto;
     padding-top: var(--space-4);
+  }
+
+  .lesson-card__meta {
     color: var(--text-muted);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Matches the `.prevnext__cta` / track-card wording and the home cards' arrow
+     convention, so "whole card is a link" is stated the same way everywhere.
+     The arrow is a separate aria-hidden span — it is decoration, and it must not
+     end up baked into a translated string (design-tokens-m1.md, hero CTA note). */
+  .lesson-card__cta {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--brand);
   }
 </style>

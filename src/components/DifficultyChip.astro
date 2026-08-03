@@ -1,12 +1,40 @@
 ---
 /**
- * DifficultyChip — static difficulty label (design §6.5, site spec §9).
+ * DifficultyChip — static difficulty label (design §6.5, site spec §8, §9).
  *
  * Props:
  * - `difficulty` "beginner" | "intermediate" — the WORD is the signal, so the
- *   chip stays neutral (no `--hl-*` hue spent; those are reserved for the viz).
+ *   chip stays neutral (no `--hl-*` hue spent; those six roles are reserved for
+ *   the visualization, design-tokens-m1.md Decision 3). Because meaning is never
+ *   carried by colour, monochrome, forced-colors and screen-reader renderings
+ *   lose nothing (§12).
  *
  * Neutral pill: surface fill, 1px border, uppercase --text-xs, muted text.
+ * `--text-muted` on `--surface` is 7.58:1 light / 5.71:1 dark, and 7.24:1 /
+ * 7.30:1 where the chip sits directly on the canvas (the lesson meta row) — the
+ * label clears 1.4.3 on both backdrops. The `--border` keyline is decorative and
+ * owes no floor (1.23:1 on a card, 1.18:1 on the canvas), which is exactly the
+ * point: nothing here competes with the algorithm state on a lesson page.
+ * Reading only tokens is also what keeps the chip off the print sheet's problem
+ * list: global.css's `@media print` block forces the light token set globally,
+ * so a dark-theme print needs no component-local override here.
+ *
+ * M7.3 evaluated two ways to make the two "Intermediate" lessons findable among
+ * the thirteen "Beginner" ones, and shipped NEITHER:
+ * - Soft semantic fills (VD-6/CMP-2) — proposed, built, then REJECTED at design
+ *   review, which withheld sign-off. Three reasons, all measured or structural:
+ *   the fills are 1.00–1.06:1 against the card they actually sit on (1.01–1.27:1
+ *   against the canvas), so they do almost no perceptual work; what separation
+ *   remained was carried by the label hue alone, which is the colour-only
+ *   channel the component exists to avoid leaning on; and painting all thirteen
+ *   beginner chips as loudly as the two intermediate ones inverts the very
+ *   Von Restorff argument the change was made from. Spec §8 permits this exact
+ *   treatment but gates it on designer sign-off, and §19 keeps the whole
+ *   question open — with sign-off withheld, the neutral treatment stands.
+ * - Badge-the-exception (leave "Beginner" neutral, mark only "Intermediate") —
+ *   still OPEN, not rejected. §8 enumerates the chip among the lesson card's
+ *   elements and describes only the soft-fill variant, so this one needs a §8
+ *   amendment as well as sign-off; it is not a bug fix to be slipped in.
  */
 interface Props {
   difficulty: 'beginner' | 'intermediate';

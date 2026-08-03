@@ -19,7 +19,10 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 const DARK_BG = 'rgb(11, 18, 32)'; // --bg dark: #0B1220 (designer handoff)
-const LIGHT_BG = 'rgb(255, 255, 255)'; // --bg light: #FFFFFF
+// M7.3 VD-3 inverted the light elevation model: the page canvas is now a tinted
+// #F8FAFC and #FFFFFF moved to --surface (cards, the viz frame), so a resting
+// card finally separates from the page. Was #FFFFFF through M7.2.
+const LIGHT_BG = 'rgb(248, 250, 252)'; // --bg light: #F8FAFC
 
 /** Computed background of <html>, which global.css paints with var(--bg). */
 function htmlBackground(page: Page): Promise<string> {

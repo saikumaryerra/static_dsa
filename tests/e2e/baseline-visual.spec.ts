@@ -2,6 +2,16 @@
  * M7.1 Task 0 — pixel half of the regression baseline. OPT-IN, and deliberately
  * skipped by default.
  *
+ * STATUS AS OF M7.3: UNSEEDED — this file is a gate waiting for its baselines,
+ * not coverage. No PNG has ever been committed under
+ * `tests/e2e/baseline-visual.spec.ts-snapshots/` (the directory does not exist),
+ * and the only place `VISUAL_BASELINE` is set is the manual seeding job in
+ * `.github/workflows/ci.yml` — never on the DoD gate. So all 14 tests below skip
+ * on every push, every PR, and every local run, and a green `npm run test:e2e`
+ * says nothing whatsoever about pixels. M7.3 repainted every surface on the site
+ * and went through review with this half of Task 0 inert; the two steps that fix
+ * that are below, and the first of them is a one-click workflow dispatch.
+ *
  * WHY SKIPPED: the site ships a pure system font stack with no self-hosted
  * webfonts (tokens.css `--font-sans`), so the fonts that resolve — and their
  * hinting and subpixel rasterization — differ between a developer machine and
