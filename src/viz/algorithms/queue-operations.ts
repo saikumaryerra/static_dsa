@@ -70,6 +70,14 @@ function run(input: QueueOperationsInput): Trace<QueueOperationsState> {
   const trace: Trace<QueueOperationsState> = [];
   const metrics = { enqueues: 0, dequeues: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"5 enqueues, 2 dequeues"`. The final step
+   * states them so the pills' payoff also reaches the `aria-live` explanation
+   * and the SVG `<desc>` (A11Y-2).
+   */
+  const tally = (): string =>
+    `${metrics.enqueues} enqueue${metrics.enqueues === 1 ? '' : 's'}, ${metrics.dequeues} dequeue${metrics.dequeues === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     const tail = size > 0 ? (head + size - 1) % cap : head;
     trace.push({
@@ -130,6 +138,12 @@ function run(input: QueueOperationsInput): Trace<QueueOperationsState> {
       );
     }
   }
+
+  // Which step ends the trace depends on the last operation (enqueue, dequeue,
+  // or a full/empty no-op), so the totals are appended to whichever step that
+  // turned out to be. Only the explanation changes; the snapshot is untouched.
+  const finalStep = trace[trace.length - 1]!;
+  finalStep.explanation = `${finalStep.explanation} ${tally()}.`;
 
   return trace;
 }

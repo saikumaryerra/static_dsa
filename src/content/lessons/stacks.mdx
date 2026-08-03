@@ -165,21 +165,21 @@ Work each one out before opening the answer.
 
 **1. You push 1, 2, then 3 onto an empty stack, then pop once. What value comes off, and why?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   3. A stack is LIFO — last in, first out — and 3 was pushed most recently, so
   it sits on top and is popped first.
 </Collapsible>
 
 **2. Why are both push and pop O(1) rather than O(n)?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Both touch only the top of the stack. Nothing below the top ever moves, so the
   cost does not depend on how many items the stack holds — it is constant, O(1).
 </Collapsible>
 
 **3. You push A, B, C, D. What sequence of pops returns them in the order D, C, B, A — and could a stack ever return them as A, B, C, D?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Four pops in a row give D, C, B, A — the reverse of insertion order, which is
   exactly what LIFO produces. Getting A, B, C, D back would require removing the
   bottom item first, which a stack cannot do; that is a queue's job.

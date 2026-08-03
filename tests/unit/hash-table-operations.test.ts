@@ -62,6 +62,24 @@ describe('hashTableOperations.run', () => {
     expect(trace[trace.length - 1]!.explanation).toContain('not in the table');
   });
 
+  it('states the collision and comparison totals in the final explanation (A11Y-2)', () => {
+    const hit = hashTableOperations.run(hashTableOperations.defaultInput());
+    const lastHit = hit[hit.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(lastHit.explanation).toContain(
+      `${lastHit.metrics!['collisions']} collisions, ${lastHit.metrics!['comparisons']} comparisons`,
+    );
+    // The not-found branch states them too, in the singular where it applies.
+    const miss = hashTableOperations.run({
+      keys: [1, 3],
+      capacity: 2,
+      searchTarget: 4,
+    });
+    expect(miss[miss.length - 1]!.explanation).toContain(
+      '1 collision, 0 comparisons.',
+    );
+  });
+
   it('skips a duplicate key (insert-if-absent) instead of chaining a second copy', () => {
     // 5 and 10 both hash to bucket 0; the repeated 5 is already present and skipped.
     const trace = hashTableOperations.run({

@@ -53,6 +53,15 @@ function run(input: HashTableOperationsInput): Trace<HashTableOperationsState> {
   const trace: Trace<HashTableOperationsState> = [];
   const metrics = { collisions: 0, comparisons: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"2 collisions, 3 comparisons"` — totals
+   * for the whole demo (collisions come from the inserts, comparisons from the
+   * chain walk). The final step states them so the pills' payoff also reaches
+   * the `aria-live` explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const tally = (): string =>
+    `${metrics.collisions} collision${metrics.collisions === 1 ? '' : 's'}, ${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ buckets, capacity }),
@@ -127,7 +136,7 @@ function run(input: HashTableOperationsInput): Trace<HashTableOperationsState> {
       const entry = chain[p]!;
       if (entry.key === target) {
         push(
-          `Compare ${target} with ${entry.key} (position ${p}) — match. Found ${target} in bucket ${b}.`,
+          `Compare ${target} with ${entry.key} (position ${p}) — match. Found ${target} in bucket ${b}. ${tally()}.`,
           [{ kind: 'found', ids: [entryId(b, p)] }],
         );
         found = true;
@@ -143,7 +152,7 @@ function run(input: HashTableOperationsInput): Trace<HashTableOperationsState> {
     }
     if (!found) {
       push(
-        `Reached the end of bucket ${b}'s chain without a match — ${target} is not in the table.`,
+        `Reached the end of bucket ${b}'s chain without a match — ${target} is not in the table. ${tally()}.`,
         [{ kind: 'active', ids: [slotId(b)], meta: { label: 'h' } }],
       );
     }

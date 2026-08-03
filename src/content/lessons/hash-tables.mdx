@@ -169,14 +169,14 @@ Work each one out before opening the answer.
 
 **1. With capacity 5, which bucket does key `17` hash to, and which existing key would it collide with in the visualizer's table?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   `17 % 5 = 2`, so it lands in bucket 2. In the default table bucket 2 is empty,
   so there is no collision — `17` would sit alone in bucket 2.
 </Collapsible>
 
 **2. Why is a hash-table lookup O(1) on average but O(n) in the worst case?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   On average, keys spread across buckets, so each bucket's chain is short and
   you compare against only a few keys — constant work. In the worst case every
   key hashes to the same bucket, forming one chain of length `n`, and searching
@@ -185,7 +185,7 @@ Work each one out before opening the answer.
 
 **3. You insert 8 keys into a table with 4 buckets. What is the load factor, and what does that tell you?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Load factor is `8 / 4 = 2.0` — on average two keys per bucket. That is high:
   chains are lengthening and lookups are slowing. A real hash table would have
   grown its bucket array and rehashed before reaching this point.

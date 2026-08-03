@@ -45,6 +45,20 @@ describe('recursionCallStack.run', () => {
     expect(metrics?.['maxDepth']).toBe(5);
   });
 
+  it('states the call count and max depth in the final explanation (A11Y-2)', () => {
+    const trace = recursionCallStack.run({ n: 4 });
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['calls']} calls, max depth ${last.metrics!['maxDepth']}`,
+    );
+    // Depth is a level, not a count, so only "call" is pluralized.
+    const single = recursionCallStack.run({ n: 1 });
+    expect(single[single.length - 1]!.explanation).toContain(
+      '1 call, max depth 1.',
+    );
+  });
+
   it('handles the n = 1 base case with a single frame', () => {
     const trace = recursionCallStack.run({ n: 1 });
     expect(Math.max(...trace.map((s) => s.state.frames.length))).toBe(1);

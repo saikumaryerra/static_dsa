@@ -3,28 +3,31 @@
  * Breadcrumb — static context nav (design §6.1, site spec §9).
  *
  * Props:
- * - `track` the lesson's track ("foundations" | "algorithms"); rendered as a
- *   readable label.
+ * - `track` the lesson's `Track`; rendered as the label `src/lib/tracks.ts` owns,
+ *   linking to that track's section on /learn.
  * - `title` the current lesson title (last crumb; plain text, `aria-current`).
  *
  * Inline `Learn / Track / Lesson`, muted, wraps (never truncates) for long/i18n
- * titles. The /learn and track index pages are built in M4 — the first crumb
- * links to /learn (may 404 until then, acceptable per task scope).
+ * titles. Every crumb but the last is a link (M7.1 IA-6): the track crumb
+ * targets `/learn#track-{track}`, the anchor the /learn index puts on each
+ * track section heading and the home track cards already link to.
  */
+import { trackLabel, type Track } from '../lib/tracks';
+
 interface Props {
-  track: 'foundations' | 'algorithms';
+  track: Track;
   title: string;
 }
 
 const { track, title } = Astro.props;
-const trackLabel = track === 'algorithms' ? 'Algorithms' : 'Foundations';
+const label = trackLabel(track);
 ---
 
 <nav aria-label="Breadcrumb" class="breadcrumb">
   <ol>
     <li><a href="/learn">Learn</a></li>
     <li aria-hidden="true" class="sep">/</li>
-    <li>{trackLabel}</li>
+    <li><a href={`/learn#track-${track}`}>{label}</a></li>
     <li aria-hidden="true" class="sep">/</li>
     <li><span aria-current="page">{title}</span></li>
   </ol>

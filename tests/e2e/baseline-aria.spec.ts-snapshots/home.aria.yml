@@ -1,0 +1,58 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "LearnDSA":
+    - /url: /
+  - navigation "Main":
+    - list:
+      - listitem:
+        - link "Learn":
+          - /url: /learn
+      - listitem:
+        - link "Glossary":
+          - /url: /glossary
+      - listitem:
+        - link "About":
+          - /url: /about
+      - listitem:
+        - button "Switch to dark theme"
+- main:
+  - heading "See data structures and algorithms in motion" [level=1]
+  - paragraph: LearnDSA teaches the core of computer science with interactive, step-by-step visualizations. Watch every swap, pointer move, and recursive call happen — then run each algorithm on your own input.
+  - link "Start learning":
+    - /url: /learn
+  - link "How it works":
+    - /url: /about
+  - heading "Interactive by default" [level=2]
+  - paragraph: "Every lesson is built around a visualization you control: play, pause, step forward and back, or run the algorithm on your own input."
+  - heading "Made for beginners" [level=2]
+  - paragraph: Plain language, concrete examples, and every term defined the first time it appears. Start from zero and build up one lesson at a time.
+  - heading "Free, forever" [level=2]
+  - paragraph: No account, no paywall, no tracking. The whole site is static and open source, and every lesson works offline once loaded.
+  - heading /Two tracks, \d+ lessons/ [level=2]
+  - link /Track A Foundations & Data Structures Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on\. 9 lessons · ~\d+ min · All beginner/:
+    - /url: /learn#track-foundations
+    - paragraph: Track A
+    - heading "Foundations & Data Structures" [level=3]
+    - paragraph: Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on.
+    - paragraph: /9 lessons · ~\d+ min · All beginner/
+  - link /Track B Algorithms Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks\. 6 lessons · ~\d+ min · 4 beginner · 2 intermediate/:
+    - /url: /learn#track-algorithms
+    - paragraph: Track B
+    - heading "Algorithms" [level=3]
+    - paragraph: Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks.
+    - paragraph: /6 lessons · ~\d+ min · 4 beginner · 2 intermediate/
+- contentinfo:
+  - paragraph: LearnDSA — see data structures and algorithms in motion.
+  - navigation "Footer":
+    - list:
+      - listitem:
+        - link "Learn":
+          - /url: /learn
+      - listitem:
+        - link "Glossary":
+          - /url: /glossary
+      - listitem:
+        - link "About":
+          - /url: /about
+  - paragraph: /Free and open source\. © \d+ LearnDSA/

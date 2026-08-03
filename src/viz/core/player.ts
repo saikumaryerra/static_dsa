@@ -88,11 +88,20 @@ export class Player<TState> {
    * Starts auto-advancing one step per tick. Uses a self-rescheduling
    * `setTimeout` (not `setInterval`) so a slow render can't cause overlapping
    * ticks or drift. Steps are discrete; the visual tween between states is CSS's
-   * job (architecture §3), so no `requestAnimationFrame` is involved. No-op if
-   * already playing or already at the last step.
+   * job (architecture §3), so no `requestAnimationFrame` is involved.
+   *
+   * Called at the last step it REPLAYS: seek to 0, then play. Living here rather
+   * than in the island means the play button, the Space shortcut, and every
+   * other caller replay identically (M7.1 VIZ-4). No-op if already playing, or
+   * if the trace has no step to advance to.
    */
   play(): void {
-    if (this.playing || this.index >= this.trace.length - 1) return;
+    if (this.playing) return;
+    const last = this.trace.length - 1;
+    if (this.index >= last) {
+      if (last <= 0) return; // single-step trace: nothing to play
+      this.seek(0);
+    }
     this.setPlaying(true);
     const tick = (): void => {
       // Advance one step; auto-pause at the end of the trace.

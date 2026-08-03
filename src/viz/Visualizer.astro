@@ -91,6 +91,20 @@ const label = algo.label;
 const still = rmod.renderStatic(step0, { title: label, idBase: uid });
 const step0Text = step0.explanation;
 
+// Step-0 metric pills, rendered at BUILD time. An empty `.viz-metrics` measures
+// 0px and grew ~36px the moment the island hydrated, shifting the document under
+// any in-flight smooth scroll (MOT-1) so anchors landed short; shipping the same
+// pills the client's renderMetrics() builds makes hydration layout-neutral — and
+// makes the counts readable with JS off. Same label + `<b>` value shape as that
+// function — keep the two in sync — and the same rendered box: `.viz-pill` is a
+// flex container, so the template's indentation collapses to nothing (a
+// whitespace-only anonymous flex item is not rendered) and both paths lay out as
+// "label item + gap + <b> item".
+const metricPills = Object.entries(step0.metrics ?? {}).map(([key, value]) => ({
+  label: `${key[0]!.toUpperCase()}${key.slice(1)} `,
+  value: String(value),
+}));
+
 const explainId = `${uid}-explain`;
 const errId = `${uid}-err`;
 const stepId = `${uid}-step`;
@@ -108,6 +122,7 @@ const targetId = `${uid}-target`;
   data-input={input ?? ''}
   data-label={label}
   data-show-metrics={showMetrics ? 'true' : 'false'}
+  data-target-label={showTarget ? targetLabel : ''}
 >
   <figure class="viz-frame">
     {
@@ -116,8 +131,20 @@ const targetId = `${uid}-target`;
     <div class="viz-canvas" data-viz-canvas set:html={still} />
 
     {
+      /* A11Y-2: exposed, not aria-hidden — the pills are a SIBLING of the
+         aria-live explanation, so screen-reader users can read the counts on
+         demand without the live region re-announcing them every step. */
+    }
+    {
       showMetrics && (
-        <div class="viz-metrics" data-viz-metrics aria-hidden="true" />
+        <div class="viz-metrics" data-viz-metrics>
+          {metricPills.map((pill) => (
+            <span class="viz-pill">
+              {pill.label}
+              <b>{pill.value}</b>
+            </span>
+          ))}
+        </div>
       )
     }
 
@@ -194,12 +221,16 @@ const targetId = `${uid}-target`;
             <rect x="5.8" y="5" width="2.2" height="14"></rect>
           </svg>
         </button>
+        {
+          /* No aria-pressed (VIZ-9 / A11Y-7): the accessible name already
+             carries the state (Play / Pause / Replay from start), and a toggle
+             that both renames itself and reports pressed double-encodes it. */
+        }
         <button
           type="button"
           class="viz-btn viz-btn--play"
           data-viz-play
           aria-label="Play"
-          aria-pressed="false"
           disabled
         >
           <svg
@@ -263,12 +294,18 @@ const targetId = `${uid}-target`;
           <div class="viz-custom__fields">
             <div class="viz-field">
               <label for={arrayId}>{inputLabel}</label>
+              {/* INP-1: these fields take code-shaped literals, so every
+                  "helpful" mobile keyboard behaviour (autocorrect, leading
+                  capital, spell squiggles) is noise here. */}
               <input
                 type="text"
                 id={arrayId}
                 data-viz-array
                 placeholder={inputPlaceholder}
                 aria-describedby={errId}
+                spellcheck="false"
+                autocapitalize="none"
+                autocorrect="off"
                 disabled
               />
             </div>
@@ -282,6 +319,9 @@ const targetId = `${uid}-target`;
                   inputmode="numeric"
                   placeholder={targetPlaceholder}
                   aria-describedby={errId}
+                  spellcheck="false"
+                  autocapitalize="none"
+                  autocorrect="off"
                   disabled
                 />
               </div>
@@ -290,7 +330,13 @@ const targetId = `${uid}-target`;
               Run
             </button>
           </div>
-          <p class="viz-error" id={errId} role="alert" data-viz-error hidden>
+          {/* role="status" carries an implicit aria-live="polite"; the choice
+              over role="alert" (A11Y-8) is therefore about politeness, not about
+              announcing once: this error is the direct result of the reader's own
+              submit, so it should queue behind whatever the AT is saying instead
+              of interrupting it. showError also moves focus to the offending
+              field, which re-announces the text via aria-describedby. */}
+          <p class="viz-error" id={errId} role="status" data-viz-error hidden>
             <svg
               viewBox="0 0 24 24"
               width="16"
@@ -763,7 +809,12 @@ const targetId = `${uid}-target`;
     margin: 0;
     border-top: 1px solid var(--border);
     padding-top: var(--space-3);
-    min-height: 3rem;
+    /* CMP-6: reserve two full lines so a one→two line explanation can't shove
+       the controls down mid-step. box-sizing is border-box (Tailwind preflight),
+       so the reservation has to include this box's own padding and border. */
+    min-height: calc(
+      2 * var(--leading-relaxed) * 1em + var(--space-3) + var(--space-px)
+    );
     color: var(--text);
     font-variant-numeric: tabular-nums;
   }
@@ -787,16 +838,97 @@ const targetId = `${uid}-target`;
     color: var(--text-muted);
   }
 
+  /* VD-4: the UA track sits at ~1.3:1 against the card, so both halves are
+     token-styled here — `appearance: none` removes the native thumb along with
+     the track, which is why each engine needs its own pair of rules. */
   .viz-slider {
+    /* Elapsed fraction of the trace; rewritten once per step by onStep. */
+    --viz-progress: 0%;
     flex: 1;
     min-height: 44px;
-    accent-color: var(--brand);
+    appearance: none;
+    background: transparent;
     cursor: pointer;
   }
 
-  .viz-slider:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
+  /* The two-stop gradient IS the elapsed fill: no extra element, no per-frame JS. */
+  .viz-slider::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: var(--radius-full);
+    background-image: linear-gradient(
+      to right,
+      var(--brand) var(--viz-progress),
+      var(--border-strong) var(--viz-progress)
+    );
+  }
+
+  .viz-slider::-moz-range-track {
+    height: 6px;
+    border-radius: var(--radius-full);
+    background-image: linear-gradient(
+      to right,
+      var(--brand) var(--viz-progress),
+      var(--border-strong) var(--viz-progress)
+    );
+  }
+
+  /* Firefox has its own elapsed segment; the gradient is the single source of
+     truth for the fill, so keep that segment out of the way. */
+  .viz-slider::-moz-range-progress {
+    background: transparent;
+  }
+
+  .viz-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    /* Preflight's `*` reset doesn't reach UA pseudo-elements — say it here so
+       the border is inside the 18px and the -6px centring stays true. */
+    box-sizing: border-box;
+    width: 18px;
+    height: 18px;
+    margin-top: -6px; /* centre the thumb on the 6px track */
+    border: 2px solid var(--surface);
+    border-radius: var(--radius-full);
+    background-color: var(--brand);
+  }
+
+  .viz-slider::-moz-range-thumb {
+    box-sizing: border-box;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--surface);
+    border-radius: var(--radius-full);
+    background-color: var(--brand);
+  }
+
+  /* Forced colors drops author background-images, so VD-4's gradient track would
+     leave the thumb floating on nothing — a rail the native track used to give
+     us for free. Repaint both halves in system colors, which are deliberately
+     token-free: the user's palette IS the contract here, and system colors are
+     the one kind of author color forced-colors mode does not override (so no
+     `forced-colors-adjust: none`, which would also opt the focus ring out). The
+     elapsed fill can't survive without a background-image; the counter and
+     aria-valuetext carry position. Each engine needs its own rule — one unknown
+     pseudo-element in a selector list invalidates the whole rule. */
+  @media (forced-colors: active) {
+    .viz-slider::-webkit-slider-runnable-track {
+      background-image: none;
+      background-color: ButtonBorder;
+    }
+
+    .viz-slider::-moz-range-track {
+      background-image: none;
+      background-color: ButtonBorder;
+    }
+
+    .viz-slider::-webkit-slider-thumb {
+      border-color: Canvas;
+      background-color: Highlight;
+    }
+
+    .viz-slider::-moz-range-thumb {
+      border-color: Canvas;
+      background-color: Highlight;
+    }
   }
 
   .viz-counter {
@@ -832,11 +964,6 @@ const targetId = `${uid}-target`;
 
   .viz-btn:hover:not(:disabled) {
     color: var(--text);
-  }
-
-  .viz-btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
   }
 
   .viz-btn--play {
@@ -930,6 +1057,18 @@ const targetId = `${uid}-target`;
     font-family: var(--font-mono);
   }
 
+  /* ---- Disabled recipe (CMP-3) ---- */
+  /* Every viz control ships `disabled` in SSR and is enabled on hydrate, so they
+     all have to read identically in that first paint — one token, one rule,
+     instead of the two ad-hoc opacities this replaces. */
+  .viz-slider:disabled,
+  .viz-btn:disabled,
+  .viz-select:disabled,
+  .viz-field input:disabled {
+    opacity: var(--disabled-opacity);
+    cursor: not-allowed;
+  }
+
   .viz-error {
     display: flex;
     align-items: flex-start;
@@ -974,6 +1113,7 @@ const targetId = `${uid}-target`;
 
 <script>
   import { Player } from './core/player';
+  import { errorField } from './core/error-field';
   import { algorithms, renderers } from './registry';
   import type { Algorithm, Renderer, RendererModule, Step } from './core/types';
 
@@ -1000,6 +1140,10 @@ const targetId = `${uid}-target`;
     const rawInput = root.dataset['input'] ?? '';
     const title = root.dataset['label'] ?? '';
     const showMetrics = root.dataset['showMetrics'] === 'true';
+    // The SECOND field's rendered label ("Target", "Index", "Search key",
+    // "Start node"); empty when that field isn't rendered. errorField reads it
+    // so error attribution follows the actual UI instead of a hardcoded word.
+    const targetLabel = root.dataset['targetLabel'] ?? '';
 
     // Query the pieces we drive.
     const canvas = root.querySelector<HTMLElement>('[data-viz-canvas]');
@@ -1071,7 +1215,18 @@ const targetId = `${uid}-target`;
       if (backBtn) backBtn.disabled = atStart;
       if (resetBtn) resetBtn.disabled = atStart;
       if (fwdBtn) fwdBtn.disabled = atEnd;
-      if (playBtn) playBtn.disabled = atEnd && !playing;
+      if (playBtn) {
+        // VIZ-4: at the end the button REPLAYS (Player.play seeks to 0 first),
+        // so it stays enabled there; only a trace with nothing to advance
+        // through can disable it. This is also the single writer of the play
+        // button's accessible name — onPlayStateChange routes back through here
+        // so the two can never disagree about the state.
+        playBtn.disabled = length < 2;
+        playBtn.setAttribute(
+          'aria-label',
+          playing ? 'Pause' : atEnd ? 'Replay from start' : 'Play',
+        );
+      }
     }
 
     /** onStep: sync explanation, slider, counter, metrics, and button states. */
@@ -1080,34 +1235,61 @@ const targetId = `${uid}-target`;
       explain!.textContent = step.explanation;
       slider!.value = String(index);
       slider!.setAttribute('aria-valuetext', `Step ${index + 1} of ${length}`);
+      // VD-4: one custom-property write per step drives the track's elapsed
+      // fill; the gradient that reads it lives in CSS, so nothing paints here.
+      const progress = length > 1 ? (index / (length - 1)) * 100 : 0;
+      slider!.style.setProperty('--viz-progress', `${progress.toFixed(2)}%`);
       if (counter) counter.textContent = `${index + 1} / ${length}`;
       renderMetrics(step);
       updateButtons(index, length, player?.isPlaying ?? false);
     }
 
-    /** onPlayStateChange: swap the Play/Pause glyph + label + pressed state. */
+    /** onPlayStateChange: swap the Play/Pause glyph, then refresh button state. */
     function onPlayStateChange(playing: boolean): void {
       if (!playBtn) return;
+      // data-playing drives the CSS glyph swap. No aria-pressed (VIZ-9/A11Y-7):
+      // the accessible name carries the state, and updateButtons owns that name.
       playBtn.toggleAttribute('data-playing', playing);
-      playBtn.setAttribute('aria-pressed', playing ? 'true' : 'false');
-      playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
       updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, playing);
     }
 
     /** Shows a friendly custom-input error without disturbing the current trace. */
     function showError(message: string): void {
       if (errorBox && errorText) {
-        errorText.textContent = message;
+        // Reveal BEFORE writing. `hidden` is display:none, which keeps the <p>
+        // out of the accessibility tree entirely, so text written while it is
+        // hidden is not a change to a live region and most screen readers stay
+        // silent; unhiding first gives them a region to observe.
         errorBox.hidden = false;
+        errorText.textContent = message;
       }
-      arrayInput?.setAttribute('aria-invalid', 'true');
-      arrayInput?.focus();
+      // Blame the field the message is about; when the target field isn't
+      // rendered, every error is the first field's by construction.
+      const field =
+        errorField(message, targetLabel) === 'target' && targetInput
+          ? targetInput
+          : arrayInput;
+      // Exactly one field is invalid at a time — a stale flag left on the other
+      // would mis-describe a field the reader is about to correct.
+      arrayInput?.removeAttribute('aria-invalid');
+      targetInput?.removeAttribute('aria-invalid');
+      field?.setAttribute('aria-invalid', 'true');
+      // Moving focus re-announces the field together with this message via
+      // aria-describedby, so the reader still gets it if the polite live-region
+      // update is dropped (A11Y-8).
+      field?.focus();
     }
 
-    /** Clears a previously shown error. */
+    /** Clears a previously shown error from BOTH fields. */
     function clearError(): void {
       if (errorBox) errorBox.hidden = true;
+      // Blank the text as well: a hidden node that aria-describedby names
+      // DIRECTLY still contributes to the accessible description (accname §4.3.2
+      // step 2A), so a resolved error would keep being announced with both
+      // fields for the rest of the session.
+      if (errorText) errorText.textContent = '';
       arrayInput?.removeAttribute('aria-invalid');
+      targetInput?.removeAttribute('aria-invalid');
     }
 
     /** Points the slider bounds at the loaded trace and refreshes controls. */

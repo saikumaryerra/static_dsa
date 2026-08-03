@@ -14,10 +14,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual only, and only for the `seed-visual-baselines` job below.
+  workflow_dispatch:
 
 concurrency:
-  # A newer push supersedes an in-flight run of the same ref.
-  group: ci-${{ github.ref }}
+  # A newer push supersedes an in-flight run of the same ref. The event is part
+  # of the key so a manual seeding run and a push to the same branch never cancel
+  # each other — they do unrelated work and neither result substitutes for the
+  # other. Push/PR grouping is unchanged (those events already carry distinct refs).
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -59,3 +64,62 @@ jobs:
             test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  # M7.1 Task 0 — step 1 of the two-step flow that turns the PIXEL baseline on.
+  #
+  # tests/e2e/baseline-visual.spec.ts skips itself unless VISUAL_BASELINE is set,
+  # and no PNG is committed yet, so today that half of the baseline configures a
+  # code path nothing can reach. Closing that gap needs two deliberate steps, in
+  # this order:
+  #
+  #   1. Run this job (Actions → CI → Run workflow) from a commit whose DoD gate
+  #      is green. Download the `visual-baselines` artifact, review the PNGs like
+  #      any other reviewed artifact, and commit them to
+  #      `tests/e2e/baseline-visual.spec.ts-snapshots/`.
+  #   2. ONLY THEN enable the comparison, by adding `VISUAL_BASELINE: '1'` to the
+  #      `npm run test:e2e` step above. In the other order every run goes red:
+  #      `updateSnapshots: 'none'` on CI (playwright.config.ts) makes a missing
+  #      baseline a failure rather than a silent regeneration — which is the
+  #      point, but only once a baseline exists.
+  #
+  # It has to run HERE rather than on a laptop: the site ships a pure system font
+  # stack, so glyph rasterization — and with it every pixel — is specific to the
+  # runner image. playwright.config.ts pins `{platform}` into the snapshot
+  # filename, so a locally seeded PNG would not even be the file CI looks for.
+  seed-visual-baselines:
+    name: Seed visual baselines
+    # Never on push/PR: seeding is an explicit human act, not part of the gate.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest # must stay the image the e2e job uses, or the PNGs are useless
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc # single source of truth, shared with Cloudflare
+          cache: npm
+
+      - run: npm ci
+
+      # Playwright's webServer runs `npm run preview` on CI (it assumes the gate
+      # already built), so dist/ must exist before the seeding run below.
+      - run: npm run build
+
+      - run: npx playwright install --with-deps chromium
+
+      # The whole file is gated on this flag; --update-snapshots writes the PNGs
+      # into the snapshot dir uploaded below. Nothing else runs — a full e2e pass
+      # is the `verify` job's business.
+      - run: VISUAL_BASELINE=1 npx playwright test tests/e2e/baseline-visual.spec.ts --update-snapshots
+
+      # always(): a partial set still shows WHICH capture went wrong, and these
+      # PNGs are reviewed before they are committed either way. `error` on empty,
+      # because an artifact-less "success" is the one outcome that would waste
+      # someone's afternoon.
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: tests/e2e/baseline-visual.spec.ts-snapshots/
+          retention-days: 7
+          if-no-files-found: error

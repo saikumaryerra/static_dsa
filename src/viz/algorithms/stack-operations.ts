@@ -47,6 +47,14 @@ function run(input: StackOperationsInput): Trace<StackOperationsState> {
   const trace: Trace<StackOperationsState> = [];
   const metrics = { pushes: 0, pops: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"3 pushes, 3 pops"`. The final step states
+   * them so the pills' payoff also reaches the `aria-live` explanation and the
+   * SVG `<desc>` (A11Y-2).
+   */
+  const tally = (): string =>
+    `${metrics.pushes} push${metrics.pushes === 1 ? '' : 'es'}, ${metrics.pops} pop${metrics.pops === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     const top = items.length > 0 ? items.length - 1 : undefined;
     trace.push({
@@ -95,7 +103,8 @@ function run(input: StackOperationsInput): Trace<StackOperationsState> {
         [topPointer(newTop)],
       );
     } else {
-      push(`${value} is gone. The stack is empty again.`, []);
+      // Popping the last item ends the trace, so state the totals here.
+      push(`${value} is gone. The stack is empty again. ${tally()}.`, []);
     }
   }
 

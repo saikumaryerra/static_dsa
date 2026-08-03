@@ -27,6 +27,24 @@ describe('bfs.run', () => {
     expect(visitedSteps).toHaveLength(6);
   });
 
+  it('states the visited count in the final explanation (A11Y-2)', () => {
+    const trace = bfs.run(bfs.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pill and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['visited']} nodes visited`,
+    );
+    // On a disconnected graph the count is the REACHED set, not every vertex.
+    const partial = bfs.run({
+      nodeIds: [0, 1, 2],
+      edges: [{ from: 1, to: 2 }],
+      start: 0,
+    });
+    expect(partial[partial.length - 1]!.explanation).toContain(
+      '1 node visited',
+    );
+  });
+
   it('emits frontier, active, and visited highlights', () => {
     const trace = bfs.run(bfs.defaultInput());
     expect(kinds(trace, 'frontier').length).toBeGreaterThan(0);

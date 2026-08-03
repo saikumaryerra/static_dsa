@@ -163,7 +163,7 @@ Work each one out before opening the answer.
 
 **1. Why is reading `arr[500]` no slower than reading `arr[0]`?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   Because the array is contiguous and every slot is the same size, the computer
   finds any element by arithmetic: address = start + index × slot_size. That is
   a single calculation, so every index costs the same — O(1).
@@ -171,14 +171,14 @@ Work each one out before opening the answer.
 
 **2. You insert a value at the very beginning of an array of 1,000 elements. Roughly how many elements move?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   All 1,000. Every existing element must shift one slot to the right to open a
   gap at index 0. That is the worst case for insertion, O(n).
 </Collapsible>
 
 **3. Deleting the last element of an array is cheap, but deleting the first is expensive. Why?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Deleting the last element leaves no gap to close — nothing shifts, so it is
   O(1). Deleting the first forces every remaining element to shift left by one
   to fill the hole, which is O(n).

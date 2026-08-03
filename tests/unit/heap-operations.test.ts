@@ -52,6 +52,15 @@ describe('heapOperations.run', () => {
     expect(last.metrics?.['swaps']).toBe(5);
   });
 
+  it('states the comparison and swap counts in the final explanation (A11Y-2)', () => {
+    const trace = heapOperations.run(heapOperations.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['comparisons']} comparisons, ${last.metrics!['swaps']} swaps`,
+    );
+  });
+
   it('inserting one value needs no swaps and holds the heap property', () => {
     const trace = heapOperations.run({ values: [42] });
     const last = trace[trace.length - 1]!;

@@ -45,6 +45,14 @@ function run(input: HeapOperationsInput): Trace<HeapOperationsState> {
   const trace: Trace<HeapOperationsState> = [];
   const metrics = { comparisons: 0, swaps: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"9 comparisons, 4 swaps"`. The final step
+   * states them so the pills' payoff also reaches the `aria-live` explanation
+   * and the SVG `<desc>` (A11Y-2).
+   */
+  const tally = (): string =>
+    `${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'}, ${metrics.swaps} swap${metrics.swaps === 1 ? '' : 's'}`;
+
   const push = (
     explanation: string,
     highlights: Highlight[],
@@ -105,7 +113,7 @@ function run(input: HeapOperationsInput): Trace<HeapOperationsState> {
 
   push(
     heap.length > 0
-      ? `Done. The max-heap is complete: every parent is ≥ its children, and the largest value (${heap[0]}) sits at the root.`
+      ? `Done. The max-heap is complete: every parent is ≥ its children, and the largest value (${heap[0]}) sits at the root. ${tally()}.`
       : 'Done. The heap is empty.',
     heap.length > 0 ? [{ kind: 'active', ids: [cellId(0)] }] : [],
   );

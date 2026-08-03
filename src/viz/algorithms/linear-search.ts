@@ -49,6 +49,14 @@ function run(input: LinearSearchInput): Trace<LinearSearchState> {
   const metrics = { comparisons: 0 };
   const last = array.length - 1;
 
+  /**
+   * The comparison metric in words, e.g. `"1 comparison"` / `"3 comparisons"`.
+   * The final step states it so the metrics pill's payoff also reaches the
+   * `aria-live` explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const comparisonCount = (): string =>
+    `${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'}`;
+
   const push = (
     state: LinearSearchState,
     explanation: string,
@@ -80,7 +88,7 @@ function run(input: LinearSearchInput): Trace<LinearSearchState> {
     if (value === target) {
       push(
         { array, index: i, foundIndex: i },
-        `Index ${i} holds ${value}, which equals the target. Found ${target} at index ${i}.`,
+        `Index ${i} holds ${value}, which equals the target. Found ${target} at index ${i} after ${comparisonCount()}.`,
         [{ kind: 'found', ids: [cellId(i)] }],
       );
       return trace;
@@ -99,7 +107,7 @@ function run(input: LinearSearchInput): Trace<LinearSearchState> {
   // Exhausted the array with no hit.
   push(
     { array, index: null, foundIndex: null },
-    `Reached the end without a match — ${target} is not in the array.`,
+    `Reached the end without a match — ${target} is not in the array after ${comparisonCount()}.`,
     [],
   );
   return trace;

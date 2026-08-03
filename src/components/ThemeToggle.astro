@@ -125,12 +125,35 @@
     );
   }
 
+  /**
+   * THM-1: keeps browser chrome on the manually chosen theme. BaseLayout's
+   * theme-color metas are media-scoped (so they work with JS off) and the first
+   * one whose media matches wins — an explicit choice therefore needs an
+   * un-scoped meta inserted *ahead* of them. M7.3: light becomes #F8FAFC.
+   */
+  function syncThemeColor(theme: Theme): void {
+    const existing = document.head.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]:not([media])',
+    );
+    const meta = existing ?? document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = theme === 'dark' ? '#0B1220' : '#FFFFFF';
+    if (!existing) {
+      document.head.insertBefore(
+        meta,
+        document.head.querySelector('meta[name="theme-color"]'),
+      );
+    }
+  }
+
   /** Follows OS preference changes live — only active while the user has no stored choice. */
   function onSystemChange(event: MediaQueryListEvent): void {
     apply(resolveTheme(null, event.matches));
   }
 
-  if (readStored() === null) {
+  const stored = readStored();
+
+  if (stored === null) {
     media.addEventListener('change', onSystemChange);
   }
 
@@ -145,8 +168,15 @@
     // A stored key now exists (or the user clearly overrode the OS): stop following it.
     media.removeEventListener('change', onSystemChange);
     apply(next);
+    syncThemeColor(next);
   });
 
   // Sync the aria-label with the theme the inline head script already applied.
-  apply(resolveTheme(readStored(), media.matches));
+  const initial = resolveTheme(stored, media.matches);
+  apply(initial);
+  // A stored choice can disagree with the OS, and the head's metas only know the
+  // OS — without this the browser chrome would show the theme the page isn't in.
+  if (stored !== null) {
+    syncThemeColor(initial);
+  }
 </script>

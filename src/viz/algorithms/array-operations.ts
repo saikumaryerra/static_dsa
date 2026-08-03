@@ -59,6 +59,14 @@ function run(input: ArrayOperationsInput): Trace<ArrayOperationsState> {
   const trace: Trace<ArrayOperationsState> = [];
   const metrics = { shifts: 0 };
 
+  /**
+   * The shift metric in words — a total for the whole demo, since the insert and
+   * the delete both shift. The final step states it so the metrics pill's payoff
+   * also reaches the `aria-live` explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const shiftCount = (): string =>
+    `${metrics.shifts} shift${metrics.shifts === 1 ? '' : 's'} in total`;
+
   const push = (
     array: number[],
     explanation: string,
@@ -137,7 +145,7 @@ function run(input: ArrayOperationsInput): Trace<ArrayOperationsState> {
   working.pop();
   push(
     working,
-    `Drop the now-duplicate last slot. Deletion is complete — the array holds ${working.length} items.`,
+    `Drop the now-duplicate last slot. Deletion is complete — the array holds ${working.length} items. ${shiftCount()}.`,
     working.length === 0 ? [] : [fullRange(working.length)],
   );
 

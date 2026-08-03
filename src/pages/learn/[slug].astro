@@ -5,13 +5,14 @@
  * `getStaticPaths` builds a page per PUBLISHED lesson, routing off frontmatter
  * `data.slug` (Content Layer entry `id` is the filename, not the slug). A
  * build-time guard throws on duplicate slugs — Zod can't enforce cross-entry
- * uniqueness (SPEC-GAP, architecture §1.1). Prev/next derive from `order` within
- * the same track. Reading time is computed from the raw MDX body prose.
+ * uniqueness (SPEC-GAP, architecture §1.1). Prev/next derive from `order` across
+ * the whole curriculum. Reading time is computed from the raw MDX body prose.
  */
 import { getCollection, render } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import LessonLayout from '../../layouts/LessonLayout.astro';
 import { readingTimeMinutes } from '../../lib/reading-time';
+import { trackLabel } from '../../lib/tracks';
 
 export async function getStaticPaths() {
   const lessons = await getCollection('lessons', ({ data }) => data.published);
@@ -42,15 +43,30 @@ interface Props {
 const { entry, lessons } = Astro.props;
 const { Content, headings } = await render(entry);
 
-// Prev/next: neighbours by `order` within the same track.
-const siblings = lessons
-  .filter((l) => l.data.track === entry.data.track)
-  .sort((a, b) => a.data.order - b.data.order);
-const position = siblings.findIndex((l) => l.data.slug === entry.data.slug);
+// Prev/next: neighbours by `order` across BOTH tracks (M7.1 IA-5). Spec §8:
+// "Prev/next follow global lesson order, naming the track when it changes —
+// never dead-ending at a track boundary (§3 'no dead ends')". /learn numbers the
+// curriculum 01–15 as one linear path, so the old per-track filter left lesson
+// 09 with no Next card at all.
+// Copy before sorting: `lessons` is shared by every page's props.
+const ordered = [...lessons].sort((a, b) => a.data.order - b.data.order);
+const position = ordered.findIndex((l) => l.data.slug === entry.data.slug);
 const toAdjacent = (l: CollectionEntry<'lessons'> | undefined) =>
-  l ? { slug: l.data.slug, title: l.data.title } : null;
-const prev = toAdjacent(siblings[position - 1]);
-const next = toAdjacent(siblings[position + 1]);
+  l
+    ? {
+        slug: l.data.slug,
+        title: l.data.title,
+        // Only a neighbour in a DIFFERENT track carries a label, so the single
+        // crossing (09 Graphs → 10 Recursion) announces itself while the other
+        // 13 pairs stay visually unchanged. The label rides inside the adjacent
+        // object, which LessonLayout already forwards to PrevNext untouched.
+        ...(l.data.track === entry.data.track
+          ? {}
+          : { trackLabel: trackLabel(l.data.track) }),
+      }
+    : null;
+const prev = toAdjacent(ordered[position - 1]);
+const next = toAdjacent(ordered[position + 1]);
 
 const readingMinutes = readingTimeMinutes(entry.body ?? '');
 ---

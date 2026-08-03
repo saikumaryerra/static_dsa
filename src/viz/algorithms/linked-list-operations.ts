@@ -57,6 +57,14 @@ function run(
   const trace: Trace<LinkedListOperationsState> = [];
   const metrics = { hops: 0 };
 
+  /**
+   * The hop metric in words, e.g. `"1 hop"` / `"3 hops"` — the pointer hops the
+   * traversal needed. The final step states it so the metrics pill's payoff also
+   * reaches the `aria-live` explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const hopCount = (): string =>
+    `${metrics.hops} hop${metrics.hops === 1 ? '' : 's'} in total`;
+
   const push = (
     pointers: ListPointer[],
     explanation: string,
@@ -136,7 +144,7 @@ function run(
   const listText = nodes.map((node) => node.value).join(' → ');
   push(
     [{ name: 'head', index: 0 }],
-    `Node ${removedValue} is unlinked and freed. The list is now ${listText} → null.`,
+    `Node ${removedValue} is unlinked and freed. The list is now ${listText} → null. ${hopCount()}.`,
     [],
   );
 

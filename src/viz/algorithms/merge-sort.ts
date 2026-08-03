@@ -45,6 +45,14 @@ function run(input: SortInput): Trace<SortState> {
   const trace: Trace<SortState> = [];
   const metrics = { comparisons: 0 };
 
+  /**
+   * The comparison metric in words, e.g. `"1 comparison"` / `"11 comparisons"`.
+   * The final step states it so the metrics pill's payoff also reaches the
+   * `aria-live` explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const comparisonCount = (): string =>
+    `${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ array }),
@@ -123,7 +131,7 @@ function run(input: SortInput): Trace<SortState> {
 
   push(
     n > 0
-      ? 'Sorted! Every value is in its final position.'
+      ? `Sorted! Every value is in its final position after ${comparisonCount()}.`
       : 'Nothing to sort.',
     n > 0 ? [{ kind: 'found', ids: array.map((_, i) => cellId(i)) }] : [],
   );

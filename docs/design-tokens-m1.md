@@ -113,9 +113,14 @@ Neutrals are cool slate (calm, editorial). Brand is indigo — confident, link-r
 | `--brand` (link text) on `--surface` | 5.9:1 | 4.9:1 |
 | `--brand-contrast` on `--brand` (buttons) | 6.3:1 | 6.3:1 |
 | `--border-strong` (input borders/icons) on `--bg` | 4.8:1 | 3.9:1 |
-| Highlights on `--bg` (all six, non-text graphics, min) | 3.3:1 (found) | 6.9:1 (visited) |
+| Highlights on `--bg` (all six, non-text graphics, min) | 5.0:1 (found) | 6.9:1 (visited) |
+| Marker-glyph highlights on `--surface` (SVG `<text>`, so 4.5:1) | 4.7:1 (found) | 8.4:1 (found) |
 
-Every text pair clears 4.5:1; every UI/graphic pair clears 3:1. FE note for M3 renderers: use highlight tokens as 2px strokes/rings with fills derived via `color-mix(in srgb, var(--hl-*) 15%, transparent)`, keeping `--text` for labels on top — never put small text directly on a solid highlight fill.
+Every text pair clears 4.5:1; every UI/graphic pair clears 3:1. The two marker-glyph tokens were
+re-tuned in M7.1 (A11Y-4): `--hl-found` and `--hl-swap` also color the ✓/+/✕/↔ glyphs, which are
+text and owe 4.5:1 — the original values cleared the 3:1 graphics bar but not the text bar. The
+light values are now `#15803D` / `#BE185D`; `tests/unit/tokens-contrast.test.ts` enforces this
+whole matrix (axe cannot, because it skips SVG text). FE note for M3 renderers: use highlight tokens as 2px strokes/rings with fills derived via `color-mix(in srgb, var(--hl-*) 15%, transparent)`, keeping `--text` for labels on top — never put small text directly on a solid highlight fill.
 
 ### Ready-to-paste `src/styles/tokens.css`
 
@@ -198,12 +203,17 @@ Every text pair clears 4.5:1; every UI/graphic pair clears 3:1. FE note for M3 r
   --brand: #4F46E5;
   --brand-contrast: #FFFFFF;
 
+  /* M7.1 A11Y-4 darkened two of these: --hl-swap was #DB2777 (4.29:1) and
+     --hl-found was #16A34A (3.07:1) on --surface. Both also fill SVG <text>
+     marker glyphs — the ✓/+/✕/↔ band that is the designated NON-color layer —
+     so they owe text contrast (4.5:1), not the 3:1 a stroke owes. Now 5.63:1
+     and 4.68:1, still >=3:1 as strokes on their own tinted cell fills. */
   --hl-compare:  #B45309;
-  --hl-swap:     #DB2777;
+  --hl-swap:     #BE185D;
   --hl-active:   #0072B2;
   --hl-visited:  #7C3AED;
   --hl-frontier: #0F766E;
-  --hl-found:    #16A34A;
+  --hl-found:    #15803D;
 
   --shadow-1: 0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
   --shadow-2: 0 2px 4px -1px rgb(15 23 42 / 0.06), 0 6px 16px -2px rgb(15 23 42 / 0.10);

@@ -20,12 +20,19 @@ import TableOfContents from '../components/TableOfContents.astro';
 import MarkComplete from '../components/MarkComplete.astro';
 import PrevNext from '../components/PrevNext.astro';
 import { courseJsonLd } from '../lib/structured-data';
+import type { Track } from '../lib/tracks';
 import type { CollectionEntry } from 'astro:content';
 import type { MarkdownHeading } from 'astro';
 
 interface Adjacent {
   slug: string;
   title: string;
+  /**
+   * Human track label, set by `[slug].astro` ONLY when the neighbour lives in a
+   * different track (M7.1 IA-5) — `PrevNext` renders it as the "Next track:
+   * Algorithms" overline. Absent for the 13 same-track cases, which stay silent.
+   */
+  trackLabel?: string;
 }
 
 interface Props {
@@ -33,7 +40,7 @@ interface Props {
   title: string;
   summary: string;
   difficulty: 'beginner' | 'intermediate';
-  track: 'foundations' | 'algorithms';
+  track: Track;
   estimatedMinutes: number;
   readingMinutes: number;
   slug: string;
@@ -160,7 +167,10 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
       display: grid;
       grid-template-columns: minmax(0, 1fr) 15rem;
       column-gap: var(--space-10);
-      align-items: start;
+      /* No `align-items: start` here (M7.1 RSP-1): the rail must keep the grid
+         default `stretch` so it spans the article's full height. Collapsed to
+         its own content height, the `position: sticky` .toc--rail inside it has
+         zero travel and scrolls out of view after the first screenful. */
     }
   }
 
@@ -241,6 +251,15 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
   .lesson-body :global(> .viz),
   .lesson-body :global(> .codetabs),
   .lesson-body :global(> .complexity-table) {
+    max-width: 100%;
+  }
+
+  /* M7.1 RSP-4: a visualizer wrapped in an anchor/test-hook div (e.g.
+     `<div id="viz-binary-search">` in binary-search.mdx) is capped by the
+     `> *` measure rule above, and the `> .viz` breakout can't reach through
+     the wrapper. Lift the wrapper itself; the inner .viz is then unconstrained
+     because only direct children of .lesson-body carry the measure cap. */
+  .lesson-body :global(> div:has(> .viz)) {
     max-width: 100%;
   }
 

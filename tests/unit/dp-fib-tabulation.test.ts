@@ -49,6 +49,18 @@ describe('dpFibTabulation.run', () => {
     expect(trace[trace.length - 1]!.metrics?.['additions']).toBe(5); // i = 2..6
   });
 
+  it('states the addition count in the final explanation (A11Y-2)', () => {
+    const trace = dpFibTabulation.run({ n: 6 });
+    const last = trace[trace.length - 1]!;
+    // The metrics pill and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `after ${last.metrics!['additions']} additions`,
+    );
+    // Singular when the fill needs a single addition (n = 2).
+    const small = dpFibTabulation.run({ n: 2 });
+    expect(small[small.length - 1]!.explanation).toContain('after 1 addition.');
+  });
+
   it('handles the n = 0 and n = 1 edge cases', () => {
     expect(dpFibTabulation.run({ n: 0 })[0]!.state.table).toEqual([null]);
     const last0 = dpFibTabulation.run({ n: 0 });

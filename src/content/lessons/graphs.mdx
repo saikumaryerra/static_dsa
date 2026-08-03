@@ -177,7 +177,7 @@ Work each one out before opening the answer.
 
 **1. A social network has 1,000,000 users, and each follows about 200 others. Adjacency list or matrix — and why?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   Adjacency list. The graph is extremely sparse: 1,000,000 × 200 = 200 million
   edges, but a matrix would need 1,000,000² = a trillion cells, almost all
   empty. The list stores only the edges that exist, using O(V + E) space instead
@@ -186,7 +186,7 @@ Work each one out before opening the answer.
 
 **2. In the visualizer's graph, is there an edge from vertex 1 to vertex 2? From vertex 2 to vertex 1?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   From 1 to 2: no — vertex 1's only out-edge is to 3. From 2 to 1: yes, with
   weight 2. Because the graph is directed, the two directions are independent,
   and here only one of them exists.
@@ -194,7 +194,7 @@ Work each one out before opening the answer.
 
 **3. Why does an undirected graph's adjacency matrix always mirror across its diagonal?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   An undirected edge between `u` and `v` means you can go both ways, so both
   cell `[u][v]` and cell `[v][u]` hold the edge. That symmetry across the main
   diagonal is the visual signature of an undirected graph — a directed graph's

@@ -6,10 +6,15 @@
  * - `slug` the lesson slug; persistence key is `lesson:{slug}:complete = "1"`.
  *
  * Mirrors the ThemeToggle pattern: `try/catch` localStorage read/write and an
- * `apply()` that keeps icon + label + `aria-pressed` in sync. Both icons ship in
- * the static HTML; the script upgrades state on load. Hidden under `<noscript>`
- * (can't persist without JS) — same rationale/kill-switch as ThemeToggle. The
- * /learn index reads the same key (M4).
+ * `apply()` that keeps `aria-pressed` in sync — which in turn drives the icon
+ * swap and the filled styling in CSS. The visible label is deliberately
+ * CONSTANT (M7.1 CMP-12): a toggle button's state belongs in `aria-pressed`,
+ * and renaming it to "Completed" double-encoded that state (assistive tech read
+ * "Completed, pressed"). An sr-only rename is not an option either — a hidden
+ * name that differs from the visible text fails WCAG 2.5.3 Label in Name.
+ * Both icons ship in the static HTML; the script upgrades state on load. Hidden
+ * under `<noscript>` (can't persist without JS) — same rationale/kill-switch as
+ * ThemeToggle. The /learn index reads the same key (M4).
  */
 interface Props {
   slug: string;
@@ -107,14 +112,14 @@ const { slug } = Astro.props;
     }
   }
 
-  /** Syncs the button's pressed state + visible label to `done`. */
+  /**
+   * Syncs the button's pressed state to `done`. The visible label stays
+   * "Mark as complete" (see the component doc): `aria-pressed` plus the check
+   * glyph and filled styling it drives in CSS carry the state on their own.
+   */
   function apply(done: boolean): void {
     if (!button) return;
     button.setAttribute('aria-pressed', done ? 'true' : 'false');
-    const label = button.querySelector('.mark-complete__label');
-    if (label) {
-      label.textContent = done ? 'Completed' : 'Mark as complete';
-    }
   }
 
   button?.addEventListener('click', () => {

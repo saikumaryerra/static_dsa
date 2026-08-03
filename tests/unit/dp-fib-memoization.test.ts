@@ -41,6 +41,21 @@ describe('dpFibMemoization.run', () => {
     expect(firstActive.state.table[4]).toBeNull();
   });
 
+  it('states the call and cache-hit counts in the final explanation (A11Y-2)', () => {
+    const trace = dpFibMemoization.run({ n: 6 });
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree — the cache-hit
+    // count is the lesson's whole point, so it must reach screen readers too.
+    expect(last.explanation).toContain(
+      `${last.metrics!['calls']} calls, ${last.metrics!['cacheHits']} cache hits`,
+    );
+    // Singular forms for the smallest run (one call, no reuse yet).
+    const small = dpFibMemoization.run({ n: 1 });
+    expect(small[small.length - 1]!.explanation).toContain(
+      '1 call, 0 cache hits.',
+    );
+  });
+
   it('writes both base cases via insert', () => {
     const trace = dpFibMemoization.run({ n: 6 });
     const baseInserts = trace.filter((s) => /Base case/.test(s.explanation));

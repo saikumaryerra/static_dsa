@@ -126,7 +126,7 @@ Work each one out before opening the answer.
 
 **1. What are the two required parts of any recursive function, and what goes wrong if the base case is missing?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   A **base case** (a smallest input answered directly) and a **recursive case**
   (which reduces the problem and calls itself). Without a reachable base case
   the function recurses forever, piling up stack frames until it overflows the
@@ -135,7 +135,7 @@ Work each one out before opening the answer.
 
 **2. Trace `factorial(3)`. How many frames are on the stack when the base case is reached, and what value does each frame return?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Three frames: `factorial(3)`, `factorial(2)`, `factorial(1)`. `factorial(1)`
   hits the base case and returns `1`; `factorial(2)` returns `2 × 1 = 2`;
   `factorial(3)` returns `3 × 2 = 6`. The frames pop in reverse order.
@@ -143,7 +143,7 @@ Work each one out before opening the answer.
 
 **3. A loop-based factorial uses O(1) extra space. Why does the recursive version use O(n)?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Because all `n` calls are still open at the deepest point — each is waiting to
   multiply by the result of the call below it — so `n` frames coexist on the
   call stack at once. A loop keeps just one running product, needing constant

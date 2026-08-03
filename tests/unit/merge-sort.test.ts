@@ -46,6 +46,15 @@ describe('mergeSort.run', () => {
     expect(trace[trace.length - 1]!.metrics!['comparisons']).toBeGreaterThan(0);
   });
 
+  it('states the comparison count in the final explanation (A11Y-2)', () => {
+    const trace = mergeSort.run(mergeSort.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pill and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `after ${last.metrics!['comparisons']} comparisons`,
+    );
+  });
+
   it('handles a single-element array', () => {
     const trace = mergeSort.run({ array: [7] });
     expect(trace[trace.length - 1]!.state.array).toEqual([7]);

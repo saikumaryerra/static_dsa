@@ -167,14 +167,14 @@ Work each one out before opening the answer.
 
 **1. What is the Big-O of a function that prints every item in a list exactly once?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   O(n). There is a single loop over the n items, so the work grows in direct
   proportion to the list size.
 </Collapsible>
 
 **2. Algorithm A is O(n) and algorithm B is O(n²). For which input sizes might B actually run faster?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   For small n. Big-O ignores constant factors, so if B has much lower overhead
   it can win while n is small. As n grows, A inevitably overtakes B — that
   crossover is exactly what Big-O predicts.
@@ -182,7 +182,7 @@ Work each one out before opening the answer.
 
 **3. You double the input size and an algorithm's running time roughly quadruples. What is its likely complexity?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   O(n²). Doubling n multiplies n² by four (since (2n)² = 4n²). A linear
   algorithm would only double, and a logarithmic one would barely change.
 </Collapsible>

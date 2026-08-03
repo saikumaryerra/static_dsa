@@ -78,16 +78,34 @@ test.describe('Binary Search lesson', () => {
     await expect(page.locator(`${VIZ} [data-viz-speed]`)).toHaveValue('2');
   });
 
-  test('play advances then auto-pauses at the end', async ({ page }) => {
+  test('play advances, auto-pauses at the end, and offers a replay', async ({
+    page,
+  }) => {
     await page.goto(LESSON);
     await hydrateViz(page);
+    const play = page.locator(`${VIZ} [data-viz-play]`);
+    const counter = page.locator(`${VIZ} [data-viz-counter]`);
+
     await page.locator(`${VIZ} [data-viz-speed]`).selectOption('3');
-    await page.locator(`${VIZ} [data-viz-play]`).click();
-    // At the end, play is disabled (auto-paused) and the counter is at the last step.
-    await expect(page.locator(`${VIZ} [data-viz-play]`)).toBeDisabled({
+    await play.click();
+
+    // M7.1 VIZ-4: at the end the run auto-pauses, but the button no longer
+    // disables itself — it becomes "Replay from start" (Player.play() seeks to 0
+    // first, so the button, Space, and every other caller replay identically).
+    // The end-of-trace signal is therefore the accessible NAME, not a disabled
+    // state, and the control never dies under the user's pointer/focus.
+    await expect(play).toHaveAccessibleName('Replay from start', {
       timeout: 10_000,
     });
-    await expect(page.locator(`${VIZ} [data-viz-counter]`)).toHaveText('4 / 4');
+    await expect(counter).toHaveText('4 / 4');
+    await expect(play).toBeEnabled();
+
+    // Pressing it really does restart the trace. Slow the playback first so the
+    // rewound counter is observable for ~1.8s (BASE_DELAY / 0.5) instead of
+    // racing the next tick; either of the first two steps proves the seek(0).
+    await page.locator(`${VIZ} [data-viz-speed]`).selectOption('0.5');
+    await play.click();
+    await expect(counter).toHaveText(/^[12] \/ 4$/);
   });
 
   test('valid custom input recomputes and ends in a found cell', async ({

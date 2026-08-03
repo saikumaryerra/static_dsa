@@ -47,6 +47,14 @@ function run(input: SortInput): Trace<SortState> {
   const trace: Trace<SortState> = [];
   const metrics = { comparisons: 0, swaps: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"9 comparisons, 4 swaps"`. The final step
+   * states them so the pills' payoff also reaches the `aria-live` explanation
+   * and the SVG `<desc>` (A11Y-2).
+   */
+  const tally = (): string =>
+    `${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'}, ${metrics.swaps} swap${metrics.swaps === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ array }),
@@ -107,7 +115,7 @@ function run(input: SortInput): Trace<SortState> {
 
   push(
     n > 0
-      ? 'Sorted! Every value is in its final position.'
+      ? `Sorted! Every value is in its final position. ${tally()}.`
       : 'Nothing to sort.',
     n > 0 ? [{ kind: 'found', ids: array.map((_, i) => cellId(i)) }] : [],
   );

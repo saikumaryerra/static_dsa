@@ -185,14 +185,14 @@ Work each one out before opening the answer.
 
 **1. You enqueue 1, 2, 3 into an empty queue, then dequeue once. What value leaves, and how does that differ from a stack?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   1 leaves. A queue is FIFO — first in, first out — so the earliest arrival goes
   first. A stack (LIFO) would have removed 3, the most recent.
 </Collapsible>
 
 **2. In a circular queue of capacity 5 with `head = 3` and `size = 4`, at which index does the next enqueue write?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Index 2. The rear is `(head + size) % capacity = (3 + 4) % 5 = 7 % 5 = 2`. The
   index wrapped past the end of the array and back to the start — the circular
   trick at work.
@@ -200,7 +200,7 @@ Work each one out before opening the answer.
 
 **3. Why does a circular queue use `% capacity` when moving the head and rear?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   The modulo wraps an index back to 0 once it reaches the end of the fixed
   array, so freed slots at the front get reused instead of wasted. Without it,
   the indices would run off the end and the queue could not reuse space.

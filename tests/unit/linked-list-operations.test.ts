@@ -47,6 +47,14 @@ describe('linkedListOperations.run', () => {
     expect(trace[trace.length - 1]!.metrics?.['hops']).toBe(1);
   });
 
+  it('states the hop total in the final explanation (A11Y-2)', () => {
+    const trace = linkedListOperations.run(linkedListOperations.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // One hop on the default input — singular, and it matches the pill.
+    expect(last.metrics?.['hops']).toBe(1);
+    expect(last.explanation).toContain('1 hop in total.');
+  });
+
   it('keeps a head pointer on every step and is always singly linked', () => {
     const trace = linkedListOperations.run(linkedListOperations.defaultInput());
     for (const step of trace) {

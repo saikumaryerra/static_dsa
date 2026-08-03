@@ -80,6 +80,16 @@
     color: var(--text);
   }
 
+  /* M7.1 MOT-1: the one place motion carries information rather than polish —
+     a ToC/skip-link anchor can jump thousands of pixels, and an instant jump
+     reads as a page swap. Opt-in via `no-preference` (there is no duration
+     token to collapse here, so the media query is the reduced-motion guard). */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
   body {
     font-size: var(--text-base);
     line-height: var(--leading-relaxed);
@@ -196,8 +206,10 @@
     transform: none;
   }
 
-  /* Nav links, shared by header and footer nav. Hover and current-page state
-     both resolve to --text per the designer's state table. */
+  /* Nav links, shared by header and footer nav. Hover and current state both
+     resolve to --text per the designer's state table. The attribute selector is
+     value-agnostic on purpose (M7.1 IA-9): SiteHeader marks the exact page
+     "page" and an ancestor section "true", and both are "you are here". */
   .nav-link {
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
@@ -207,8 +219,17 @@
   }
 
   .nav-link:hover,
-  .nav-link[aria-current='page'] {
+  .nav-link[aria-current] {
     color: var(--text);
+  }
+
+  /* M7.1 VD-9: colour alone made "current" byte-identical to "hover", so the
+     current item also gets a 2px brand underline. `inset` box-shadow rather
+     than a border or text-decoration so nothing reflows when it appears.
+     Scoped to the site header — only its nav ever sets aria-current, but say
+     so explicitly so the footer's shared .nav-link can't inherit the cue. */
+  .site-nav .nav-link[aria-current] {
+    box-shadow: inset 0 -2px 0 var(--brand);
   }
 
   /* Primary CTA. Hover/active darken via a color-mix overlay of --text into
@@ -257,8 +278,15 @@
     transition: border-color var(--duration-fast) var(--ease-standard);
   }
 
-  .btn-secondary:hover {
+  /* Guarded so a disabled control never previews the brand border it can't act
+     on (M7.1 CMP-3); the disabled state itself uses the shared token recipe. */
+  .btn-secondary:not(:disabled):hover {
     border-color: var(--brand);
+  }
+
+  .btn-secondary:disabled {
+    opacity: var(--disabled-opacity);
+    cursor: not-allowed;
   }
 
   /* Whole-card link for the home track cards. */

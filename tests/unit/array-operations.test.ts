@@ -70,6 +70,15 @@ describe('arrayOperations.run', () => {
     expect(trace[trace.length - 1]!.metrics?.['shifts']).toBe(6);
   });
 
+  it('states the shift total in the final explanation (A11Y-2)', () => {
+    const trace = arrayOperations.run(arrayOperations.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pill and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['shifts']} shifts in total`,
+    );
+  });
+
   it('handles an empty array without throwing', () => {
     const trace = arrayOperations.run({
       array: [],

@@ -186,7 +186,7 @@ Work each one out before opening the answer.
 
 **1. Insert `55` into the visualizer's tree (`50, 30, 70, 20, 40, 60`). Which path does it take, and where does it land?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   Compare with `50`: `55` is larger, go right to `70`. Compare with `70`: `55`
   is smaller, go left to `60`. Compare with `60`: `55` is smaller, go left — but
   `60` has no left child, so `55` becomes `60`'s left child.
@@ -194,7 +194,7 @@ Work each one out before opening the answer.
 
 **2. You insert the values `1, 2, 3, 4, 5` into an empty BST in that order. What shape results, and what is the cost of searching it?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Each value is larger than the last, so every node becomes the right child of
   the one before — a straight line leaning right, height `5`. Searching it is
   O(n), just like scanning a linked list. This is the degenerate case balancing
@@ -203,7 +203,7 @@ Work each one out before opening the answer.
 
 **3. Why can a BST search ignore an entire subtree at every step?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Because of the ordering rule. If your target is smaller than the current node,
   it cannot be anywhere in the right subtree — every value there is larger. So
   you safely discard that whole side and recurse into the left, halving the work

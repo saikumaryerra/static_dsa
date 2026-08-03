@@ -35,6 +35,18 @@ describe('linearSearch.run', () => {
     expect(last.highlights ?? []).toHaveLength(0);
   });
 
+  it('states the comparison count in both final explanations (A11Y-2)', () => {
+    const hit = linearSearch.run({ array: [8, 3, 5, 9, 1], target: 5 });
+    const lastHit = hit[hit.length - 1]!;
+    // The metrics pill and the aria-live explanation must agree.
+    expect(lastHit.explanation).toContain(
+      `after ${lastHit.metrics!['comparisons']} comparisons`,
+    );
+    // The not-found branch states it too, in the singular after one probe.
+    const miss = linearSearch.run({ array: [8], target: 4 });
+    expect(miss[miss.length - 1]!.explanation).toContain('after 1 comparison.');
+  });
+
   it('marks the current probe active with a "curr" caret label', () => {
     const trace = linearSearch.run({ array: [8, 3], target: 3 });
     const probe = trace[1]!; // first probe (index 0, value 8, not a match)

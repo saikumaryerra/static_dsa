@@ -18,6 +18,7 @@ import { getCollection } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import LessonCard from '../../components/LessonCard.astro';
+import { TRACK_COPY, TRACK_ORDER } from '../../lib/tracks';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
 const byOrder = (
@@ -25,30 +26,16 @@ const byOrder = (
   b: CollectionEntry<'lessons'>,
 ) => a.data.order - b.data.order;
 
-/** The two curriculum tracks in their site-map order (§8). */
-const sections: {
-  id: 'foundations' | 'algorithms';
-  label: string;
-  blurb: string;
-  lessons: CollectionEntry<'lessons'>[];
-}[] = [
-  {
-    id: 'foundations',
-    label: 'Foundations & Data Structures',
-    blurb: 'The building blocks every algorithm relies on.',
-    lessons: published
-      .filter((l) => l.data.track === 'foundations')
-      .sort(byOrder),
-  },
-  {
-    id: 'algorithms',
-    label: 'Algorithms',
-    blurb: 'Classic algorithms, watched step by step until they click.',
-    lessons: published
-      .filter((l) => l.data.track === 'algorithms')
-      .sort(byOrder),
-  },
-];
+/**
+ * The curriculum tracks in site-map order (§8), each with its lessons. Order,
+ * headings and blurbs all come from `src/lib/tracks.ts`, so this page states no
+ * track copy of its own — a rename lands in one place.
+ */
+const sections = TRACK_ORDER.map((id) => ({
+  id,
+  ...TRACK_COPY[id],
+  lessons: published.filter((l) => l.data.track === id).sort(byOrder),
+}));
 ---
 
 <BaseLayout
@@ -71,7 +58,7 @@ const sections: {
       sections.map((section) => (
         <section class="learn__section" aria-labelledby={`track-${section.id}`}>
           <div class="learn__section-head">
-            <h2 id={`track-${section.id}`}>{section.label}</h2>
+            <h2 id={`track-${section.id}`}>{section.heading}</h2>
             <p class="learn__section-blurb">{section.blurb}</p>
           </div>
 
@@ -117,6 +104,21 @@ const sections: {
 
   .learn__section-head {
     margin-bottom: var(--space-6);
+  }
+
+  /* The track heading is an anchor target — the lesson breadcrumb (M7.1 IA-6) and
+     the home track cards both jump to `#track-{id}` — so it must clear the sticky
+     header (56px, 64px ≥768px) or the heading and its blurb land underneath it.
+     Same offsets LessonLayout and /glossary use; M7.2's `--header-h` token
+     replaces all four hardcoded copies. */
+  .learn__section-head h2 {
+    scroll-margin-top: 4.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .learn__section-head h2 {
+      scroll-margin-top: 5.5rem;
+    }
   }
 
   .learn__section-blurb {

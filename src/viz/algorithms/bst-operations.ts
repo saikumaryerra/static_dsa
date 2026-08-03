@@ -53,6 +53,15 @@ function run(input: BstOperationsInput): Trace<BstOperationsState> {
   const trace: Trace<BstOperationsState> = [];
   const metrics = { comparisons: 0 };
 
+  /**
+   * The comparison metric in words — a total for the whole demo, since building
+   * the tree compares too, hence "in total" rather than "after". The final step
+   * states it so the metrics pill's payoff also reaches the `aria-live`
+   * explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const comparisonCount = (): string =>
+    `${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'} in total`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ nodes, root }),
@@ -153,11 +162,10 @@ function run(input: BstOperationsInput): Trace<BstOperationsState> {
         : [];
 
       if (target === node.value) {
-        push(`Compare ${target} with ${node.value} — match. Found ${target}.`, [
-          { kind: 'found', ids: [nodeId(currId)] },
-          ...visitedHl,
-          ...pathHl,
-        ]);
+        push(
+          `Compare ${target} with ${node.value} — match. Found ${target}. ${comparisonCount()}.`,
+          [{ kind: 'found', ids: [nodeId(currId)] }, ...visitedHl, ...pathHl],
+        );
         return trace;
       }
 
@@ -168,7 +176,7 @@ function run(input: BstOperationsInput): Trace<BstOperationsState> {
 
       if (childId === null) {
         push(
-          `Compare ${target} with ${node.value}: ${target} ${cmp} ${node.value}, go ${dir} — but there is no ${dir} child. ${target} is not in the tree.`,
+          `Compare ${target} with ${node.value}: ${target} ${cmp} ${node.value}, go ${dir} — but there is no ${dir} child. ${target} is not in the tree. ${comparisonCount()}.`,
           [{ kind: 'active', ids: [nodeId(currId)] }, ...visitedHl, ...pathHl],
         );
         return trace;

@@ -49,6 +49,15 @@ describe('quickSort.run', () => {
     expect(metrics['swaps']).toBeGreaterThanOrEqual(0);
   });
 
+  it('states the comparison and swap counts in the final explanation (A11Y-2)', () => {
+    const trace = quickSort.run(quickSort.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['comparisons']} comparisons, ${last.metrics!['swaps']} swaps`,
+    );
+  });
+
   it('handles an already-sorted array (worst case) correctly', () => {
     const trace = quickSort.run({ array: [1, 2, 3, 4, 5] });
     expect(trace[trace.length - 1]!.state.array).toEqual([1, 2, 3, 4, 5]);

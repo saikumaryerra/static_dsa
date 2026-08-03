@@ -1,5 +1,32 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+/**
+ * Waits until an animated anchor jump has finished.
+ *
+ * `scroll-behavior: smooth` (M7.1 MOT-1) makes anchor jumps animated, so any
+ * assertion about where a heading *lands* must wait for the animation to end
+ * instead of sampling it in flight. Comparing two consecutive animation FRAMES
+ * is not enough: the frames right after the click can still read the pre-scroll
+ * offset, which is indistinguishable from "already settled". Sampling >=100ms
+ * apart is, because a scroll in flight always moves between samples.
+ */
+async function waitForAnchorScroll(page: Page): Promise<void> {
+  let previous = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const current = await page.evaluate(() => Math.round(window.scrollY));
+        const settled = current === previous;
+        previous = current;
+        return settled;
+      },
+      // Samples are >=100ms apart, so a scroll still in flight always reports a
+      // different offset than the previous sample and keeps polling.
+      { intervals: [100, 100, 100, 150, 250, 500], timeout: 5_000 },
+    )
+    .toBe(true);
+}
 
 /**
  * M5 independent QA (spec §17 M5 acceptance + §14 SEO + §12 a11y; arch/design docs
@@ -131,6 +158,12 @@ test.describe('glossary page', () => {
 
       const heading = page.locator('#letter-s-h');
       await expect(heading).toBeVisible();
+
+      // M7.1 MOT-1 gave the site `scroll-behavior: smooth`, so the anchor jump is
+      // now animated: measuring straight after the click samples the scroll
+      // mid-flight. Wait for it to land, keeping this assertion about the RESTING
+      // offset (what scroll-margin-top governs), reduced motion or not.
+      await waitForAnchorScroll(page);
 
       const headerBottom = await page
         .getByRole('banner')

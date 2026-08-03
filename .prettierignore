@@ -13,6 +13,11 @@ package-lock.json
 playwright-report/
 test-results/
 
+# Playwright-generated baselines (M7.1 Task 0). Prettier re-indents the nested
+# sequences in `.aria.yml`, which would then never match what Playwright writes —
+# `format:check` and `test:e2e` would fight forever. Generated, never hand-edited.
+tests/e2e/*-snapshots/
+
 # Files owned by the orchestrator / other agents — do not touch
 docs/
 CLAUDE.md

@@ -47,6 +47,15 @@ describe('insertionSort.run', () => {
     expect(highlightsOfKind(trace, 'swap').length).toBeGreaterThan(0);
   });
 
+  it('states the comparison and swap counts in the final explanation (A11Y-2)', () => {
+    const trace = insertionSort.run(insertionSort.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['comparisons']} comparisons, ${last.metrics!['swaps']} swaps`,
+    );
+  });
+
   it('deep-copies snapshots (mutating a later step leaves earlier steps intact)', () => {
     const trace = insertionSort.run(insertionSort.defaultInput());
     trace[trace.length - 1]!.state.array[0] = 999;

@@ -44,6 +44,15 @@ describe('bubbleSort.run', () => {
     expect(metrics['swaps']).toBeLessThanOrEqual(metrics['comparisons']!);
   });
 
+  it('states the comparison and swap counts in the final explanation (A11Y-2)', () => {
+    const trace = bubbleSort.run(bubbleSort.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['comparisons']} comparisons, ${last.metrics!['swaps']} swaps`,
+    );
+  });
+
   it('exits early with zero swaps on an already-sorted array', () => {
     const trace = bubbleSort.run({ array: [1, 2, 3, 4] });
     expect(highlightsOfKind(trace, 'swap')).toHaveLength(0);

@@ -66,6 +66,13 @@
   --focus-ring-offset: 2px;
   --focus-ring-color: var(--brand);
 
+  /* ---------- Disabled ---------- */
+  /* M7.1 CMP-3: one disabled recipe for every control family. Replaces the two
+     ad-hoc values that had drifted apart (.viz-slider 0.6, .viz-btn 0.45), so
+     "unavailable" reads identically site-wide. Theme-independent by design —
+     it is an alpha multiplier, not a color. */
+  --disabled-opacity: 0.5;
+
   /* ---------- Color: LIGHT ---------- */
   --bg: #FFFFFF;
   --surface: #F6F7F9;
@@ -76,12 +83,20 @@
   --brand: #4F46E5;
   --brand-contrast: #FFFFFF;
 
+  /* M7.1 A11Y-4: --hl-swap and --hl-found darkened (were #DB2777 @ 4.29:1 and
+     #16A34A @ 3.07:1 on --surface). These tokens also fill the SVG <text> marker
+     glyphs — the ✓/+/✕/↔ band above the cells — which are the designated
+     NON-color layer of the highlight system, so they are text and owe WCAG 1.4.3
+     4.5:1, not the 3:1 a stroke owes. Axe cannot catch this: it skips SVG text.
+     Now 5.63:1 and 4.68:1, and still >=3:1 against their own tinted cell fills
+     (color-mix 15/18% on --surface) where they serve as strokes. The dark values
+     already pass on --surface #1E293B — deliberately untouched. */
   --hl-compare:  #B45309;
-  --hl-swap:     #DB2777;
+  --hl-swap:     #BE185D;
   --hl-active:   #0072B2;
   --hl-visited:  #7C3AED;
   --hl-frontier: #0F766E;
-  --hl-found:    #16A34A;
+  --hl-found:    #15803D;
 
   --shadow-1: 0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
   --shadow-2: 0 2px 4px -1px rgb(15 23 42 / 0.06), 0 6px 16px -2px rgb(15 23 42 / 0.10);

@@ -179,7 +179,7 @@ Work each one out before opening the answer.
 
 **1. Why can't you reach the 100th node of a linked list as quickly as `arr[99]` in an array?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   A linked list has no addresses to compute — the only way to a node is by
   following `next` pointers from the head. Reaching the 100th node takes 99
   hops, which is O(n), while an array computes the address directly in O(1).
@@ -187,7 +187,7 @@ Work each one out before opening the answer.
 
 **2. You are already holding a node and want to insert a value right after it. How many pointers change, and what is the cost?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Two pointers change: the new node's `next` (set to the current node's old
   next), and the current node's `next` (set to the new node). No elements shift,
   so it is O(1).
@@ -195,7 +195,7 @@ Work each one out before opening the answer.
 
 **3. When inserting a new node, why must you set the new node's `next` _before_ updating the previous node's `next`?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   The previous node's `next` is your only link to the rest of the list. If you
   overwrite it first, you lose that reference and cannot attach it to the new
   node. Point the new node at the tail first, then redirect the previous node.

@@ -53,6 +53,16 @@ const ogImageUrl = new URL(ogImage, Astro.site);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* M7.1 THM-1: browser chrome matches the canvas (--bg per theme). Media-scoped
+        so it works with JS off; the first theme-color whose media matches wins, so
+        ThemeToggle inserts an un-scoped meta AHEAD of these when the user overrides
+        the OS. M7.3 (elevation inversion) must change the light value to #F8FAFC
+        when --bg picks up the tint, here AND in ThemeToggle's copy.
+        JSX-form comment, not an HTML one: Astro emits HTML comments verbatim into
+        every built page, so maintainer notes would ship in the head of all 21 of
+        them, ahead of the render-blocking CSS. This form is stripped at build. */}
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B1220" />
     <!-- Pre-paint theme resolution (designer handoff, byte-verbatim — this file is
          listed in .prettierignore to keep it that way): must run before any content
          paints so the page never flashes the wrong theme. Mirrors
@@ -70,7 +80,16 @@ const ogImageUrl = new URL(ogImage, Astro.site);
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    {/* M7.1 ICO-1: raster fallbacks for the SVG mark. The 32px PNG is declared
+        first so browsers without SVG-favicon support (older Safari) have one they
+        can read; SVG-capable browsers still prefer the vector below it. The
+        apple-touch-icon is opaque and full-bleed on purpose — iOS composites home
+        screen icons on their own squircle mask, so transparent corners would show
+        through. Both PNGs are rasterized from public/favicon.svg — regenerate them
+        from it, never redraw the mark by hand. */}
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="generator" content={Astro.generator} />
     <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="LearnDSA" />

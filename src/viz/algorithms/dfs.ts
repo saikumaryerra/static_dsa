@@ -69,6 +69,15 @@ function run(input: TraversalInput): Trace<TraversalState> {
   const trace: Trace<TraversalState> = [];
   const metrics = { visited: 0 };
 
+  /**
+   * The visited metric in words, e.g. `"6 nodes visited"`. The final step states
+   * it so the metrics pill's payoff also reaches the `aria-live` explanation and
+   * the SVG `<desc>` (A11Y-2) — it is the count that differs on a disconnected
+   * graph, where the traversal never reaches every vertex.
+   */
+  const visitedCount = (): string =>
+    `${metrics.visited} node${metrics.visited === 1 ? '' : 's'} visited`;
+
   const storedEdge = (a: number, b: number): string | null => {
     for (const e of edges) {
       if ((e.from === a && e.to === b) || (e.from === b && e.to === a)) {
@@ -160,11 +169,14 @@ function run(input: TraversalInput): Trace<TraversalState> {
     }
   }
 
-  push(`DFS complete. The stack is empty. Visit order: ${order.join(' → ')}.`, [
-    // Only the REACHED set is visited — on a disconnected graph, unreached
-    // vertices must not get a false ✓ (site spec §11 non-color markers).
-    { kind: 'visited', ids: order.map((id) => nodeId(id)) },
-  ]);
+  push(
+    `DFS complete. The stack is empty. Visit order: ${order.join(' → ')}. ${visitedCount()}.`,
+    [
+      // Only the REACHED set is visited — on a disconnected graph, unreached
+      // vertices must not get a false ✓ (site spec §11 non-color markers).
+      { kind: 'visited', ids: order.map((id) => nodeId(id)) },
+    ],
+  );
   return trace;
 }
 

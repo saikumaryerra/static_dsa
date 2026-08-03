@@ -57,6 +57,14 @@ function run(input: BinarySearchInput): Trace<BinarySearchState> {
   let lo = 0;
   let hi = array.length - 1;
 
+  /**
+   * The comparison metric in words, e.g. `"1 comparison"` / `"3 comparisons"`.
+   * The final step states it so the metrics pill's payoff also reaches the
+   * `aria-live` explanation and the SVG `<desc>` (A11Y-2).
+   */
+  const comparisonCount = (): string =>
+    `${metrics.comparisons} comparison${metrics.comparisons === 1 ? '' : 's'}`;
+
   /** Pushes a deep-copied step; metrics spread is a shallow copy of flat counters. */
   const push = (
     state: BinarySearchState,
@@ -91,7 +99,7 @@ function run(input: BinarySearchInput): Trace<BinarySearchState> {
       // Found: final step highlights the hit cell.
       push(
         { array, lo, mid, hi, foundIndex: mid },
-        `Middle index ${mid} holds ${midValue}, which equals the target. Found ${target} at index ${mid}.`,
+        `Middle index ${mid} holds ${midValue}, which equals the target. Found ${target} at index ${mid} after ${comparisonCount()}.`,
         [{ kind: 'found', ids: [cellId(mid)] }],
       );
       return trace;
@@ -119,7 +127,7 @@ function run(input: BinarySearchInput): Trace<BinarySearchState> {
   // Exhausted: the window collapsed (lo > hi) without a hit.
   push(
     { array, lo, mid: null, hi, foundIndex: null },
-    `Search window is empty — ${target} is not in the array.`,
+    `Search window is empty — ${target} is not in the array after ${comparisonCount()}.`,
     [],
   );
   return trace;

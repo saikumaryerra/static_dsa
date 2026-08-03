@@ -46,6 +46,15 @@ function run(input: DpFibInput): Trace<DpTableState> {
   const trace: Trace<DpTableState> = [];
   const metrics = { additions: 0 };
 
+  /**
+   * The addition metric in words, e.g. `"5 additions"` — one per filled cell,
+   * the whole cost of the bottom-up fill. The final step states it so the
+   * metrics pill's payoff also reaches the `aria-live` explanation and the SVG
+   * `<desc>` (A11Y-2), where it contrasts with memoization's call count.
+   */
+  const additionCount = (): string =>
+    `${metrics.additions} addition${metrics.additions === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ table, n }),
@@ -96,7 +105,7 @@ function run(input: DpFibInput): Trace<DpTableState> {
   }
 
   push(
-    `Done: dp[${n}] = ${table[n]} is the answer. Fibonacci(${n}) = ${table[n]}.`,
+    `Done: dp[${n}] = ${table[n]} is the answer. Fibonacci(${n}) = ${table[n]} after ${additionCount()}.`,
     [{ kind: 'found', ids: [cellId(n)] }],
   );
   return trace;

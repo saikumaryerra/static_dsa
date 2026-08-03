@@ -2,7 +2,8 @@
 /**
  * SiteHeader — global sticky header (site spec §9, designer M1 wireframe).
  *
- * Props: none. Marks the link matching the current URL with `aria-current="page"`.
+ * Props: none. Marks the link matching the current URL with `aria-current="page"`
+ * and the section a descendant page sits under with `aria-current="true"`.
  *
  * Layout per wireframe: sticky top, z-40, 56px tall (64px ≥768px), bg --bg with a
  * 1px --border bottom rule; wordmark left, nav (Learn / Glossary / About) + theme
@@ -11,8 +12,30 @@
 import ThemeToggle from './ThemeToggle.astro';
 import { NAV_ITEMS } from '../lib/nav';
 
-// Normalize the trailing slash so /learn/ still marks "Learn" as current.
-const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
+// Normalize the URL shape before matching, so the nav marks the same item in dev
+// and in the built site. `build.format: 'file'` (astro.config.mjs) emits /learn as
+// `learn.html`, so at BUILD time `Astro.url.pathname` is `/learn.html` while the
+// dev server serves `/learn` — without stripping the suffix the exact match below
+// never fires in production and no top-level route is ever marked (M7.1 IA-9).
+// The optional `/index` also covers a future `format: 'directory'` (`/learn/index.html`),
+// and the trailing-slash strip keeps `/learn/` matching "Learn".
+const currentPath =
+  Astro.url.pathname.replace(/(\/index)?\.html$/, '').replace(/\/+$/, '') ||
+  '/';
+
+/**
+ * The `aria-current` value for a nav destination, or `undefined` when the item
+ * is unrelated to the current URL.
+ *
+ * M7.1 IA-9: lesson pages (`/learn/binary-search`) previously left every nav
+ * item unmarked, so the header could not say where you were. A descendant is
+ * marked "true" ("this is the current item in its set") rather than "page",
+ * which stays reserved for the exact URL.
+ */
+function navCurrent(href: string): 'page' | 'true' | undefined {
+  if (currentPath === href) return 'page';
+  return currentPath.startsWith(`${href}/`) ? 'true' : undefined;
+}
 ---
 
 <header class="sticky top-0 z-40 border-b border-border bg-bg">
@@ -20,7 +43,7 @@ const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
     class="flex h-14 items-center justify-between gap-4 px-4 md:h-16 md:px-6"
   >
     <a href="/" class="text-lg font-bold text-text">LearnDSA</a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" class="site-nav">
       <ul class="flex flex-wrap items-center gap-5">
         {
           NAV_ITEMS.map((item) => (
@@ -28,7 +51,7 @@ const currentPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
               <a
                 href={item.href}
                 class="nav-link"
-                aria-current={currentPath === item.href ? 'page' : undefined}
+                aria-current={navCurrent(item.href)}
               >
                 {item.label}
               </a>

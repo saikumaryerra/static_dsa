@@ -43,6 +43,14 @@ function run(input: DpFibInput): Trace<DpTableState> {
   const trace: Trace<DpTableState> = [];
   const metrics = { calls: 0, cacheHits: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"11 calls, 4 cache hits"`. The final step
+   * states them so the pills' payoff also reaches the `aria-live` explanation
+   * and the SVG `<desc>` (A11Y-2) — the cache-hit count IS the lesson's point.
+   */
+  const tally = (): string =>
+    `${metrics.calls} call${metrics.calls === 1 ? '' : 's'}, ${metrics.cacheHits} cache hit${metrics.cacheHits === 1 ? '' : 's'}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ table, n }),
@@ -108,7 +116,7 @@ function run(input: DpFibInput): Trace<DpTableState> {
   const answer = fib(n);
 
   push(
-    `Done: dp[${n}] = ${answer} is the answer. Every subproblem was solved once — Fibonacci(${n}) = ${answer}.`,
+    `Done: dp[${n}] = ${answer} is the answer. Every subproblem was solved once — Fibonacci(${n}) = ${answer}. ${tally()}.`,
     [{ kind: 'found', ids: [cellId(n)] }],
   );
   return trace;

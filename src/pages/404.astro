@@ -4,7 +4,9 @@
  *
  * Prerendered to `dist/404.html` (static output). Marked `noindex` via the head
  * slot so crawlers never index the error page; its canonical points at "/" (the
- * page has no meaningful URL of its own). One <h1>, routes back home and to /learn.
+ * page has no meaningful URL of its own). One <h1>, routes to /learn and home.
+ * The lesson index is the primary action (M7.1 IA-8) because nearly every
+ * guessable deep URL that lands here is a mistyped lesson slug.
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
 ---
@@ -23,10 +25,9 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       The page you're looking for doesn't exist or may have moved.
     </p>
     <div class="notfound__actions">
-      <a href="/" class="btn-primary">Back to home</a>
-      <a href="/learn" class="font-medium text-brand hover:underline">
-        Browse the lessons <span aria-hidden="true">→</span>
-      </a>
+      <a href="/learn" class="btn-primary">Browse the lessons</a>
+      <a href="/" class="font-medium text-brand hover:underline">Back to home</a
+      >
     </div>
   </section>
 </BaseLayout>

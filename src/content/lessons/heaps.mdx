@@ -168,7 +168,7 @@ Work each one out before opening the answer.
 
 **1. In a max-heap stored as an array, where is the largest value, and where might the smallest be?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   The largest is always at index `0`, the root. The smallest must be a leaf (a
   node with no children), because any parent is greater than or equal to its
   children — but which leaf is not fixed, so you would have to scan the leaves
@@ -177,7 +177,7 @@ Work each one out before opening the answer.
 
 **2. You insert `20` into the heap `[15, 9, 12, 5, 8, 3]`. Trace the sift-up.**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Append `20` at index `6`; its parent is index `2` (value `12`). `20 > 12`, swap,
   now `20` is at index `2` with parent index `0` (value `15`). `20 > 15`, swap,
   now `20` is at the root. Two swaps, and the new maximum has climbed to the top.
@@ -185,7 +185,7 @@ Work each one out before opening the answer.
 
 **3. Why is inserting into a heap O(log n) rather than O(n)?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Sift-up only follows the single path from the new leaf up to the root,
   swapping along the way. That path is as long as the tree is tall, and a
   complete tree of `n` nodes has height about `log n` — so at most `log n`

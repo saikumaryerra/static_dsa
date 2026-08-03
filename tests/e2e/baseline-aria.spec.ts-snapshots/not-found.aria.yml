@@ -1,0 +1,39 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "LearnDSA":
+    - /url: /
+  - navigation "Main":
+    - list:
+      - listitem:
+        - link "Learn":
+          - /url: /learn
+      - listitem:
+        - link "Glossary":
+          - /url: /glossary
+      - listitem:
+        - link "About":
+          - /url: /about
+      - listitem:
+        - button "Switch to dark theme"
+- main:
+  - heading "Page not found" [level=1]
+  - paragraph: The page you're looking for doesn't exist or may have moved.
+  - link "Browse the lessons":
+    - /url: /learn
+  - link "Back to home":
+    - /url: /
+- contentinfo:
+  - paragraph: LearnDSA — see data structures and algorithms in motion.
+  - navigation "Footer":
+    - list:
+      - listitem:
+        - link "Learn":
+          - /url: /learn
+      - listitem:
+        - link "Glossary":
+          - /url: /glossary
+      - listitem:
+        - link "About":
+          - /url: /about
+  - paragraph: /Free and open source\. © \d+ LearnDSA/

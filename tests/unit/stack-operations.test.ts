@@ -45,6 +45,18 @@ describe('stackOperations.run', () => {
     });
   });
 
+  it('states the push and pop counts in the final explanation (A11Y-2)', () => {
+    const trace = stackOperations.run(stackOperations.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['pushes']} pushes, ${last.metrics!['pops']} pops`,
+    );
+    // Singular "1 push, 1 pop" for a one-item stack.
+    const single = stackOperations.run({ values: [9] });
+    expect(single[single.length - 1]!.explanation).toContain('1 push, 1 pop.');
+  });
+
   it('reaches its tallest state after all pushes', () => {
     const trace = stackOperations.run(stackOperations.defaultInput());
     expect(trace[3]!.state.items).toEqual([12, 34, 56]);

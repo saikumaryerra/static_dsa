@@ -57,6 +57,22 @@ describe('binarySearch.run', () => {
     expect(trace[0]!.state.array[0]).not.toBe(999);
   });
 
+  it('states the comparison count in the final explanation (A11Y-2)', () => {
+    const trace = binarySearch.run({ array: [1, 3, 5, 7, 9, 11], target: 11 });
+    const last = trace[trace.length - 1]!;
+    // The metrics pill and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `after ${last.metrics!['comparisons']} comparisons`,
+    );
+  });
+
+  it('says "1 comparison", not "1 comparisons", after a single probe', () => {
+    const trace = binarySearch.run({ array: [5], target: 5 });
+    expect(trace[trace.length - 1]!.explanation).toContain(
+      'after 1 comparison.',
+    );
+  });
+
   it('reports comparisons as a monotonic non-decreasing metric', () => {
     const trace = binarySearch.run({ array: [1, 3, 5, 7, 9, 11], target: 11 });
     let previous = -1;

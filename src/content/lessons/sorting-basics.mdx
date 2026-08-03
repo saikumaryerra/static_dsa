@@ -251,7 +251,7 @@ Work each one out before opening the answer.
 
 **1. On the already-sorted array `[1, 2, 3, 4]`, which of these three sorts finishes fastest, and why?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   Insertion sort (and bubble sort with its early-exit) finish in a single O(n)
   pass, because no swaps are needed and they detect that. Selection sort still
   scans the whole unsorted remainder on every pass, so it stays O(n²) even here.
@@ -259,7 +259,7 @@ Work each one out before opening the answer.
 
 **2. Why are all three called O(n²) even though selection sort does only n−1 swaps?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Big-O counts the dominant operation. Selection sort still does about `n²/2`
   **comparisons** while scanning for each minimum, and comparisons dominate the
   running time. Fewer swaps lower the constant factor but not the O(n²) order.
@@ -267,7 +267,7 @@ Work each one out before opening the answer.
 
 **3. You need to sort records so that entries with equal keys keep their original order. Which of these sorts is safe to use as-is?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Bubble or insertion sort — both are stable because they only swap adjacent
   items. Plain selection sort is not stable, so it could reorder equal keys.
 </Collapsible>

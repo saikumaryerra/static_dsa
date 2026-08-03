@@ -51,6 +51,15 @@ function run(input: RecursionInput): Trace<RecursionState> {
   const trace: Trace<RecursionState> = [];
   const metrics = { calls: 0, maxDepth: 0 };
 
+  /**
+   * The metrics pills in words, e.g. `"4 calls, max depth 4"`. The final step
+   * states them so the pills' payoff also reaches the `aria-live` explanation
+   * and the SVG `<desc>` (A11Y-2); depth is a level, not a count, so it is never
+   * pluralized.
+   */
+  const tally = (): string =>
+    `${metrics.calls} call${metrics.calls === 1 ? '' : 's'}, max depth ${metrics.maxDepth}`;
+
   const push = (explanation: string, highlights: Highlight[]): void => {
     trace.push({
       state: snapshot({ frames }),
@@ -117,7 +126,7 @@ function run(input: RecursionInput): Trace<RecursionState> {
   const answer = factorial(input.n);
 
   push(
-    `The stack is empty again — every frame has returned. factorial(${input.n}) = ${answer}.`,
+    `The stack is empty again — every frame has returned. factorial(${input.n}) = ${answer}. ${tally()}.`,
     [],
   );
   return trace;

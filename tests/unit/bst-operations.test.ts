@@ -76,6 +76,19 @@ describe('bstOperations.run', () => {
     expect(trace[trace.length - 1]!.explanation).toContain('not in the tree');
   });
 
+  it('states the comparison total in both final explanations (A11Y-2)', () => {
+    const hit = bstOperations.run(bstOperations.defaultInput());
+    const lastHit = hit[hit.length - 1]!;
+    // "in total" because building the tree compares too — the pill counts both.
+    expect(lastHit.explanation).toContain(
+      `${lastHit.metrics!['comparisons']} comparisons in total`,
+    );
+    const miss = bstOperations.run({ values: [50], searchTarget: 45 });
+    expect(miss[miss.length - 1]!.explanation).toContain(
+      '1 comparison in total.',
+    );
+  });
+
   it('handles a single-node tree', () => {
     const trace = bstOperations.run({ values: [42], searchTarget: 42 });
     const last = trace[trace.length - 1]!;

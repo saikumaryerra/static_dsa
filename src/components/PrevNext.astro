@@ -3,15 +3,23 @@
  * PrevNext — static lesson pagination (design §6.3, site spec §9).
  *
  * Props:
- * - `prev` / `next` — `{ slug, title }` or `null` at a track boundary.
+ * - `prev` / `next` — `{ slug, title, trackLabel? }`, or `null` at the ends of
+ *   the curriculum (lesson 01 has no prev, the last lesson no next).
  *
  * Each present side is a whole-card link (reuses the `.track-card` treatment).
  * A missing side is omitted entirely (no disabled placeholder), and the present
  * side keeps its column via `justify-content`.
+ *
+ * `trackLabel` is set by `[slug].astro` only when that neighbour sits in a
+ * different track (M7.1 IA-5): the overline then names the track being entered,
+ * so the one crossing in the linear path is explicit instead of silent — spec §8
+ * requires prev/next to "name the track when it changes".
  */
 interface Adjacent {
   slug: string;
   title: string;
+  /** Human track name — present ONLY when this neighbour crosses tracks. */
+  trackLabel?: string;
 }
 
 interface Props {
@@ -20,6 +28,15 @@ interface Props {
 }
 
 const { prev, next } = Astro.props;
+
+// Same-track neighbours keep the plain wording; no visual noise on the pairs
+// that don't change track.
+const prevOverline = prev?.trackLabel
+  ? `Previous track: ${prev.trackLabel}`
+  : 'Previous';
+const nextOverline = next?.trackLabel
+  ? `Next track: ${next.trackLabel}`
+  : 'Next';
 ---
 
 <nav aria-label="Lesson navigation" class="prevnext">
@@ -27,7 +44,7 @@ const { prev, next } = Astro.props;
     prev && (
       <a href={`/learn/${prev.slug}`} class="track-card prevnext__item">
         <span class="prevnext__overline">
-          <span aria-hidden="true">←</span> Previous
+          <span aria-hidden="true">←</span> {prevOverline}
         </span>
         <span class="prevnext__title">{prev.title}</span>
       </a>
@@ -40,7 +57,7 @@ const { prev, next } = Astro.props;
         class="track-card prevnext__item prevnext__item--next"
       >
         <span class="prevnext__overline">
-          Next <span aria-hidden="true">→</span>
+          {nextOverline} <span aria-hidden="true">→</span>
         </span>
         <span class="prevnext__title">{next.title}</span>
       </a>

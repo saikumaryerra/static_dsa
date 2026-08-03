@@ -54,6 +54,26 @@ describe('queueOperations.run', () => {
     expect(labels.has('rear')).toBe(true);
   });
 
+  it('states the enqueue and dequeue totals on whichever step ends the trace (A11Y-2)', () => {
+    const trace = queueOperations.run(queueOperations.defaultInput());
+    const last = trace[trace.length - 1]!;
+    // The metrics pills and the aria-live explanation must agree.
+    expect(last.explanation).toContain(
+      `${last.metrics!['enqueues']} enqueues, ${last.metrics!['dequeues']} dequeues`,
+    );
+    // Even a refused enqueue carries the totals when that no-op ends the run.
+    const full = queueOperations.run({
+      capacity: 1,
+      operations: [
+        { kind: 'enqueue', value: 1 },
+        { kind: 'enqueue', value: 2 },
+      ],
+    });
+    expect(full[full.length - 1]!.explanation).toContain(
+      '1 enqueue, 0 dequeues.',
+    );
+  });
+
   it('refuses to enqueue into a full ring (no-op step)', () => {
     const trace = queueOperations.run({
       capacity: 1,

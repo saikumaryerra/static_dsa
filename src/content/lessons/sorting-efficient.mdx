@@ -238,7 +238,7 @@ Work each one out before opening the answer.
 
 **1. Merge sort is O(n log n) on every input, but quick sort can be O(n²). What causes quick sort's worst case?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 1">
   A consistently bad pivot that splits the range into sizes 0 and n−1 instead of
   roughly in half. Then there are `n` levels of recursion, each doing `n` work,
   for O(n²). A sorted array with a fixed last-element pivot is the classic
@@ -247,7 +247,7 @@ Work each one out before opening the answer.
 
 **2. Why is merging two sorted halves cheaper than sorting them from scratch?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 2">
   Because each half is already ordered, you only need to compare the two front
   elements and take the smaller one, advancing one finger at a time. That is a
   single linear pass — O(k) for total length k — with no need to re-examine
@@ -256,7 +256,7 @@ Work each one out before opening the answer.
 
 **3. You must sort a huge array but memory is scarce, and stable ordering does not matter. Merge sort or quick sort?**
 
-<Collapsible summary="Show answer">
+<Collapsible summary="Show answer to question 3">
   Quick sort. It sorts in place with only O(log n) stack space, whereas merge
   sort needs an O(n) buffer. Since stability is not required, quick sort's
   in-place speed makes it the better fit — just use a randomized pivot.
