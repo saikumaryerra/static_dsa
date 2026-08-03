@@ -1,14 +1,19 @@
 ---
 /**
- * PrevNext — static lesson pagination (design §6.3, site spec §9).
+ * PrevNext — end-of-lesson pagination (design §6.3, site spec §8, §9).
  *
  * Props:
  * - `prev` / `next` — `{ slug, title, trackLabel? }`, or `null` at the ends of
  *   the curriculum (lesson 01 has no prev, the last lesson no next).
  *
- * Each present side is a whole-card link (reuses the `.track-card` treatment).
- * A missing side is omitted entirely (no disabled placeholder), and the present
- * side keeps its column via `justify-content`.
+ * M7.2 rebalances the pair instead of showing two equal cards: continuing is
+ * the action people take, so **Next is the card** (title + "Start lesson →")
+ * and **Prev is a text link** below it. The two-equal-cards layout made the
+ * end of a lesson a fork with no recommended branch.
+ *
+ * `next === null` is NOT a dead end (§3): the last lesson still gets a card,
+ * pointing back to the curriculum index. Handling it here rather than in
+ * `WhatsNext` keeps every card in this file, so the treatment cannot drift.
  *
  * `trackLabel` is set by `[slug].astro` only when that neighbour sits in a
  * different track (M7.1 IA-5): the overline then names the track being entered,
@@ -30,7 +35,9 @@ interface Props {
 const { prev, next } = Astro.props;
 
 // Same-track neighbours keep the plain wording; no visual noise on the pairs
-// that don't change track.
+// that don't change track. Prev renders "<overline> · <title>" (the middot is
+// aria-hidden, so the link is announced "Previous Recursion") — appending the
+// title with a second colon would read "Previous track: Foundations: Graphs".
 const prevOverline = prev?.trackLabel
   ? `Previous track: ${prev.trackLabel}`
   : 'Previous';
@@ -41,25 +48,29 @@ const nextOverline = next?.trackLabel
 
 <nav aria-label="Lesson navigation" class="prevnext">
   {
-    prev && (
-      <a href={`/learn/${prev.slug}`} class="track-card prevnext__item">
-        <span class="prevnext__overline">
-          <span aria-hidden="true">←</span> {prevOverline}
+    next ? (
+      <a href={`/learn/${next.slug}`} class="track-card prevnext__next">
+        <span class="prevnext__overline">{nextOverline}</span>
+        <span class="prevnext__title">{next.title}</span>
+        <span class="prevnext__cta">
+          Start lesson <span aria-hidden="true">→</span>
         </span>
-        <span class="prevnext__title">{prev.title}</span>
+      </a>
+    ) : (
+      <a href="/learn" class="track-card prevnext__next">
+        <span class="prevnext__overline">Last lesson</span>
+        <span class="prevnext__title">That's the whole curriculum</span>
+        <span class="prevnext__cta">
+          Back to all lessons <span aria-hidden="true">→</span>
+        </span>
       </a>
     )
   }
   {
-    next && (
-      <a
-        href={`/learn/${next.slug}`}
-        class="track-card prevnext__item prevnext__item--next"
-      >
-        <span class="prevnext__overline">
-          {nextOverline} <span aria-hidden="true">→</span>
-        </span>
-        <span class="prevnext__title">{next.title}</span>
+    prev && (
+      <a href={`/learn/${prev.slug}`} class="prevnext__prev">
+        <span aria-hidden="true">←</span> {prevOverline}{' '}
+        <span aria-hidden="true">·</span> {prev.title}
       </a>
     )
   }
@@ -72,28 +83,13 @@ const nextOverline = next?.trackLabel
     gap: var(--space-4);
   }
 
-  @media (min-width: 768px) {
-    .prevnext {
-      flex-direction: row;
-      justify-content: space-between;
-    }
-
-    .prevnext__item {
-      flex: 1;
-      max-width: calc(50% - var(--space-2));
-    }
-  }
-
-  .prevnext__item {
+  /* The card carries the weight: full width, a lesson-sized title and an
+     explicit CTA, matching the affordance of the /learn lesson cards. */
+  .prevnext__next {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-4);
-  }
-
-  .prevnext__item--next {
-    text-align: right;
-    margin-left: auto;
+    gap: var(--space-1);
+    max-width: var(--measure);
   }
 
   .prevnext__overline {
@@ -104,8 +100,34 @@ const nextOverline = next?.trackLabel
   }
 
   .prevnext__title {
-    font-size: var(--text-base);
+    font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
     color: var(--text);
+  }
+
+  .prevnext__cta {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--brand);
+  }
+
+  /* Demoted to a link, but still a comfortable target: the padding gives it a
+     44px-tall hit area without a button's visual weight. */
+  .prevnext__prev {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+    align-self: flex-start;
+    padding-block: var(--space-2);
+    min-height: 44px;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .prevnext__prev:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 </style>

@@ -17,10 +17,40 @@ export interface GlossaryTerm {
   /** Slug of the lesson that first introduces the term (validated at build time). */
   lessonSlug: string;
   /**
-   * Optional alternate spellings/abbreviations. Not rendered in v1 — reserved for a
-   * future client search so adding it now avoids a later data migration (arch §1.2).
+   * Optional genuine synonyms and alternate spellings a reader might arrive with,
+   * in the casing the literature writes them ("BST", "ring buffer"). Since M7.2
+   * this is DISPLAY COPY: `glossary.astro` renders it verbatim as an "Also called:
+   * …" line under the definition — which is also what makes browser find-in-page
+   * able to match a synonym, the thing a zero-JS glossary otherwise cannot do.
+   *
+   * The editorial bar is therefore the sentence a reader actually sees: every value
+   * must complete "a Bucket is also called a slot" truthfully. Plurals ("indices"),
+   * other parts of speech ("recursive"), hyphenation variants ("in place") and the
+   * parts a thing is made of (a graph is not "a vertex") are not synonyms and do
+   * not belong here — they read as errors on a beginner's reference. Terms whose
+   * only alias would be one of those simply omit the field.
    */
   aliases?: string[];
+}
+
+/**
+ * Stable, URL-safe fragment id for a term — "Big-O notation" → "big-o-notation".
+ * Pure and deterministic so lesson prose can hard-link `/glossary#binary-search`
+ * and a reader can share a single definition. Collision-freedom across the whole
+ * list is asserted at build time in `glossary.astro`: two terms slugifying alike
+ * would make one of them permanently unreachable.
+ */
+export function termAnchor(term: string): string {
+  return (
+    term
+      .toLowerCase()
+      // Decompose accents, then drop the combining marks, so a future "Θ-notation"
+      // or "naïve search" degrades to letters instead of collapsing into hyphens.
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  );
 }
 
 /**
@@ -34,7 +64,7 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'A shorthand for how an algorithm’s running time or memory grows as its input gets larger, ignoring constant factors and lower-order terms. It describes the worst-case upper bound, so O(n) means "grows in proportion to the input size".',
     lessonSlug: 'complexity-big-o',
-    aliases: ['big o', 'asymptotic notation'],
+    aliases: ['Big O notation', 'asymptotic notation'],
   },
   {
     term: 'Time complexity',
@@ -68,14 +98,13 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'The integer position of an element within an array, conventionally starting at 0. Because elements sit at evenly spaced addresses, the computer can jump straight to any index in O(1).',
     lessonSlug: 'arrays',
-    aliases: ['indices', 'subscript'],
+    aliases: ['subscript'],
   },
   {
     term: 'In-place',
     definition:
       'A description of an algorithm that transforms its input using only a small, constant amount of extra memory rather than allocating a separate copy. In-place sorts like insertion sort rearrange the original array directly.',
     lessonSlug: 'arrays',
-    aliases: ['in place'],
   },
 
   // ---- Linked lists (linked-lists) ----
@@ -111,7 +140,6 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'Last-In, First-Out: the ordering rule of a stack, where the most recently added element is the next to be removed. It is the mirror image of a queue’s FIFO rule.',
     lessonSlug: 'stacks',
-    aliases: ['last-in first-out'],
   },
 
   // ---- Queues (queues) ----
@@ -126,7 +154,6 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'First-In, First-Out: the ordering rule of a queue, where elements leave in the same order they arrived. It contrasts with a stack’s LIFO rule.',
     lessonSlug: 'queues',
-    aliases: ['first-in first-out'],
   },
   {
     term: 'Circular buffer',
@@ -197,7 +224,6 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'The operation that restores the heap ordering after an insertion or removal by moving an element up or down until it sits in a valid spot. Each heapify runs in O(log n) time.',
     lessonSlug: 'heaps',
-    aliases: ['sift', 'bubble up', 'sift down'],
   },
 
   // ---- Graphs (graphs) ----
@@ -206,7 +232,6 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'A collection of vertices connected by edges, used to model networks such as roads, social connections, or dependencies. Edges may be directed or undirected and may carry weights.',
     lessonSlug: 'graphs',
-    aliases: ['vertex', 'edge'],
   },
   {
     term: 'Adjacency list',
@@ -227,7 +252,6 @@ export const glossary: GlossaryTerm[] = [
     definition:
       'A technique where a function solves a problem by calling itself on smaller versions of the same problem until it reaches a case simple enough to answer directly. It expresses naturally self-similar problems concisely.',
     lessonSlug: 'recursion',
-    aliases: ['recursive'],
   },
   {
     term: 'Base case',

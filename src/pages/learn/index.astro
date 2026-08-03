@@ -5,10 +5,20 @@
  * Data-driven: queries the published lessons, groups them into the two tracks
  * (Foundations / Algorithms), and sorts each by `order`, so new lessons appear
  * automatically as later M4 batches add `.mdx` files — this page never lists a
- * lesson by hand. Each lesson renders as a `LessonCard`; a tiny reflect script
- * reads the SAME `lesson:{slug}:complete` key `MarkComplete` writes and shows a
- * done-checkmark. With JS off the script never runs, so no checkmark shows and
- * every card stays a fully usable link (§6 local completed state, §12 a11y).
+ * lesson by hand. Each lesson renders as a `LessonCard`.
+ *
+ * M7.2 closes the progress loop here (§8 "curriculum index"), all of it driven
+ * by `src/lib/progress.ts` reading the same `lesson:{slug}:complete` keys
+ * `MarkComplete` writes: a resume CTA under the page head, a per-track
+ * "N of M done on this device" counter with a meter beside each track heading,
+ * a done-checkmark on each card, and a reset-progress control with an inline
+ * confirm step. The lesson list those four surfaces need is injected as JSON at
+ * build time (`data-lessons`) — localStorage is never enumerated by prefix.
+ *
+ * JS off (or storage blocked): the CTA still points at lesson 01, the counters
+ * stay hidden rather than lying "0 of 9", the reset control is hidden by its
+ * <noscript> kill-switch (it cannot work), and every card stays a fully usable
+ * link (§6 local completed state, §12 a11y).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
  * <h1>, then an <h2> per track section (empty tracks show a "coming soon" note so
@@ -19,6 +29,7 @@ import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import LessonCard from '../../components/LessonCard.astro';
 import { TRACK_COPY, TRACK_ORDER } from '../../lib/tracks';
+import { resumeLabel, type LessonRef } from '../../lib/progress';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
 const byOrder = (
@@ -36,6 +47,33 @@ const sections = TRACK_ORDER.map((id) => ({
   ...TRACK_COPY[id],
   lessons: published.filter((l) => l.data.track === id).sort(byOrder),
 }));
+
+/**
+ * The lesson list the progress island reads (M7.2), in global order. Injected
+ * from the build — never recovered by scanning localStorage keys, which would
+ * count lessons that no longer exist (renamed or unpublished) and inflate every
+ * counter on the page.
+ */
+const lessonRefs: LessonRef[] = published
+  .map(({ data }) => ({
+    slug: data.slug,
+    title: data.title,
+    order: data.order,
+    track: data.track,
+  }))
+  .sort((a, b) => a.order - b.order);
+
+/** First lesson in global order — the JS-off / nothing-stored resume target. */
+const firstLesson = lessonRefs[0];
+
+/**
+ * The CTA's server-rendered wording, from the SAME helper the island calls at
+ * runtime (with "nothing complete yet" as the only honest build-time
+ * assumption), so the fallback and the rewrite can never word a state twice.
+ */
+const resumeFallback = firstLesson
+  ? resumeLabel(firstLesson, 0, lessonRefs.length)
+  : '';
 ---
 
 <BaseLayout
@@ -44,7 +82,7 @@ const sections = TRACK_ORDER.map((id) => ({
   description="The full LearnDSA curriculum: interactive data-structure and algorithm lessons, grouped into two tracks. Work through them in order or jump to any topic."
 >
   <div class="learn">
-    <header class="learn__head">
+    <header class="learn__head" data-lessons={JSON.stringify(lessonRefs)}>
       <h1>Curriculum</h1>
       <p class="learn__intro">
         {published.length} core lessons across two tracks. Work through them in order,
@@ -52,14 +90,134 @@ const sections = TRACK_ORDER.map((id) => ({
         pause, and run on your own input. Lessons you finish are checked off on this
         device.
       </p>
+
+      {
+        firstLesson && (
+          <div class="learn__resume">
+            <a
+              class="btn-primary learn__resume-link"
+              href={`/learn/${firstLesson.slug}`}
+              data-resume-link
+            >
+              <span data-resume-label>{resumeFallback}</span>
+              <span aria-hidden="true">→</span>
+            </a>
+            {/* The all-complete state has no honest "next" destination, so the
+                CTA steps aside for this line instead of linking somewhere
+                arbitrary. Revealed by the island only. */}
+            <p class="learn__resume-done" data-resume-done hidden />
+          </div>
+        )
+      }
+
+      {
+        /* Reset control: JS-only (it cannot delete anything without script), so
+           it ships visible for script-enabled readers — no layout shift on
+           hydrate — and is removed entirely by the <noscript> kill-switch below,
+           the same pattern MarkComplete and ThemeToggle use. It starts
+           aria-disabled because the count is unknowable at build time. */
+        firstLesson && (
+          <div class="learn__reset">
+            <button
+              type="button"
+              class="learn__reset-toggle"
+              data-reset-toggle
+              aria-expanded="false"
+              aria-controls="reset-progress-panel"
+              aria-disabled="true"
+            >
+              Reset progress
+            </button>
+
+            <div
+              class="learn__reset-panel"
+              id="reset-progress-panel"
+              data-reset-panel
+              hidden
+            >
+              <p
+                class="learn__reset-warn"
+                id="reset-progress-warn"
+                data-reset-warn
+              >
+                Removes every completed mark stored on this device — cannot be
+                undone.
+              </p>
+              <div class="learn__reset-actions">
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  data-reset-confirm
+                  aria-describedby="reset-progress-warn"
+                >
+                  Confirm
+                </button>
+                <button type="button" class="btn-secondary" data-reset-cancel>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      <noscript>
+        <style>
+          /* No script, no delete path — hide the control rather than expose a
+             dead one (same kill-switch as MarkComplete/ThemeToggle).
+             !important so it can never lose to the bundled stylesheet. */
+          .learn__reset {
+            display: none !important;
+          }
+
+          /* The counters reserve their space for a hydration that will never
+             come here, so drop them from the flow entirely rather than leave a
+             blank slot beside every track heading. */
+          .learn__progress {
+            display: none !important;
+          }
+        </style>
+      </noscript>
+
+      {
+        /* Outcome of a reset, announced politely. role="status" carries an
+          implicit aria-live="polite"; it is empty until the reader acts, so it
+          never announces on load. */
+      }
+      <p class="learn__status" role="status" data-progress-status></p>
     </header>
 
     {
       sections.map((section) => (
         <section class="learn__section" aria-labelledby={`track-${section.id}`}>
           <div class="learn__section-head">
-            <h2 id={`track-${section.id}`}>{section.heading}</h2>
-            <p class="learn__section-blurb">{section.blurb}</p>
+            <div class="learn__section-titles">
+              <h2 id={`track-${section.id}`}>{section.heading}</h2>
+              <p class="learn__section-blurb">{section.blurb}</p>
+            </div>
+
+            {/* Empty until the island fills it: "0 of 9" rendered server-side
+                would be a claim about a device the build cannot see. Its SPACE
+                is reserved all the same — see `[data-track-pending]` below. */}
+            {section.lessons.length > 0 && (
+              <div
+                class="learn__progress"
+                data-track-progress={section.id}
+                data-track-pending="true"
+              >
+                <p class="learn__progress-text" data-track-count />
+                {/* Decorative reinforcement only — aria-hidden, because the
+                    exact value is already in the text above it. A
+                    role="progressbar" here would make screen readers say the
+                    same number twice (the double-encoding M7.1 removed from
+                    MarkComplete), and would add an aria-valuenow that can go
+                    stale; the text twin can't. Colour is therefore never the
+                    only signal (§12). */}
+                <div class="learn__meter" aria-hidden="true">
+                  <span class="learn__meter-fill" data-track-meter />
+                </div>
+              </div>
+            )}
           </div>
 
           {section.lessons.length > 0 ? (
@@ -98,6 +256,90 @@ const sections = TRACK_ORDER.map((id) => ({
     font-size: var(--text-lg);
   }
 
+  .learn__resume {
+    margin-top: var(--space-6);
+  }
+
+  .learn__resume-link {
+    gap: var(--space-2);
+  }
+
+  .learn__resume-done {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* Quiet by design: a destructive control should be findable, not competing
+     with the resume CTA directly above it. */
+  .learn__reset {
+    margin-top: var(--space-4);
+  }
+
+  .learn__reset-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .learn__reset-toggle:hover {
+    color: var(--text);
+  }
+
+  /* aria-disabled, not `disabled`: the button is where focus stands the instant
+     the last mark is cleared, and a real `disabled` would drop that focus onto
+     <body>. Same shared recipe every other disabled control uses (M7.1 CMP-3). */
+  .learn__reset-toggle[aria-disabled='true'] {
+    opacity: var(--disabled-opacity);
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+
+  .learn__reset-toggle[aria-disabled='true']:hover {
+    color: var(--text-muted);
+  }
+
+  .learn__reset-panel {
+    max-width: var(--measure);
+    margin-top: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--accent-warn);
+    border-radius: var(--radius-card);
+    background-color: var(--surface);
+  }
+
+  .learn__reset-warn {
+    color: var(--text);
+    font-size: var(--text-sm);
+  }
+
+  .learn__reset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  .learn__status {
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Only the margin collapses while the region is empty — never `display: none`.
+     A live region that is un-hidden in the same frame as its text lands is the
+     classic way to lose an announcement, so this one is always rendered; an
+     empty <p> simply has no height. */
+  .learn__status:empty {
+    margin-top: 0;
+  }
+
   .learn__section {
     margin-top: var(--space-12);
   }
@@ -106,24 +348,78 @@ const sections = TRACK_ORDER.map((id) => ({
     margin-bottom: var(--space-6);
   }
 
-  /* The track heading is an anchor target — the lesson breadcrumb (M7.1 IA-6) and
-     the home track cards both jump to `#track-{id}` — so it must clear the sticky
-     header (56px, 64px ≥768px) or the heading and its blurb land underneath it.
-     Same offsets LessonLayout and /glossary use; M7.2's `--header-h` token
-     replaces all four hardcoded copies. */
-  .learn__section-head h2 {
-    scroll-margin-top: 4.5rem;
+  /* From 640px the counter sits beside the heading block rather than under it;
+     below that it stacks, which is why it reserves its own height. */
+  @media (min-width: 640px) {
+    .learn__section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: var(--space-6);
+    }
+
+    .learn__progress {
+      flex: none;
+    }
   }
 
-  @media (min-width: 768px) {
-    .learn__section-head h2 {
-      scroll-margin-top: 5.5rem;
-    }
+  /* The track heading is an anchor target — the lesson breadcrumb (M7.1 IA-6)
+     and the home track cards both jump to `#track-{id}` — so it must clear the
+     sticky header or the heading and its blurb land underneath it. --header-h
+     (M7.2) is now the single source for that height, replacing the hardcoded
+     4.5rem/5.5rem pair this rule used to carry: the gap below the header is a
+     flat --space-4 at every breakpoint instead of 16px/24px. */
+  .learn__section-titles h2 {
+    scroll-margin-top: calc(var(--header-h) + var(--space-4));
   }
 
   .learn__section-blurb {
     margin-top: var(--space-1);
     color: var(--text-muted);
+  }
+
+  .learn__progress {
+    margin-top: var(--space-3);
+  }
+
+  /* Reserved, not hidden. The block ships at the height it will have once
+     filled, so hydration moves nothing: below 640px it stacks under the track
+     blurb, where `hidden` used to shove the whole lesson grid ~50px down on
+     every phone load. This is the same layout-neutral-hydration rule M7.1 gave
+     the viz metrics row. `visibility` rather than opacity keeps the empty block
+     out of the accessibility tree until it has a number to state, and a JS-off
+     reader sees only spacing — never a "0 of 9" the build cannot know. */
+  .learn__progress[data-track-pending] {
+    visibility: hidden;
+  }
+
+  /* The meter below has a fixed height; the count line is what would collapse
+     while empty, so it reserves exactly one line. `1em` is this element's own
+     --text-sm, and the line-height it inherits from <body> is --leading-relaxed
+     (same reservation shape as .viz-explain). */
+  .learn__progress-text {
+    min-height: calc(var(--leading-relaxed) * 1em);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .learn__meter {
+    width: 12rem;
+    max-width: 100%;
+    height: 6px;
+    margin-top: var(--space-2);
+    border-radius: var(--radius-full);
+    background-color: var(--border);
+    overflow: hidden;
+  }
+
+  .learn__meter-fill {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background-color: var(--brand);
   }
 
   .learn__grid {
@@ -155,37 +451,206 @@ const sections = TRACK_ORDER.map((id) => ({
 
 <script>
   /**
-   * Reflect completion from localStorage onto each card. Reads the exact key
-   * `MarkComplete` writes (`lesson:{slug}:complete = "1"`). Wrapped in try/catch
-   * so blocked/again-private storage simply yields no checkmarks (cards stay
-   * usable). Re-runs on `astro:page-load` so it survives View Transitions (M4).
+   * Progress island for /learn (M7.2). Reflects the `lesson:{slug}:complete`
+   * keys onto four surfaces — the resume CTA, the per-track counters, the card
+   * checkmarks and the reset control — and owns the delete path.
+   *
+   * Every storage access goes through `src/lib/progress.ts`, so the try/catch
+   * discipline and the "which keys count as progress" list live in one place
+   * (M8 extends that module, not this file). The few passes over storage this
+   * makes are deliberate: they are synchronous reads of at most 15 keys, and
+   * calling the shared helpers keeps each surface's logic honest.
+   *
+   * Re-runs on a back/forward-cache restore (`onRestore`) and on
+   * `astro:page-load` so it survives View Transitions (M4); the reset controls
+   * use delegated listeners for the same reason.
    */
-  function reflectCompletion(): void {
-    let store: Storage | null = null;
-    try {
-      store = window.localStorage;
-    } catch {
-      return; // storage blocked: no checkmarks, cards still fully usable
+  import {
+    countComplete,
+    nextIncomplete,
+    onRestore,
+    parseLessonRefs,
+    readCompleted,
+    resetProgress,
+    resumeLabel,
+    type LessonRef,
+  } from '../../lib/progress';
+
+  /** Reads the build-injected lesson list; `[]` if the attribute is missing. */
+  function lessons(): LessonRef[] {
+    const host = document.querySelector<HTMLElement>('[data-lessons]');
+    return parseLessonRefs(host?.dataset['lessons']);
+  }
+
+  /** "3 completed marks" / "1 completed mark" — used by the confirm and the announcement. */
+  function marks(count: number): string {
+    return `${count} completed mark${count === 1 ? '' : 's'}`;
+  }
+
+  /** Points the CTA at the first unfinished lesson, or stands it down when all are done. */
+  function renderResume(list: LessonRef[], completed: number): void {
+    const link =
+      document.querySelector<HTMLAnchorElement>('[data-resume-link]');
+    const label = document.querySelector<HTMLElement>('[data-resume-label]');
+    const done = document.querySelector<HTMLElement>('[data-resume-done]');
+    if (!link || !label || !done) return;
+
+    const next = nextIncomplete(list);
+    const text = resumeLabel(next, completed, list.length);
+    if (next) {
+      link.href = `/learn/${next.slug}`;
+      label.textContent = text;
+      done.hidden = true;
+      link.hidden = false;
+    } else {
+      done.textContent = text;
+      done.hidden = false;
+      link.hidden = true;
     }
+  }
+
+  /** Fills each track's counter + meter and reveals the block holding them. */
+  function renderTracks(list: LessonRef[]): void {
+    document
+      .querySelectorAll<HTMLElement>('[data-track-progress]')
+      .forEach((block) => {
+        const track = block.dataset['trackProgress'];
+        if (!track) return;
+        const { done, total } = countComplete(
+          list.filter((lesson) => lesson.track === track),
+        );
+        if (total === 0) return; // an empty track keeps its "coming soon" note
+
+        const text = block.querySelector<HTMLElement>('[data-track-count]');
+        if (text) text.textContent = `${done} of ${total} done on this device`;
+        const fill = block.querySelector<HTMLElement>('[data-track-meter]');
+        if (fill) fill.style.width = `${Math.round((done / total) * 100)}%`;
+        // Drops `visibility: hidden`, not a `hidden` attribute: the block has
+        // been holding its own height since SSR so this reveal shifts nothing.
+        block.removeAttribute('data-track-pending');
+      });
+  }
+
+  /** Shows the done-checkmark on each completed card (§6 local completed state). */
+  function renderCards(completed: string[]): void {
+    const done = new Set(completed);
     document
       .querySelectorAll<HTMLElement>('[data-lesson-card]')
       .forEach((card) => {
         const slug = card.dataset['slug'];
         if (!slug) return;
-        // getItem itself can throw in blocked-methods mode (Safari private):
-        // guard it (mirrors MarkComplete.readDone) so a throw yields no
-        // checkmark and never becomes an uncaught pageerror.
-        let done: boolean;
-        try {
-          done = store?.getItem(`lesson:${slug}:complete`) === '1';
-        } catch {
-          return; // storage read blocked: leave this card unmarked, keep going
-        }
-        if (done) card.setAttribute('data-complete', 'true');
+        if (done.has(slug)) card.setAttribute('data-complete', 'true');
         else card.removeAttribute('data-complete');
       });
   }
 
-  reflectCompletion();
-  document.addEventListener('astro:page-load', reflectCompletion);
+  /** Nothing stored = nothing to delete, so the control reads as unavailable. */
+  function renderReset(completed: number): void {
+    const toggle = document.querySelector<HTMLElement>('[data-reset-toggle]');
+    toggle?.setAttribute('aria-disabled', completed === 0 ? 'true' : 'false');
+  }
+
+  /** Redraws every progress surface from storage. */
+  function render(): void {
+    const list = lessons();
+    if (list.length === 0) return; // no injected list: leave every fallback alone
+    const completed = readCompleted(list);
+    renderResume(list, completed.length);
+    renderTracks(list);
+    renderCards(completed);
+    renderReset(completed.length);
+  }
+
+  /** Writes the polite announcement region (empty until the reader acts). */
+  function announce(message: string): void {
+    const status = document.querySelector<HTMLElement>(
+      '[data-progress-status]',
+    );
+    if (status) status.textContent = message;
+  }
+
+  /**
+   * Opens the inline confirm step — deliberately not `window.confirm`, which is
+   * unstyleable, unannounced in place, and blocks the page. Focus stays on the
+   * toggle (a disclosure, not a dialog): moving it onto "Confirm" would put a
+   * destructive button under a Space keypress the reader has not released yet.
+   */
+  function openPanel(toggle: HTMLElement, panel: HTMLElement): void {
+    const { done } = countComplete(lessons());
+    const warn = panel.querySelector<HTMLElement>('[data-reset-warn]');
+    if (warn) {
+      warn.textContent = `Removes ${marks(done)} stored on this device — cannot be undone.`;
+    }
+    panel.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+
+  /** Collapses the confirm step and returns focus to the toggle it came from. */
+  function closePanel(): void {
+    const toggle = document.querySelector<HTMLElement>('[data-reset-toggle]');
+    const panel = document.querySelector<HTMLElement>('[data-reset-panel]');
+    if (!toggle || !panel || panel.hidden) return;
+    panel.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    // aria-disabled (not `disabled`) keeps this a valid focus target even when
+    // the reset just emptied it, so focus never lands on <body>.
+    toggle.focus();
+  }
+
+  /** Confirm: clear the keys, redraw every surface in place, say what happened. */
+  function confirmReset(): void {
+    const removed = resetProgress(lessons());
+    closePanel();
+    render();
+    announce(
+      removed === 0
+        ? 'Nothing to reset — no completed marks were stored on this device.'
+        : `Progress reset — ${marks(removed)} removed from this device.`,
+    );
+  }
+
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    const toggle = target.closest<HTMLElement>('[data-reset-toggle]');
+    if (toggle) {
+      if (toggle.getAttribute('aria-disabled') === 'true') return;
+      const panel = document.querySelector<HTMLElement>('[data-reset-panel]');
+      if (!panel) return;
+      if (panel.hidden) openPanel(toggle, panel);
+      else closePanel();
+      return;
+    }
+    if (target.closest('[data-reset-confirm]')) {
+      confirmReset();
+      return;
+    }
+    if (target.closest('[data-reset-cancel]')) closePanel();
+  });
+
+  // Escape closes the confirm step from the control it belongs to — the panel OR
+  // the toggle that owns it — and from nowhere else, so it can never swallow an
+  // Escape meant for something else on the page. The toggle has to be in that
+  // set: `openPanel` deliberately leaves focus there (a disclosure, not a
+  // dialog), and it is the panel's SIBLING, so a `panel.contains()` test alone
+  // made Escape a no-op at the exact moment a destructive confirm opened.
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    const panel = document.querySelector<HTMLElement>('[data-reset-panel]');
+    if (!panel || panel.hidden) return;
+    const target = event.target instanceof Node ? event.target : null;
+    if (!target) return;
+    const toggle = document.querySelector<HTMLElement>('[data-reset-toggle]');
+    if (panel.contains(target) || toggle?.contains(target)) closePanel();
+  });
+
+  render();
+  // A back/forward-cache restore replays no script, so the counts, the CTA and
+  // the checkmarks would all show whatever they said when the reader left for a
+  // lesson — including the one they just marked done. (`astro:page-load` covers
+  // View Transitions if a ClientRouter is ever added; none is installed today,
+  // so it is the pageshow hook that actually fires.)
+  onRestore(render);
+  document.addEventListener('astro:page-load', render);
 </script>

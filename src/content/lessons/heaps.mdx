@@ -85,7 +85,7 @@ class MaxHeap {
 
 ## Intuition
 
-Picture a tournament bracket flipped upside down: the champion sits at the top, and everyone below is someone that player beat. You do not know the exact ordering of the losers, and you do not care — you only need to know who is on top. That is the deal a **heap** makes.
+Picture a tournament bracket flipped upside down: the champion sits at the top, and everyone below is someone that player beat. You do not know the exact ordering of the losers, and you do not care — you only need to know who is on top. That is the deal a **[heap](/glossary#heap)** makes.
 
 A **binary heap** is a binary tree with one rule, the **heap property**: every parent **outranks** its children. In a **max-heap** that means every parent is greater than or equal to its children, so the largest value is always at the root. (A **min-heap** flips it: smallest on top.) Unlike a binary search tree, a heap makes no promise about left-versus-right order — it is a much weaker rule, and that weakness is exactly what makes heaps cheap to maintain.
 
@@ -93,7 +93,7 @@ The payoff: the maximum is always sitting at the root, ready in **O(1)**, and ad
 
 ## How it works
 
-Two things make a heap efficient. First, it is a **complete binary tree**: every level is full except possibly the last, which fills left to right. Second, that shape lets you store the whole tree in a plain **array** with no pointers at all — the tree is implied by index arithmetic:
+Two things make a heap efficient. First, it is a **complete binary tree**: every level is full except possibly the last, which fills left to right. Second, that shape lets you store the whole tree in a plain **[array](/glossary#array)** with no pointers at all — the tree is implied by index arithmetic:
 
 - the node at index `i` has children at `2i + 1` and `2i + 2`,
 - and its parent is at `(i - 1) / 2` (rounded down).
@@ -116,7 +116,6 @@ Removing the max works in mirror image (move the last leaf to the root and **sif
   input="[5,9,3,12,8,15]"
   showTarget={false}
   inputLabel="Values"
-  inputPlaceholder="[5,9,3,12,8,15]"
 />
 
 Press **Play**, or **Step forward** to insert each value and watch it sift up. Every comparison and swap lights up in **both** the tree and the array at once — notice how swapping two tree nodes is the same as swapping two array cells. When the build finishes, the largest value has climbed to the root. Try your own list of numbers.

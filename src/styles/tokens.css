@@ -66,6 +66,22 @@
   --focus-ring-offset: 2px;
   --focus-ring-color: var(--brand);
 
+  /* ---------- Layout chrome (M7.2) ----------
+     Single source for the sticky header's height. Every sticky offset and
+     scroll-margin-top derives from it; before M7.2 the same two values were
+     hardcoded in four files and drifted per breakpoint. Responsive override
+     below (56px, 64px from 768px up).
+
+     BORDER-BOX, not content height: the header's 1px bottom keyline counts
+     toward this number, so `top: var(--header-h)` parks a sticky element exactly
+     on that rule instead of 1px underneath it. SiteHeader.astro therefore sets
+     `height: var(--header-h)` on the <header> itself (box-sizing: border-box
+     site-wide) and states no height of its own — until M7.2 review it carried
+     `h-14 md:h-16`, which made this token a hand-maintained mirror: editing the
+     header moved the chrome and left all six offsets behind. Consume it; never
+     restate the number. */
+  --header-h: 3.5rem;
+
   /* ---------- Disabled ---------- */
   /* M7.1 CMP-3: one disabled recipe for every control family. Replaces the two
      ad-hoc values that had drifted apart (.viz-slider 0.6, .viz-btn 0.45), so
@@ -98,6 +114,22 @@
   --hl-frontier: #0F766E;
   --hl-found:    #15803D;
 
+  /* Chrome-side "attention" accent (M7.2): warning callouts, viz input errors,
+     [aria-invalid] borders. Declared INDEPENDENTLY of --hl-compare even though
+     it currently carries the same amber — the six --hl-* roles stay reserved for
+     the visualization (design-tokens-m1.md Decision 3), so chrome never reads
+     one, and the two are free to diverge.
+
+     Contrast, measured (the "4.9:1" this comment used to assert was never
+     computed, and it is a text colour at --text-xs on `.codetabs__copy` as well
+     as a 1.4.11 keyline, so both floors matter):
+       light #B45309 — 5.02:1 on --bg, 4.68:1 on --surface
+       dark  #F59E0B — 8.72:1 on --bg, 6.81:1 on --surface
+     All four clear 4.5:1 as text and 3:1 as a non-text keyline, so a surface
+     swap on either side is the thing to re-measure — the light pair has the
+     least headroom. */
+  --accent-warn: #B45309;
+
   --shadow-1: 0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
   --shadow-2: 0 2px 4px -1px rgb(15 23 42 / 0.06), 0 6px 16px -2px rgb(15 23 42 / 0.10);
 
@@ -121,6 +153,8 @@
   --hl-visited:  #A78BFA;
   --hl-frontier: #2DD4BF;
   --hl-found:    #4ADE80;
+
+  --accent-warn: #F59E0B;
 
   /* Dark elevation is primarily surface+border; shadows add depth only */
   --shadow-1: 0 1px 2px 0 rgb(0 0 0 / 0.50);
@@ -147,6 +181,7 @@
     --hl-visited:  #A78BFA;
     --hl-frontier: #2DD4BF;
     --hl-found:    #4ADE80;
+    --accent-warn: #F59E0B;
     --shadow-1: 0 1px 2px 0 rgb(0 0 0 / 0.50);
     --shadow-2: 0 2px 4px -1px rgb(0 0 0 / 0.45), 0 8px 20px -2px rgb(0 0 0 / 0.55);
     color-scheme: dark;
@@ -160,5 +195,15 @@
     --duration-fast: 0.01ms;
     --duration-base: 0.01ms;
     --duration-slow: 0.01ms;
+  }
+}
+
+/* ---------- Layout chrome: the header grows at the md breakpoint (M7.2). ----------
+   Kept next to the token so the pair is impossible to miss; every sticky offset
+   and scroll-margin-top in the site derives from --header-h, and so does the
+   header's own border-box height. */
+@media (min-width: 768px) {
+  :root {
+    --header-h: 4rem;
   }
 }

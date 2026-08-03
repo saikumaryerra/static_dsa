@@ -149,6 +149,14 @@ helper text disclosing format + caps with space-separated `aria-describedby="hel
 `[aria-invalid]` + error styling through `--accent-warn`; persist `pref:viz-speed`
 (SPEC-GAP comment; §6 amended).
 
+**Scope recorded during implementation** (flagged by review as beyond the literal plan text, kept
+deliberately): the resume rewrite also lands as a secondary line in the **home hero** (the design
+proposal's surface (b) — the primary "Start learning" CTA is untouched for new visitors), and the
+**PrevNext redesign** that "What's next" implies — next promoted to a card with a "Start lesson →"
+CTA, prev demoted to a text link, and a synthetic last-lesson card ("That's the whole curriculum")
+so lesson 15 is not a dead end, which §3's "no dead ends" principle requires. Both are additive and
+JS-off safe; neither changes a spec'd behaviour.
+
 **Wayfinding:** scroll-spy v2 ("last heading whose top passed the band", cached offsets, exactly
 one `aria-current` always); sticky mini-ToC below 1024px from the existing inline `<details>`
 (top `var(--header-h)`; open list absolutely positioned so expansion doesn't shift layout);
@@ -186,8 +194,11 @@ system: hand-exported 1200×630 PNGs (site + per-track — OG scrapers don't ren
 rasterizer, that would be a dependency), routed via the existing `ogImage` prop; elevation
 inversion + tint family rollout — audit every `--surface` **and** `--bg` consumer: viz SVG cell
 fills use `--surface` and would go white-on-white, while `.btn-secondary` / `.viz-select` /
-`.viz-field input` / `.viz-pill` fill with `--bg` and must move to `--surface` (VD-8) — **and
-update the light `theme-color` meta from `#FFFFFF` to `#F8FAFC`** (THM-1); display tier on
+`.viz-field input` / `.viz-pill` fill with `--bg` and must move to `--surface` (VD-8). **M7.2 added
+two more `--bg` consumers inside the visualizer — the restyled `.viz-btn` transport surface and the
+`.viz-keys kbd` hint — plus the `/learn` progress meter track; include them or the inversion
+regresses them silently.** Re-grep for `var(--bg)` at implementation time rather than trusting this
+list. **Also update the light `theme-color` meta from `#FFFFFF` to `#F8FAFC`** (THM-1); display tier on
 the home hero; difficulty chips — **needs spec §8 amendment + designer sign-off** (reverses a
 documented decision): soft-filled semantic chips (Beginner `#047857`/`#ECFDF5` = 5.21:1, dark
 `#6EE7B7`/`#132D24`; Intermediate `#92400E`/`#FFF7ED` = 6.68:1, dark `#FBBF24`/`#2D2310` — word

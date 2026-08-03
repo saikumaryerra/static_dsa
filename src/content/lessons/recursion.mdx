@@ -51,7 +51,7 @@ export const codeTabs = [
 
 Imagine you are standing in a long line and want to know your position, but you can only see the person directly in front of you. So you ask them: "What number are you?" They do not know either, so they ask the person in front of _them_, and so on. Eventually the question reaches the very first person, who can answer without asking anyone — "I am number one." That answer travels back down the line, each person adding one, until it reaches you.
 
-That is **recursion**: solving a problem by having it ask a _smaller version of the same problem_ for help, until the problem is small enough to answer directly. Two ingredients make it work — a **base case** that stops the asking (the first person in line), and a **recursive case** that reduces the problem a little and passes it along (asking the person in front).
+That is **[recursion](/glossary#recursion)**: solving a problem by having it ask a _smaller version of the same problem_ for help, until the problem is small enough to answer directly. Two ingredients make it work — a **[base case](/glossary#base-case)** that stops the asking (the first person in line), and a **recursive case** that reduces the problem a little and passes it along (asking the person in front).
 
 Recursion shines when a problem naturally contains smaller copies of itself: walking a folder tree, exploring a maze, or the divide-and-conquer sorts you will meet later. Anything you can write with recursion you _can_ also write with a loop — but for self-similar problems, the recursive version is often far clearer.
 
@@ -64,7 +64,7 @@ Every recursive function needs two parts:
 1. **Base case** — the smallest input you can answer immediately, with no further recursion. For factorial, `n ≤ 1` returns `1`. Forget this and the function calls itself forever.
 2. **Recursive case** — do a little work, then call yourself on a **smaller** input that moves _toward_ the base case. For factorial, return `n * factorial(n - 1)`.
 
-The piece that makes recursion tick is the **call stack**. Every time a function is called, the computer pushes a **frame** onto the stack holding that call's arguments and its unfinished work (the "returns: —" line). When a call finally returns a value, its frame is **popped**, and the value flows into the call that was waiting for it. So the stack grows as calls pile up, reaches its deepest point at the base case, then unwinds as each multiply completes.
+The piece that makes recursion tick is the **[call stack](/glossary#call-stack)**. Every time a function is called, the computer pushes a **frame** onto the stack holding that call's arguments and its unfinished work (the "returns: —" line). When a call finally returns a value, its frame is **popped**, and the value flows into the call that was waiting for it. So the stack grows as calls pile up, reaches its deepest point at the base case, then unwinds as each multiply completes.
 
 The visualization makes this concrete: watch the frames pile up as `factorial` calls itself, pause at the base case, then unwind — each frame filling in its return value on the way out.
 
@@ -75,7 +75,6 @@ The visualization makes this concrete: watch the frames pile up as `factorial` c
   renderer="callStack"
   input="4"
   inputLabel="n"
-  inputPlaceholder="5"
   showTarget={false}
 />
 

@@ -192,8 +192,14 @@ const audiences: { who: string; detail: string }[] = [
     margin-top: 0;
   }
 
+  /* These <h2>s are anchor targets (#what / #who / #how), so they must clear the
+     sticky header. --header-h (M7.2) is the single source for that height; the
+     hardcoded 4.5rem this replaces was the mobile header plus --space-4 by
+     coincidence and left only ~8px of air above 768px, where the header is
+     taller. The gap is now a flat --space-4 at every breakpoint, matching
+     /learn's track headings. */
   .about__section h2 {
-    scroll-margin-top: 4.5rem;
+    scroll-margin-top: calc(var(--header-h) + var(--space-4));
   }
 
   .about__section p {

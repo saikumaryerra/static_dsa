@@ -5,9 +5,11 @@
  * Props: none. Marks the link matching the current URL with `aria-current="page"`
  * and the section a descendant page sits under with `aria-current="true"`.
  *
- * Layout per wireframe: sticky top, z-40, 56px tall (64px ≥768px), bg --bg with a
- * 1px --border bottom rule; wordmark left, nav (Learn / Glossary / About) + theme
- * toggle right. Labels flex-wrap instead of truncating (i18n headroom).
+ * Layout per wireframe: sticky top, z-40, `--header-h` tall (56px, 64px ≥768px),
+ * bg --bg with a 1px --border bottom rule; wordmark left, nav (Learn / Glossary /
+ * About) + theme toggle right. Labels flex-wrap instead of truncating (i18n
+ * headroom). The height comes from the token and is stated nowhere else here —
+ * see the style block below.
  */
 import ThemeToggle from './ThemeToggle.astro';
 import { NAV_ITEMS } from '../lib/nav';
@@ -38,10 +40,8 @@ function navCurrent(href: string): 'page' | 'true' | undefined {
 }
 ---
 
-<header class="sticky top-0 z-40 border-b border-border bg-bg">
-  <div
-    class="flex h-14 items-center justify-between gap-4 px-4 md:h-16 md:px-6"
-  >
+<header class="site-header sticky top-0 z-40 border-b border-border bg-bg">
+  <div class="flex h-full items-center justify-between gap-4 px-4 md:px-6">
     <a href="/" class="text-lg font-bold text-text">LearnDSA</a>
     <nav aria-label="Main" class="site-nav">
       <ul class="flex flex-wrap items-center gap-5">
@@ -65,3 +65,18 @@ function navCurrent(href: string): 'page' | 'true' | undefined {
     </nav>
   </div>
 </header>
+
+<style>
+  /* The header CONSUMES --header-h rather than restating it (M7.2 review): the
+     token used to be a hand-maintained mirror of `h-14 md:h-16` here, so editing
+     this file moved the chrome and silently left six sticky offsets and
+     scroll-margins behind in four other files.
+
+     On the <header>, not the inner bar, because --header-h is defined as the
+     BORDER-BOX height: box-sizing is border-box site-wide (Tailwind preflight),
+     so the 1px keyline sits inside the token's value and `top: var(--header-h)`
+     now lands flush on the rule instead of 1px under it. The bar takes h-full. */
+  .site-header {
+    height: var(--header-h);
+  }
+</style>

@@ -111,7 +111,7 @@ export const codeTabs = [
 
 ## Intuition
 
-A **queue** is a line at a coffee shop. You join at the **back**, and the barista serves from the **front**. Whoever has waited longest is served next — no cutting in line. That is the opposite of a stack: a queue is **FIFO**, "first in, first out."
+A **[queue](/glossary#queue)** is a line at a coffee shop. You join at the **back**, and the barista serves from the **front**. Whoever has waited longest is served next — no cutting in line. That is the opposite of a stack: a queue is **[FIFO](/glossary#fifo)**, "first in, first out."
 
 The two operations are **enqueue** (join at the rear) and **dequeue** (leave from the front). Because the two ends are different, a queue naturally preserves arrival order — which is exactly what you want for a print spooler, a task scheduler, or the "to visit" list in a breadth-first search.
 
@@ -134,7 +134,6 @@ Step through the demo: it enqueues a few values, dequeues a couple — advancing
   input="[10,20,30]"
   showTarget={false}
   inputLabel="Values"
-  inputPlaceholder="[10,20,30]"
 />
 
 Press **Play**, or **Step forward** one operation at a time. The `+` marks an enqueue at the rear, the `✕` a dequeue at the front, and the carets track **front** and **rear**. The default run wraps around; enter your own values to fill a fresh ring.

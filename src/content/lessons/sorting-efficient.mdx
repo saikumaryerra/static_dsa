@@ -162,13 +162,13 @@ static int partition(int[] arr, int lo, int hi) {
 
 ## Intuition
 
-The O(n²) sorts get slow because every item is compared against nearly every other item. The fast sorts escape that trap with **divide and conquer**: split the problem into smaller pieces, solve each piece, and stitch the solutions together. Because splitting in half repeatedly reaches a single element in only about `log n` steps, and each level of splitting does `n` work, the total lands at **O(n log n)** — dramatically faster than O(n²) as `n` grows.
+The O(n²) sorts get slow because every item is compared against nearly every other item. The fast sorts escape that trap with **[divide and conquer](/glossary#divide-and-conquer)**: split the problem into smaller pieces, solve each piece, and stitch the solutions together. Because splitting in half repeatedly reaches a single element in only about `log n` steps, and each level of splitting does `n` work, the total lands at **O(n log n)** — dramatically faster than O(n²) as `n` grows.
 
-**Merge sort** splits the array down the middle, sorts each half (by the same method, recursively), then **merges** the two sorted halves into one. The clever part is the merge: combining two _already-sorted_ lists is easy — just repeatedly take the smaller of the two front items.
+**[Merge sort](/glossary#merge-sort)** splits the array down the middle, sorts each half (by the same method, recursively), then **merges** the two sorted halves into one. The clever part is the merge: combining two _already-sorted_ lists is easy — just repeatedly take the smaller of the two front items.
 
-**Quick sort** takes the opposite tack. It picks a **pivot** value and **partitions** the array so everything smaller sits to the pivot's left and everything larger to its right. The pivot is now in its final place; it then sorts the two sides recursively. There is no merge step — the ordering happens during the partition.
+**[Quick sort](/glossary#quick-sort)** takes the opposite tack. It picks a **pivot** value and **[partitions](/glossary#partition)** the array so everything smaller sits to the pivot's left and everything larger to its right. The pivot is now in its final place; it then sorts the two sides recursively. There is no merge step — the ordering happens during the partition.
 
-Both build on **recursion**: a problem solved in terms of smaller copies of itself.
+Both build on **[recursion](/glossary#recursion)**: a problem solved in terms of smaller copies of itself.
 
 ## How it works
 

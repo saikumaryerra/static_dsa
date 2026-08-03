@@ -31,6 +31,10 @@ const lessons = defineCollection({
     order: z.number().int().positive(),
     summary: z.string(),
     difficulty: z.enum(['beginner', 'intermediate']),
+    // Shape only. REFERENTIAL validation ("does this slug name a published
+    // lesson?") cannot live here — a Zod schema sees one entry at a time — so it
+    // runs over the whole collection in `pages/learn/[slug].astro`'s
+    // getStaticPaths and fails the build there (M7.2).
     prerequisites: z.array(z.string()).default([]),
     estimatedMinutes: z.number().int().positive(),
     complexity: z.object({

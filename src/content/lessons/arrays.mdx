@@ -92,7 +92,7 @@ static void deleteAt(int[] arr, int size, int i) {
 
 ## Intuition
 
-An **array** is like a row of numbered lockers bolted to a wall. The lockers sit side by side in one continuous block of memory, and each has a fixed **index** — its position, counted from 0. Because the block is contiguous and every slot is the same size, the computer can compute the exact address of locker `i` with a single multiplication and go straight there. It never has to walk past the earlier lockers.
+An **[array](/glossary#array)** is like a row of numbered lockers bolted to a wall. The lockers sit side by side in one continuous block of memory, and each has a fixed **[index](/glossary#index)** — its position, counted from 0. Because the block is contiguous and every slot is the same size, the computer can compute the exact address of locker `i` with a single multiplication and go straight there. It never has to walk past the earlier lockers.
 
 That is the array's superpower and its weakness in one. **Reading any element is instant** — index 0 and index 999 cost exactly the same. But the lockers are bolted in place: to squeeze a new item into the middle, everything after it has to slide over to make room, and to remove an item, everything after it slides back to close the gap. Sliding a lot of elements is slow.
 
@@ -113,7 +113,6 @@ Step through the visualization to watch a direct access, then an insert that rip
   renderer="array"
   input="[10,20,30,40,50] target=2"
   targetLabel="Index"
-  targetPlaceholder="2"
 />
 
 Press **Play**, or **Step forward** to move one shift at a time. The `+` marks the inserted value; the `✕` marks the element being deleted; each **shift** highlight is one element moving. Try your own array — the number in the second box picks which index gets the O(1) access.

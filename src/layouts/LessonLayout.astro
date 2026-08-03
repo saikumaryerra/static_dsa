@@ -7,19 +7,24 @@
  * - `slug`            for MarkComplete's persistence key.
  * - `readingMinutes`  computed prose reading time (design §1.4).
  * - `headings`        Astro `MarkdownHeading[]` → TableOfContents (h2 only).
- * - `prev` / `next`   adjacent lessons (or null at a boundary).
+ * - `prev` / `next`   adjacent lessons in global order (or null at a boundary).
+ * - `prerequisites`   frontmatter `prerequisites`, resolved to titles at build
+ *                     time and referentially validated in `[slug].astro`.
+ * - `lessons`         every published lesson, forwarded to MarkComplete's
+ *                     "N of 15 complete" line.
  *
  * Composes inside BaseLayout's `<main>`. Layout: breadcrumb, header (h1 +
- * summary + meta row), responsive ToC, the 7-section MDX slot (prose capped at
- * --measure, full-column breakout for viz/code/table), mark-complete, prev/next.
+ * summary + meta row + "Builds on:" row), responsive ToC, the 7-section MDX slot
+ * (prose capped at --measure, full-column breakout for viz/code/table), and the
+ * "What's next" section that closes the loop (completion + prev/next).
  */
 import BaseLayout from './BaseLayout.astro';
 import Breadcrumb from '../components/Breadcrumb.astro';
 import DifficultyChip from '../components/DifficultyChip.astro';
 import TableOfContents from '../components/TableOfContents.astro';
-import MarkComplete from '../components/MarkComplete.astro';
-import PrevNext from '../components/PrevNext.astro';
+import WhatsNext from '../components/WhatsNext.astro';
 import { courseJsonLd } from '../lib/structured-data';
+import type { LessonRef } from '../lib/progress';
 import type { Track } from '../lib/tracks';
 import type { CollectionEntry } from 'astro:content';
 import type { MarkdownHeading } from 'astro';
@@ -35,6 +40,12 @@ interface Adjacent {
   trackLabel?: string;
 }
 
+/** A prerequisite lesson, resolved from a frontmatter slug at build time. */
+interface Prerequisite {
+  slug: string;
+  title: string;
+}
+
 interface Props {
   entry: CollectionEntry<'lessons'>;
   title: string;
@@ -45,6 +56,8 @@ interface Props {
   readingMinutes: number;
   slug: string;
   headings: MarkdownHeading[];
+  prerequisites: Prerequisite[];
+  lessons: LessonRef[];
   prev: Adjacent | null;
   next: Adjacent | null;
 }
@@ -59,6 +72,8 @@ const {
   readingMinutes,
   slug,
   headings,
+  prerequisites,
+  lessons,
   prev,
   next,
 } = Astro.props;
@@ -123,6 +138,31 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
               {readingMinutes} min read
             </span>
           </div>
+
+          {
+            prerequisites.length > 0 && (
+              <div class="lesson__prereqs">
+                <span class="lesson__prereqs-label" id="builds-on">
+                  Builds on:
+                </span>
+                {/* role="list" because `list-style: none` strips list semantics
+                    in Safari; same guard /learn uses on its card grid. */}
+                <ul
+                  class="lesson__prereq-list"
+                  role="list"
+                  aria-labelledby="builds-on"
+                >
+                  {prerequisites.map((p) => (
+                    <li>
+                      <a class="lesson__prereq" href={`/learn/${p.slug}`}>
+                        {p.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          }
         </header>
 
         <TableOfContents headings={headings} variant="inline" />
@@ -135,13 +175,7 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
 
         <hr class="lesson__rule lesson__rule--wide" />
 
-        <div class="lesson__complete">
-          <MarkComplete slug={slug} />
-        </div>
-
-        <div class="lesson__prevnext">
-          <PrevNext prev={prev} next={next} />
-        </div>
+        <WhatsNext slug={slug} lessons={lessons} prev={prev} next={next} />
       </article>
 
       <aside class="lesson__rail">
@@ -214,6 +248,51 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
     color: var(--text-muted);
   }
 
+  /* "Builds on:" prerequisites row (M7.2; spec §3 "no dead ends", §8). The
+     slugs come from frontmatter and are validated against the published
+     collection at build time, so a chip can never point at a dead page. */
+  .lesson__prereqs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .lesson__prereqs-label {
+    color: var(--text-muted);
+  }
+
+  .lesson__prereq-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lesson__prereq {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding-inline: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background-color: var(--surface);
+    color: var(--text);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    transition: border-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .lesson__prereq:hover {
+    border-color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   .lesson__rule {
     border: none;
     border-top: 1px solid var(--border);
@@ -222,15 +301,6 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
 
   .lesson__rule--wide {
     margin-block: var(--space-8);
-  }
-
-  .lesson__complete {
-    margin-block: var(--space-6);
-  }
-
-  .lesson__prevnext {
-    margin-top: var(--space-8);
-    margin-bottom: var(--space-16);
   }
 
   .lesson__rail {
@@ -266,13 +336,31 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
   .lesson-body :global(h2) {
     margin-top: var(--space-12);
     margin-bottom: var(--space-4);
-    scroll-margin-top: 5.5rem;
   }
 
   .lesson-body :global(h3) {
     margin-top: var(--space-8);
     margin-bottom: var(--space-3);
-    scroll-margin-top: 5.5rem;
+  }
+
+  /* Where an in-page jump parks a heading: clear of the sticky header always,
+     and of the sticky mini-ToC bar too below 1024px (M7.2 — the same reason
+     /glossary offsets for its sticky jump bar). Both offsets derive from
+     --header-h, replacing the hardcoded 5.5rem that was wrong at <768px where
+     the header is 56px. The scroll-spy READS this computed value as its band,
+     so the highlighted entry and the jump target can never disagree. */
+  .lesson-body :global(h2),
+  .lesson-body :global(h3) {
+    scroll-margin-top: calc(
+      var(--header-h) + var(--toc-bar-h) + var(--space-2)
+    );
+  }
+
+  @media (min-width: 1024px) {
+    .lesson-body :global(h2),
+    .lesson-body :global(h3) {
+      scroll-margin-top: calc(var(--header-h) + var(--space-6));
+    }
   }
 
   .lesson-body :global(p) {
@@ -330,57 +418,137 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
 </style>
 
 <script>
-  // Progressive enhancement (design §1.3): highlight the ToC entry for the
-  // section currently in view. The ToC is fully usable (anchor nav) without this.
+  /**
+   * Scroll-spy v2 (M7.2) — progressive enhancement (design §1.3): highlight the
+   * ToC entry for the section being read, and name it in the mobile mini-ToC
+   * bar. The ToC is fully usable (anchor nav) without any of this.
+   *
+   * v1 asked an IntersectionObserver for "the first heading inside a narrow
+   * band", so on a 7,300px lesson NO entry was current for the ~90% of scroll
+   * positions where no heading sits in the band. v2 tracks "the LAST heading
+   * whose top has passed the band" against cached offsets, which yields exactly
+   * one current entry at every scroll position — above the first heading (it
+   * stays current) and at the very bottom of the page alike. Because it reads
+   * live scroll positions on every frame, MOT-1's smooth scrolling resolves
+   * correctly the whole way and settles on the jumped-to section.
+   */
   const links = Array.from(
     document.querySelectorAll<HTMLAnchorElement>('[data-toc-link]'),
   );
-  if (links.length > 0 && 'IntersectionObserver' in window) {
-    // Map each heading id to all matching ToC links (inline + rail forms).
-    const linksById = new Map<string, HTMLAnchorElement[]>();
-    for (const link of links) {
-      const id = (link.dataset['tocLink'] ?? '').slice(1);
-      if (!id) continue;
-      const list = linksById.get(id) ?? [];
-      list.push(link);
-      linksById.set(id, list);
-    }
 
-    const visible = new Set<string>();
+  // Each heading id maps to all matching ToC links (the inline bar and the rail
+  // render the same list), in document order.
+  const linksById = new Map<string, HTMLAnchorElement[]>();
+  const ids: string[] = [];
+  const headings: HTMLElement[] = [];
+  for (const link of links) {
+    const id = (link.dataset['tocLink'] ?? '').slice(1);
+    if (!id) continue;
+    const group = linksById.get(id);
+    if (group) {
+      group.push(link);
+      continue;
+    }
+    const heading = document.getElementById(id);
+    if (!heading) continue; // a ToC entry with no heading can never be current
+    linksById.set(id, [link]);
+    ids.push(id);
+    headings.push(heading);
+  }
+
+  if (headings.length > 0) {
+    const currentLabel =
+      document.querySelector<HTMLElement>('[data-toc-current]');
+    /** Document-space top of each heading; recomputed whenever layout can change. */
+    let tops: number[] = [];
+    /** Y offset of the "you are reading here" line, below the sticky chrome. */
+    let band = 0;
+    let currentId = '';
+
+    function measure(): void {
+      const scrollY = window.scrollY;
+      tops = headings.map((h) => h.getBoundingClientRect().top + scrollY);
+      // The band IS the anchor landing line: `scroll-margin-top` is the CSS
+      // that parks a jumped-to heading clear of the header (plus the mini-ToC
+      // bar below 1024px), so reading it keeps the spy and in-page jumps in
+      // exact agreement at every breakpoint, from one source of truth.
+      const first = headings[0];
+      band = first
+        ? parseFloat(getComputedStyle(first).scrollMarginTop) || 0
+        : 0;
+    }
 
     function highlight(): void {
-      // Choose the first heading (in document order) currently visible.
-      let current: string | null = null;
-      for (const id of linksById.keys()) {
-        if (visible.has(id)) {
-          current = id;
-          break;
+      // +1px of slack: a heading jumped to lands EXACTLY on the band, and
+      // fractional scroll positions must not leave it one pixel short.
+      const line = window.scrollY + band + 1;
+      let id = ids[0];
+      for (let i = 0; i < tops.length; i += 1) {
+        if (tops[i] <= line) id = ids[i];
+        else break;
+      }
+      if (id === currentId) return;
+
+      const previous = linksById.get(currentId);
+      if (previous) {
+        for (const link of previous) link.removeAttribute('aria-current');
+      }
+      const next = linksById.get(id);
+      if (next) {
+        for (const link of next) link.setAttribute('aria-current', 'location');
+        if (currentLabel) {
+          currentLabel.textContent = (next[0]?.textContent ?? '').trim();
         }
       }
-      for (const [id, group] of linksById) {
-        for (const link of group) {
-          if (id === current) link.setAttribute('aria-current', 'location');
-          else link.removeAttribute('aria-current');
-        }
-      }
+      currentId = id;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const id = entry.target.id;
-          if (entry.isIntersecting) visible.add(id);
-          else visible.delete(id);
-        }
+    let queued = false;
+    function onScroll(): void {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
         highlight();
-      },
-      // Bias toward the heading nearest the top, below the sticky header.
-      { rootMargin: '-80px 0px -70% 0px' },
-    );
+      });
+    }
 
-    for (const id of linksById.keys()) {
-      const heading = document.getElementById(id);
-      if (heading) observer.observe(heading);
+    measure();
+    highlight();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', () => {
+      measure();
+      highlight();
+    });
+    // Offsets also move when the page GROWS — a visualizer hydrating from its
+    // static frame is the common case — which no resize event reports.
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(() => {
+        measure();
+        highlight();
+      }).observe(document.body);
     }
   }
+
+  // Collapse the mobile mini-ToC once a section is chosen: the open panel is
+  // pinned over the article, so leaving it up would cover the target. Purely an
+  // enhancement — with JS off the panel stays open and a tap on the bar closes
+  // it, which is native <details> behaviour.
+  const inlineToc =
+    document.querySelector<HTMLDetailsElement>('[data-toc-inline]');
+  inlineToc?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest('[data-toc-link]')) {
+      inlineToc.open = false;
+    }
+  });
+
+  // Escape dismisses the open panel and hands focus back to the bar that opened
+  // it — the expectation any overlaying panel sets, and the only way out for a
+  // keyboard user that doesn't mean tabbing through every section link.
+  inlineToc?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !inlineToc.open) return;
+    inlineToc.open = false;
+    inlineToc.querySelector('summary')?.focus();
+  });
 </script>

@@ -3,9 +3,10 @@
  * Lesson page — renders one published lesson from the collection (architecture §1.2).
  *
  * `getStaticPaths` builds a page per PUBLISHED lesson, routing off frontmatter
- * `data.slug` (Content Layer entry `id` is the filename, not the slug). A
- * build-time guard throws on duplicate slugs — Zod can't enforce cross-entry
- * uniqueness (SPEC-GAP, architecture §1.1). Prev/next derive from `order` across
+ * `data.slug` (Content Layer entry `id` is the filename, not the slug). Two
+ * build-time guards live here because Zod validates one entry at a time and can
+ * never see the collection: duplicate slugs, and (M7.2) `prerequisites` that
+ * name an unknown or unpublished lesson. Prev/next derive from `order` across
  * the whole curriculum. Reading time is computed from the raw MDX body prose.
  */
 import { getCollection, render } from 'astro:content';
@@ -13,6 +14,7 @@ import type { CollectionEntry } from 'astro:content';
 import LessonLayout from '../../layouts/LessonLayout.astro';
 import { readingTimeMinutes } from '../../lib/reading-time';
 import { trackLabel } from '../../lib/tracks';
+import type { LessonRef } from '../../lib/progress';
 
 export async function getStaticPaths() {
   const lessons = await getCollection('lessons', ({ data }) => data.published);
@@ -27,6 +29,21 @@ export async function getStaticPaths() {
       );
     }
     seen.add(lesson.data.slug);
+  }
+
+  // M7.2: referential integrity for `prerequisites`, mirroring the glossary's
+  // dead-link guard (`glossary.astro`). The schema only checks the SHAPE of the
+  // array, so before M7.2 rendered it a typo'd or unpublished slug shipped
+  // silently; now it FAILS THE BUILD. This loop covers every published lesson,
+  // not just the one being rendered, so it cannot be dodged.
+  for (const lesson of lessons) {
+    for (const prerequisite of lesson.data.prerequisites) {
+      if (!seen.has(prerequisite)) {
+        throw new Error(
+          `Lesson "${lesson.data.slug}" lists unknown/unpublished prerequisite "${prerequisite}" (see ${lesson.id}).`,
+        );
+      }
+    }
   }
 
   return lessons.map((entry) => ({
@@ -68,6 +85,26 @@ const toAdjacent = (l: CollectionEntry<'lessons'> | undefined) =>
 const prev = toAdjacent(ordered[position - 1]);
 const next = toAdjacent(ordered[position + 1]);
 
+// "Builds on:" chips (M7.2). Every slug here is guaranteed to resolve — the
+// guard in getStaticPaths fails the build otherwise — so the lookup is safe.
+// Sorted by curriculum order rather than the authoring order, so the row always
+// reads earliest-first regardless of how the frontmatter array was typed.
+const bySlug = new Map(ordered.map((l) => [l.data.slug, l]));
+const prerequisites = entry.data.prerequisites
+  .map((s) => bySlug.get(s)!)
+  .sort((a, b) => a.data.order - b.data.order)
+  .map((l) => ({ slug: l.data.slug, title: l.data.title }));
+
+// The curriculum, injected into the page for the progress module (spec §6): the
+// completion count is computed from THIS list, never by enumerating
+// localStorage keys, so a renamed lesson's stale key can't inflate it.
+const lessonRefs: LessonRef[] = ordered.map((l) => ({
+  slug: l.data.slug,
+  title: l.data.title,
+  order: l.data.order,
+  track: l.data.track,
+}));
+
 const readingMinutes = readingTimeMinutes(entry.body ?? '');
 ---
 
@@ -81,6 +118,8 @@ const readingMinutes = readingTimeMinutes(entry.body ?? '');
   readingMinutes={readingMinutes}
   slug={entry.data.slug}
   headings={headings}
+  prerequisites={prerequisites}
+  lessons={lessonRefs}
   prev={prev}
   next={next}
 >

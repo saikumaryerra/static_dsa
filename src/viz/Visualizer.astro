@@ -10,10 +10,12 @@
  * - `allowCustomInput` show the custom-input form (default true).
  * - `showMetrics`      show the metrics pills (default true).
  * - `inputLabel`/`inputPlaceholder`  label + placeholder for the FIRST field
- *                      (default "Array" / "[1,3,5,7,9,11]"). Non-array lessons
- *                      override these (e.g. graph "Edges", recursion "n").
+ *                      (default "Array"). Non-array lessons override the label
+ *                      (e.g. graph "Edges", recursion "n"); the placeholder is
+ *                      the AUTHORED `input` whenever there is one, so the prop
+ *                      is consulted only by a viz without an `input` (CMP-14).
  * - `targetLabel`/`targetPlaceholder`  label + placeholder for the SECOND field
- *                      (default "Target" / "7").
+ *                      (default "Target"; same authored-input-wins rule).
  * - `showTarget`       render the second field (default true). Lessons whose input
  *                      is a single value (e.g. recursion) hide it. LABELS ONLY —
  *                      the client still composes the same raw string parseInput
@@ -29,8 +31,33 @@
  * listener/timer/observer down on `astro:before-swap` (TD-4) so M4 View
  * Transitions never leak. The `<noscript>` kill-switch hides the controls and
  * reveals the "enable JS" note.
+ *
+ * M7.2 (Player v2) adds — all on the same pipeline, the trace is still computed
+ * once and only indexed into (§11):
+ * - a BUILD-TIME legend of the highlight kinds this lesson's trace really uses
+ *   (`core/legend`), so the colours stop being a private code;
+ * - runtime bound state as `aria-disabled` instead of `disabled` (A11Y-1), so a
+ *   focused button never dies under the keyboard user and the island's ←/→
+ *   shortcuts keep working. The REAL `disabled` attribute survives in SSR only,
+ *   where it still has to block a pre-hydration submit;
+ * - lifecycle states that are told apart: loading (the bar still dimmed by the
+ *   SSR `disabled` recipe, plus a "…" counter and `aria-busy` — both set by JS
+ *   ONLY, so a JS-off page is never "busy") versus failed (`data-viz-failed`
+ *   hides the controls, and the message says what the reader can still do);
+ * - an aria-live policy for autoplay above 1× (A11Y-6, spec §10's M7 exception);
+ * - custom-input recovery: helper text disclosing the real per-algorithm cap, and
+ *   a "Restore example" control that puts the authored run back (CMP-14);
+ * - RSP-2's mobile legibility floor: the canvas scrolls rather than shrinking the
+ *   drawing below readable, and becomes a keyboard-reachable scroll region for
+ *   exactly as long as it actually overflows.
  */
 import { algorithms, renderers } from './registry';
+import { collectLegend } from './core/legend';
+import {
+  inputHelpText,
+  probeListCap,
+  splitAuthoredInput,
+} from './core/input-hint';
 import type { Algorithm, RendererModule, Step } from './core/types';
 
 interface Props {
@@ -54,9 +81,12 @@ const {
   showMetrics = true,
   // Defaults keep every array/search/sort lesson (incl. binary-search) unchanged.
   inputLabel = 'Array',
-  inputPlaceholder = '[1,3,5,7,9,11]',
+  // No literal placeholder defaults (M7.2 CMP-14): with an authored `input` the
+  // placeholders are DERIVED from it below, so these two only cover the viz that
+  // has no authored input to derive from.
+  inputPlaceholder,
   targetLabel = 'Target',
-  targetPlaceholder = '7',
+  targetPlaceholder,
   showTarget = true,
 } = Astro.props;
 
@@ -105,8 +135,38 @@ const metricPills = Object.entries(step0.metrics ?? {}).map(([key, value]) => ({
   value: String(value),
 }));
 
+// Auto-legend (M7.2): the trace above is the real one the Player will index
+// into, so scanning it for the highlight kinds it actually emits produces a
+// legend that cannot drift from the drawing — and costs zero client JS. Kinds
+// this lesson never uses are never shown.
+const legend = collectLegend(trace);
+
+// CMP-14: the fields advertised a generic `[1,3,5,7,9,11]` while the canvas
+// showed the AUTHORED example, so "Run" on a half-edited field produced
+// something unrelated to the picture. Derive both placeholders from the authored
+// input, split on the same `target=` separator the submit handler composes (the
+// PARSED object can't be used — it is per-algorithm and typed `unknown` here).
+// The DERIVED value wins over the prop: a hand-written placeholder that
+// disagrees with the drawing is the exact defect this exists to remove, and
+// several lessons pass one naming a different array. The props survive for the
+// only case derivation can't serve — a viz with no `input`, seeded from
+// `defaultInput()`, whose parsed shape this generic file cannot stringify — with
+// the old literals behind them as the last resort.
+const authored = splitAuthoredInput(input ?? '');
+const arrayPlaceholder = authored.input || inputPlaceholder || '[1,3,5,7,9,11]';
+const targetHint = authored.target || targetPlaceholder || '7';
+
+// Helper text (INP-*): format + the REAL cap. Each algorithm enforces its own
+// (30 array items, 15 heap values, 12 stack items…), so the number is measured
+// against this algorithm's own parseInput at build time rather than hardcoded —
+// a literal "up to 30" would be wrong on six lessons. `null` (no bracketed list
+// to vary, or an uncapped parser) simply drops the sentence.
+const itemCap = probeListCap(input ?? '', (raw) => algo.parseInput(raw));
+const helpText = inputHelpText({ example: arrayPlaceholder, cap: itemCap });
+
 const explainId = `${uid}-explain`;
 const errId = `${uid}-err`;
+const helpId = `${uid}-help`;
 const stepId = `${uid}-step`;
 const speedId = `${uid}-speed`;
 const arrayId = `${uid}-array`;
@@ -126,9 +186,53 @@ const targetId = `${uid}-target`;
 >
   <figure class="viz-frame">
     {
-      /* Build-time static still (renderStatic step 0); upgraded in place on hydrate. */
+      /* Build-time static still (renderStatic step 0); upgraded in place on hydrate.
+         tabindex="-1" is the click-then-Space focus target (the pointerdown
+         handler focuses it, so the island's shortcuts work after a click on the
+         drawing). It is NOT keyboard-reachable at -1; the script promotes it to
+         tabindex="0" + role="group" + a name for exactly as long as the drawing
+         actually overflows its box (RSP-2), because a scroll container that the
+         keyboard cannot reach would be a 2.1.1 failure. The measurement — and
+         therefore the whole scroll affordance — is JS-only, so the JS-off page
+         keeps today's scale-to-fit still and never gets an unreachable scroller. */
     }
-    <div class="viz-canvas" data-viz-canvas set:html={still} />
+    <div class="viz-canvas" data-viz-canvas tabindex="-1" set:html={still} />
+
+    {
+      /* Auto-legend (build time): one pill per highlight kind this trace really
+         uses. The swatch repeats the renderer's own token + tint, the glyph is
+         the character the renderer draws, and the word is the plain-language
+         name — so colour is never the only signal here either. `active` and
+         `frontier` have no character marker; frontier's dashed swatch border
+         carries its non-colour cue. */
+    }
+    {
+      legend.length > 0 && (
+        <ul
+          class="viz-legend"
+          role="list"
+          aria-label="What the highlights mean"
+          data-viz-legend
+        >
+          {legend.map((item) => (
+            <li class="viz-pill viz-legend__item">
+              <span
+                class="viz-legend__swatch"
+                data-kind={item.kind}
+                style={`--legend-hl: var(${item.token})`}
+                aria-hidden="true"
+              />
+              {item.glyph && (
+                <span class="viz-legend__glyph" aria-hidden="true">
+                  {item.glyph}
+                </span>
+              )}
+              <span>{item.word}</span>
+            </li>
+          ))}
+        </ul>
+      )
+    }
 
     {
       /* A11Y-2: exposed, not aria-hidden — the pills are a SIBLING of the
@@ -160,7 +264,127 @@ const targetId = `${uid}-target`;
   </figure>
 
   <div class="viz-controls" data-viz-controls>
+    {
+      /* One row from 640px up — transport | scrubber (flex) | speed — and two
+         rows below it (transport, then scrubber + speed). DOM order IS the
+         visual order at every width, so the tab order never disagrees with the
+         layout. Every button ships the real `disabled` attribute for the
+         pre-hydration paint only; from hydration on, bound state is
+         `aria-disabled` (A11Y-1). `title` mirrors each aria-label so the icons
+         are hoverable-discoverable too. */
+    }
     <div class="viz-control-bar">
+      <div class="viz-transport">
+        <button
+          type="button"
+          class="viz-btn"
+          data-viz-reset
+          aria-label="Reset to start"
+          title="Reset to start"
+          disabled
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 12a8 8 0 1 0 2.3-5.6"></path>
+            <path d="M4 4v4h4"></path>
+          </svg>
+        </button>
+        {
+          /* Single chevrons, echoing the ←/→ keys that do the same thing. NOT
+             the skip-to-end media glyphs they replace (they promised a jump to
+             the end, which is the slider's job), and not mirrored-bar glyphs —
+             explicitly rejected in the UX plan as an unestablished convention. */
+        }
+        <button
+          type="button"
+          class="viz-btn"
+          data-viz-back
+          aria-label="Step back"
+          title="Step back"
+          disabled
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.25"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 5l-7 7 7 7"></path>
+          </svg>
+        </button>
+        {
+          /* No aria-pressed (VIZ-9 / A11Y-7): the accessible name already
+             carries the state (Play / Pause / Replay from start), and a toggle
+             that both renames itself and reports pressed double-encodes it. */
+        }
+        <button
+          type="button"
+          class="viz-btn viz-btn--play"
+          data-viz-play
+          aria-label="Play"
+          title="Play"
+          disabled
+        >
+          <svg
+            class="viz-play__play"
+            viewBox="0 0 24 24"
+            width="24"
+            height="24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 5v14l11-7z"></path>
+          </svg>
+          <svg
+            class="viz-play__pause"
+            viewBox="0 0 24 24"
+            width="24"
+            height="24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M6 5h4v14H6z"></path>
+            <path d="M14 5h4v14h-4z"></path>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="viz-btn"
+          data-viz-forward
+          aria-label="Step forward"
+          title="Step forward"
+          disabled
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.25"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+      </div>
+
       <div class="viz-scrub">
         <label for={stepId} class="viz-scrub__label">Step</label>
         <input
@@ -180,101 +404,6 @@ const targetId = `${uid}-target`;
         >
       </div>
 
-      <div class="viz-transport">
-        <button
-          type="button"
-          class="viz-btn"
-          data-viz-reset
-          aria-label="Reset to start"
-          disabled
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="22"
-            height="22"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M4 12a8 8 0 1 0 2.3-5.6"></path>
-            <path d="M4 4v4h4"></path>
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="viz-btn"
-          data-viz-back
-          aria-label="Step back"
-          disabled
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="22"
-            height="22"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M17 5l-8 7 8 7z"></path>
-            <rect x="5.8" y="5" width="2.2" height="14"></rect>
-          </svg>
-        </button>
-        {
-          /* No aria-pressed (VIZ-9 / A11Y-7): the accessible name already
-             carries the state (Play / Pause / Replay from start), and a toggle
-             that both renames itself and reports pressed double-encodes it. */
-        }
-        <button
-          type="button"
-          class="viz-btn viz-btn--play"
-          data-viz-play
-          aria-label="Play"
-          disabled
-        >
-          <svg
-            class="viz-play__play"
-            viewBox="0 0 24 24"
-            width="26"
-            height="26"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M8 5v14l11-7z"></path>
-          </svg>
-          <svg
-            class="viz-play__pause"
-            viewBox="0 0 24 24"
-            width="26"
-            height="26"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M6 5h4v14H6z"></path>
-            <path d="M14 5h4v14h-4z"></path>
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="viz-btn"
-          data-viz-forward
-          aria-label="Step forward"
-          disabled
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="22"
-            height="22"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M7 5l8 7-8 7z"></path>
-            <rect x="16" y="5" width="2.2" height="14"></rect>
-          </svg>
-        </button>
-      </div>
-
       <div class="viz-speed">
         <label for={speedId} class="viz-speed__label">Speed</label>
         <select id={speedId} class="viz-select" data-viz-speed disabled>
@@ -288,6 +417,17 @@ const targetId = `${uid}-target`;
     </div>
 
     {
+      /* Discoverability: the island's shortcuts were previously undocumented in
+         the UI. Inside `.viz-controls`, so the noscript kill-switch hides it
+         with every other JS-only affordance. */
+    }
+    <p class="viz-keys">
+      <kbd>Space</kbd> play/pause
+      <span class="viz-keys__dot" aria-hidden="true">·</span>
+      <kbd>←</kbd>/<kbd>→</kbd> step
+    </p>
+
+    {
       allowCustomInput && (
         <form class="viz-custom" data-viz-form novalidate>
           <p class="viz-custom__legend">Try your own input</p>
@@ -296,13 +436,18 @@ const targetId = `${uid}-target`;
               <label for={arrayId}>{inputLabel}</label>
               {/* INP-1: these fields take code-shaped literals, so every
                   "helpful" mobile keyboard behaviour (autocorrect, leading
-                  capital, spell squiggles) is noise here. */}
+                  capital, spell squiggles) is noise here.
+                  SPACE-SEPARATED describedby: the field owes BOTH descriptions
+                  and the error one has to survive — overwriting the list with
+                  just the error id (or the reverse) is how one of the two
+                  silently stops being announced. Format first, then what went
+                  wrong with it. */}
               <input
                 type="text"
                 id={arrayId}
                 data-viz-array
-                placeholder={inputPlaceholder}
-                aria-describedby={errId}
+                placeholder={arrayPlaceholder}
+                aria-describedby={helpText ? `${helpId} ${errId}` : errId}
                 spellcheck="false"
                 autocapitalize="none"
                 autocorrect="off"
@@ -317,7 +462,7 @@ const targetId = `${uid}-target`;
                   id={targetId}
                   data-viz-target
                   inputmode="numeric"
-                  placeholder={targetPlaceholder}
+                  placeholder={targetHint}
                   aria-describedby={errId}
                   spellcheck="false"
                   autocapitalize="none"
@@ -329,7 +474,31 @@ const targetId = `${uid}-target`;
             <button type="submit" class="btn-secondary" data-viz-run disabled>
               Run
             </button>
+            {/* Recovery (CMP-14): puts the lesson's own example back — the exact
+                authored string, which the build already proved parses — and
+                refills both fields with its REAL values, so an experiment is
+                never a one-way door. Only offered when there IS an authored
+                input; a viz seeded from defaultInput() has no string to restore
+                and the control would lie about what it does. */}
+            {input && (
+              <button
+                type="button"
+                class="btn-secondary"
+                data-viz-restore
+                disabled
+              >
+                Restore example
+              </button>
+            )}
           </div>
+          {/* Persistent format + cap disclosure (INP-*). Muted, not an error:
+              it is the same text before and after a mistake, so the reader can
+              act on it instead of guessing from a rejection. */}
+          {helpText && (
+            <p class="viz-custom__help" id={helpId}>
+              {helpText}
+            </p>
+          )}
           {/* role="status" carries an implicit aria-live="polite"; the choice
               over role="alert" (A11Y-8) is therefore about politeness, not about
               announcing once: this error is the direct result of the reader's own
@@ -399,11 +568,16 @@ const targetId = `${uid}-target`;
     margin-block: var(--space-8);
   }
 
+  /* RSP-2: full-bleed below the md breakpoint. The drawing is the widest thing
+     on a lesson page and the shell's gutters (`main`'s `px-4`) were costing it
+     2rem of a 390px screen; the negative margin is EXACTLY that gutter, so the
+     document still never scrolls sideways. Side borders and the card radius go
+     with it — a rounded card that touches both edges reads as a rendering bug. */
   .viz-frame {
-    margin: 0;
+    margin: 0 calc(var(--space-4) * -1);
     background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
+    border-block: 1px solid var(--border);
+    border-radius: 0;
     box-shadow: var(--shadow-1);
     padding: var(--space-4);
     overflow: hidden;
@@ -411,12 +585,30 @@ const targetId = `${uid}-target`;
 
   @media (min-width: 768px) {
     .viz-frame {
+      margin-inline: 0;
+      border-inline: 1px solid var(--border);
+      border-radius: var(--radius-card);
       padding: var(--space-6);
     }
   }
 
+  /* RSP-2 legibility floor. At the permitted n = 30 the array viewBox is ~1870
+     units wide, so `width: 100%` scaled the 20px value text down to ~3.5px on a
+     phone. The drawing now keeps at least 75% of its designed size and the box
+     scrolls instead — chosen over the intrinsic 100% because a 6-cell default
+     would otherwise start scrolling on a 390px screen it currently fits.
+     `--viz-natural-w` is written by the script from the live `viewBox` (never at
+     build time): with JS off there is no measurement, no scroll container, and
+     therefore no unreachable-scroller keyboard failure — and JS-off only ever
+     shows the small authored input anyway. */
   .viz-canvas {
     margin-block-end: var(--space-4);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .viz-canvas > svg {
+    min-width: calc(var(--viz-natural-w, 0px) * 0.75);
   }
 
   /* ---- SVG cells + markers (shared by static still and hydrated renderer) ---- */
@@ -804,6 +996,42 @@ const targetId = `${uid}-target`;
     font-weight: var(--weight-semibold);
   }
 
+  /* ---- Legend (build-time; one pill per kind the trace really uses) ---- */
+  .viz-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    list-style: none;
+  }
+
+  /* The swatch repeats the cell recipe exactly — the same token, the same 15%
+     tint over the same --surface backdrop — so it reads as a sample of the
+     drawing rather than a decorative dot. --legend-hl is set inline from
+     HIGHLIGHTS[kind].token, which keeps the token mapping in ONE place. */
+  .viz-legend__swatch {
+    flex-shrink: 0;
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 2px solid var(--legend-hl);
+    border-radius: var(--radius-sm);
+    background-color: color-mix(in srgb, var(--legend-hl) 15%, var(--surface));
+  }
+
+  /* frontier is drawn as a DASHED ring and has no character marker, so the dash
+     is its non-colour cue here too (design §1: colour is never the only signal). */
+  .viz-legend__swatch[data-kind='frontier'] {
+    border-style: dashed;
+  }
+
+  .viz-legend__glyph {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-weight: var(--weight-bold);
+    line-height: 1;
+  }
+
   /* ---- Explanation ---- */
   .viz-explain {
     margin: 0;
@@ -819,17 +1047,36 @@ const targetId = `${uid}-target`;
     font-variant-numeric: tabular-nums;
   }
 
-  /* ---- Control bar ---- */
+  /* ---- Control bar ----
+     Two rows on a phone (transport, then scrubber + speed) collapsing to ONE row
+     from 640px up: transport | scrubber (takes the slack) | speed. Named areas
+     rather than source order tricks, so the DOM order the keyboard follows is
+     the order the eye follows at both sizes. */
   .viz-control-bar {
     display: grid;
-    row-gap: var(--space-3);
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'transport transport'
+      'scrub speed';
+    align-items: center;
+    gap: var(--space-3);
     margin-top: var(--space-4);
   }
 
+  @media (min-width: 640px) {
+    .viz-control-bar {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-areas: 'transport scrub speed';
+      column-gap: var(--space-4);
+    }
+  }
+
   .viz-scrub {
+    grid-area: scrub;
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    min-width: 0;
   }
 
   .viz-scrub__label,
@@ -941,6 +1188,7 @@ const targetId = `${uid}-target`;
   }
 
   .viz-transport {
+    grid-area: transport;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -948,33 +1196,45 @@ const targetId = `${uid}-target`;
     flex-wrap: wrap;
   }
 
+  @media (min-width: 640px) {
+    .viz-transport {
+      justify-content: flex-start;
+    }
+  }
+
+  /* Transport buttons now have a resting SURFACE, in the same idiom as
+     `.btn-secondary` (bg + 1px --border-strong + --radius-control): four
+     ghost icons on a card gave the reader nothing to aim at and made the
+     disabled delta a colour shift of a colour they had never seen enabled. */
   .viz-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 44px;
     height: 44px;
-    border: none;
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: color var(--duration-fast) var(--ease-standard);
-  }
-
-  .viz-btn:hover:not(:disabled) {
+    background-color: var(--bg);
     color: var(--text);
+    cursor: pointer;
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
   }
 
+  .viz-btn:not(:disabled):not([aria-disabled='true']):hover {
+    border-color: var(--brand);
+  }
+
+  /* Play keeps the brand fill but drops 56px → 44px: it now sits in one row with
+     four other 44px controls, and 44px is still the AA target size. */
   .viz-btn--play {
-    width: 56px;
-    height: 56px;
+    border-color: var(--brand);
     background-color: var(--brand);
     color: var(--brand-contrast);
-    transition: background-color var(--duration-fast) var(--ease-standard);
   }
 
-  .viz-btn--play:hover:not(:disabled) {
+  .viz-btn--play:not(:disabled):not([aria-disabled='true']):hover {
     color: var(--brand-contrast);
     background-color: color-mix(in srgb, var(--brand) 88%, var(--text));
   }
@@ -1057,16 +1317,37 @@ const targetId = `${uid}-target`;
     font-family: var(--font-mono);
   }
 
+  /* Persistent format/cap disclosure under the fields. */
+  .viz-custom__help {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
   /* ---- Disabled recipe (CMP-3) ---- */
   /* Every viz control ships `disabled` in SSR and is enabled on hydrate, so they
      all have to read identically in that first paint — one token, one rule,
      instead of the two ad-hoc opacities this replaces. */
   .viz-slider:disabled,
   .viz-btn:disabled,
+  .viz-btn[aria-disabled='true'],
   .viz-select:disabled,
   .viz-field input:disabled {
     opacity: var(--disabled-opacity);
     cursor: not-allowed;
+  }
+
+  /* A11Y-1: from hydration on, a transport button at a trace bound is
+     aria-disabled rather than `disabled` — it keeps focus and its place in the
+     tab order (a `disabled` element drops focus to <body>, taking the island's
+     ←/→ shortcuts with it), while the Player clamps the action to a no-op. It
+     must READ as unavailable all the same, so it shares the opacity recipe above
+     AND flattens: the surface drops to the card colour and the border softens,
+     which is the obvious delta the old ghost buttons could not express. */
+  .viz-btn[aria-disabled='true'] {
+    border-color: var(--border);
+    background-color: var(--surface);
+    color: var(--text-muted);
   }
 
   .viz-error {
@@ -1075,7 +1356,10 @@ const targetId = `${uid}-target`;
     gap: var(--space-2);
     margin-top: var(--space-2);
     padding-left: var(--space-3);
-    border-left: 2px solid var(--border-strong);
+    /* --accent-warn, never --hl-compare: the six --hl-* roles stay reserved for
+       the visualization (design-tokens-m1.md Decision 3). Colour is not the only
+       signal — the warning glyph, the keyline and the wording all carry it. */
+    border-left: 2px solid var(--accent-warn);
     color: var(--text);
     font-size: var(--text-sm);
   }
@@ -1087,6 +1371,53 @@ const targetId = `${uid}-target`;
   .viz-error svg {
     flex-shrink: 0;
     margin-top: 2px;
+  }
+
+  /* ---- Keyboard hint (JS-only affordance, so it lives inside .viz-controls) ---- */
+  .viz-keys {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+
+  .viz-keys kbd {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: 0 var(--space-1);
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+  }
+
+  .viz-keys__dot {
+    color: var(--border-strong);
+  }
+
+  /* ---- Lifecycle: loading vs failed (they used to be pixel-identical) ---- */
+  /* Loading — flagged by JS only, never in SSR. The control bar's DIM is already
+     correct without a rule here: every control still carries the SSR `disabled`
+     attribute at this point, so the shared disabled recipe above is painting it,
+     and stacking a second opacity on the block would both compound to ~0.25 and
+     drag the bar's label text under 4.5:1 for the length of the fetch. What this
+     state adds is the "…" counter (written by the script), `aria-busy`, and a
+     pointer that says "not yet" rather than "not ever". */
+  [data-viz-loading] .viz-controls {
+    cursor: progress;
+  }
+
+  /* Failed — nothing here will ever work, so the controls go entirely rather
+     than sitting there inert; the message carries the recovery copy. The legend
+     and metrics go with them: both describe a drawing that is no longer there. */
+  [data-viz-failed] .viz-controls,
+  [data-viz-failed] .viz-legend,
+  [data-viz-failed] .viz-metrics {
+    display: none;
   }
 
   /* ---- JS-off note (revealed by the noscript kill-switch) ---- */
@@ -1101,21 +1432,46 @@ const targetId = `${uid}-target`;
     color: var(--text-muted);
   }
 
-  /* Unavailable state (chunk load failure — defense in depth). */
+  /* Failed state (chunk load failure / unparseable authored input — defense in
+     depth). Full-strength text, not muted: it is the only thing left in the box
+     and it has to be read, not skimmed past. */
   .viz-unavailable {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-2);
-    color: var(--text-muted);
+    margin: 0;
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--accent-warn);
+    color: var(--text);
     font-size: var(--text-sm);
   }
 </style>
 
 <script>
-  import { Player } from './core/player';
+  import { normalizeSpeed, Player } from './core/player';
   import { errorField } from './core/error-field';
+  import { splitAuthoredInput } from './core/input-hint';
   import { algorithms, renderers } from './registry';
   import type { Algorithm, Renderer, RendererModule, Step } from './core/types';
+
+  /**
+   * SPEC-GAP: §6 (amended for M7.2) permits the PREFERENCE key `pref:viz-speed`
+   * but says nothing about its shape or its scope. Stored as the plain
+   * multiplier string and shared by every visualizer on the page: playback speed
+   * is a property of the reader, not of one island, and a per-island key would
+   * multiply storage writes by the number of visualizers on a lesson. It is a
+   * preference, so the reset-progress control must never clear it.
+   */
+  const SPEED_KEY = 'pref:viz-speed';
+
+  /**
+   * Same-page sync channel for that one preference, mirroring CodeTabs'
+   * `codetabs:lang`: N islands share ONE speed, so the island the reader touched
+   * has to tell its siblings. Without it a lesson with two visualizers keeps the
+   * second one running at the old rate behind a `<select>` still showing 1×,
+   * which contradicts the key's own "a property of the reader" rationale above.
+   */
+  const SPEED_EVENT = 'viz:speed';
 
   /** Narrow a parseInput result to its error branch. */
   function isParseError(value: unknown): value is { error: string } {
@@ -1125,6 +1481,29 @@ const targetId = `${uid}-target`;
       'error' in value &&
       typeof (value as { error: unknown }).error === 'string'
     );
+  }
+
+  /**
+   * Reads the persisted playback speed, clamped to the `<select>`'s own options.
+   * Storage-safe: private mode / disabled storage throws on access, and a
+   * preference is never worth breaking the player over, so it degrades to `null`
+   * (= keep the 1× default).
+   */
+  function readStoredSpeed(): number | null {
+    try {
+      return normalizeSpeed(localStorage.getItem(SPEED_KEY));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Persists the playback speed. Silently gives up when storage is unavailable. */
+  function storeSpeed(value: string): void {
+    try {
+      localStorage.setItem(SPEED_KEY, value);
+    } catch {
+      // Preference-only: a failed write must never surface to the reader.
+    }
   }
 
   /** Per-root teardown, so `astro:before-swap` can dispose every island (TD-4). */
@@ -1161,10 +1540,21 @@ const targetId = `${uid}-target`;
     const targetInput =
       root.querySelector<HTMLInputElement>('[data-viz-target]');
     const runBtn = root.querySelector<HTMLButtonElement>('[data-viz-run]');
+    const restoreBtn =
+      root.querySelector<HTMLButtonElement>('[data-viz-restore]');
     const errorBox = root.querySelector<HTMLElement>('[data-viz-error]');
     const errorText = root.querySelector<HTMLElement>('[data-viz-error-text]');
 
     if (!canvas || !explain || !slider) return;
+
+    // Loading state (M7.2). Set HERE, from JS, and never in SSR: markup-level
+    // `aria-busy` would leave a JS-off page permanently "busy" for assistive
+    // tech, and the JS-off reader is not waiting for anything — they have the
+    // still. `aria-busy` itself waits until mount() actually starts (below):
+    // an island four screens away is not loading, it is deferred, and claiming
+    // otherwise would make every lesson page announce several busy regions.
+    root.dataset['vizLoading'] = 'true';
+    if (counter) counter.textContent = '…';
 
     // --- Teardown contract (TD-4): one AbortController drives every listener. ---
     const controller = new AbortController();
@@ -1174,15 +1564,26 @@ const targetId = `${uid}-target`;
     let renderer: Renderer<unknown> | null = null;
     let observer: IntersectionObserver | null = null;
     let destroyed = false;
+    /** Pending rAF for the resize-driven overflow measurement; `null` when idle. */
+    let measureFrame: number | null = null;
+    /**
+     * The `viewBox` the last measurement ran against, so a step that leaves the
+     * drawing's geometry alone costs one string compare (RSP-2, below).
+     */
+    let measuredViewBox: string | null = null;
 
     function teardown(): void {
       if (destroyed) return;
       destroyed = true;
       observer?.disconnect();
       controller.abort(); // removes every {signal}-bound listener
+      if (measureFrame !== null) cancelAnimationFrame(measureFrame);
       player?.pause(); // clears any pending auto-play tick
       renderer?.destroy();
       root.removeAttribute('data-viz-ready');
+      root.removeAttribute('aria-busy');
+      delete root.dataset['vizLoading'];
+      delete root.dataset['vizFailed'];
       delete root.dataset['vizInit']; // allow re-init after a View Transition
     }
     teardowns.set(root, teardown);
@@ -1204,7 +1605,42 @@ const targetId = `${uid}-target`;
       }
     }
 
-    /** Enable/disable transport buttons for the position (design §4 state table). */
+    /**
+     * A11Y-1: marks a transport control unavailable WITHOUT taking it out of the
+     * tab order or out from under the user's focus. `disabled` on the focused
+     * element sends focus to `<body>`, which costs a keyboard user their place
+     * AND kills the island's Space/←/→ shortcuts (they are bound to the viz
+     * root). `aria-disabled` says the same thing to assistive tech, CSS paints
+     * the same unavailable state, and the click handlers no-op.
+     */
+    function setBound(btn: HTMLButtonElement | null, bound: boolean): void {
+      btn?.setAttribute('aria-disabled', bound ? 'true' : 'false');
+    }
+
+    /** Whether a control is currently at a bound (and so must ignore activation). */
+    function isBound(btn: HTMLButtonElement | null): boolean {
+      return btn?.getAttribute('aria-disabled') === 'true';
+    }
+
+    /**
+     * Runs a transport action only while its control is available. EVERY route
+     * to the transport goes through here — the click handlers and the Space/←/→
+     * shortcuts alike — because the `.viz-keys` hint advertises the keys as
+     * equivalent to the buttons, and a key that acted while the button it mirrors
+     * reads "unavailable" would make the bound state a lie. `aria-disabled`
+     * (A11Y-1) blocks nothing on its own, so the guard has to be in the handler.
+     */
+    function activate(btn: HTMLButtonElement | null, run: () => void): void {
+      if (!isBound(btn)) run();
+    }
+
+    /** Sets a button's accessible name and its matching hover tooltip together. */
+    function setButtonLabel(btn: HTMLButtonElement, name: string): void {
+      btn.setAttribute('aria-label', name);
+      btn.setAttribute('title', name);
+    }
+
+    /** Mark transport buttons available/at-bound for the position (design §4). */
     function updateButtons(
       index: number,
       length: number,
@@ -1212,26 +1648,57 @@ const targetId = `${uid}-target`;
     ): void {
       const atStart = index <= 0;
       const atEnd = index >= length - 1;
-      if (backBtn) backBtn.disabled = atStart;
-      if (resetBtn) resetBtn.disabled = atStart;
-      if (fwdBtn) fwdBtn.disabled = atEnd;
+      setBound(backBtn, atStart);
+      setBound(resetBtn, atStart);
+      setBound(fwdBtn, atEnd);
       if (playBtn) {
         // VIZ-4: at the end the button REPLAYS (Player.play seeks to 0 first),
-        // so it stays enabled there; only a trace with nothing to advance
-        // through can disable it. This is also the single writer of the play
-        // button's accessible name — onPlayStateChange routes back through here
-        // so the two can never disagree about the state.
-        playBtn.disabled = length < 2;
-        playBtn.setAttribute(
-          'aria-label',
+        // so it stays available there; only a trace with nothing to advance
+        // through is bound. This is also the single writer of the play button's
+        // accessible name — onPlayStateChange routes back through here so the
+        // two can never disagree about the state.
+        setBound(playBtn, length < 2);
+        setButtonLabel(
+          playBtn,
           playing ? 'Pause' : atEnd ? 'Replay from start' : 'Play',
         );
       }
     }
 
+    /**
+     * A11Y-6 (spec §10's M7 exception): above 1× the trace advances every ~300ms
+     * or faster, so a polite live region either floods the reader or drops most
+     * of it — either way it is unusable and it drowns out the rest of the page.
+     * Mute it for exactly that case. Every manual step, seek and pause restores
+     * it (they all pause first, and this runs on the pause), and `onStep`
+     * unmutes BEFORE writing the last step so the one announcement that matters —
+     * where the run ended — still lands, once.
+     */
+    function syncLiveMute(): void {
+      const mute = (player?.isPlaying ?? false) && (player?.speed ?? 1) > 1;
+      explain!.setAttribute('aria-live', mute ? 'off' : 'polite');
+    }
+
+    /**
+     * Applies a speed multiplier to THIS island's player. The single place that
+     * calls `setSpeed`, because that method fires no callback and the live-region
+     * policy therefore has to be re-evaluated by hand: a speed change mid-run
+     * crosses the 1× mute threshold in both directions (A11Y-6). Used by the
+     * `<select>`, by the sibling-sync listener, and by the stored-preference
+     * restore, so none of the three can forget it.
+     */
+    function applySpeed(multiplier: number): void {
+      player?.setSpeed(multiplier);
+      syncLiveMute();
+    }
+
     /** onStep: sync explanation, slider, counter, metrics, and button states. */
     function onStep(index: number, step: Step<unknown>): void {
       const length = player?.length ?? 1;
+      // Unmute before the FINAL write, not after it: flipping aria-live back
+      // afterwards announces nothing, because the region's content stopped
+      // changing at the same moment (A11Y-6).
+      if (index >= length - 1) explain!.setAttribute('aria-live', 'polite');
       explain!.textContent = step.explanation;
       slider!.value = String(index);
       slider!.setAttribute('aria-valuetext', `Step ${index + 1} of ${length}`);
@@ -1242,10 +1709,17 @@ const targetId = `${uid}-target`;
       if (counter) counter.textContent = `${index + 1} / ${length}`;
       renderMetrics(step);
       updateButtons(index, length, player?.isPlaying ?? false);
+      // The renderer has just redrawn: if that widened the drawing, the RSP-2
+      // floor and the scroll-region state both have to be recomputed for it.
+      remeasureIfResized();
     }
 
     /** onPlayStateChange: swap the Play/Pause glyph, then refresh button state. */
     function onPlayStateChange(playing: boolean): void {
+      // Live-region policy first: this fires on pause BEFORE the step that
+      // caused it is drawn (every Player method pauses, then draws), so the
+      // restored region is in place for that step's announcement.
+      syncLiveMute();
       if (!playBtn) return;
       // data-playing drives the CSS glyph swap. No aria-pressed (VIZ-9/A11Y-7):
       // the accessible name carries the state, and updateButtons owns that name.
@@ -1297,19 +1771,85 @@ const targetId = `${uid}-target`;
       if (!player) return;
       slider!.max = String(Math.max(player.length - 1, 0));
       slider!.disabled = false;
+      measureCanvas();
     }
 
-    /** Renders a terminal "unavailable" state (chunk load failure). */
+    /**
+     * RSP-2: gives the drawing a legibility floor and keeps the resulting scroll
+     * container operable. The floor itself is CSS (`min-width` from
+     * `--viz-natural-w`); this reads the LIVE `viewBox` — the renderer rewrites
+     * it whenever the item count changes — and then reconciles the canvas's two
+     * competing tabindex needs against reality:
+     *
+     * - not overflowing → `tabindex="-1"`: a click target for the Space/←/→
+     *   shortcuts, invisible to assistive tech and absent from the tab order;
+     * - overflowing → a real scroll region, so `tabindex="0"` + `role="group"` +
+     *   a name, because a scrollable box no one can reach with a keyboard is a
+     *   2.1.1 failure — a worse trade than the reflow it was fixing.
+     */
+    function measureCanvas(): void {
+      const svg = canvas!.querySelector('svg');
+      if (svg instanceof SVGSVGElement) {
+        // Remember the geometry this pass ran against (remeasureIfResized).
+        measuredViewBox = svg.getAttribute('viewBox');
+        const natural = svg.viewBox.baseVal.width;
+        if (natural > 0) {
+          canvas!.style.setProperty(
+            '--viz-natural-w',
+            `${Math.round(natural)}px`,
+          );
+        }
+      }
+      // 1px of slack: sub-pixel layout rounding otherwise reports a permanent
+      // overflow on boxes that visually fit exactly.
+      const overflows = canvas!.scrollWidth - canvas!.clientWidth > 1;
+      canvas!.setAttribute('tabindex', overflows ? '0' : '-1');
+      if (overflows) {
+        canvas!.setAttribute('role', 'group');
+        canvas!.setAttribute('aria-label', `${title}, scrollable diagram`);
+      } else {
+        canvas!.removeAttribute('role');
+        canvas!.removeAttribute('aria-label');
+      }
+    }
+
+    /**
+     * RSP-2 upkeep. Several renderers GROW mid-trace — a tree gains a level, a
+     * hash bucket gains a chain link, an array insert adds a cell — and both the
+     * legibility floor and the scroll-region reconciliation are computed from the
+     * `viewBox`, so a single mount-time measurement goes stale on exactly the
+     * lessons that need it most. Reading the attribute is a string compare that
+     * touches no layout, so it can run on every step; the full measurement (which
+     * reads `scrollWidth` and therefore forces a synchronous reflow) runs only
+     * when the drawing really changed shape.
+     */
+    function remeasureIfResized(): void {
+      const svg = canvas!.querySelector('svg');
+      if (!(svg instanceof SVGSVGElement)) return;
+      if (svg.getAttribute('viewBox') === measuredViewBox) return;
+      measureCanvas();
+    }
+
+    /** Renders the terminal "failed" state (chunk load / bad input — TD defense). */
     function renderUnavailable(): void {
+      // Distinguishable from "loading" (VIZ-*): the controls are hidden rather
+      // than dimmed, the busy flag is cleared, and the copy says what the reader
+      // can still do instead of only naming the failure.
+      delete root.dataset['vizLoading'];
+      root.removeAttribute('aria-busy');
+      root.dataset['vizFailed'] = 'true';
       canvas!.replaceChildren();
       const box = document.createElement('p');
       box.className = 'viz-unavailable';
-      box.textContent = 'Visualization unavailable.';
+      box.textContent =
+        'This visualization could not load. Reload the page to try again — the steps are also described in the text below.';
       canvas!.appendChild(box);
     }
 
     /** The mount sequence (architecture §5.3). */
     async function mount(): Promise<void> {
+      // Now it really is loading: the chunks are about to be fetched.
+      root.setAttribute('aria-busy', 'true');
       const algoThunk = (
         algorithms as Record<string, () => Promise<Algorithm<unknown, unknown>>>
       )[algoId];
@@ -1359,19 +1899,36 @@ const targetId = `${uid}-target`;
       player.reset();
       syncTraceBounds();
       wireControls();
+      delete root.dataset['vizLoading'];
+      root.removeAttribute('aria-busy');
       root.setAttribute('data-viz-ready', 'true');
     }
 
     /** Wires every control to the player once it exists (all listeners aborted on teardown). */
     function wireControls(): void {
-      playBtn?.addEventListener('click', () => player?.toggle(), { signal });
-      backBtn?.addEventListener('click', () => player?.stepBackward(), {
-        signal,
-      });
-      fwdBtn?.addEventListener('click', () => player?.stepForward(), {
-        signal,
-      });
-      resetBtn?.addEventListener('click', () => player?.reset(), { signal });
+      // Bound-state guards (A11Y-1): the button stays focusable and focused at a
+      // bound, so its handler is what has to decline. Player clamps every method
+      // anyway — this only avoids the pointless redraw and keeps the UI honest.
+      playBtn?.addEventListener(
+        'click',
+        () => activate(playBtn, () => player?.toggle()),
+        { signal },
+      );
+      backBtn?.addEventListener(
+        'click',
+        () => activate(backBtn, () => player?.stepBackward()),
+        { signal },
+      );
+      fwdBtn?.addEventListener(
+        'click',
+        () => activate(fwdBtn, () => player?.stepForward()),
+        { signal },
+      );
+      resetBtn?.addEventListener(
+        'click',
+        () => activate(resetBtn, () => player?.reset()),
+        { signal },
+      );
       slider!.addEventListener(
         'input',
         () => player?.seek(Number(slider!.value)),
@@ -1379,13 +1936,45 @@ const targetId = `${uid}-target`;
       );
       speedSel?.addEventListener(
         'change',
-        () => player?.setSpeed(Number(speedSel.value)),
+        () => {
+          applySpeed(Number(speedSel.value));
+          storeSpeed(speedSel.value);
+          // One preference, N islands: tell the siblings, so the visualizer
+          // further down the lesson doesn't keep running at the old rate
+          // (SPEED_EVENT). Only a real `change` reaches here, so this never
+          // echoes the listener below.
+          document.dispatchEvent(
+            new CustomEvent(SPEED_EVENT, { detail: speedSel.value }),
+          );
+        },
+        { signal },
+      );
+
+      // Sibling sync. Bound with {signal} like every other listener, so teardown
+      // (TD-4) unsubscribes this island from the document automatically — a
+      // document-level listener is exactly the kind that outlives a View
+      // Transition otherwise.
+      document.addEventListener(
+        SPEED_EVENT,
+        (event) => {
+          // Normalized, not trusted: the detail decides what a `<select>` shows,
+          // and only an option this build offers can be displayed.
+          const speed = normalizeSpeed((event as CustomEvent<string>).detail);
+          if (speed === null || !speedSel) return;
+          const value = String(speed);
+          // Re-entrancy guard: on the island that dispatched, the control
+          // already holds this value, so there is nothing left to do.
+          if (speedSel.value === value) return;
+          speedSel.value = value;
+          applySpeed(speed);
+        },
         { signal },
       );
 
       // Enable controls now that a player exists. The custom-input fields + Run
       // button ship `disabled` in SSR (A3) so a pre-hydration click can't submit
       // the actionless form and trigger a full-page reload; enable them here.
+      // From this point on, transport availability is aria-disabled only (A11Y-1).
       [
         playBtn,
         backBtn,
@@ -1395,10 +1984,20 @@ const targetId = `${uid}-target`;
         arrayInput,
         targetInput,
         runBtn,
+        restoreBtn,
       ].forEach((el) => {
         if (el) el.disabled = false;
       });
       updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);
+
+      // Restore the reader's speed preference (§6 `pref:viz-speed`). Applied
+      // AFTER the enable pass so the <select> is already interactive, and only
+      // when it names an option this build still offers.
+      const storedSpeed = readStoredSpeed();
+      if (storedSpeed !== null && speedSel) {
+        speedSel.value = String(storedSpeed);
+        applySpeed(storedSpeed);
+      }
 
       // Custom-input flow (§5.4): recompute on valid, keep trace on invalid.
       form?.addEventListener(
@@ -1419,6 +2018,52 @@ const targetId = `${uid}-target`;
         { signal },
       );
 
+      // Recovery (CMP-14): re-run the AUTHORED example and put its real values
+      // back in the fields, so a broken experiment is one click from the lesson's
+      // own picture. The authored string parsed at build time, so the failure
+      // branch here is unreachable in practice — it is kept because a stale
+      // data-input after a partial swap must not throw.
+      restoreBtn?.addEventListener(
+        'click',
+        () => {
+          if (!algo || !player) return;
+          const parsed = algo.parseInput(rawInput);
+          if (isParseError(parsed)) return;
+          const fields = splitAuthoredInput(rawInput);
+          if (arrayInput) arrayInput.value = fields.input;
+          if (targetInput) targetInput.value = fields.target;
+          clearError();
+          player.loadTrace(algo.run(parsed));
+          syncTraceBounds();
+        },
+        { signal },
+      );
+
+      // Click-then-Space (design §3.3): the shortcuts are bound to the viz root
+      // and only fire while focus is inside it, so clicking the drawing has to
+      // put focus there. preventScroll because the click already established
+      // where the reader is looking.
+      canvas!.addEventListener(
+        'pointerdown',
+        () => canvas!.focus({ preventScroll: true }),
+        { signal },
+      );
+
+      // RSP-2: the overflow verdict depends on the box width, so re-measure when
+      // the viewport changes. One rAF-coalesced pass per burst — resize fires far
+      // faster than layout is worth reading.
+      window.addEventListener(
+        'resize',
+        () => {
+          if (measureFrame !== null) return;
+          measureFrame = requestAnimationFrame(() => {
+            measureFrame = null;
+            if (!destroyed) measureCanvas();
+          });
+        },
+        { signal },
+      );
+
       // Convenience keys inside the viz (design §3.3): Space=toggle, ←/→=step.
       root.addEventListener(
         'keydown',
@@ -1429,13 +2074,20 @@ const targetId = `${uid}-target`;
           if (event.key === ' ' || event.key === 'Spacebar') {
             if (tag === 'BUTTON') return; // let the button's native click fire
             event.preventDefault();
-            player?.toggle();
-          } else if (event.key === 'ArrowLeft') {
+            activate(playBtn, () => player?.toggle());
+          } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            // While the canvas is a real scroll region (RSP-2), ←/→ belong to
+            // the scroll container: stealing them would leave its content
+            // unreachable by keyboard (2.1.1). Everywhere else they step —
+            // through the SAME availability gate as the buttons they mirror, so
+            // a key can never do what the matching control declines to do. The
+            // key is still swallowed at a bound: the page must not scroll
+            // sideways as a consolation for a step that didn't happen.
+            if (canvas!.tabIndex === 0 && canvas!.contains(target)) return;
             event.preventDefault();
-            player?.stepBackward();
-          } else if (event.key === 'ArrowRight') {
-            event.preventDefault();
-            player?.stepForward();
+            if (event.key === 'ArrowLeft')
+              activate(backBtn, () => player?.stepBackward());
+            else activate(fwdBtn, () => player?.stepForward());
           }
         },
         { signal },

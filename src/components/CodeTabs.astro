@@ -14,6 +14,16 @@
  * `role="tabpanel"`s (arrow keys wired in the script). Copy button per panel.
  * JS-off: the `<noscript>` kill-switch hides the tablist/copy and reveals every
  * panel stacked with a visible language heading (design §6.6 fallback).
+ *
+ * M7.2 adds two things, both script-side:
+ * - **Language memory.** The chosen `lang` is stored in `pref:code-lang` and
+ *   re-applied to every group on load (and to sibling groups instantly, via a
+ *   `CustomEvent`), so a JavaScript reader stops re-picking the language on all
+ *   21 groups across the 15 lessons. Each tab therefore carries `data-lang`.
+ * - **Visible copy failure (CMP-9).** A blocked clipboard used to speak only
+ *   through the sr-only status node, so a sighted reader saw "Copy" sitting
+ *   there and assumed success; the button now says so too, with the same
+ *   self-clearing timeout the success path has.
  */
 import { Code } from 'astro:components';
 import { nextUid } from './uid';
@@ -47,6 +57,7 @@ const uid = `ct-${nextUid()}`;
           aria-selected={i === 0 ? 'true' : 'false'}
           tabindex={i === 0 ? 0 : -1}
           class="codetabs__tab"
+          data-lang={tab.lang}
         >
           {tab.label}
         </button>
@@ -72,6 +83,7 @@ const uid = `ct-${nextUid()}`;
           aria-label={`Copy ${tab.label} code`}
         >
           <svg
+            class="codetabs__copy-icon codetabs__copy-icon--copy"
             width="16"
             height="16"
             viewBox="0 0 24 24"
@@ -84,6 +96,25 @@ const uid = `ct-${nextUid()}`;
           >
             <rect x="6" y="6" width="12" height="14" rx="2" />
             <path d="M9 4h6v2H9z" />
+          </svg>
+          {/* Failure glyph — Callout's warning triangle, no new asset. Ships in
+              the static HTML and is swapped in by CSS (mirrors MarkComplete's
+              dual-icon pattern) so the failure state costs no runtime markup. */}
+          <svg
+            class="codetabs__copy-icon codetabs__copy-icon--failed"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3 2 20h20z" />
+            <path d="M12 10v4" />
+            <path d="M12 17h.01" />
           </svg>
           <span class="codetabs__copy-label">Copy</span>
         </button>
@@ -106,8 +137,19 @@ const uid = `ct-${nextUid()}`;
     .codetabs__copy {
       display: none !important;
     }
-    .codetabs__panel[hidden] {
-      display: block !important;
+    /* `@layer base` is load-bearing, not decoration: Tailwind's preflight hides
+       `[hidden]` with `display: none !important` from inside that layer, and for
+       IMPORTANT declarations a layered rule beats an unlayered one no matter how
+       specific the unlayered one is. Unlayered, this override silently lost and
+       the JS-off fallback showed only the first language — the other two code
+       blocks were unreachable without JS. Joining the same layer puts the two
+       rules on equal footing, where this one's higher specificity (class +
+       attribute vs `[hidden]:where(…)`) decides. Same preflight quirk
+       MarkComplete.astro documents from the other direction. */
+    @layer base {
+      .codetabs__panel[hidden] {
+        display: block !important;
+      }
     }
     .codetabs__lang {
       position: static !important;
@@ -187,11 +229,34 @@ const uid = `ct-${nextUid()}`;
     color: var(--text-muted);
     font-size: var(--text-xs);
     cursor: pointer;
-    transition: color var(--duration-fast) var(--ease-standard);
+    transition:
+      color var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard);
   }
 
   .codetabs__copy:hover {
     color: var(--text);
+  }
+
+  /* Copy failed (CMP-9). Colour is a SECOND signal only: the label itself reads
+     "Copy failed" and the glyph becomes a warning triangle, so nothing here is
+     colour-only (WCAG 1.4.1). --accent-warn, never --hl-compare — the six --hl-*
+     roles stay reserved for the visualization. */
+  .codetabs__copy[data-copy-failed] {
+    color: var(--accent-warn);
+    border-color: var(--accent-warn);
+  }
+
+  .codetabs__copy-icon--failed {
+    display: none;
+  }
+
+  .codetabs__copy[data-copy-failed] .codetabs__copy-icon--copy {
+    display: none;
+  }
+
+  .codetabs__copy[data-copy-failed] .codetabs__copy-icon--failed {
+    display: inline;
   }
 
   .codetabs :global(pre) {
@@ -207,6 +272,42 @@ const uid = `ct-${nextUid()}`;
 <script>
   // Progressive enhancement: WAI-ARIA tab behavior + copy. Without this script
   // the noscript fallback shows all panels; with it, the tabs are interactive.
+
+  // SPEC-GAP: `pref:code-lang` is an enumerated §6 *preference* key (amended for
+  // M7.2). It holds the Shiki `lang` id of the last tab the reader chose — an
+  // explicit user act, never an inference — so the language follows them across
+  // groups and lessons. Being a preference, the reset-progress control
+  // deliberately never clears it.
+  const LANG_KEY = 'pref:code-lang';
+
+  /** Same-page sync channel: one group's choice re-selects every sibling group. */
+  const LANG_EVENT = 'codetabs:lang';
+
+  /** How long a copy result — success OR failure — stays on the button. */
+  const RESULT_MS = 1500;
+
+  /** Reads the stored language; `null` when nothing is stored or storage is blocked. */
+  function readLang(): string | null {
+    try {
+      return localStorage.getItem(LANG_KEY);
+    } catch {
+      // Private mode / blocked storage: the server-rendered default stands.
+      return null;
+    }
+  }
+
+  /** Persists the language; a blocked store just means the choice lasts one page. */
+  function writeLang(lang: string): void {
+    try {
+      localStorage.setItem(LANG_KEY, lang);
+    } catch {
+      // Same as above — the in-page selection still works, it just won't survive.
+    }
+  }
+
+  // One storage read for the whole page, taken before any group is wired up.
+  const storedLang = readLang();
+
   const groups = document.querySelectorAll<HTMLElement>('[data-codetabs]');
 
   groups.forEach((group) => {
@@ -229,8 +330,27 @@ const uid = `ct-${nextUid()}`;
       if (focus) tabs[index]?.focus();
     }
 
+    /** Index of the tab for `lang` in THIS group, or -1 when it has no such tab. */
+    function indexOfLang(lang: string | null | undefined): number {
+      if (!lang) return -1;
+      return tabs.findIndex((tab) => tab.dataset['lang'] === lang);
+    }
+
+    /**
+     * A selection the reader asked for (click or arrow key): select it, remember
+     * the language, and tell the other groups on the page so one lesson never
+     * shows Python in one block and Java in the next.
+     */
+    function selectByUser(index: number): void {
+      select(index);
+      const lang = tabs[index]?.dataset['lang'];
+      if (!lang) return;
+      writeLang(lang);
+      document.dispatchEvent(new CustomEvent(LANG_EVENT, { detail: lang }));
+    }
+
     tabs.forEach((tab, i) => {
-      tab.addEventListener('click', () => select(i));
+      tab.addEventListener('click', () => selectByUser(i));
       tab.addEventListener('keydown', (event) => {
         let next: number;
         if (event.key === 'ArrowRight') next = (i + 1) % tabs.length;
@@ -240,31 +360,79 @@ const uid = `ct-${nextUid()}`;
         else if (event.key === 'End') next = tabs.length - 1;
         else return;
         event.preventDefault();
-        select(next);
+        // Arrow keys activate automatically here, so this IS a language choice
+        // and persists exactly like a click.
+        selectByUser(next);
       });
     });
 
-    // Copy buttons: read the highlighted <pre> text, then confirm via role=status.
+    // Sibling sync. `focus = false` is load-bearing twice: the reader is
+    // interacting with ANOTHER group (moving focus would yank them out of it),
+    // and re-applying to the origin group must stay a no-op.
+    document.addEventListener(LANG_EVENT, (event) => {
+      const index = indexOfLang((event as CustomEvent<string>).detail);
+      if (index >= 0) select(index, false);
+    });
+
+    // Restore the remembered language. Index 0 is what the HTML already shows,
+    // so only a real change touches the DOM — and never with focus: stealing it
+    // on load would drag the reader down to the first code block. `select()`
+    // rewrites the whole roving tabindex, so the restored tab becomes the single
+    // tabbable one and the arrow-key behavior stays intact.
+    const restore = indexOfLang(storedLang);
+    if (restore > 0) select(restore, false);
+
+    // Copy buttons: read the highlighted <pre> text, then report the outcome on
+    // the button (sighted) and through role=status (assistive tech).
     group
       .querySelectorAll<HTMLButtonElement>('.codetabs__copy')
       .forEach((button) => {
+        const label = button.querySelector('.codetabs__copy-label');
+        // Per-button timer: a second click must cancel the first revert, or the
+        // earlier timeout would wipe the newer result mid-flight.
+        let revert = 0;
+
+        /**
+         * Shows one copy outcome in both channels, then clears itself.
+         *
+         * Failure gets the SAME visible treatment and the SAME timeout as
+         * success (CMP-9): writing only to the sr-only node left a sighted
+         * reader looking at an unchanged "Copy" button and assuming the code was
+         * on their clipboard, and a failure branch with no timeout could leave a
+         * stale "Copy failed" announcement sitting under a later success.
+         *
+         * @param text - Visible button label for the outcome.
+         * @param message - What the sr-only `role="status"` node announces.
+         * @param failed - Whether this is the failure state (drives the glyph
+         * swap and `--accent-warn` styling; never the only signal).
+         */
+        function report(text: string, message: string, failed: boolean): void {
+          if (label) label.textContent = text;
+          button.toggleAttribute('data-copy-failed', failed);
+          if (status) status.textContent = message;
+          window.clearTimeout(revert);
+          revert = window.setTimeout(() => {
+            if (label) label.textContent = 'Copy';
+            button.removeAttribute('data-copy-failed');
+            if (status) status.textContent = '';
+          }, RESULT_MS);
+        }
+
         button.addEventListener('click', async () => {
           const pre = button.parentElement?.querySelector('pre');
           const code = pre?.textContent ?? '';
           try {
             await navigator.clipboard.writeText(code);
-            const label = button.querySelector('.codetabs__copy-label');
-            if (label) label.textContent = 'Copied';
-            if (status) status.textContent = 'Code copied to clipboard';
-            window.setTimeout(() => {
-              if (label) label.textContent = 'Copy';
-              if (status) status.textContent = '';
-            }, 1500);
+            report('Copied', 'Code copied to clipboard', false);
           } catch {
-            // Clipboard blocked (permissions/insecure context): leave code visible to copy manually.
-            if (status)
-              status.textContent =
-                'Copy failed — select the code to copy manually';
+            // Clipboard blocked (insecure context, permissions, embedded
+            // webview) — or missing entirely, which throws here too. The code
+            // stays on screen to select manually; say so where it can be seen.
+            report(
+              'Copy failed',
+              'Copy failed — select the code to copy manually',
+              true,
+            );
           }
         });
       });

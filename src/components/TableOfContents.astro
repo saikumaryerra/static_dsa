@@ -5,11 +5,17 @@
  * Props:
  * - `headings` Astro's `MarkdownHeading[]` (`{ depth, slug, text }`); only h2
  *   (depth 2) is shown — the 7 lesson sections.
- * - `variant`  "inline" (mobile/tablet `<details>`) or "rail" (≥1024 sticky nav).
+ * - `variant`  "inline" (a sticky mini-ToC below 1024px) or "rail" (≥1024 sticky nav).
  *
  * Links are plain in-page anchors — fully functional with JS off. Active-section
- * highlighting is a progressive enhancement wired by LessonLayout's script
- * (`data-toc-link`); the list is fully usable without it.
+ * highlighting and the collapsed bar's section name are progressive enhancements
+ * wired by LessonLayout's script (`data-toc-link`, `data-toc-current`); the list
+ * is fully usable without either.
+ *
+ * M7.2: the inline variant is promoted from a plain in-flow `<details>` to a bar
+ * that sticks under the site header, so wayfinding survives a 7,000px lesson on
+ * a phone. It stays a NATIVE `<details>` (zero JS to open/close), and its open
+ * list is absolutely positioned so expanding it never pushes the article down.
  */
 import type { MarkdownHeading } from 'astro';
 
@@ -24,7 +30,7 @@ const items = headings.filter((h) => h.depth === 2);
 
 {
   variant === 'inline' ? (
-    <details class="toc toc--inline">
+    <details class="toc toc--inline" data-toc-inline>
       <summary>
         <svg
           class="toc__chevron"
@@ -41,8 +47,12 @@ const items = headings.filter((h) => h.depth === 2);
           <path d="M9 6l6 6-6 6" />
         </svg>
         <span>On this page</span>
+        {/* Filled by the scroll-spy. NOT aria-hidden: it is visible text inside
+            the summary's label, and hiding it from the accessible name while
+            showing it on screen is exactly what WCAG 2.5.3 forbids. */}
+        <span class="toc__current" data-toc-current />
       </summary>
-      <nav aria-label="On this page">
+      <nav class="toc__panel" aria-label="On this page">
         <ol>
           {items.map((h) => (
             <li>
@@ -96,18 +106,31 @@ const items = headings.filter((h) => h.depth === 2);
     border-left-color: var(--brand);
   }
 
-  /* ---- Inline (mobile/tablet) form ---- */
+  /* ---- Inline form: the sticky mini-ToC bar below 1024px (M7.2) ---- */
   .toc--inline {
     display: block;
+    position: sticky;
+    /* Directly under the header — no gap, or the article shows through it. */
+    top: var(--header-h);
+    /* Below the site header (z-40), above the article it covers. */
+    z-index: 30;
+    margin-bottom: var(--space-2);
+    background-color: var(--bg);
+    border-bottom: 1px solid var(--border);
   }
 
   .toc--inline summary {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-3) 0;
+    /* --toc-bar-h is declared on .lesson (global.css): the heading
+       scroll-margin-top has to know this bar's height, and two scoped
+       stylesheets cannot otherwise share a value. */
+    min-height: var(--toc-bar-h);
+    padding-block: var(--space-2);
     cursor: pointer;
     color: var(--text);
+    font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     list-style: none;
   }
@@ -125,12 +148,41 @@ const items = headings.filter((h) => h.depth === 2);
     transform: rotate(90deg);
   }
 
+  /* The section you are in, right-aligned in the collapsed bar. Truncates
+     rather than wraps so the bar's height never changes as you scroll. */
+  .toc__current {
+    margin-left: auto;
+    max-width: 55%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text-muted);
+    font-weight: var(--weight-normal);
+  }
+
+  /* Absolutely positioned (M7.2): opening the ToC must not shift the article
+     under the reader's finger. The bar itself is `position: sticky`, which is a
+     positioned ancestor, so this anchors to the bar. */
+  .toc__panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: min(60svh, 24rem);
+    overflow-y: auto;
+    padding: var(--space-2) var(--space-2) var(--space-3);
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius-card) var(--radius-card);
+    box-shadow: var(--shadow-2);
+  }
+
   /* ---- Rail (desktop) form ---- */
   .toc--rail {
     display: none;
     position: sticky;
-    top: 5.5rem;
-    max-height: calc(100svh - 7rem);
+    top: calc(var(--header-h) + var(--space-6));
+    max-height: calc(100svh - var(--header-h) - var(--space-12));
     overflow-y: auto;
   }
 

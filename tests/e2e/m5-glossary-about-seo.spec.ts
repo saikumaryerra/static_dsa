@@ -1,32 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
-
-/**
- * Waits until an animated anchor jump has finished.
- *
- * `scroll-behavior: smooth` (M7.1 MOT-1) makes anchor jumps animated, so any
- * assertion about where a heading *lands* must wait for the animation to end
- * instead of sampling it in flight. Comparing two consecutive animation FRAMES
- * is not enough: the frames right after the click can still read the pre-scroll
- * offset, which is indistinguishable from "already settled". Sampling >=100ms
- * apart is, because a scroll in flight always moves between samples.
- */
-async function waitForAnchorScroll(page: Page): Promise<void> {
-  let previous = Number.NaN;
-  await expect
-    .poll(
-      async () => {
-        const current = await page.evaluate(() => Math.round(window.scrollY));
-        const settled = current === previous;
-        previous = current;
-        return settled;
-      },
-      // Samples are >=100ms apart, so a scroll still in flight always reports a
-      // different offset than the previous sample and keeps polling.
-      { intervals: [100, 100, 100, 150, 250, 500], timeout: 5_000 },
-    )
-    .toBe(true);
-}
+import { expect, test } from '@playwright/test';
+// M7.2: the anchor-settle helper moved to a shared module so the new glossary
+// and wayfinding specs use the SAME definition rather than a third copy of it.
+// It cannot live in a spec file: importing one spec from another makes
+// Playwright register the imported tests twice.
+import { waitForAnchorScroll } from './utils/scroll';
 
 /**
  * M5 independent QA (spec §17 M5 acceptance + §14 SEO + §12 a11y; arch/design docs

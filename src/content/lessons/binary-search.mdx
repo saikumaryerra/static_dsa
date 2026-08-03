@@ -104,13 +104,13 @@ export const linearTabs = [
 
 Think about looking up a word in a paper dictionary. You do not start at page one and read every entry. You flip to the middle, glance at the word there, and decide: is my word before this page or after it? That one glance lets you throw away half the dictionary. Flip to the middle of what is left, decide again, and throw away half of that. In a few flips you have gone from thousands of pages to the single one you need.
 
-**Binary search** is exactly that idea for a **sorted** list. Because the values are in order, checking the middle one tells you which half your target could be in — so you can discard the other half every single time. Halving again and again is astonishingly fast: a sorted list of a million items is found in about twenty checks.
+**[Binary search](/glossary#binary-search)** is exactly that idea for a **sorted** list. Because the values are in order, checking the middle one tells you which half your target could be in — so you can discard the other half every single time. Halving again and again is astonishingly fast: a sorted list of a million items is found in about twenty checks.
 
 The one rule you must not forget: the list has to be **sorted first**. Without order, the middle value tells you nothing about which side to keep, and the whole trick falls apart.
 
 ### The baseline: linear search
 
-Before binary search, there is the obvious way to find something: start at the first item and check each one in turn until you hit the target or run out of items. That is **linear search**. It is dead simple and it works on **any** array — sorted or not — but it has no shortcut: in the worst case it inspects every element, so searching a million items can take a million comparisons. Binary search exists precisely to beat that steady one-at-a-time march, and the price of admission is that the data must already be sorted. Keep both in mind as you read on: linear search trades speed for zero requirements; binary search demands order and repays you with logarithmic speed.
+Before binary search, there is the obvious way to find something: start at the first item and check each one in turn until you hit the target or run out of items. That is **[linear search](/glossary#linear-search)**. It is dead simple and it works on **any** array — sorted or not — but it has no shortcut: in the worst case it inspects every element, so searching a million items can take a million comparisons. Binary search exists precisely to beat that steady one-at-a-time march, and the price of admission is that the data must already be sorted. Keep both in mind as you read on: linear search trades speed for zero requirements; binary search demands order and repays you with logarithmic speed.
 
 ## How it works
 

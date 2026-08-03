@@ -3,68 +3,103 @@
  * MarkComplete — localStorage "done" toggle island (design §6.9, site spec §9).
  *
  * Props:
- * - `slug` the lesson slug; persistence key is `lesson:{slug}:complete = "1"`.
+ * - `slug`    the lesson slug; persistence key is `lesson:{slug}:complete = "1"`
+ *             (spec §6 *progress* key — cleared by the reset-progress control).
+ * - `lessons` every published lesson, injected as JSON at build time so the
+ *             saved-note can say "N of 15 complete". M7.2 rule: NEVER enumerate
+ *             localStorage by key prefix — a stale `lesson:old-slug:complete`
+ *             left by a rename would inflate the count.
  *
- * Mirrors the ThemeToggle pattern: `try/catch` localStorage read/write and an
+ * Mirrors the ThemeToggle pattern: `try/catch` localStorage access and an
  * `apply()` that keeps `aria-pressed` in sync — which in turn drives the icon
  * swap and the filled styling in CSS. The visible label is deliberately
  * CONSTANT (M7.1 CMP-12): a toggle button's state belongs in `aria-pressed`,
  * and renaming it to "Completed" double-encoded that state (assistive tech read
  * "Completed, pressed"). An sr-only rename is not an option either — a hidden
  * name that differs from the visible text fails WCAG 2.5.3 Label in Name.
- * Both icons ship in the static HTML; the script upgrades state on load. Hidden
- * under `<noscript>` (can't persist without JS) — same rationale/kill-switch as
- * ThemeToggle. The /learn index reads the same key (M4).
+ * Both icons ship in the static HTML; the script upgrades state on load.
+ *
+ * M7.2: the button now sits in a wrapper with the note it reveals once the
+ * lesson is marked done ("Saved — N of 15 complete" + where that save lives).
+ * BOTH are JS-only, so the `<noscript>` kill-switch targets the WRAPPER — the
+ * old rule hid only `.mark-complete` and would have orphaned the note. Reads go
+ * through `src/lib/progress.ts` (the one progress module); the write stays here
+ * because this component is the only writer of the completion key.
  */
+import type { LessonRef } from '../lib/progress';
+
 interface Props {
   slug: string;
+  lessons: LessonRef[];
 }
 
-const { slug } = Astro.props;
+const { slug, lessons } = Astro.props;
 ---
 
-<button
-  type="button"
-  class="btn-secondary mark-complete"
-  data-mark-complete
-  data-slug={slug}
-  aria-pressed="false"
+<div
+  class="mark-complete-group"
+  data-mark-complete-group
+  data-lessons={JSON.stringify(lessons)}
 >
-  <svg
-    class="mark-complete__icon mark-complete__icon--incomplete"
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
+  <button
+    type="button"
+    class="btn-secondary mark-complete"
+    data-mark-complete
+    data-slug={slug}
+    aria-pressed="false"
   >
-    <circle cx="12" cy="12" r="9"></circle>
-  </svg>
-  <svg
-    class="mark-complete__icon mark-complete__icon--complete"
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <circle cx="12" cy="12" r="9"></circle>
-    <path d="M8 12l3 3 5-6"></path>
-  </svg>
-  <span class="mark-complete__label">Mark as complete</span>
-</button>
+    <svg
+      class="mark-complete__icon mark-complete__icon--incomplete"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9"></circle>
+    </svg>
+    <svg
+      class="mark-complete__icon mark-complete__icon--complete"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9"></circle>
+      <path d="M8 12l3 3 5-6"></path>
+    </svg>
+    <span class="mark-complete__label">Mark as complete</span>
+  </button>
+
+  {
+    /* Revealed by the script once a read-back confirms the save. Deliberately
+      NOT a live region: `aria-pressed` already announces the state change, and
+      M7.1 CMP-4 showed a second announcement on the same action reads as a
+      stutter. The note is supplementary, visible confirmation. */
+  }
+  <p class="mark-complete__note" data-mark-complete-note hidden>
+    <span class="mark-complete__count" data-mark-complete-count></span>
+    <span class="mark-complete__privacy">
+      Saved only in this browser — no account needed.
+    </span>
+  </p>
+</div>
 
 <noscript>
   <style>
-    .mark-complete {
+    /* Kill-switch for the whole group (button + the note it reveals): neither
+       can work without JS. `!important` because a kill-switch must be
+       unbeatable by any equal-specificity rule in the bundle (QA DEFECT-1). */
+    .mark-complete-group {
       display: none !important;
     }
   </style>
@@ -93,37 +128,87 @@ const { slug } = Astro.props;
   .mark-complete[aria-pressed='true'] .mark-complete__icon--complete {
     display: inline;
   }
+
+  .mark-complete__note {
+    margin-top: var(--space-3);
+    max-width: var(--measure);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  /* Block spans rather than a flex column: Tailwind's preflight hides `[hidden]`
+     with `display: none !important`, so the parent's `hidden` attribute still
+     wins over any display these carry. */
+  .mark-complete__count {
+    display: block;
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+  }
+
+  .mark-complete__privacy {
+    display: block;
+    color: var(--text-muted);
+  }
 </style>
 
 <script>
-  const button = document.querySelector<HTMLButtonElement>(
-    '[data-mark-complete]',
-  );
-  const slug = button?.dataset['slug'];
-  const KEY = slug ? `lesson:${slug}:complete` : null;
+  import {
+    completeKey,
+    countComplete,
+    isComplete,
+    onRestore,
+    parseLessonRefs,
+  } from '../lib/progress';
 
-  /** Reads persisted completion; storage can throw (blocked/private mode). */
-  function readDone(): boolean {
-    if (!KEY) return false;
-    try {
-      return localStorage.getItem(KEY) === '1';
-    } catch {
-      return false;
-    }
-  }
+  const group = document.querySelector<HTMLElement>(
+    '[data-mark-complete-group]',
+  );
+  const button =
+    group?.querySelector<HTMLButtonElement>('[data-mark-complete]') ?? null;
+  const note =
+    group?.querySelector<HTMLElement>('[data-mark-complete-note]') ?? null;
+  const count =
+    group?.querySelector<HTMLElement>('[data-mark-complete-count]') ?? null;
+  const slug = button?.dataset['slug'] ?? '';
+  // The key format comes from the progress module, never retyped here: this is
+  // the only writer, and a template literal on both sides let the write and the
+  // reads drift apart silently (M7.2 review).
+  const KEY = slug ? completeKey(slug) : null;
+
+  // The curriculum as injected at build time. `parseLessonRefs` is defensive by
+  // contract: a malformed payload yields [] rather than throwing inside the
+  // island, which costs the count line and nothing else.
+  const lessons = parseLessonRefs(group?.dataset['lessons']);
 
   /**
-   * Syncs the button's pressed state to `done`. The visible label stays
-   * "Mark as complete" (see the component doc): `aria-pressed` plus the check
-   * glyph and filled styling it drives in CSS carry the state on their own.
+   * Syncs the button's pressed state to `done` and reveals the saved-note.
+   * The visible label stays "Mark as complete" (see the component doc):
+   * `aria-pressed` plus the check glyph and filled styling it drives in CSS
+   * carry the state on their own.
    */
   function apply(done: boolean): void {
     if (!button) return;
     button.setAttribute('aria-pressed', done ? 'true' : 'false');
+
+    // The note claims the choice was SAVED, so show it only when a read-back
+    // agrees. With storage blocked (private mode) the toggle still flips for
+    // this view, and promising a save that did not happen would be a lie.
+    const saved = done && isComplete(slug);
+    if (note) note.hidden = !saved;
+    if (saved && count) {
+      const totals = countComplete(lessons);
+      // No injected curriculum (or a malformed one): drop the count line and
+      // keep the honest half of the note.
+      count.hidden = totals.total === 0;
+      count.textContent =
+        totals.total === 0
+          ? ''
+          : `Saved — ${totals.done} of ${totals.total} complete`;
+    }
   }
 
   button?.addEventListener('click', () => {
-    const next = !readDone();
+    const next = !isComplete(slug);
     if (KEY) {
       try {
         if (next) localStorage.setItem(KEY, '1');
@@ -135,6 +220,10 @@ const { slug } = Astro.props;
     apply(next);
   });
 
-  // Reflect any previously stored state on load.
-  apply(readDone());
+  // Reflect any previously stored state on load, and again after a
+  // back/forward-cache restore — that path re-runs no script, so a lesson
+  // returned to via Back would otherwise show whatever the button said when the
+  // reader left, even if another tab has since cleared the mark.
+  apply(isComplete(slug));
+  onRestore(() => apply(isComplete(slug)));
 </script>

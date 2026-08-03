@@ -201,6 +201,19 @@ const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
   // (>=3:1)" — a 1.4.11 obligation, so it is gated at the graphics level.
   { fg: '--border-strong', bg: '--surface', min: AA_GRAPHICS },
   { fg: '--border-strong', bg: '--bg', min: AA_GRAPHICS },
+  // M7.2's --accent-warn, gated by the ROLE it plays on each backdrop rather
+  // than by one blanket level — it is the only chrome token that is both text
+  // and a keyline:
+  //   TEXT on --bg  — `.codetabs__copy[data-copy-failed]` colours its "Copy
+  //     failed" label with it at --text-xs, on a button filled with --bg. Small
+  //     text, so 1.4.3 asks the full 4.5:1 (this row also subsumes the keyline
+  //     the same button, and `[aria-invalid]` inputs, draw on --bg).
+  //   KEYLINE on --surface — `.viz-error` / `.viz-unavailable` border-left and
+  //     the /learn reset panel's border, all on cards: 1.4.11 non-text, 3:1.
+  // M7.3's elevation inversion swaps which surface the copy button sits on; when
+  // it does, the AA_TEXT obligation moves to the --surface row with it.
+  { fg: '--accent-warn', bg: '--bg', min: AA_TEXT },
+  { fg: '--accent-warn', bg: '--surface', min: AA_GRAPHICS },
 ];
 
 for (const theme of THEME_NAMES) {

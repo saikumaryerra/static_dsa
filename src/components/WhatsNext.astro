@@ -1,0 +1,75 @@
+---
+/**
+ * WhatsNext — the end-of-lesson close-the-loop section (M7.2; spec §8 "LessonLayout").
+ *
+ * Props:
+ * - `slug`      the lesson being read (MarkComplete's persistence key).
+ * - `lessons`   every published lesson, forwarded to MarkComplete for its
+ *               "N of 15 complete" line (injected at build, never enumerated
+ *               from localStorage).
+ * - `prev` /
+ *   `next`      adjacent lessons in GLOBAL order, or null at a boundary.
+ *
+ * Replaces the old floating "Mark as complete" button plus a separate prev/next
+ * block: finishing a lesson and choosing what to read next are one moment, so
+ * they get one titled section. Everything here is server-rendered — the next
+ * lesson is already a build-time prop — and the only JS-dependent part
+ * (MarkComplete) hides itself behind its own `<noscript>` kill-switch, so with
+ * JS off this section still shows the heading and the whole navigation.
+ */
+import MarkComplete from './MarkComplete.astro';
+import PrevNext from './PrevNext.astro';
+import type { LessonRef } from '../lib/progress';
+
+interface Adjacent {
+  slug: string;
+  title: string;
+  /** Human track name — present ONLY when this neighbour crosses tracks. */
+  trackLabel?: string;
+}
+
+interface Props {
+  slug: string;
+  lessons: LessonRef[];
+  prev: Adjacent | null;
+  next: Adjacent | null;
+}
+
+const { slug, lessons, prev, next } = Astro.props;
+---
+
+<section class="whats-next" aria-labelledby="whats-next">
+  <h2 id="whats-next" class="whats-next__heading">What's next</h2>
+  <MarkComplete slug={slug} lessons={lessons} />
+  <div class="whats-next__nav">
+    <PrevNext prev={prev} next={next} />
+  </div>
+</section>
+
+<style>
+  .whats-next {
+    margin-block: var(--space-8) var(--space-16);
+  }
+
+  /* An h2 for the document outline, but sized below the lesson's section
+     headings: this closes the page, it does not open another section. It is
+     also a legitimate anchor target (#whats-next), so it clears the sticky
+     chrome the same way the body headings do. */
+  .whats-next__heading {
+    font-size: var(--text-xl);
+    margin-bottom: var(--space-4);
+    scroll-margin-top: calc(
+      var(--header-h) + var(--toc-bar-h) + var(--space-2)
+    );
+  }
+
+  @media (min-width: 1024px) {
+    .whats-next__heading {
+      scroll-margin-top: calc(var(--header-h) + var(--space-6));
+    }
+  }
+
+  .whats-next__nav {
+    margin-top: var(--space-6);
+  }
+</style>

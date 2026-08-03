@@ -15,6 +15,7 @@ import { getCollection } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { webSiteJsonLd } from '../lib/structured-data';
+import { resumeLabel, type LessonRef } from '../lib/progress';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
 const totalLessons = published.length;
@@ -100,6 +101,33 @@ function difficultySpread(lessons: CollectionEntry<'lessons'>[]): string {
     : parts.join(' · ');
 }
 
+/**
+ * The lesson list the hero's continue line reads (M7.2 progress system), in
+ * global order. Injected from the BUILD as JSON — localStorage is never
+ * enumerated by prefix, so a renamed or unpublished lesson can never leave a
+ * stale key that points the reader at a 404.
+ */
+const lessonRefs: LessonRef[] = published
+  .map(({ data }) => ({
+    slug: data.slug,
+    title: data.title,
+    order: data.order,
+    track: data.track,
+  }))
+  .sort((a, b) => a.order - b.order);
+
+/** First lesson in global order — the JS-off / nothing-stored destination. */
+const firstLesson = lessonRefs[0];
+
+/**
+ * The continue line's server-rendered wording, from the same helper the island
+ * calls at runtime (with "nothing complete yet" as the only honest build-time
+ * assumption) so the two can never word the same state differently.
+ */
+const resumeFallback = firstLesson
+  ? resumeLabel(firstLesson, 0, lessonRefs.length)
+  : '';
+
 // Derive per-track meta from the collection: count, minutes (summed, rounded to
 // the nearest 5), and the difficulty spread — anti-drift (design §3.5).
 const tracks = trackDefs.map((def) => {
@@ -147,6 +175,34 @@ const tracks = trackDefs.map((def) => {
         How it works <span aria-hidden="true">→</span>
       </a>
     </div>
+
+    {
+      /* Continue line (M7.2): the primary CTA above keeps its stable "Start
+         learning" wording for first-time visitors, and this secondary line is
+         what personalises. It ships server-rendered pointing at lesson 01, so
+         with JS off — or with storage blocked — it is still a true, useful
+         link; the island only rewrites it once it can read this device. */
+    }
+    {
+      firstLesson && (
+        <p
+          class="mt-4 text-sm text-muted"
+          data-lessons={JSON.stringify(lessonRefs)}
+        >
+          <a
+            href={`/learn/${firstLesson.slug}`}
+            class="inline-flex min-h-[44px] items-center gap-1 font-medium text-brand hover:underline"
+            data-resume-link
+          >
+            <span data-resume-label>{resumeFallback}</span>
+            <span aria-hidden="true">→</span>
+          </a>
+          {/* All-complete state: no honest "next" destination, so the link
+              stands down for a plain line. Revealed by the island only. */}
+          <span data-resume-done hidden />
+        </p>
+      )
+    }
   </section>
 
   <!-- Feature blurbs: borderless, whitespace-separated (editorial, not dashboard). -->
@@ -201,3 +257,58 @@ const tracks = trackDefs.map((def) => {
     </div>
   </section>
 </BaseLayout>
+
+<script>
+  /**
+   * Hero continue line (M7.2). The only thing this island does is rewrite one
+   * already-useful link: server-side it reads "Start with 01 · …", and once it
+   * can see this device's `lesson:{slug}:complete` keys it becomes
+   * "Continue: NN · …", or stands down for "All N done — revisit any lesson."
+   *
+   * The primary "Start learning" CTA above is deliberately untouched — a
+   * first-time visitor must always meet the same hero. All storage access goes
+   * through `src/lib/progress.ts` (one module, one try/catch discipline), so a
+   * blocked store simply leaves the server-rendered line in place.
+   */
+  import {
+    nextIncomplete,
+    onRestore,
+    parseLessonRefs,
+    readCompleted,
+    resumeLabel,
+  } from '../lib/progress';
+
+  function render(): void {
+    const host = document.querySelector<HTMLElement>('[data-lessons]');
+    const list = parseLessonRefs(host?.dataset['lessons']);
+    if (list.length === 0) return; // no injected list: leave the fallback alone
+
+    const link =
+      document.querySelector<HTMLAnchorElement>('[data-resume-link]');
+    const label = document.querySelector<HTMLElement>('[data-resume-label]');
+    const done = document.querySelector<HTMLElement>('[data-resume-done]');
+    if (!link || !label || !done) return;
+
+    const next = nextIncomplete(list);
+    const text = resumeLabel(next, readCompleted(list).length, list.length);
+    if (next) {
+      link.href = `/learn/${next.slug}`;
+      label.textContent = text;
+      done.hidden = true;
+      link.hidden = false;
+    } else {
+      done.textContent = text;
+      done.hidden = false;
+      link.hidden = true;
+    }
+  }
+
+  render();
+  // Re-read after a back/forward-cache restore: the home page is exactly what a
+  // reader lands back on after finishing a lesson, and that path runs no script,
+  // so the line would still name the lesson they just completed. (The
+  // astro:page-load hook covers View Transitions if a ClientRouter is ever
+  // added; none is installed today.)
+  onRestore(render);
+  document.addEventListener('astro:page-load', render);
+</script>

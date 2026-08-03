@@ -9,7 +9,9 @@
  * against the PUBLISHED lessons collection; an unknown/unpublished slug throws and
  * FAILS THE BUILD, so a renamed or deleted lesson can never ship a dead cross-link.
  * Lesson titles for the "Introduced in …" links are resolved from the collection
- * (never hardcoded in glossary.ts).
+ * (never hardcoded in glossary.ts). M7.2 adds the mirror guard for the other
+ * direction: per-term `id`s must be unique and must not clash with a structural id,
+ * because lesson prose now hard-links `/glossary#{term}` (spec §8).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
  * <h1>, an <h2> per present letter, a labelled jump <nav>, and <dl>/<dt>/<dd>
@@ -18,7 +20,7 @@
  */
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
-import { glossary } from '../lib/glossary';
+import { glossary, termAnchor } from '../lib/glossary';
 import type { GlossaryTerm } from '../lib/glossary';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
@@ -79,6 +81,40 @@ const sections = ALPHABET.filter((l) => presentLetters.has(l))
 /** Stable, URL-safe fragment id for a letter section ('#' → 'num'). */
 const sectionId = (letter: string) =>
   `letter-${letter === '#' ? 'num' : letter.toLowerCase()}`;
+
+// Per-term anchors (M7.2): every entry is deep-linkable as /glossary#{anchor}, and
+// lesson prose hard-links those ids. Two terms slugifying alike would silently make
+// one unreachable and the other's link wrong, so — in the same self-correcting
+// spirit as the dead-link guard above — a collision FAILS THE BUILD. Ids already
+// spent on page structure are reserved: a duplicate id is invalid HTML and would
+// break the letter jump bar too.
+const reservedIds = new Set<string>([
+  'top', // the page header sentinel
+  'main', // BaseLayout's skip-to-content target
+  ...ALPHABET.map(sectionId),
+  sectionId('#'),
+]);
+const anchorOwner = new Map<string, string>();
+for (const term of glossary) {
+  const anchor = termAnchor(term.term);
+  if (anchor === '') {
+    throw new Error(
+      `Glossary term "${term.term}" slugifies to an empty anchor id.`,
+    );
+  }
+  if (reservedIds.has(anchor)) {
+    throw new Error(
+      `Glossary term "${term.term}" slugifies to "#${anchor}", which is reserved by the page structure.`,
+    );
+  }
+  const owner = anchorOwner.get(anchor);
+  if (owner !== undefined) {
+    throw new Error(
+      `Glossary anchor collision: "${owner}" and "${term.term}" both slugify to "#${anchor}".`,
+    );
+  }
+  anchorOwner.set(anchor, term.term);
+}
 ---
 
 <BaseLayout
@@ -122,13 +158,6 @@ const sectionId = (letter: string) =>
                   </li>
                 ),
               )}
-              {/* Mobile-only "Top" jump (design §1.3): static bar wraps, so offer a
-                  quick way back to the header. Hidden ≥768px where the bar is sticky. */}
-              <li class="glossary__top-item">
-                <a class="glossary__chip" href="#top">
-                  Top
-                </a>
-              </li>
             </ul>
           </nav>
 
@@ -143,10 +172,15 @@ const sectionId = (letter: string) =>
                 </h2>
                 <dl class="glossary__list">
                   {entries.map((entry) => (
-                    <div class="glossary__entry">
+                    <div class="glossary__entry" id={termAnchor(entry.term)}>
                       <dt class="glossary__term">{entry.term}</dt>
                       <dd class="glossary__def">
                         <p>{entry.definition}</p>
+                        {entry.aliases && entry.aliases.length > 0 && (
+                          <p class="glossary__aliases">
+                            Also called: {entry.aliases.join(', ')}
+                          </p>
+                        )}
                         <p class="glossary__xref-line">
                           <a
                             class="glossary__xref"
@@ -173,11 +207,21 @@ const sectionId = (letter: string) =>
   .glossary {
     padding-block: var(--space-12) var(--space-16);
     max-width: var(--measure);
+
+    /* Height of the sticky A–Z strip, spelled out so every scroll offset below
+       can derive from it: the chip rows (2rem each) + the <ul>'s focus-ring
+       padding and the <nav>'s own padding (--space-1 each, four times) + the 1px
+       keyline. Below 768px that is ONE row, because the strip scrolls sideways
+       instead of wrapping. */
+    --jump-bar-h: calc(2rem + 4 * var(--space-1) + var(--space-px));
   }
 
   @media (min-width: 768px) {
     .glossary {
       padding-block-start: var(--space-16);
+      /* Two chip rows plus the row gap between them — see the bar rules below
+         for why the wrapped strip is provably two rows and never three. */
+      --jump-bar-h: calc(2 * 2rem + 5 * var(--space-1) + var(--space-px));
     }
   }
 
@@ -194,18 +238,100 @@ const sectionId = (letter: string) =>
     font-style: italic;
   }
 
-  /* ---- Jump-to-letter bar (design §1.3) ---- */
+  /* ---- Jump-to-letter bar (design §1.3; spec §8) ----
+     SPEC-GAP (M7.2): this REVERSES m5-design.md §1.3's "static <768px". The static
+     bar sat at the very top of a ~12,000px page, so after any scroll both the
+     letter nav AND the mobile "Top" chip that lived inside it were gone — the bar
+     stopped existing exactly where a jump bar earns its keep. It is now sticky at
+     every breakpoint (spec §8 was amended to match), and — per that same
+     amendment — a single-row horizontally scrollable strip ON MOBILE ONLY: a
+     wrapping bar is 3 rows at 375px, and pinning that much chrome eats a fifth of
+     a phone viewport. Whatever the shape, --jump-bar-h above has to state the
+     height exactly, because CSS cannot measure it: the old hardcoded ≥768px offset
+     (7.75rem = 124px) landed letter headings ~26px UNDER the 86px two-row bar it
+     was meant to clear (measured, 1280×900). */
   .glossary__jump {
+    position: sticky;
+    top: var(--header-h);
+    z-index: 30; /* under the site header's 50 */
     margin-top: var(--space-8);
+    background-color: var(--bg);
+    padding-block: var(--space-1);
+    border-bottom: 1px solid var(--border);
   }
 
   .glossary__jump ul {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
     gap: var(--space-1);
-    margin: 0;
-    padding: 0;
+    /* A scroll container clips BOTH axes, so without this padding the 2px focus
+       ring (+2px offset) of a chip at either edge is sliced off. The matching
+       negative inline margin keeps the chips flush with the page measure. */
+    padding: var(--space-1);
+    margin: 0 calc(-1 * var(--space-1));
     list-style: none;
+    /* Reserve no room for a classic scrollbar: it would add ~15px of platform-
+       dependent height to sticky chrome whose height every scroll-margin-top below
+       depends on — and it is exactly that number this file cannot afford to guess.
+       The ::after fade below carries the "this scrolls" affordance instead. */
+    scrollbar-width: none;
+    /* Runway the fade can sit over: the last --space-8 of the strip is tinted, so
+       without this the reader who scrolls all the way to Z would read Z through
+       it. With it, Z parks clear of the fade at the end of the scroll. */
+    padding-inline-end: var(--space-8);
+    /* Same --space-8, applied to every scroll-into-view: keyboard focus must not
+       park a chip under the fade either. It also repairs a case that predates the
+       fade — Chrome scrolls this strip in chunks on Tab and left "Q" 13px past the
+       edge with its focus ring clipped (measured, 390×844). */
+    scroll-padding-inline-end: var(--space-8);
+  }
+
+  .glossary__jump li {
+    /* A chip is inline-level, so an ordinary <li> wraps it in a line box, and the
+       line box adds leading below it as --text-sm clamps up: 0.75px per row at
+       1280px, i.e. 1.5px of two-row bar that --jump-bar-h could not see. A flex
+       <li> has no line box, so a row is the chip's 2rem and nothing else. */
+    display: flex;
+    flex: 0 0 auto; /* letters keep their 32px target instead of squashing */
+  }
+
+  /* The scrollbar is suppressed, so something else has to say the row continues.
+     A trailing fade does it with no height of its own and no JS; it is purely
+     decorative, so it is hidden from AT (a pseudo-element is) and never
+     intercepts a pointer. The <nav> is `position: sticky`, which is already a
+     containing block for this. */
+  .glossary__jump::after {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: var(--space-8);
+    pointer-events: none;
+    background-image: linear-gradient(to left, var(--bg), transparent);
+  }
+
+  /* ≥768px the strip goes back to the wrapping bar it was before M7.2 (spec §8
+     scopes the scrollable row to mobile). Scrolling it here strands letters: 26
+     chips are ~932px of content inside a column capped at --measure, so the last
+     ~6 letters were unreachable on desktop with nothing to say so. Wrapping puts
+     all 26 on screen, and the row count is derived rather than guessed: the column
+     is ≥712px at 768px (viewport − 2 × --space-6 of page padding) and never wider
+     than --measure (70ch, measured 729px), while a chip is 2rem on a 36px pitch —
+     so every width ≥768px fits between 13 and 25 chips per row, i.e. exactly two
+     rows. One row would need a 932px column, which --measure forbids; three would
+     need one under 464px, which this breakpoint cannot produce. That is the "2 *"
+     in --jump-bar-h. */
+  @media (min-width: 768px) {
+    .glossary__jump ul {
+      flex-wrap: wrap;
+      overflow-x: visible; /* no scroll container ⇒ focus rings are not clipped */
+      padding-inline-end: var(--space-1);
+    }
+
+    .glossary__jump::after {
+      content: none; /* nothing scrolls, so nothing to signal */
+    }
   }
 
   .glossary__chip {
@@ -234,50 +360,30 @@ const sectionId = (letter: string) =>
     cursor: default;
   }
 
-  /* Sticky bar ≥768px; static (wraps) below (design §1.3). Top offset clears the
-     64px sticky header. */
-  @media (min-width: 768px) {
-    .glossary__jump {
-      position: sticky;
-      top: 4rem;
-      z-index: 30;
-      background-color: var(--bg);
-      padding-block: var(--space-2);
-      border-bottom: 1px solid var(--border);
-    }
-
-    /* The mobile "Top" jump is redundant once the bar is always in view. */
-    .glossary__top-item {
-      display: none;
-    }
-  }
-
   /* ---- Sections ---- */
   .glossary__sections {
     margin-top: var(--space-10);
   }
 
-  .glossary section {
-    /* Clear the sticky chrome so a letter heading is never hidden under it after
-       a jump (design §1.4). <768px: 56px header only. ≥768px: 64px header + the
-       sticky jump bar. */
-    scroll-margin-top: 4.5rem;
+  /* Every in-page jump target parks below the sticky chrome (design §1.4): the
+     header plus the now-always-sticky letter strip, plus a little air. ONE rule
+     for both breakpoints — both terms are responsive variables that state their
+     own height (--header-h, --jump-bar-h), so the offset follows the strip from
+     one scrollable row to two wrapped ones on its own. That replaces the
+     4.5rem/7.75rem pair which had to be re-guessed per breakpoint, and got the
+     ≥768px case wrong (see the bar comment above).
+     `#top` keeps its offset even though the "Top" chip is gone: it is a page
+     landmark that /glossary#top can still be linked to from anywhere. */
+  .glossary section,
+  .glossary__entry,
+  #top {
+    scroll-margin-top: calc(
+      var(--header-h) + var(--jump-bar-h) + var(--space-2)
+    );
   }
 
   .glossary section + section {
     margin-top: var(--space-12);
-  }
-
-  /* The #top sentinel shares the same offset so the mobile "Top" link lands cleanly. */
-  #top {
-    scroll-margin-top: 4.5rem;
-  }
-
-  @media (min-width: 768px) {
-    .glossary section,
-    #top {
-      scroll-margin-top: 7.75rem;
-    }
   }
 
   .glossary__letter {
@@ -310,6 +416,15 @@ const sectionId = (letter: string) =>
     margin-top: var(--space-1);
     line-height: var(--leading-relaxed);
     color: var(--text);
+  }
+
+  /* Synonyms the lessons and the wider literature use. Rendering them is what lets
+     find-in-page match "ring buffer" or "quicksort" on a page that ships no JS —
+     text that is never in the DOM can never be searched. Selector is doubled so it
+     beats `.glossary__def p`'s color, which would otherwise win on specificity. */
+  .glossary__def .glossary__aliases {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
   }
 
   .glossary__xref-line {

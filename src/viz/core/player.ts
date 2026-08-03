@@ -29,6 +29,32 @@ const MIN_SPEED = 0.5;
 const MAX_SPEED = 3;
 
 /**
+ * The speed multipliers the transport offers, in menu order. Lives here rather
+ * than in the island because the Player owns what a speed MEANS; the `<select>`
+ * and the `pref:viz-speed` reader both render/validate against this one list.
+ */
+export const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 3] as const;
+
+/**
+ * Normalizes a stored/serialized speed to one of {@link SPEED_OPTIONS}.
+ *
+ * Deliberately exact rather than nearest-neighbour: the value round-trips
+ * through a `<select>` that can only display an option it owns, so a value that
+ * is not on the list (hand-edited storage, a removed option from an older build)
+ * is discarded in favour of the caller's default instead of silently becoming a
+ * different speed.
+ *
+ * @param raw - The persisted string, or `null` when nothing is stored.
+ * @returns The matching multiplier, or `null` when `raw` is not a valid option.
+ */
+export function normalizeSpeed(raw: string | null): number | null {
+  if (raw === null) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return SPEED_OPTIONS.find((option) => option === value) ?? null;
+}
+
+/**
  * Drives a {@link Renderer} across a precomputed {@link Trace}. Generic over the
  * state type so it is fully decoupled from any concrete algorithm/renderer.
  */
@@ -40,7 +66,8 @@ export class Player<TState> {
 
   private index = 0;
   private playing = false;
-  private speed = 1;
+  /** Backing field for the public {@link speed} getter. */
+  private currentSpeed = 1;
   /** Timer handle for the self-rescheduling auto-play loop; `null` when paused. */
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -64,6 +91,15 @@ export class Player<TState> {
   /** Whether auto-play is currently running. */
   get isPlaying(): boolean {
     return this.playing;
+  }
+
+  /**
+   * The current speed multiplier. Exposed so the island can apply the M7.2
+   * aria-live policy (mute the explanation only while autoplaying FASTER than
+   * 1×, spec §10) without keeping a second copy of this state in sync.
+   */
+  get speed(): number {
+    return this.currentSpeed;
   }
 
   /**
@@ -115,9 +151,9 @@ export class Player<TState> {
         this.pause();
         return;
       }
-      this.timer = setTimeout(tick, BASE_DELAY / this.speed);
+      this.timer = setTimeout(tick, BASE_DELAY / this.currentSpeed);
     };
-    this.timer = setTimeout(tick, BASE_DELAY / this.speed);
+    this.timer = setTimeout(tick, BASE_DELAY / this.currentSpeed);
   }
 
   /** Stops auto-play, clearing the pending tick. Safe to call when paused. */
@@ -138,22 +174,29 @@ export class Player<TState> {
     }
   }
 
-  /** Advances one step (clamped at the last step) and pauses any auto-play. */
+  /**
+   * Advances one step and pauses any auto-play.
+   *
+   * A step that cannot move is a no-op in EVERY respect, playback included: the
+   * clamp is checked before the pause, so a caller that steps at a bound cannot
+   * stop a run through a control the UI is simultaneously marking unavailable.
+   * Guarding here rather than in each caller means the button, the ←/→ shortcut
+   * and every future caller inherit it (M7.2 review; A11Y-1 made the bound
+   * buttons `aria-disabled`, which does not block activation by itself).
+   */
   stepForward(): void {
+    if (this.index >= this.trace.length - 1) return;
     this.pause();
-    if (this.index < this.trace.length - 1) {
-      this.index += 1;
-      this.draw();
-    }
+    this.index += 1;
+    this.draw();
   }
 
-  /** Retreats one step (clamped at step 0) and pauses any auto-play. */
+  /** Retreats one step; at step 0 it does nothing at all — see {@link stepForward}. */
   stepBackward(): void {
+    if (this.index <= 0) return;
     this.pause();
-    if (this.index > 0) {
-      this.index -= 1;
-      this.draw();
-    }
+    this.index -= 1;
+    this.draw();
   }
 
   /** Returns to step 0 and pauses. */
@@ -177,7 +220,7 @@ export class Player<TState> {
 
   /** Clamps and sets the auto-play speed multiplier (0.5×–3×). */
   setSpeed(multiplier: number): void {
-    this.speed = Math.max(MIN_SPEED, Math.min(multiplier, MAX_SPEED));
+    this.currentSpeed = Math.max(MIN_SPEED, Math.min(multiplier, MAX_SPEED));
   }
 
   /**

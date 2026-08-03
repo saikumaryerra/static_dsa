@@ -94,13 +94,13 @@ class HashTable {
 
 Imagine a coat-check counter with a row of numbered hooks. When you hand over a coat, the attendant does not search for an empty hook — a quick rule turns your ticket number straight into a hook number, and the coat goes there. Later, the same rule points right back at the hook. No scanning, no guessing: compute the spot, go to the spot.
 
-A **hash table** works exactly like that for data. You have an array of slots called **buckets**. A **hash function** takes a key and turns it into a bucket index — for whole-number keys, a simple one is `key % number_of_buckets`. To store a key you hash it and drop it in that bucket; to find it you hash it again and look only in that one bucket. Because you jump straight to the right bucket instead of scanning everything, lookups are on average **O(1)** — constant time, no matter how many keys you have stored.
+A **hash table** works exactly like that for data. You have an array of slots called **[buckets](/glossary#bucket)**. A **[hash function](/glossary#hash-function)** takes a key and turns it into a bucket index — for whole-number keys, a simple one is `key % number_of_buckets`. To store a key you hash it and drop it in that bucket; to find it you hash it again and look only in that one bucket. Because you jump straight to the right bucket instead of scanning everything, lookups are on average **O(1)** — constant time, no matter how many keys you have stored.
 
-There is one wrinkle. Two different keys can hash to the **same** bucket — that is a **collision**. Hash tables are defined by how they handle them, and the simplest way is the one this lesson shows.
+There is one wrinkle. Two different keys can hash to the **same** bucket — that is a **[collision](/glossary#collision)**. Hash tables are defined by how they handle them, and the simplest way is the one this lesson shows.
 
 ## How it works
 
-We handle collisions with **separate chaining**: each bucket holds a little list (a chain) of all the keys that hashed to it. The visualization draws the buckets as a vertical column of numbered slots; each bucket's chain grows to the right using the same node-and-arrow picture you saw for linked lists.
+We handle collisions with **[separate chaining](/glossary#chaining)**: each bucket holds a little list (a chain) of all the keys that hashed to it. The visualization draws the buckets as a vertical column of numbered slots; each bucket's chain grows to the right using the same node-and-arrow picture you saw for linked lists.
 
 1. **Hash** — compute `bucket = key % capacity`. The `▶` caret marks the bucket being probed.
 2. **Insert** — append the key to that bucket's chain. If the bucket was empty, the chain has one entry and there was no collision. If it already held a key, the new one is **chained** onto the end — a collision made visible, with a `+` marking the added entry.
@@ -115,9 +115,7 @@ The fewer keys share a bucket, the shorter the chains and the faster the lookups
   renderer="hashTable"
   input="[11,24,6,15,20] cap=5 target=6"
   inputLabel="Keys"
-  inputPlaceholder="[5,20,9,14] cap=5"
   targetLabel="Search key"
-  targetPlaceholder="6"
 />
 
 Press **Play**, or **Step forward** to move one hash, insert, or comparison at a time. Watch keys `11` and `6` collide in bucket 1 — and `15` and `20` collide in bucket 0 — forming chains, then see the search for `6` probe bucket 1 and walk the chain to the match. Try your own keys, bucket count (`cap=`), and search target.

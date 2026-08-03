@@ -29,12 +29,21 @@
         - listitem: Linear & Binary Search
     - heading "Linear & Binary Search" [level=1]
     - paragraph: "Find an element in an array two ways: linear search scans every item in O(n); binary search halves a sorted range in O(log n)."
-    - text: /Beginner \d+ min lesson 7 min read/
+    - text: /Beginner \d+ min lesson 7 min read Builds on:/
+    - list "Builds on:":
+      - listitem:
+        - link "Complexity & Big-O":
+          - /url: /learn/complexity-big-o
+      - listitem:
+        - link "Arrays":
+          - /url: /learn/arrays
     - separator
     - heading "Intuition" [level=2]
     - paragraph: "Think about looking up a word in a paper dictionary. You do not start at page one and read every entry. You flip to the middle, glance at the word there, and decide: is my word before this page or after it? That one glance lets you throw away half the dictionary. Flip to the middle of what is left, decide again, and throw away half of that. In a few flips you have gone from thousands of pages to the single one you need."
     - paragraph:
-      - strong: Binary search
+      - strong:
+        - link "Binary search":
+          - /url: /glossary#binary-search
       - text: is exactly that idea for a
       - strong: sorted
       - text: "list. Because the values are in order, checking the middle one tells you which half your target could be in — so you can discard the other half every single time. Halving again and again is astonishingly fast: a sorted list of a million items is found in about twenty checks."
@@ -45,7 +54,9 @@
     - 'heading "The baseline: linear search" [level=3]'
     - paragraph:
       - text: "Before binary search, there is the obvious way to find something: start at the first item and check each one in turn until you hit the target or run out of items. That is"
-      - strong: linear search
+      - strong:
+        - link "linear search":
+          - /url: /glossary#linear-search
       - text: . It is dead simple and it works on
       - strong: any
       - text: "array — sorted or not — but it has no shortcut: in the worst case it inspects every element, so searching a million items can take a million comparisons. Binary search exists precisely to beat that steady one-at-a-time march, and the price of admission is that the data must already be sorted. Keep both in mind as you read on: linear search trades speed for zero requirements; binary search demands order and repays you with logarithmic speed."
@@ -139,14 +150,18 @@
     - region "Binary search on a sorted array visualization":
       - figure:
         - img "Binary search on a sorted array Ready. Searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
+        - list "What the highlights mean":
+          - listitem: Current
+          - listitem: Range
+          - listitem: Found
         - text: Comparisons 0
         - paragraph: Ready. Searching for 7 in a sorted array of 6 items. The whole array is the search window.
-      - text: Step
-      - slider "Step": "0"
       - button "Reset to start" [disabled]
       - button "Step back" [disabled]
       - button "Play"
       - button "Step forward"
+      - text: Step
+      - slider "Step": "0"
       - text: Speed
       - combobox "Speed":
         - option "0.5×"
@@ -154,6 +169,7 @@
         - option "1.5×"
         - option "2×"
         - option "3×"
+      - paragraph: Space play/pause ← / → step
       - paragraph: Try your own input
       - text: Array
       - textbox "Array":
@@ -162,6 +178,8 @@
       - textbox "Target":
         - /placeholder: "7"
       - button "Run"
+      - button "Restore example"
+      - paragraph: "/Up to \\d+ whole numbers, comma-separated\\. Example: \\[\\d+,\\d+,\\d+,\\d+,\\d+,\\d+\\]/"
     - paragraph:
       - text: Press
       - strong: Play
@@ -180,14 +198,18 @@
     - region "Linear search through an array visualization":
       - figure:
         - img "Linear search through an array Ready. Scanning left to right for 9 in an array of 6 items.": 8 0 3 1 5 2 9 3 1 4 7 5 lo hi
+        - list "What the highlights mean":
+          - listitem: Current
+          - listitem: Range
+          - listitem: Found
         - text: Comparisons 0
         - paragraph: Ready. Scanning left to right for 9 in an array of 6 items.
-      - text: Step
-      - slider "Step": "0"
       - button "Reset to start" [disabled]
       - button "Step back" [disabled]
       - button "Play"
       - button "Step forward"
+      - text: Step
+      - slider "Step": "0"
       - text: Speed
       - combobox "Speed":
         - option "0.5×"
@@ -195,14 +217,17 @@
         - option "1.5×"
         - option "2×"
         - option "3×"
+      - paragraph: Space play/pause ← / → step
       - paragraph: Try your own input
       - text: Array
       - textbox "Array":
-        - /placeholder: "[1,3,5,7,9,11]"
+        - /placeholder: "[8,3,5,9,1,7]"
       - text: Target
       - textbox "Target":
-        - /placeholder: "7"
+        - /placeholder: "9"
       - button "Run"
+      - button "Restore example"
+      - paragraph: "/Up to \\d+ whole numbers, comma-separated\\. Example: \\[\\d+,\\d+,\\d+,\\d+,\\d+,\\d+\\]/"
     - heading "Complexity" [level=2]
     - table "Time and space complexity":
       - caption: Time and space complexity
@@ -292,12 +317,14 @@
       - strong: 3. Why can’t binary search be used on an unsorted array, even if the target is definitely somewhere in it?
     - group: Show answer to question 3
     - separator
-    - button "Mark as complete"
-    - navigation "Lesson navigation":
-      - link "Previous Recursion":
-        - /url: /learn/recursion
-      - 'link "Next Sorting I: Bubble, Selection, Insertion"':
-        - /url: /learn/sorting-basics
+    - region "What's next":
+      - heading "What's next" [level=2]
+      - button "Mark as complete"
+      - navigation "Lesson navigation":
+        - 'link "Next Sorting I: Bubble, Selection, Insertion Start lesson"':
+          - /url: /learn/sorting-basics
+        - link "Previous Recursion":
+          - /url: /learn/recursion
   - complementary:
     - navigation "On this page":
       - paragraph: On this page

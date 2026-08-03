@@ -148,8 +148,8 @@ A graph is a web of nodes joined by edges — cities linked by roads, people lin
 
 The trick is to keep a **frontier**: the set of nodes we have discovered but not yet explored. We repeatedly take a node from the frontier, mark it **visited**, and add its undiscovered neighbors to the frontier. The whole difference between the two classic traversals is _which_ frontier node we take next — and that choice is decided by the data structure we store the frontier in.
 
-- **Breadth-first search (BFS)** stores the frontier in a **queue** (first in, first out). It fans out in rings: all the start's neighbors first, then all of _their_ neighbors, and so on — nearest nodes before farther ones.
-- **Depth-first search (DFS)** stores the frontier in a **stack** (last in, first out). It plunges down one path as far as it can, then backtracks to the last fork and tries another branch.
+- **[Breadth-first search (BFS)](/glossary#breadth-first-search)** stores the frontier in a **queue** (first in, first out). It fans out in rings: all the start's neighbors first, then all of _their_ neighbors, and so on — nearest nodes before farther ones.
+- **[Depth-first search (DFS)](/glossary#depth-first-search)** stores the frontier in a **stack** (last in, first out). It plunges down one path as far as it can, then backtracks to the last fork and tries another branch.
 
 Same graph, same neighbors — only the frontier's discipline changes, and with it the order of discovery.
 
@@ -192,9 +192,7 @@ Step through both below. **Violet ✓** marks visited nodes, the **dashed ring**
   renderer="graph"
   input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
   inputLabel="Edges"
-  inputPlaceholder="0-1,0-2,1-3"
   targetLabel="Start node"
-  targetPlaceholder="0"
 />
 
 ### Depth-first search
@@ -204,9 +202,7 @@ Step through both below. **Violet ✓** marks visited nodes, the **dashed ring**
   renderer="graph"
   input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
   inputLabel="Edges"
-  inputPlaceholder="0-1,0-2,1-3"
   targetLabel="Start node"
-  targetPlaceholder="0"
 />
 
 ## Complexity

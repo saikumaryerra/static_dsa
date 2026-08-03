@@ -27,7 +27,7 @@ export interface GlossaryTerm {
   term: string;          // display term, canonical casing, e.g. "Big-O notation"
   definition: string;    // 1–2 sentence definition (spec §8), plain text
   lessonSlug: string;    // slug of the lesson that INTRODUCES the term (spec §6)
-  aliases?: string[];    // optional; NOT rendered in v1 (future search); avoids later migration
+  aliases?: string[];    // rendered as "Also called: …" since M7.2 (was unrendered in v1)
 }
 
 export const glossary: GlossaryTerm[] = [ /* seed §1.5 */ ];
@@ -180,4 +180,4 @@ To hit Perf ≥95 / A11y 100 / Best-Practices ≥95 / SEO ≥95 (§14, §17) on 
 - **QA:** axe on home/lesson/glossary/404 (zero critical); stand up the Lighthouse mechanism (§7) — new devDependency needs SPEC-GAP + Lead sign-off; unit test structured-data.ts (shape + `<` escaping); if cheap, assert sitemap contains published lessons + excludes unpublished.
 - **Lead/deploy:** all M5 output prerendered (output:'static'); no server, no secrets. The ONE env coupling is `site` in `astro.config.mjs` — set the real origin BEFORE the M5 Lighthouse/SEO acceptance run or canonical/OG/sitemap point at the placeholder.
 
-**Open SPEC-GAPs:** `#`/numeric glossary bucket; `aliases` unrendered; robots endpoint vs static; `Course` omits `hasCourseInstance`; `ItemList` deferred; per-page OG deferred; no font preload; slug reconciliation; Lighthouse tooling not in toolchain.
+**Open SPEC-GAPs:** `#`/numeric glossary bucket; robots endpoint vs static; `Course` omits `hasCourseInstance`; `ItemList` deferred; per-page OG deferred; no font preload; slug reconciliation; Lighthouse tooling not in toolchain.

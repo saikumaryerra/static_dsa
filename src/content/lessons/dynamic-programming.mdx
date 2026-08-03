@@ -104,10 +104,10 @@ static int fib(int n, int[] memo) {
 
 Try computing the Fibonacci numbers the obvious recursive way: `fib(n) = fib(n-1) + fib(n-2)`. It looks elegant, but it hides an explosion of repeated work. Computing `fib(5)` recomputes `fib(3)` three separate times and `fib(2)` five times — and the deeper you go, the worse it gets. For larger `n` the same tiny subproblems are recalculated millions of times, and the running time balloons to roughly `O(2ⁿ)`. You saw this exact trap in the [Recursion](/learn/recursion) lesson, where the call stack for `fib(5)` recomputed the same calls over and over.
 
-**Dynamic programming** fixes precisely that waste. It rests on two properties:
+**[Dynamic programming](/glossary#dynamic-programming)** fixes precisely that waste. It rests on two properties:
 
-- **Overlapping subproblems** — the same smaller problem shows up again and again. `fib(3)` is needed by `fib(4)`, by `fib(5)`, and by everything above them. When a problem keeps re-asking the same questions, that is the signal DP will help.
-- **Optimal substructure** — the big answer is built directly from smaller answers. `fib(i)` is nothing more than `fib(i-1) + fib(i-2)`, so once you know the smaller answers you can assemble the larger one with no extra guessing.
+- **[Overlapping subproblems](/glossary#overlapping-subproblems)** — the same smaller problem shows up again and again. `fib(3)` is needed by `fib(4)`, by `fib(5)`, and by everything above them. When a problem keeps re-asking the same questions, that is the signal DP will help.
+- **[Optimal substructure](/glossary#optimal-substructure)** — the big answer is built directly from smaller answers. `fib(i)` is nothing more than `fib(i-1) + fib(i-2)`, so once you know the smaller answers you can assemble the larger one with no extra guessing.
 
 Put those together and you get the whole idea in one sentence:
 
@@ -125,8 +125,8 @@ with the two base cases fixed outright: `dp[0] = 0` and `dp[1] = 1`.
 
 There are two ways to fill that table, and they are the two faces of DP:
 
-1. **Bottom-up (tabulation).** Start at the base cases and fill left to right. By the time you reach `dp[i]`, both `dp[i-1]` and `dp[i-2]` are already sitting in the table, so each cell costs a single addition.
-2. **Top-down (memoization).** Keep the natural recursion, but before recomputing any `dp[k]`, check the table first. If it is already filled, return the stored value immediately — a **cache hit**. If not, compute it once and record it so the next request is instant.
+1. **Bottom-up ([tabulation](/glossary#tabulation)).** Start at the base cases and fill left to right. By the time you reach `dp[i]`, both `dp[i-1]` and `dp[i-2]` are already sitting in the table, so each cell costs a single addition.
+2. **Top-down ([memoization](/glossary#memoization)).** Keep the natural recursion, but before recomputing any `dp[k]`, check the table first. If it is already filled, return the stored value immediately — a **cache hit**. If not, compute it once and record it so the next request is instant.
 
 Either way, each of the `n + 1` cells is computed exactly once. The visualizers below show the same table filling in both orders — watch which cells light up, and when a value gets reused instead of recomputed.
 

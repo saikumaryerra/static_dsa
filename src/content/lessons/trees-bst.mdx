@@ -104,9 +104,9 @@ class BST {
 
 ## Intuition
 
-A **tree** is a branching structure of **nodes**: one node at the top (the **root**), each node pointing to some **children** below it, with no loops. It is how you would draw a family tree or a company org chart — one box at the top, lines fanning downward.
+A **[tree](/glossary#tree)** is a branching structure of **nodes**: one node at the top (the **root**), each node pointing to some **children** below it, with no loops. It is how you would draw a family tree or a company org chart — one box at the top, lines fanning downward.
 
-A **binary tree** restricts each node to at most two children, a **left** and a **right**. A **binary search tree** (BST) adds one powerful rule to a binary tree: for every node, everything in its **left** subtree is smaller than it, and everything in its **right** subtree is larger. That single ordering rule is the whole idea.
+A **binary tree** restricts each node to at most two children, a **left** and a **right**. A **[binary search tree](/glossary#binary-search-tree)** (BST) adds one powerful rule to a binary tree: for every node, everything in its **left** subtree is smaller than it, and everything in its **right** subtree is larger. That single ordering rule is the whole idea.
 
 Why does it help? Because at every node you can throw away half the tree. Looking for a value, you compare it to the current node: if it is smaller you go left, if larger you go right — the other entire branch cannot possibly hold it. It is binary search, but living in a linked structure you can cheaply grow by inserting new nodes. When the tree stays balanced, that halving makes search and insert **O(log n)**.
 

@@ -99,7 +99,7 @@ static int countPairs(int[] arr) {
 
 Imagine two ways to find a friend's phone number. The first: you already have it saved, so you open the contact and read it — one action, done. The second: someone hands you a shuffled stack of a thousand business cards and you flip through until you find the right one. The saved contact takes the same effort whether you have ten contacts or ten million. The stack of cards gets worse as the stack grows.
 
-**Big-O notation** is a way to describe that difference precisely. Instead of timing code with a stopwatch — which depends on your laptop, the weather, and what else is running — Big-O asks a cleaner question: _as the input gets bigger, how fast does the amount of work grow?_ We call the input size **n**.
+**[Big-O notation](/glossary#big-o-notation)** is a way to describe that difference precisely. Instead of timing code with a stopwatch — which depends on your laptop, the weather, and what else is running — Big-O asks a cleaner question: _as the input gets bigger, how fast does the amount of work grow?_ We call the input size **n**.
 
 The trick is that Big-O ignores constant factors and small details and keeps only the term that dominates as n grows large. A function that does `3n + 50` steps is just **O(n)** — because when n is huge, the `+ 50` and the `× 3` stop mattering compared to how the `n` itself scales.
 
