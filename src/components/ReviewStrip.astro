@@ -42,6 +42,19 @@
  * is unlayered and would beat `@layer components`' state rules from the resting
  * state — the trap `LessonCard` documents.
  *
+ * M8.3 — THE NOTE REPLAY. Where the reader left an Explain-it-back note on a due
+ * lesson, the card is followed by their own sentence: "You wrote last time: …".
+ * That replay IS the mechanic (elaborative interrogation pays off when you meet
+ * your earlier explanation again and can check whether you still agree), and it
+ * costs the queue nothing — the note is read from the same `progress:v1:{slug}`
+ * record the schedule is already derived from, so no card, no key and no request
+ * is added. A lesson with no note is offered in exactly the words it was before.
+ *
+ * The quote sits OUTSIDE the `<a>`, in the card's list item. A 280-character
+ * sentence inside the link would become part of its accessible name, which is
+ * how a "Binary Search — quick check" link turns into a paragraph a screen-reader
+ * user has to sit through before they can decide to follow it.
+ *
  * A11Y: a real `<section>` named by a real `<h2>`, so the strip is a landmark a
  * screen-reader user can skip past, sitting at the same heading level as the
  * track sections it precedes. The cards are ordinary links — the whole card is
@@ -142,6 +155,25 @@
     color: var(--brand);
   }
 
+  /* The reader's own earlier words, under the card they belong to: the lesson
+     body's blockquote idiom (a left keyline, muted, small), so it reads as a
+     quotation rather than as something this page is telling them. Clamped to
+     three lines — the whole note is one tap away in the box that wrote it, and a
+     280-character wall would out-weigh the invitation it sits under. */
+  .review-strip__wrote {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-3);
+    border-left: 3px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+
   /* On paper the page is a curriculum listing; a device-local invitation to
      come back has no meaning there (the same reason `.whats-next` is dropped). */
   @media print {
@@ -164,6 +196,7 @@
     onRestore,
     parseLessonRefs,
     PROGRESS_RESET_EVENT,
+    readNote,
     REVIEW_COPY,
     reviewHref,
     selectDueReviews,
@@ -182,7 +215,11 @@
    */
   let rendered: string | null = null;
 
-  /** One card: the whole thing is the link, its text is its accessible name. */
+  /**
+   * One card: the whole thing is the link, its text is its accessible name —
+   * followed, where the reader left one, by their own note as a sibling of that
+   * link rather than a child of it (see the note-replay paragraph above).
+   */
   function card(lesson: LessonRef): HTMLLIElement {
     const item = document.createElement('li');
 
@@ -211,6 +248,19 @@
 
     link.append(text, arrow);
     item.append(link);
+
+    // The replay, when there is one. Plain text in a <p>: the reader's sentence
+    // is neither edited nor truncated in the DOM — the three-line clamp is CSS,
+    // so a screen reader still reads the whole note, and following the card
+    // reaches the box that holds it in full.
+    const note = readNote(lesson.slug);
+    if (note) {
+      const wrote = document.createElement('p');
+      wrote.className = 'review-strip__wrote';
+      wrote.setAttribute('data-review-note', lesson.slug);
+      wrote.textContent = `${REVIEW_COPY.wrote} ${note}`;
+      item.append(wrote);
+    }
     return item;
   }
 
@@ -251,7 +301,14 @@
     const host = document.querySelector<HTMLElement>('[data-lessons]');
     if (!host) return; // not `/learn` (or no injected list): leave the page alone
     const due = selectDueReviews(parseLessonRefs(host.dataset['lessons']));
-    const signature = due.map((lesson) => lesson.slug).join(' ');
+    // The note is part of the signature, not just the slug: a reader who writes
+    // or deletes one on a lesson page and comes Back lands on this page from the
+    // back/forward cache, where `rendered` still holds what was drawn before
+    // they left — so a slug-only signature would leave their old words (or none)
+    // quoted under the card. At most two due lessons, so at most two reads.
+    const signature = due
+      .map((lesson) => `${lesson.slug}\n${readNote(lesson.slug) ?? ''}`)
+      .join('\n');
 
     const existing = document.querySelector<HTMLElement>('[data-review-strip]');
     if (existing && signature === rendered) return;

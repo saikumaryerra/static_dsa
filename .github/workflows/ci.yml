@@ -29,10 +29,34 @@ concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
+# Least privilege: this workflow only ever reads the repository. It deploys
+# nothing, comments on nothing, and touches no releases, so the default token
+# scopes (which a repository setting can widen to write) are narrowed here at the
+# workflow rather than trusted to stay narrow. Artifact upload/download is
+# unaffected — those actions authenticate with the runtime token, not this one.
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: DoD gate
     runs-on: ubuntu-latest
+    # PINNED RENDERING ENVIRONMENT. The e2e suite compares committed pixel
+    # baselines, and this site ships a pure system-font stack — so what a capture
+    # looks like depends entirely on the fonts fontconfig finds. `ubuntu-latest`
+    # is a moving target whose font packages change over time, which is what makes
+    # unpinned pixel baselines unmaintainable: they rot without anyone touching
+    # the site. Pinning the image to the same one the baselines were seeded in
+    # makes the comparison meaningful AND locally reproducible — a contributor can
+    # regenerate them with the identical command (see the seeding job below).
+    # It also ships the browsers, so no `playwright install` step is needed.
+    # Keep this tag, the seeding job's tag, and the @playwright/test version in
+    # package.json in lockstep; a mismatch silently changes how text is drawn.
+    container: mcr.microsoft.com/playwright:v1.61.1-noble
+    # A hung browser or a wedged preview server should fail in minutes, not burn
+    # the 6-hour default. The full gate (install → build → lint → format → unit →
+    # Playwright with retries) runs well inside this.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -51,10 +75,19 @@ jobs:
 
       - run: npm run test # Vitest unit suite
 
-      # Only the e2e job needs a browser; --with-deps installs the system libs.
-      - run: npx playwright install --with-deps chromium
+      # Browsers and system libs are already in the container (see `container:`
+      # above), so there is no `playwright install` step here.
 
-      - run: npm run test:e2e # Playwright smoke + axe a11y
+      - run: npm run test:e2e # Playwright smoke + axe a11y + pixel baselines
+        env:
+          # Step 2 of the visual-baseline flow. The PNGs in
+          # tests/e2e/baseline-visual.spec.ts-snapshots/ are committed, so the 14
+          # captures compare instead of skipping. This is only safe because the
+          # job runs in the pinned container: the site uses a pure system-font
+          # stack, so glyph rasterisation follows whatever fontconfig resolves,
+          # and a bare ubuntu-latest runner does not render identically to the
+          # image the baselines were made in.
+          VISUAL_BASELINE: '1'
 
       # Keep the evidence on failure so a red run is diagnosable without a local
       # repro: the HTML report (CI-only reporter) plus test-results/, which holds
@@ -69,35 +102,44 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # M7.1 Task 0 — step 1 of the two-step flow that turns the PIXEL baseline on.
+  # M7.1 Task 0 — RE-seeding the pixel baseline after an intentional visual change.
   #
-  # tests/e2e/baseline-visual.spec.ts skips its 14 captures unless VISUAL_BASELINE
-  # is set, and no PNG is committed yet, so today that half of the baseline
-  # configures a code path nothing can reach. That state is no longer silent: the
-  # one always-running test in that file prints it on every e2e run and fails if
-  # this flow is left half-done (baselines committed, comparison still off).
-  # Closing the gap needs two deliberate steps, in this order:
+  # The baseline is live: the PNGs are committed and the `verify` job above
+  # compares them on every run. Use this job when a change is *meant* to alter how
+  # a page looks — re-seed, review the artifact, commit the new PNGs in the same
+  # PR as the change that justified them. A diff nobody expected is the gate doing
+  # its job; a diff everybody expected is a two-minute artifact review.
   #
-  #   1. Run this job (Actions → CI → Run workflow) from a commit whose DoD gate
-  #      is green. Download the `visual-baselines` artifact, review the PNGs like
-  #      any other reviewed artifact, and commit them to
-  #      `tests/e2e/baseline-visual.spec.ts-snapshots/`.
-  #   2. ONLY THEN enable the comparison, by adding `VISUAL_BASELINE: '1'` to the
-  #      `npm run test:e2e` step above. In the other order every run goes red:
-  #      `updateSnapshots: 'none'` on CI (playwright.config.ts) makes a missing
-  #      baseline a failure rather than a silent regeneration — which is the
-  #      point, but only once a baseline exists. (This job is unaffected: it
-  #      passes `--update-snapshots`, which overrides that config value.)
+  # WHY BOTH JOBS RUN IN A CONTAINER. The site ships a pure system-font stack, so
+  # every glyph — and therefore every pixel — depends on the fonts fontconfig
+  # resolves. A bare `ubuntu-latest` runner is a moving target: its font packages
+  # change over time, so unpinned baselines rot without anyone touching the site.
+  # Pinning both jobs to one image makes the comparison stable AND reproducible
+  # off CI, which the earlier "this can only run here" note had assumed away.
   #
-  # It has to run HERE rather than on a laptop: the site ships a pure system font
-  # stack, so glyph rasterization — and with it every pixel — is specific to the
-  # runner image. playwright.config.ts pins `{platform}` into the snapshot
-  # filename, so a locally seeded PNG would not even be the file CI looks for.
+  # To reproduce or re-seed locally, run the same image (no Playwright install,
+  # no font setup — it is the identical environment):
+  #
+  #   docker run --rm -v "$PWD":/work -w /work --user "$(id -u):$(id -g)" \
+  #     mcr.microsoft.com/playwright:v1.61.1-noble \
+  #     bash -c 'npm run build && CI=1 VISUAL_BASELINE=1 npx playwright test \
+  #       tests/e2e/baseline-visual.spec.ts --update-snapshots'
+  #
+  # Drop `--update-snapshots` to COMPARE instead of rewrite. Note the flag is
+  # still needed either way, and that `--update-snapshots` overrides
+  # `updateSnapshots: 'none'` (which playwright.config.ts sets whenever CI is set)
+  # — that config is what makes a MISSING baseline a failure in the gate rather
+  # than a silent regeneration.
   seed-visual-baselines:
     name: Seed visual baselines
     # Never on push/PR: seeding is an explicit human act, not part of the gate.
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest # must stay the image the e2e job uses, or the PNGs are useless
+    runs-on: ubuntu-latest
+    # MUST stay byte-identical to the `verify` job's image, or the PNGs it
+    # produces are useless: they would be compared against text drawn by a
+    # different set of fonts.
+    container: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 20 # one spec file, not the whole suite
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +154,7 @@ jobs:
       # already built), so dist/ must exist before the seeding run below.
       - run: npm run build
 
-      - run: npx playwright install --with-deps chromium
+      # Browsers ship with the container; no `playwright install` needed.
 
       # Every capture in that file is gated on this flag; --update-snapshots
       # writes the PNGs into the snapshot dir uploaded below. No other spec runs

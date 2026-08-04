@@ -3,8 +3,9 @@
 A static, no-backend site that teaches data structures and algorithms to beginners. Every lesson
 pairs plain-language prose and three-language code with an **interactive visualization** you can
 play, pause, step through one operation at a time, and drive with your own input — and a quiet
-mastery loop (self-graded practice, three progress pips, spaced review, input-crafting trials) that
-never leaves your device.
+mastery loop (self-graded practice, three progress pips, spaced review, input-crafting trials, your
+own one-sentence "why does this work?" note, and a count of days you learned something) that never
+leaves your device.
 
 Built with Astro + TypeScript, prerendered to plain HTML/CSS with small islands of JS. No server, no
 database, no accounts, no analytics, no tracking. 15 lessons across two tracks; **all planned
@@ -74,13 +75,16 @@ if it looks like an improvement.
   all — a dead control is worse than no control.
 - **No new dependencies.** No D3 or charting library, no component UI kit, no test-DOM shim. If one
   is genuinely unavoidable, it needs a `// SPEC-GAP:` justification and sign-off.
-- **JS budget: ≤ 60 KB gzipped per lesson page, and no runtime network calls.** A lesson page today
-  is roughly 15 KB gz eagerly plus ~5 KB of algorithm/renderer chunks it lazy-loads. Everything is
-  bundled at build time.
+- **JS budget: ≤ 60 KB gzipped per lesson page, and no runtime network calls.** This is measured,
+  not remembered: `tests/e2e/js-budget.spec.ts` gzips every script in each built page's static
+  import closure, fails the run if a page is over, and prints the per-page table on every e2e run —
+  read that for the current number rather than a figure copied into a doc. Renderer and algorithm
+  chunks load lazily per lesson; everything is bundled at build time.
 - **`localStorage` is the only persistence**, and only the keys enumerated in spec §6 are permitted
   (adding one is a spec change). Every access is `try/catch`-guarded, storage is never enumerated by
   prefix, and there is **no behavioral tracking** — only explicit clicks and self-reports are stored.
-  Never infer progress from scroll depth or time on page.
+  Never infer progress from scroll depth or time on page. It is also **per-device with no sync**: a
+  reader's progress lives in one browser profile and nothing ever leaves it.
 - **WCAG 2.1 AA.** Real buttons and inputs, full keyboard operability, `aria-live="polite"` step
   explanations, never colour as the only signal, and `prefers-reduced-motion` respected. Motion
   durations come only from the `--duration-*` tokens (reduced motion collapses them in one place);
@@ -117,8 +121,11 @@ choose the simplest option that satisfies the goals and leave a `// SPEC-GAP:` c
 
 Cloudflare Pages is connected to the repository and runs its own `npm run build` on every push to
 `main`; the GitHub Actions workflow runs the checks Cloudflare does not (lint, format, unit, e2e +
-axe) and is meant to be a required status check. The workflow deliberately does not deploy. Details,
-including the Node pin and the production origin, are in `docs/deployment.md`.
+axe) and is meant to be a required status check. The workflow deliberately does not deploy — the two
+systems are independent, so without branch protection a red gate cannot stop a deploy. Response
+headers (security + caching) ship as `public/_headers`, which Cloudflare and Netlify honour and
+Vercel/GitHub Pages ignore. Details — the Node pin, how the production origin resolves, how to
+regenerate the OG card, and a post-deploy checklist — are in `docs/deployment.md`.
 
 ## License
 

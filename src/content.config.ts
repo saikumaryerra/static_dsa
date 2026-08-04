@@ -42,6 +42,14 @@ const lessons = defineCollection({
       space: z.object({ worst: bigO }),
     }),
     tags: z.array(z.string()).default([]),
+    // §7's Explain-it-back prompt (M8.3): the ONE "why does this work?" question
+    // this lesson asks the reader to answer in their own words after they mark
+    // it complete. Optional per lesson — `ExplainBack` is rendered only where a
+    // lesson authors one, so a lesson without the field has no note box at all.
+    // `.min(1)` because an empty string would render a labelled field with no
+    // question in it; the component throws on the same condition, so a
+    // whitespace-only value cannot slip past either.
+    explainPrompt: z.string().min(1).optional(),
     // §15: placeholder lessons ship `published: false` and build no page.
     published: z.boolean().default(false),
   }),

@@ -1,13 +1,52 @@
 # Response headers for _headers-aware hosts (Cloudflare Pages / Netlify).
-# Ignored by hosts that don't read this file (e.g. GitHub Pages).
+# Ignored by hosts that don't read this file (GitHub Pages, Vercel — Vercel needs
+# the same rules restated in `vercel.json`). Copied verbatim into `dist/` by the
+# build; the host consumes it and never serves it as a page.
+# The reasoning for every rule below is in docs/deployment.md §6.
 
+# --- Site-wide security headers -------------------------------------------------
+# Permissions-Policy: the site calls none of these APIs, so deny them outright
+# rather than trust that no future page starts calling one by accident.
+#
+# NO Content-Security-Policy here, deliberately: BaseLayout ships a pre-paint
+# inline theme script and an inline <style> inside <noscript>, so a strict policy
+# would need a per-build hash list and a static host cannot mint a nonce.
+# 'unsafe-inline' would be a CSP that permits exactly the thing it exists to stop.
+#
+# NO Cache-Control on this rule, also deliberately: a catch-all would match
+# /_astro/* too, and hosts differ in how they resolve two matching rules that both
+# set the same header — the failure mode (a merged `max-age=0` winning over the
+# immutable rule below) silently defeats asset caching. Per-path rules keep the
+# question from arising.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=(), usb=()
 
-# Content-hashed assets never change under a given name — cache them forever.
-# (HTML is intentionally left on the host default so it revalidates and picks up
-# new asset hashes on each deploy.)
+# --- Content-hashed assets ------------------------------------------------------
+# Astro fingerprints everything it emits here (e.g. ArrayRenderer.zPEiTlER.js), so
+# a given filename's bytes never change — safe to cache forever. HTML is
+# intentionally left on the host default so it revalidates and picks up the new
+# hashes on each deploy.
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
+
+# --- Unhashed, path-stable assets -----------------------------------------------
+# These four are referenced by FIXED paths — three from every page's <head>, and
+# og-default.png by link-preview scrapers — so their names survive a rebrand.
+# That is exactly why they must not get the immutable rule above: replacing an
+# icon or the OG card would otherwise keep serving the old bytes from every
+# visitor's cache indefinitely. An hour of freshness, then revalidate (cheap: the
+# host's ETag makes the revalidation a 304).
+/favicon.svg
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/favicon-32.png
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/apple-touch-icon.png
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/og-default.png
+  Cache-Control: public, max-age=3600, must-revalidate

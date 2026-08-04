@@ -125,11 +125,12 @@ Ship these lessons in v1, grouped into two tracks. Each lesson gets its own page
   (no `sessionStorage`, no cookies) and there is never a server. The permitted keys are enumerated
   here; anything else needs a spec change.
   - *Progress keys* — **cleared by the reset-progress control** (M7.2): `lesson:{slug}:complete`
-    (completion; the source of truth, never migrated away), `progress:v1:{slug}` (M8 mastery),
-    `ld:challenges:v1`, `ld:finalrun:v1` (M8 trials, Final Runs), and `ld:days:v1` (learning days) —
-    the last of which is **permitted but unused**: the learning-days line was deferred, nothing
-    writes the key, so no device holds one and the reset control deliberately does not name it.
-    Its writer, if one ever ships, exports the key name and joins the delete list.
+    (completion; the source of truth, never migrated away), `progress:v1:{slug}` (M8 mastery — and
+    the optional Explain-it-back `note`, which lives **inside** that record rather than in a key of
+    its own), `ld:challenges:v1`, `ld:finalrun:v1` (M8 trials, Final Runs), and `ld:days:v1`
+    (learning days — `{ count, last }`, written only by `src/lib/learning-days.ts`, which exports
+    both the key name and the reset function so the key cannot drift out of the delete list).
+    **All five are cleared together**; a progress key the reset control does not clear is a bug.
   - *Preference keys* — **not** cleared by the reset-progress control: `theme`, `pref:viz-speed`,
     `pref:code-lang`.
 
@@ -159,6 +160,7 @@ complexity:                       # rendered into a standard table
   time: { best: "O(1)", average: "O(log n)", worst: "O(log n)" }
   space: { worst: "O(1)" }
 tags: ["searching", "divide-and-conquer"]
+explainPrompt: "Why must the array be sorted before binary search can work?"  # optional (M8.3)
 published: true
 ---
 ```
@@ -203,10 +205,16 @@ introduces a new section heading:
   `## Visualizer` heading; the truth is computed at build time from that algorithm's own trace, so an
   authored answer cannot be wrong.
 
-**`explainPrompt` — DEFERRED, not implemented.** M8 designed an optional `explainPrompt` frontmatter
-field for the Explain-it-back note; that mechanic did not ship (see `docs/m8-gamification.md`, "As
-shipped"), so the field has no reader and no schema entry today. Do not author it — it would be a
-frontmatter key nothing validates and nothing renders.
+**`explainPrompt` — optional frontmatter, shipped (M8.3).** One question that invites the reader to
+say *why* the idea works in their own words — e.g. `explainPrompt: 'Why must the array be sorted
+before binary search can work?'`. It is a real, optional field in the content schema, read by the
+Explain-it-back note that `LessonLayout` mounts after the end-of-lesson "What's next" block (§8),
+where "Mark as complete" lives; a lesson that sets no prompt renders no note field at all.
+The note is **not** authored in the body and introduces no section: like every other M8 surface it
+mounts from the lesson shell, ships its own `<noscript>` kill-switch, is stored only in the reader's
+own browser (inside `progress:v1:{slug}`, cleared by the reset control), has a Delete button beside
+Save, and **earns nothing** — no stage, no schedule change, no count. Prefer a question with a real
+"because" in its answer; skip the field entirely rather than author a rhetorical one.
 
 ---
 
@@ -473,11 +481,12 @@ learndsa/
 
 ## 17. Build order (milestones with acceptance criteria)
 
-**Status: M1–M8 have all shipped.** This section is now the historical build order and the record of
-each milestone's acceptance criteria — the criteria still describe what the product must keep doing,
-so a change that breaks one is a regression. New work is no longer a milestone: it is repair,
-extension, or an amendment to this spec. The two designed-but-unbuilt M8.3 items are marked
-*deferred* below; everything else here exists.
+**Status: M1–M8 have all shipped, M8 in full.** This section is now the historical build order and
+the record of each milestone's acceptance criteria — the criteria still describe what the product
+must keep doing, so a change that breaks one is a regression. New work is no longer a milestone: it
+is repair, extension, or an amendment to this spec. **Nothing in this ladder remains unbuilt**: the
+two M8.3 items that were trimmed under budget pressure (Explain-it-back and the learning-days line)
+landed after the measurement showed the headroom, and are described as shipped below.
 
 Original instruction, kept for the record: work top to bottom; do not start a milestone until the
 previous one's criteria pass.
@@ -534,21 +543,28 @@ M7.2's progress system and reset control. Mastery states (Learned → Practiced 
   bubble sort, insertion sort, BFS and DFS; quick-sort and selection-sort still have none (they defer
   swaps, so the generic predictor would mark a correct learner wrong) and neither does recursion,
   merge sort or DP.
-- **M8.3** Trace Trials + Final Run **shipped**; **Explain-it-back and the optional learning-days
-  line are DEFERRED — designed, not built.** This phase was defined as the one that trims first
-  under budget pressure, and those two were the trims; the M8.1–8.2 spine was not touched.
-  Consequences a contributor must know: §7's `explainPrompt` frontmatter field has no reader and no
-  schema entry (do not author it), and §6's `ld:days:v1` key has no writer, so no device holds one
-  and the reset control has nothing to clear for it. Reasons and re-entry conditions:
-  `docs/m8-gamification.md`, "As shipped".
+- **M8.3** Trace Trials + Final Run, then **Explain-it-back and the learning-days line**. The last
+  two were deferred first — this phase was defined as the one that trims first under budget
+  pressure, and they were the trims — and shipped afterwards, unchanged in design, once the JS
+  budget was measured rather than feared (the measurement is now `tests/e2e/js-budget.spec.ts`,
+  which gates §4's 60 KB per page). Consequences a contributor must know: §7's `explainPrompt` is a
+  real optional frontmatter field with a reader (11 lessons set it), and §6's `ld:days:v1` has
+  exactly one writer, `src/lib/learning-days.ts`, whose `resetLearningDays()` puts it in the reset
+  control's delete list. The learning-days count is an **anti-streak** — monotonic, never reset,
+  never a chain, never compared, never given a target — and it counts only explicit acts
+  (a completion, a practice self-grade, a landed retrieval pass), never a visit, a scroll or elapsed
+  time. Design, order and reasoning: `docs/m8-gamification.md`, "As shipped".
 
 *Accept (every phase):* §18 DoD; calm-invariant tests green (review strip ≤2 cards and zero DOM when
 empty, no "overdue"/countdown vocabulary, the Predict toggle never persisted, no accuracy ratios
 during a learning act) — split into pure-function unit tests and Playwright for the DOM/storage
 halves, since Vitest runs in `node` with no DOM; **JS-off:** every gamification component ships its
 own `<noscript>` kill-switch, so no gamification affordance appears without JS (no pip, ring,
-milestone, challenge or review card) — only static prompt copy differs from M7; gamification JS
-re-measured by hand against its self-imposed ~5 KB slice of the §4 budget.
+milestone, challenge, review card, note field or learning-days line) — only static prompt copy
+differs from M7; gamification JS measured against §4's budget, which
+`tests/e2e/js-budget.spec.ts` now enforces on every e2e run (it also prints each page's eager
+gzipped total, so the self-imposed ~5 KB gamification slice can be checked without a hand
+measurement).
 *Additionally — M8.2:* predictor unit tests beside each algorithm's trace tests. *M8.3:* the
 challenge predicate evaluator is unit-tested such that a `witness` failing its own predicate throws
 (so the build guard is covered in CI without committing a broken fixture).
@@ -564,7 +580,8 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
 - [ ] Each shipped lesson has: all 7 required sections (§7.1–7.7; §7.8 Final Run is optional), a working stepper visualization with custom input, correct 3-language code, correct complexity table.
 - [ ] Keyboard-only walkthrough of one lesson works, including all viz controls.
 - [ ] JS-disabled: all prose/code readable; viz degrades gracefully.
-- [ ] Meets JS budget (§4) and Lighthouse targets (§14).
+- [ ] Meets JS budget (§4) — enforced by `tests/e2e/js-budget.spec.ts`, which fails the run if any
+      page exceeds 60 KB gz of eager JS — and Lighthouse targets (§14), which stay a manual check.
 - [ ] No `console.log`, no dead code, no unexplained `SPEC-GAP` left unreviewed.
 
 ---

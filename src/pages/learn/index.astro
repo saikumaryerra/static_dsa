@@ -37,20 +37,30 @@
  * progress island does — one list, one schedule — and inserts itself after the
  * element carrying it, so its placement is not a second fact to keep in sync.
  *
- * M8.3 adds no surface here, only truth to an existing one. `ld:challenges:v1`
- * and `ld:finalrun:v1` are spec §6 PROGRESS keys, so the reset control clears
- * them — through `src/lib/progress.ts`, which owns the delete list — and its
- * confirm warning and its announcement now name whichever record kinds this
- * device actually holds. A reader whose only stored data is a cleared trial is
- * therefore neither told there is nothing to clear nor told that "0 completed
- * marks" went.
+ * M8.3 adds truth to the reset control and exactly one new line. `ld:challenges:v1`,
+ * `ld:finalrun:v1` and `ld:days:v1` are spec §6 PROGRESS keys, so the reset control
+ * clears them — through `src/lib/progress.ts`, which owns the delete list — and its
+ * confirm warning and its announcement name whichever kinds this device actually
+ * holds, the reader's own written notes and the learning-days count included. A
+ * reader whose only stored data is a cleared trial is therefore neither told
+ * there is nothing to clear nor told that "0 completed marks" went.
+ *
+ * The new line is Learning Days: one muted sentence under the resume CTA saying
+ * how many days this device has seen an explicit learning act on. It is the
+ * design's ANTI-STREAK — monotonic, targetless, chainless, and worded so
+ * (`learningDaysLine()` in `src/lib/learning-days.ts`, where a unit test can
+ * read it) — so it renders no calendar, no gap and no comparison, and there is
+ * no state in which it could show a broken chain. Nothing on this page WRITES
+ * it; the acts that do are on the lesson pages, which is where explicit acts
+ * happen.
  *
  * JS off (or storage blocked): the CTA still points at lesson 01, the counters
  * stay hidden rather than lying "0 of 9" — with the store blocked the arcs mark
  * themselves unreadable instead of stating a zero nobody could verify — the
- * reset control, the legend and every M8 surface are hidden by their own
- * <noscript> kill-switches (none of them can work; the review strip has no
- * markup to hide in the first place), and every card stays a fully usable link
+ * reset control, the legend, the learning-days line and every M8 surface are
+ * hidden by their own <noscript> kill-switches (none of them can work; the
+ * review strip has no markup to hide in the first place, and the days line ships
+ * empty and hidden besides), and every card stays a fully usable link
  * (§6 local completed state, §12 a11y).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
@@ -178,6 +188,19 @@ const resumeFallback = firstLesson
       }
 
       {
+        /* Learning days (M8.3) — one quiet line, and the whole surface of the
+          feature. It ships EMPTY and hidden: the count is a fact about this
+          device, which the build cannot see, so it is the island below that
+          decides whether there is anything to say. A reader who has not acted
+          yet meets no line at all — never a "0 days", which would be an empty
+          state doing the guilt work this design killed streaks to avoid.
+          Every word of it comes from `learningDaysLine()` so the copy rules are
+          a unit test rather than a habit, and the whole thing is one text node:
+          nothing here is a chain, a calendar, a target or a comparison. */
+      }
+      <p class="learn__days" data-learning-days hidden></p>
+
+      {
         /* Reset control: JS-only (it cannot delete anything without script), so
            it ships visible for script-enabled readers — no layout shift on
            hydrate — and is removed entirely by the <noscript> kill-switch below,
@@ -211,8 +234,9 @@ const resumeFallback = firstLesson
                     only the record kinds this device actually holds. This is
                     the build's honest version of that sentence: it cannot know
                     the device, so it names every progress key §6 lists. */}
-                Removes every completed mark, practice record and trial record
-                stored on this device — cannot be undone.
+                Removes every completed mark, practice record, written note,
+                trial record and the learning-days count stored on this device —
+                cannot be undone.
               </p>
               <div class="learn__reset-actions">
                 <button
@@ -247,6 +271,14 @@ const resumeFallback = firstLesson
              thing that is not there. Same M8 rule the components apply: no
              gamification surface appears without JS. */
           .learn__legend {
+            display: none !important;
+          }
+
+          /* And the learning-days line, for the same reason and one more: with
+             no script there is no storage read, so any number here would be a
+             fiction the build invented about a device it never saw. (It also
+             ships `hidden`, so this rule is the belt to that braces.) */
+          .learn__days {
             display: none !important;
           }
 
@@ -385,6 +417,17 @@ const resumeFallback = firstLesson
   .learn__resume-done {
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
+  }
+
+  /* One line of muted small print under the CTA — deliberately the same weight
+     as the reset control below it rather than a headline. It states something
+     the reader did; it is not an invitation, a target or a call to action, and
+     type that shouted would make it one. */
+  .learn__days {
+    max-width: var(--measure);
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
   }
 
   /* Quiet by design: a destructive control should be findable, not competing
@@ -578,6 +621,7 @@ const resumeFallback = firstLesson
     completeKey,
     countComplete,
     countMastery,
+    countNotes,
     hasStoredProgress,
     masteryStage,
     nextIncomplete,
@@ -590,6 +634,11 @@ const resumeFallback = firstLesson
     storedProgress,
     type LessonRef,
   } from '../../lib/progress';
+  import {
+    hasLearningDays,
+    learningDaysLine,
+    readLearningDays,
+  } from '../../lib/learning-days';
   import {
     arcOffset,
     masteryCountsText,
@@ -608,33 +657,83 @@ const resumeFallback = firstLesson
     return `${count} completed mark${count === 1 ? '' : 's'}`;
   }
 
+  /** "a", "a and b", "a, b and c" — the list both reset sentences read from. */
+  function joinList(parts: string[]): string {
+    const last = parts[parts.length - 1];
+    if (parts.length < 2 || last === undefined) return parts[0] ?? '';
+    return `${parts.slice(0, -1).join(', ')} and ${last}`;
+  }
+
   /**
    * What a reset removes BESIDES completion marks, named in the reader's words:
-   * "practice records", "trial records", or both.
+   * "practice records", "trial records", "written notes", "learning-days count",
+   * in whatever combination is actually stored.
    *
    * Two sentences share it — the confirm warning and the announcement — so a
    * device is described the same way before and after the delete. It names only
-   * what is actually there, which is why it takes the storage reading rather
+   * what is actually there, which is why it takes the storage readings rather
    * than a fixed phrase: "practice and trial records" on a device holding only
    * practice records would over-claim a delete the reader cannot undo.
    *
    * "Trial records" covers both enrichment keys (cleared Trace Trials and
    * cleared Final Runs) deliberately: the reader met them as one thing — puzzles
    * they cleared — and spelling out two internal key names in a warning sentence
-   * would trade clarity for an accuracy nobody asked for.
+   * would trade clarity for an accuracy nobody asked for. Notes and the
+   * learning-days count are named SEPARATELY for the opposite reason: the notes
+   * are the reader's own words (the design's ethics pass makes naming them an
+   * obligation, not a nicety), and the count is not a record at all. Notes live
+   * inside the practice records, so a device holding one is described as holding
+   * both — over-listing, which is the safe direction for a delete that cannot be
+   * undone.
+   *
+   * Returned as a LIST rather than a finished phrase so each sentence can flatten
+   * it into its own grammar: the warning says "the …" of each kind beside the
+   * completion marks, the announcement drops the article. Joining here instead
+   * produced "1 completed mark and the practice records and learning-days count"
+   * — true, and read like a machine wrote it.
    *
    * @param stored - The reading from `storedProgress`.
-   * @returns The phrase without an article, or `''` when neither kind is stored
-   * (each caller adds the article its own sentence needs).
+   * @param notes - How many lessons hold a written note (`countNotes`).
+   * @param days - Whether `ld:days:v1` is on the device.
+   * @returns Each stored kind, without an article, in a stable order; `[]` when
+   * none of them is stored.
    */
-  function recordKinds(stored: {
-    records: number;
-    enrichment: boolean;
-  }): string {
+  function recordKinds(
+    stored: { records: number; enrichment: boolean },
+    notes: number,
+    days: boolean,
+  ): string[] {
     const kinds: string[] = [];
     if (stored.records > 0) kinds.push('practice');
     if (stored.enrichment) kinds.push('trial');
-    return kinds.length > 0 ? `${kinds.join(' and ')} records` : '';
+    const parts: string[] = [];
+    if (kinds.length > 0) parts.push(`${kinds.join(' and ')} records`);
+    if (notes > 0) parts.push(notes === 1 ? 'written note' : 'written notes');
+    if (days) parts.push('learning-days count');
+    return parts;
+  }
+
+  /**
+   * Paints the learning-days line, or leaves the page without one.
+   *
+   * Three states collapse to the same absence — nothing recorded, a value this
+   * version cannot read, and a store that will not open — because all three mean
+   * the same thing here: this page cannot honestly state a number about this
+   * device. "0 days" would be a claim nobody could verify, and an empty state
+   * would be the guilt the design killed streaks to avoid.
+   *
+   * Reads on every render, so a reset clears the line in place with no reload.
+   */
+  function renderDays(): void {
+    const line = document.querySelector<HTMLElement>('[data-learning-days]');
+    if (!line) return;
+    const days = readLearningDays();
+    const text = days ? learningDaysLine(days.count) : '';
+    // One text node, no child elements: the sentence is the whole surface, and
+    // splitting the number into its own span would let a future style treat it
+    // as a score.
+    line.textContent = text;
+    line.hidden = text === '';
   }
 
   /** Points the CTA at the first unfinished lesson, or stands it down when all are done. */
@@ -810,6 +909,10 @@ const resumeFallback = firstLesson
 
   /** Redraws every progress surface from storage. */
   function render(): void {
+    // First, and outside the guard below: the days count belongs to the reader,
+    // not to the curriculum, so it is the one surface here that still has
+    // something true to say if the injected lesson list ever fails to parse.
+    renderDays();
     const list = lessons();
     if (list.length === 0) return; // no injected list: leave every fallback alone
     const completed = readCompleted(list);
@@ -836,24 +939,22 @@ const resumeFallback = firstLesson
    * destructive button under a Space keypress the reader has not released yet.
    */
   function openPanel(toggle: HTMLElement, panel: HTMLElement): void {
-    const stored = storedProgress(lessons());
-    const kinds = recordKinds(stored);
+    const list = lessons();
+    const stored = storedProgress(list);
+    const kinds = recordKinds(stored, countNotes(list), hasLearningDays());
     const warn = panel.querySelector<HTMLElement>('[data-reset-warn]');
     if (warn) {
-      // A device with records but no marks — practice-only, or one that has
-      // only cleared trials — must not be told "0 completed marks", which would
-      // describe the delete as a no-op it is not. The three §6 progress shapes
-      // are named in whatever combination is actually stored; the fallback
-      // never renders (the toggle is aria-disabled with nothing stored) and is
-      // here so no arrangement of this sentence can come out empty.
-      const what =
-        stored.marks > 0
-          ? kinds
-            ? `${marks(stored.marks)} and the ${kinds}`
-            : marks(stored.marks)
-          : kinds
-            ? `the ${kinds}`
-            : 'the progress';
+      // A device with records but no marks — practice-only, one that has only
+      // cleared trials, or one holding nothing but the days count — must not be
+      // told "0 completed marks", which would describe the delete as a no-op it
+      // is not. Every §6 progress shape is named in whatever combination is
+      // actually stored, as ONE flat list so the sentence reads the same way at
+      // one kind and at four; the fallback never renders (the toggle is
+      // aria-disabled with nothing stored) and is here so no arrangement of this
+      // sentence can come out empty.
+      const parts = kinds.map((kind) => `the ${kind}`);
+      if (stored.marks > 0) parts.unshift(marks(stored.marks));
+      const what = parts.length > 0 ? joinList(parts) : 'the progress';
       warn.textContent = `Removes ${what} stored on this device — cannot be undone.`;
     }
     panel.hidden = false;
@@ -881,7 +982,7 @@ const resumeFallback = firstLesson
     // trial is a "mark"), so this is the only moment the rest is still there to
     // be named.
     const stored = storedProgress(list);
-    const kinds = recordKinds(stored);
+    const kinds = recordKinds(stored, countNotes(list), hasLearningDays());
     const removed = resetProgress(list);
     closePanel();
     render();
@@ -896,13 +997,14 @@ const resumeFallback = firstLesson
     // count it hoped to — a blocked key is not a removal), plus whichever other
     // record kinds were there. "Nothing to reset" is what a clean device and a
     // blocked store both come out as, which is the honest answer for both.
+    const alongWith = joinList(kinds.map((kind) => `the ${kind}`));
     announce(
       removed > 0
         ? `Progress reset — ${marks(removed)} removed from this device${
-            kinds ? `, along with the ${kinds}` : ''
+            alongWith ? `, along with ${alongWith}` : ''
           }.`
-        : kinds
-          ? `Progress reset — ${kinds} removed from this device.`
+        : kinds.length > 0
+          ? `Progress reset — ${joinList(kinds)} removed from this device.`
           : 'Nothing to reset — no progress was stored on this device.',
     );
   }

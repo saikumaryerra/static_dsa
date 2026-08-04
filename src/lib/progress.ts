@@ -2,10 +2,11 @@
  * Local progress — the ONE module that reads and clears the site's completion
  * state (site spec §6 client persistence; M7.2 "close the loops").
  *
- * WHY ONE MODULE: eight islands now answer questions about the same keys — the
+ * WHY ONE MODULE: nine islands now answer questions about the same keys — the
  * home hero's continue line, the `/learn` resume CTA with its per-track rings and
  * reset control, the review strip, the lesson header's pips, `MarkComplete`,
- * `PracticeCheck`, `FinalRun` and the Visualizer's predict session — because M8
+ * `PracticeCheck`, `ExplainBack`, `FinalRun` and the Visualizer's predict
+ * session — because M8
  * layered mastery on top of exactly these keys by extending this file rather than
  * opening a second store (see the mastery section at the bottom). Keeping the key
  * format, the `try/catch` discipline, the delete list and the rule for WHEN a
@@ -85,6 +86,31 @@
  * real island import sets and gzip each emitted chunk. Do not estimate it.
  */
 import { ENRICHMENT_KEYS, resetEnrichment } from './challenges';
+
+/**
+ * M8.3's THIRD global progress key, imported from its writer for exactly the
+ * reasons above: `src/lib/learning-days.ts` owns the name `ld:days:v1`, the
+ * once-per-day rule and the delete, and this module only asks it two questions —
+ * "is there one?" (the reset control's enabled state) and "clear it" (the reset
+ * itself). The literal is never spelled here, so it cannot drift.
+ *
+ * WHAT THE IMPORT COSTS — measured against a build, because this file's own
+ * history says an unmeasured size claim in a comment is how a bundling problem
+ * stays invisible for a phase. Rollup chunks per MODULE, and every importer of
+ * `learning-days.ts` also imports this file, so the whole module folds into the
+ * shared `progress` chunk that 18 of the 21 built pages already download. Gzipped
+ * at -9, that chunk went 2,298 B → 2,920 B across all of M8.3: **+376 B gz for
+ * this import** and +246 B for the Explain-it-back note API below (measured by
+ * building the tree three ways — before, with the note API only, and complete —
+ * and gzipping the emitted chunk each time).
+ *
+ * It is paid on pages that will never write a learning day (`/` and `/about`
+ * among them), and it is still the right trade: the alternative is `/learn`
+ * calling `resetLearningDays()` itself, which would move a progress key OUT of
+ * the one delete list — the drift this file's key rules exist to prevent — for
+ * a third of a kilobyte on a page carrying 4.5 KB of JS inside a 60 KB budget.
+ */
+import { hasLearningDays, resetLearningDays } from './learning-days';
 
 /** A lesson's identity as injected from the build (never read back out of storage). */
 export interface LessonRef {
@@ -218,29 +244,26 @@ export function countComplete(lessons: LessonRef[]): {
 
 /**
  * Clears every PROGRESS key on this device — the delete half of the progress
- * system, shipped with the read half so the data is never one-way. Four keys in
+ * system, shipped with the read half so the data is never one-way. Five keys in
  * two shapes go:
  * - PER-LESSON, for the injected slugs only: the completion mark and the M8.1
- *   mastery record.
+ *   mastery record — which since M8.3 also carries the reader's Explain-it-back
+ *   note, so the note goes with the record and needs no delete path of its own
+ *   here (the reader gets a per-note one beside Save; see {@link deleteNote}).
  * - GLOBAL, cleared outright because they are not keyed by slug: M8.3's
  *   `ld:challenges:v1` and `ld:finalrun:v1`, through their own module's
- *   {@link resetEnrichment} (spec §6 lists both as progress keys, so a reset
- *   that skipped them would keep records the reader asked to delete while the
- *   control described itself as having nothing to clear).
+ *   {@link resetEnrichment}, and `ld:days:v1` through {@link resetLearningDays}
+ *   (spec §6 lists all three as progress keys, so a reset that skipped one would
+ *   keep records the reader asked to delete while the control described itself
+ *   as having nothing to clear).
  *
  * Still no prefix scan, in either shape: the per-lesson keys are addressed from
- * the build-injected list and the global ones are two names imported from their
- * writer. Nothing here ever enumerates storage looking for an `ld:` prefix,
- * which is what stops a reset from deleting a key this product does not own.
- *
- * SPEC-GAP: spec §6 enumerates a THIRD global progress key, `ld:days:v1` (the
- * M8.3 learning-days counter). No module writes it — `docs/m8-gamification.md`
- * lists Learning Days as the "first cut under budget pressure" and this batch
- * shipped without it — so no device can be holding one and there is nothing to
- * delete. Spelling the literal here anyway would put a key format in a module
- * that is not its writer, the exact drift this file's key rules exist to
- * prevent; when that counter lands, its writer exports the name and joins it to
- * the imported list above, the same way the two enrichment keys did.
+ * the build-injected list and the global ones are three names imported from
+ * their writers. Nothing here ever enumerates storage looking for an `ld:`
+ * prefix, which is what stops a reset from deleting a key this product does not
+ * own — and it is why `ld:days:v1` joined this list the way it did, by its
+ * writer exporting a delete function once one existed, rather than by a sweep
+ * that would have taken it (and anything else) while nothing wrote it.
  *
  * Preference keys (`theme`, `pref:viz-speed`, `pref:code-lang`) are deliberately
  * NOT cleared (spec §6): resetting progress must not also throw away the
@@ -264,9 +287,10 @@ export function resetProgress(lessons: LessonRef[]): number {
     if (removeKey(store, completeKey(lesson.slug))) removed += 1;
     removeKey(store, masteryKey(lesson.slug));
   }
-  // The global half, owned by the module that writes it: same per-key try/catch
-  // discipline, so one blocked key cannot strand the others.
+  // The global half, each owned by the module that writes it: same per-key
+  // try/catch discipline, so one blocked key cannot strand the others.
   resetEnrichment();
+  resetLearningDays();
   return removed;
 }
 
@@ -293,8 +317,15 @@ function removeKey(store: Storage, key: string): boolean {
 }
 
 /**
- * What this device is actually holding, by KIND — the read half of the reset,
- * and the only place a caller can learn what a reset is about to remove.
+ * What this device is actually holding in its PER-LESSON and enrichment keys, by
+ * KIND — the read half of the reset.
+ *
+ * Two companions complete that picture, and they are separate rather than fields
+ * here because the reset sentence names them in different words: {@link
+ * countNotes} (the reader's own written notes, which live INSIDE the mastery
+ * records this counts, so a note-holding device is one this function already
+ * reports a `records` count for) and `hasLearningDays()` in
+ * `src/lib/learning-days.ts` (one global number, not a record kind at all).
  *
  * The kinds are separate because the reader is told about them in different
  * words: `resetProgress` reports completion marks and nothing else, so a control
@@ -345,19 +376,23 @@ export function storedProgress(lessons: LessonRef[]): {
 }
 
 /**
- * Whether ANY progress at all is stored — a completion mark, a mastery record,
- * or an enrichment key.
+ * Whether ANY progress at all is stored — a completion mark, a mastery record
+ * (note included, since a note lives in one), an enrichment key, or the
+ * learning-days count.
  *
  * Exists because `resetProgress`'s return value counts only marks: a reader who
- * self-graded practice without ever clicking "Mark as complete", or who cleared
- * a Trace Trial and nothing else, still has data on the device, and a reset
- * control gated on the completion count alone would present itself as "nothing
- * to clear" while holding it.
+ * self-graded practice without ever clicking "Mark as complete", who cleared a
+ * Trace Trial and nothing else, or who marked one lesson done and then changed
+ * their mind — leaving nothing behind but the day that act counted — still has
+ * data on the device, and a reset control gated on the completion count alone
+ * would present itself as "nothing to clear" while holding it.
  *
- * Derived from {@link storedProgress} rather than short-circuiting on the first
- * hit: one definition of "what counts as progress" is worth the handful of extra
- * synchronous reads (at most two per lesson plus two), and a second predicate
- * here is a second list of keys free to fall behind the delete list.
+ * Composed from the two functions that OWN the answer for their own keys rather
+ * than from a second list of key names here: {@link storedProgress} for the
+ * per-lesson and enrichment shapes, and the learning-days module for its own
+ * global key. That is the same rule the delete list follows one function above,
+ * which is what keeps "is there anything to clear?" and "clear it" from ever
+ * disagreeing about which keys exist.
  *
  * @param lessons - The build-injected lesson list.
  * @returns True if at least one progress key exists; false when storage is
@@ -365,7 +400,12 @@ export function storedProgress(lessons: LessonRef[]): {
  */
 export function hasStoredProgress(lessons: LessonRef[]): boolean {
   const stored = storedProgress(lessons);
-  return stored.marks > 0 || stored.records > 0 || stored.enrichment;
+  return (
+    stored.marks > 0 ||
+    stored.records > 0 ||
+    stored.enrichment ||
+    hasLearningDays()
+  );
 }
 
 /**
@@ -515,10 +555,11 @@ export type MasteryStage = 'none' | 'learned' | 'practiced' | 'mastered';
  *
  * Timestamps rather than booleans: the Mastered gate and the review schedule are
  * both derived from them, so a boolean would have to be re-derived from a date
- * anyway. M8.2 added the last two fields with no migration step, and the design's
- * Explain-it-back note would add one more the same way if it is ever built — it
- * was deferred, so no `note` is written today (`docs/m8-gamification.md`, "As
- * shipped"). That forward-compatibility has to work in BOTH directions: a
+ * anyway. M8.2 added the last two fields with no migration step, and M8.3's
+ * Explain-it-back note landed in the same key the same way — as a field this
+ * interface deliberately does NOT name, so no stage or schedule rule can read it
+ * (see the Explain-it-back section below).
+ * That forward-compatibility has to work in BOTH directions: a
  * record written before a field existed parses fine here (an M8.1 record reads as
  * "first interval, never reviewed", which is exactly what a lesson that has only
  * ever been practised is), and a record that already carries a field this version
@@ -723,8 +764,9 @@ function toIntervalIndex(value: unknown): number {
  * A parsed record plus the fields this version did not recognise.
  *
  * The second half is not decoration: M8.2 added `intervalIndex` and
- * `lastReviewAt` to THIS key with no migration step, and the deferred
- * Explain-it-back note would add a third the same way. A read-modify-write that
+ * `lastReviewAt` to THIS key with no migration step, and M8.3's `note` lives
+ * here permanently — it is the mechanism the reader's own words survive by, in
+ * every write path this module has. A read-modify-write that
  * serialised only the fields one bundle happens to know would erase a newer one
  * every time an older bundle graded a question — a tab left open across a
  * deploy, or a browser holding the previous build.
@@ -1043,6 +1085,141 @@ export function countMastery(lessons: LessonRef[]): {
 }
 
 // ---------------------------------------------------------------------------
+// Explain-it-back (M8.3) — the reader's own one-sentence "why does this work?".
+//
+// The ONLY free-form text this product stores, which is why it is four
+// obligations rather than one feature (`docs/m8-gamification.md`): a delete
+// button beside Save (`deleteNote`, wired in `ExplainBack.astro`), the note
+// named in the reset control's warning and announcement (`countNotes`, wired in
+// `/learn`), the "saved only in this browser" label beside the textarea, and the
+// field carried through every read-modify-write of the record.
+//
+// THE LAST ONE COSTS NOTHING HERE, and that is the point of the parser's design:
+// `note` is not a field of `MasteryRecord`, so it rides in the `extra` bag that
+// `parseMastery` fills and `writeMastery` spreads back — which means a
+// self-grade or a review pass written by any bundle, including one that predates
+// this feature, already preserves it verbatim. No migration, and no write path
+// to audit.
+//
+// IT IS DELIBERATELY NOT PART OF `MasteryRecord`. That interface is the input to
+// every stage and schedule rule in this module, and a note earns NOTHING — no
+// stage, no count, no schedule move, no pip. Keeping it out means no predicate
+// can read it even by accident, and the one component that shows it asks for it
+// by name.
+//
+// STORED AS THE TEXT ALONE, not `{ text, savedAt }`. Nothing in the product
+// displays when a note was written — the review replay says "You wrote last
+// time", never a date — and this module's own data-minimisation rule (the same
+// one that gives `ld:days:v1` a count and no history array) says a field no
+// surface can show is a field not to keep, most of all on the one artifact the
+// reader authored themselves.
+// ---------------------------------------------------------------------------
+
+/**
+ * The note's hard cap in characters, shared by the textarea's `maxlength` and
+ * the write below so the two can never disagree.
+ *
+ * 280 is the design's number, and the reason it is enforced in the STORE as well
+ * as in the DOM is the shared origin quota: reader-supplied text with no bound
+ * lets one paste cost the reader every other record on the device.
+ */
+export const NOTE_MAX_CHARS = 280;
+
+/** The stored note for one lesson, or `null` when there is nothing usable. */
+function noteOf(extra: Record<string, unknown>): string | null {
+  const note = extra['note'];
+  if (typeof note !== 'string') return null;
+  const text = note.trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * Reads one lesson's note.
+ *
+ * @param slug - Lesson slug.
+ * @returns The reader's text, or `null` when there is none, the stored value is
+ * not a string, or storage is unavailable.
+ */
+export function readNote(slug: string): string | null {
+  return noteOf(readStored(slug).extra);
+}
+
+/**
+ * Saves one lesson's note, leaving every other field of the record untouched.
+ *
+ * Earns nothing on purpose: no timestamp is stamped, no check is invented, no
+ * stage moves. Writing a sentence is elaboration, not retrieval, and the design
+ * gives it no place in the one currency — so skipping it costs the reader
+ * exactly nothing, which is the only way an optional prompt stays optional.
+ *
+ * @param slug - Lesson slug.
+ * @param text - What the reader typed. Trimmed, and cut to
+ * {@link NOTE_MAX_CHARS} — the DOM's `maxlength` bounds the typed case and this
+ * bounds every other one. No clock is taken, deliberately: see the section note
+ * on why nothing here dates a note.
+ * @returns The text as it now stands in storage, or `null` when the text was
+ * empty (nothing is written for an empty box) or the write did not land — so a
+ * caller can never announce a save that failed.
+ */
+export function writeNote(slug: string, text: string): string | null {
+  const trimmed = text.trim().slice(0, NOTE_MAX_CHARS);
+  if (trimmed.length === 0) return null;
+  const { record, extra } = readStored(slug);
+  return writeMastery(slug, record, { ...extra, note: trimmed })
+    ? trimmed
+    : noteOf(extra);
+}
+
+/**
+ * Removes one lesson's note and NOTHING else — the ethics half of this feature.
+ *
+ * A privacy promise with no deletion path is an erosion of it, and clearing all
+ * progress is not a deletion path: a reader who wants their own words gone must
+ * not have to give up their completion marks and practice history to get it. So
+ * this deletes exactly one field and writes the rest of the record back.
+ *
+ * @param slug - Lesson slug.
+ * @returns True when nothing is stored under `note` afterwards — including the
+ * no-op case where there was none — and false only when the write itself failed,
+ * so a caller never tells the reader their words are gone while they are not.
+ */
+export function deleteNote(slug: string): boolean {
+  const { record, extra } = readStored(slug);
+  if (noteOf(extra) === null) return true;
+  // Rebuilt without the field rather than set to `''`: an empty string is a
+  // value the record would keep carrying, and "deleted" has to mean absent.
+  // Copied key by key rather than by rest-destructuring so nothing has to name a
+  // variable it does not use, and so every OTHER unknown field a newer bundle
+  // may have written still rides through untouched.
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(extra)) {
+    if (key !== 'note') rest[key] = value;
+  }
+  return writeMastery(slug, record, rest);
+}
+
+/**
+ * How many of the injected lessons hold a note.
+ *
+ * For the reset control's sentences alone, which is why it is a count and not a
+ * boolean: "Removes … 3 written notes" is what makes a delete the reader cannot
+ * undo describable before they confirm it. Reads only the slugs the build
+ * injected, like everything else here — never a prefix scan.
+ *
+ * @param lessons - The build-injected lesson list.
+ * @returns The number of lessons whose record holds a note; 0 when storage is
+ * unavailable, which is the same "report nothing rather than something wrong"
+ * rule {@link storedProgress} follows.
+ */
+export function countNotes(lessons: LessonRef[]): number {
+  let notes = 0;
+  for (const lesson of lessons) {
+    if (readNote(lesson.slug) !== null) notes += 1;
+  }
+  return notes;
+}
+
+// ---------------------------------------------------------------------------
 // The ready-to-review queue (M8.2) — spacing, and the ONLY surface in this
 // product that ever prompts the reader.
 //
@@ -1229,6 +1406,13 @@ export const REVIEW_COPY = {
   note: 'Coming back after a gap is what makes it stick — saved on this device only.',
   /** What the card offers. Small, finite, and honest about the size of the ask. */
   check: 'quick check (~2 min)',
+  /**
+   * How the reader's own Explain-it-back note is introduced under a due card
+   * (M8.3). Their words, attributed to them and not to this page — which is why
+   * it says who wrote it and asks nothing. No date: "last time" is all the
+   * schedule ever needs to say, and a count of days waited is banned here.
+   */
+  wrote: 'You wrote last time:',
 } as const;
 
 /**

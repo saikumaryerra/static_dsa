@@ -61,6 +61,22 @@ const BANNED_IN_M8_COPY =
 const BANNED_ANYWHERE =
   /(overdue|streak|days behind|don't lose|keep it up|you missed|% correct|accuracy|leaderboard|\bxp\b)/i;
 
+/**
+ * The ONE phrasing in which "streak" is allowed to appear: an explicit denial.
+ *
+ * M8.3's learning-days line exists *because* daily streaks were killed, and
+ * `docs/m8-gamification.md` specifies copy that says so outright ("there's no
+ * streak to break here"). Naming the killed mechanic in order to disclaim it is
+ * the opposite of running one, so the page-wide scan strips this phrase before
+ * applying {@link BANNED_ANYWHERE} rather than banning the word absolutely —
+ * which would fail the product on the design's own sentence.
+ *
+ * Deliberately narrow, and deliberately a REMOVAL rather than a whole-line
+ * exemption: "4 day streak — there's no streak to break here" loses only the
+ * denial and still fails on the chain it renders.
+ */
+const STREAK_DENIAL = /\b(no|not a|never a|isn'?t a)\s+streaks?\b/gi;
+
 /** Every visible string the M8 surfaces contribute to a lesson page. */
 async function masteryCopyOnLesson(page: Page): Promise<string[]> {
   return page.evaluate(() =>
@@ -178,7 +194,9 @@ test.describe('no ratio, no percentage, no second currency', () => {
       const text = await page.locator('body').innerText();
       const hits = text
         .split('\n')
-        .filter((line) => BANNED_ANYWHERE.test(line));
+        .filter((line) =>
+          BANNED_ANYWHERE.test(line.replace(STREAK_DENIAL, '')),
+        );
       expect(hits, `banned vocabulary on ${path}`).toEqual([]);
     }
   });

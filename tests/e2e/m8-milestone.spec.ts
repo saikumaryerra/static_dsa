@@ -304,16 +304,28 @@ test.describe('when it retires', () => {
     await page.locator('[data-mark-complete]').click();
     await expect(milestone(page)).not.toHaveText('');
 
-    // No milestone key exists in spec §6, so nothing may survive the reload —
-    // and the two keys that DO exist are exactly the two allowed.
+    // No milestone key exists in spec §6, so nothing about this line may
+    // survive the reload — and every key that IS on the device is one §6
+    // enumerates.
+    //
+    // Written as a §6 WHITELIST rather than as the two prefixes this test used
+    // to name: M8.3's learning-days counter writes `ld:days:v1` on the very
+    // click above (marking a lesson complete is one of its explicit acts), and a
+    // permitted key appearing must not read as a milestone leak. The two
+    // assertions below keep the original point sharper than the prefix check
+    // did — nothing may be stored ABOUT the milestone, whatever it is called.
     await page.reload();
     await expect(milestone(page)).toHaveText('');
     const keys = await page.evaluate(() => Object.keys(localStorage).sort());
+    const permitted =
+      /^(lesson:[a-z0-9-]+:complete|progress:v1:[a-z0-9-]+|ld:(challenges|finalrun|days):v1|theme|pref:(viz-speed|code-lang))$/;
     expect(
-      keys.every(
-        (key) => key.startsWith('lesson:') || key.startsWith('progress:v1:'),
-      ),
-      `unexpected storage keys: ${keys.join(', ')}`,
-    ).toBe(true);
+      keys.filter((key) => !permitted.test(key)),
+      'keys spec §6 does not permit',
+    ).toEqual([]);
+    expect(
+      keys.filter((key) => /milestone|track|celebrat/i.test(key)),
+      'the milestone is derived; nothing about it may be stored',
+    ).toEqual([]);
   });
 });

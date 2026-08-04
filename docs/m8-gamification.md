@@ -1,12 +1,14 @@
 # M8 — Gamification: "the mastery loop, quietly rendered"
 
-Status: **shipped** — M8.1 in `2b6b821`, M8.2 and M8.3 together in `4f34cff`, on top of M7.2's
-progress system and reset control. Spec §17 lists this milestone; §6/§7/§8/§9/§11 carry the
-amendments this design required.
+Status: **shipped, complete** — M8.1 in `2b6b821`, M8.2 and M8.3 together in `4f34cff`, hardening in
+`5bc64ee`, and the two items M8.3 had trimmed (Explain-it-back, Learning Days) landing afterwards
+once the budget headroom was measured rather than feared. All of it sits on M7.2's progress system
+and reset control. Spec §17 lists this milestone; §6/§7/§8/§9/§11 carry the amendments this design
+required.
 
 The phase sections below are the *plan as designed*, kept verbatim for their reasoning and their
-line-exact feasibility notes. **What actually shipped, what was deferred, and the re-measured budget
-are in "As shipped" at the end.** The design stance, the calm invariants and the killed list are
+line-exact feasibility notes. **What shipped, in what order, and how the budget is now enforced are
+in "As shipped" at the end.** The design stance, the calm invariants and the killed list are
 binding on new work regardless — they describe the product, not the plan.
 
 ## Provenance — how this design was produced
@@ -61,10 +63,10 @@ same `isPracticed()` predicate or the definitions will drift.
 | Key | Shape | Notes |
 |---|---|---|
 | `lesson:{slug}:complete` | `"1"` | **Existing, untouched.** Stays the OR-win source of truth for Learned; lazy migration (a legacy-complete lesson with no record renders Learned with `practicedAt: null`) |
-| `progress:v1:{slug}` | `{ practicedAt, masteredAt, intervalIndex, lastReviewAt, checks[] }` | Timestamps not booleans — the review scheduler derives everything from them. `note` was designed into this record for Explain-it-back and **never shipped**; the parser carries unknown fields through, so adding it later still needs no migration |
+| `progress:v1:{slug}` | `{ practicedAt, masteredAt, intervalIndex, lastReviewAt, checks[], note? }` | Timestamps not booleans — the review scheduler derives everything from them. `note` is Explain-it-back's optional text and **shipped as designed**: because the parser carries unknown fields through verbatim, adding it needed **no migration and no version bump**. It earns nothing — no stage, no schedule change — and is cleared with the record it lives in |
 | `ld:challenges:v1` | `{ "sorting-efficient/worst-case": 1 }` | id = `{lessonSlug}/{challenge-slug}` — **lesson slugs, not algorithm ids**: quick sort's lesson is `sorting-efficient` |
 | `ld:finalrun:v1` | `{ "binary-search": { c: 1 } }` | cleared Final Runs; cleared-only — **no first-try flag** (see killed list) |
-| `ld:days:v1` | `{ count, last }` | M8.3 learning-days counter; global, not per-lesson. **Designed, not built** — the key is enumerated in spec §6 but nothing writes it, so no device holds one |
+| `ld:days:v1` | `{ count, last }` | M8.3 learning-days counter; global, not per-lesson. **Shipped** — written by `src/lib/learning-days.ts`, the module that owns the day boundary, the once-per-day rule and the monotonic increment, so no caller can invent a second definition of "a day". No history array, no target, and `resetLearningDays()` puts it in the reset control's delete list |
 
 Versioned prefixes; unknown versions ignored on read; every access `try/catch`-guarded (private
 mode). Displays are **derived**, never stored as ledgers — so state retro-earns correctly and
@@ -221,20 +223,28 @@ path through the question strip verified; JS-off unchanged.
   a plain anchor to the visualization heading. Hypercorrection
   (Butterfield & Metcalfe) + predict–observe–explain. Placed after `## Practice` (spec §7
   amendment). Ships its own `<noscript>` kill-switch, like every M8 component.
-- **Explain-it-back — DEFERRED, not shipped.** The design below is unchanged and remains the plan of
-  record; see "As shipped" for why it was cut and what landing it would take. Optional 280-char
-  "why does this work?" note after completion, replayed at
+- **Explain-it-back** (`src/components/ExplainBack.astro`) — deferred at first pass, **shipped
+  later** once the budget pressure that cut it was gone; the design below is unchanged, because it is
+  what landed. Optional 280-char "why does this work?" note after completion, replayed at
   review time ("You wrote last time: … — still agree?"). **Delete button beside Save** (a privacy
   promise with no deletion path is an erosion of it), notes enumerated in the reset control, the
   "saved only in this browser" label adjacent to the textarea. Mount from the lesson shell near
   MarkComplete (delegate a click listener on `[data-mark-complete]`; MarkComplete emits no event) —
   do not invent a new lesson section or touch 15 MDX bodies. Optional `explainPrompt` frontmatter
-  field. Self-explanation (Chi et al.) + elaborative interrogation.
-- **Learning Days — NOT BUILT.** It was named here as the first cut under budget pressure, and it was
-  the cut. Design of record, unimplemented: an optional single line, a monotonic count of days with a
-  qualifying learning act, stored in `ld:days:v1` as `{ count, last }` only (no history array). Copy states the point:
-  "there's no streak to break here." First cut under budget pressure. Never gets a target (a target
-  re-creates the attendance goal the design bans).
+  field. Self-explanation (Chi et al.) + elaborative interrogation. The note earns **nothing** — no
+  stage, no schedule change, no count — which is what keeps mastery states the only currency while
+  the site stores a reader's own words.
+- **Learning Days** (`src/lib/learning-days.ts`) — named here as the first cut under budget pressure,
+  and it was the first cut; **shipped afterwards** to the same design. An optional single line, a
+  monotonic count of days on which a **qualifying learning act** happened, stored in `ld:days:v1` as
+  `{ count, last }` only (no history array). Copy states the point: "there's no streak to break
+  here." Never gets a target (a target re-creates the attendance goal the design bans), never a
+  chain, never a comparison, never a reset. **A qualifying act is an explicit one** — a completion
+  that left the lesson complete, a practice self-grade (either answer: "Not yet" is an honest report
+  of a retrieval attempt), or a landed retrieval pass. Never arrival, scrolling, elapsed time or a
+  revealed answer; spec §6 bans behavioral tracking, and this counter is the mechanic most likely to
+  tempt someone into it. It exists **because** streaks were killed: same honest signal ("you have
+  come back"), none of the loss-aversion machinery.
 
 *Accept:* DoD green; the challenge predicate evaluator has Vitest coverage — a witness that fails
 its own predicate throws, so the build guard is regression-tested in CI without committing a
@@ -274,10 +284,15 @@ The harness splits them: `vitest.config.ts` is `environment: 'node'` with no DOM
 - Every persistent surface carries "on this device only"; every **progress** key is in the reset
   control's clear list (preference keys deliberately are not).
 - Budget: worst-case lesson page ≈ 4.3 KB gz, `/learn` ≈ 2.2 KB — a self-imposed ~5 KB slice of
-  §4's 60 KB per-page budget (the spec grants no gamification allowance of its own). Re-measure by
-  hand per phase.
+  §4's 60 KB per-page budget (the spec grants no gamification allowance of its own). *E2E:*
+  `tests/e2e/js-budget.spec.ts` enforces the **60 KB spec limit** and prints each page's eager total
+  on every run; the ~5 KB slice above stays a target this document holds itself to, not a gate.
 
-## As shipped — what landed, what was deferred, and the re-measured budget
+## As shipped — what landed, in what order, and the re-measured budget
+
+**M8 is complete: every mechanic in this design is built.** The two that were trimmed under budget
+pressure — Explain-it-back and Learning Days — landed afterwards, unchanged, once measurement showed
+the pressure was gone. Nothing in this design remains unbuilt.
 
 **Landed.** M8.1: the shared store (`src/lib/progress.ts`, extended — never a second store),
 `PracticeCheck.astro` in all 15 lessons, `MasteryPips.astro` on `LessonCard` and the lesson header,
@@ -285,11 +300,12 @@ The harness splits them: `vitest.config.ts` is `environment: 'node'` with no DOM
 predict mode in the Visualizer plus `src/viz/algorithms/predictors.ts`, and the review strip
 (`ReviewStrip.astro`) reading `selectDueReviews` from the store. M8.3: `Challenge.astro` +
 `FinalRun.astro` over the `src/lib/challenges.ts` data module, with the `viz:run` event added to the
-Visualizer's submit success path exactly as §11.3 describes. Guarded by
-`tests/unit/{progress,challenges,predictors,mastery-ui}.test.ts` and
-`tests/e2e/m8-{calm-invariants,decisions,degraded,mastery-ladder,milestone,practice-check,predict,review-queue,trials-final-run}.spec.ts`.
+Visualizer's submit success path exactly as §11.3 describes; then `ExplainBack.astro` over the
+record's `note` field, and the learning-days line over `src/lib/learning-days.ts`. Guarded by
+`tests/unit/{progress,challenges,predictors,mastery-ui,learning-days}.test.ts` and
+`tests/e2e/m8-{calm-invariants,decisions,degraded,explain-note,learning-days,mastery-ladder,milestone,practice-check,predict,review-queue,trials-final-run}.spec.ts`.
 
-**Deviations and deferrals — decisions, not drift:**
+**Deviations, and the two late arrivals — decisions, not drift:**
 
 1. **Predict shipped wider than "binary-search + bubble/insertion first":** binary-search,
    bubble-sort, insertion-sort **and** BFS/DFS (with the mandatory floor guard — no one-button
@@ -300,21 +316,28 @@ Visualizer's submit success path exactly as §11.3 describes. Guarded by
    expose only `visited` and no rule can constrain how big the graph *was*, so every honest prompt
    would be clearable by drawing a smaller graph. Its enrichment is the Final Run, which all six
    Algorithms lessons carry. The reasoning is repeated at the catalog in `src/lib/challenges.ts`.
-3. **Explain-it-back — DEFERRED, and deliberately so.** Nothing implements it: no component, no
-   `note` field written to `progress:v1:{slug}`, and the `explainPrompt` frontmatter field named in
-   spec §7 has no reader and no lesson that sets it (§7 and §17 now mark it deferred). It is the only
-   mechanic in this design that would store free-form reader text, which is not one component but
-   four obligations — a delete button beside Save, the note named in the reset control's warning and
-   announcement copy, the "saved only in this browser" label, and a `note` field carried through
-   every read-modify-write — in the phase this document defines as the one that trims first under
-   budget pressure. The M8.3 spine (Trials + Final Run) shipped instead. **To land it later:** the
-   record parser already carries unknown fields through verbatim (`readStored`), so `note` needs no
-   migration; add the field to the content schema, the delete path, and the reset enumeration in
-   `storedProgress`, and re-measure the lesson-page slice below.
-4. **Learning Days — not built**, as this document already anticipated ("first cut under budget
-   pressure"). `ld:days:v1` stays enumerated in spec §6 with **no writer**, so no device holds one;
-   `resetProgress` deliberately does not spell the literal (its `SPEC-GAP` comment says why, and how
-   the key joins the delete list when a writer exists).
+3. **Explain-it-back — deferred first, then shipped whole.** The deferral was real and is worth
+   keeping on the record, because it is the reason the mechanic is now the shape it is: storing
+   free-form reader text is not one component but **four obligations** — a delete button beside Save,
+   the note named in the reset control's warning and announcement copy, the "saved only in this
+   browser" label, and a `note` field carried through every read-modify-write — and taking on all
+   four inside the phase this document defines as "trims first under budget pressure" would have
+   meant taking on the last one badly. The M8.3 spine (Trials + Final Run) shipped first; the note
+   followed when the budget said it could. **What landing it took, exactly as predicted here:** no
+   migration and no version bump (`readStored` already carried unknown fields through verbatim), the
+   `explainPrompt` field added to the content schema (optional) and authored in 11 of the 15
+   lessons, `deleteNote` wired to the Delete button, and the note enumerated in the reset path. It
+   is mounted from the lesson shell by delegating on `[data-mark-complete]` — no new lesson section,
+   no MDX body touched.
+4. **Learning Days — deferred first (this document called it "the first cut under budget pressure"
+   before it was one), then shipped.** `src/lib/learning-days.ts` is now `ld:days:v1`'s only writer;
+   it exports its key name and `resetLearningDays()`, which is how the key joined the reset control's
+   delete list exactly as the `SPEC-GAP` note in `resetProgress` said it would. The line renders on
+   `/learn` and, like every M8 surface, is absent — not broken — with JS off or storage blocked.
+   The one rule that outranks the mechanic: **it counts explicit acts, never attendance.** The
+   listener lives beside the stage painter in `LessonLayout`, the one place that already sees every
+   explicit act, so counting a visit would take deliberate new code rather than a moment's
+   inattention.
 5. **A failed review does not halve the interval.** "Not yet" writes no pass at all, so the schedule
    does not move and the lesson stays due *now* — sooner than any halved interval, and it keeps the
    promotion path single by never sending a failure signal into the store. Recorded at `recordPass`.
@@ -327,17 +350,23 @@ Visualizer's submit success path exactly as §11.3 describes. Guarded by
    ratio ships anywhere; the predict session line counts activity only ("7 answered · 2 skipped"),
    and the review strip remains the only surface that ever prompts.
 
-**Budget, re-measured after M8.3.** Method — the only one that counts here: build, then `gzip -9`
-every chunk in a page's static import closure (lazily-imported algorithm/renderer chunks are extra).
-Do not estimate, and do not copy the numbers into a second document: the one measurement that made
-this phase's bundling problem invisible was a comment repeating a figure nobody had re-measured.
+**Budget — now measured by a machine, on every run.** Method, unchanged and still the only one that
+counts: build, then `gzip -9` every chunk in a page's static import closure (lazily-imported
+algorithm/renderer chunks are extra). What changed is who does it — `tests/e2e/js-budget.spec.ts`
+performs exactly that measurement, **fails the run** if any page exceeds §4's 60 KB gz, and prints
+the per-page table every time. **Read that output for the current number; this document deliberately
+stops quoting one.** The measurement that made this phase's bundling problem invisible was a comment
+repeating a figure nobody had re-measured, and a document is the worst possible cache for a build
+artifact.
 
-Every page is far inside §4's 60 KB budget — a worst-case lesson page carries roughly 15 KB gz of
-eager JS and `/learn` roughly 5 KB. Against this document's *self-imposed* slice both budgeted pages
-are still over: `/learn` carries ≈2.5 KB of M8 code against its ≈2.2 KB allowance (review strip,
-pips/ring helpers, the enrichment keys, and the ≈1.1 KB mastery/review half of `src/lib/progress.ts`),
-and a lesson hosting trials and a Final Run is over its ≈4.3 KB. Being over a self-imposed slice
-inside a budget with 45 KB of headroom is a note, not an emergency — but it is why the two
+At the M8.3 measurement every page was far inside §4's budget while both *self-imposed* slices were
+over: `/learn` carried ≈2.5 KB of M8 code against its ≈2.2 KB allowance (review strip, pips/ring
+helpers, the enrichment keys, and the ≈1.1 KB mastery/review half of `src/lib/progress.ts`), and a
+lesson hosting trials and a Final Run was over its ≈4.3 KB. Explain-it-back and the learning-days
+line each added a slice on top, and each was measured the same way rather than estimated — both
+figures, and the three-way build that produced them, are recorded in the header of
+`src/lib/progress.ts`. Being over a self-imposed slice
+inside a budget with tens of KB of headroom is a note, not an emergency — but it is why the two
 structural questions below were settled with measurements rather than instincts:
 
 - **The enrichment keys moved out of the trial catalog** (`src/lib/enrichment-store.ts`). Two key
@@ -365,8 +394,12 @@ structural questions below were settled with measurements rather than instincts:
   mechanic exists to elicit (Kornell & Metcalfe); beginners start peeking before committing, which
   destroys the testing-effect value. Identical credit regardless of attempts.
 - **Daily streaks** — pedagogically backwards (the spacing effect says the gap is the point) and a
-  loss-aversion guilt mechanic that manufactures a quit moment. The monotonic Learning Days line is
-  the honest ceiling.
+  loss-aversion guilt mechanic that manufactures a quit moment. **Still killed, and now with a
+  shipped alternative standing in its place:** the monotonic Learning Days line is the honest
+  ceiling — it counts days that happened, never a chain that can break, and its own copy says there
+  is no streak here. Turning it into one (a reset on a missed day, a chain graphic, a target, a
+  comparison, a countdown to "keeping" it) re-proposes this killed mechanic and is a design
+  regression, not a feature.
 - **Personal-best scores** — the same generation-effect act as Trace Trials with worse scaffolding
   and a short live span; two numeric frames on one visualizer.
 - Also rejected on constraint, WCAG, or honesty grounds: confetti/particles and success sounds,

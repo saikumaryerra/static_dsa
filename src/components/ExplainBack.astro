@@ -1,0 +1,564 @@
+---
+/**
+ * ExplainBack — the optional one-sentence "why does this work?" note
+ * (`docs/m8-gamification.md`, M8.3; spec §7's `explainPrompt` frontmatter field,
+ * §6's `progress:v1:{slug}` record).
+ *
+ * Props:
+ * - `slug`   the lesson that owns the record the note is stored in.
+ * - `prompt` the lesson's own `explainPrompt`. Rendered VERBATIM as the field's
+ *            `<label>`: it is the question, and a component that decorated it
+ *            would be answering for the author.
+ *
+ * WHAT IT IS. Self-explanation (Chi et al.) and elaborative interrogation: the
+ * reader states, in their own words, why the thing they just read works — and
+ * meets that sentence again at review time, where it is both a retrieval cue and
+ * a calibration check ("still agree?"). It is the only mechanic in this product
+ * that stores free-form reader text.
+ *
+ * IT EARNS NOTHING, and that is load-bearing rather than modest: no stage, no
+ * pip, no tally, no count, no schedule move (`writeNote` in
+ * `src/lib/progress.ts` stamps nothing). Skipping it costs the reader exactly
+ * nothing, which is the only honest way to make a prompt optional; grading a
+ * sentence — even by counting one — would turn elaboration into a chore and put
+ * a second currency beside the mastery states the design allows.
+ *
+ * THE FOUR OBLIGATIONS this component carries (the design's word for why it is
+ * not one control but four): a **Delete** button beside Save, because a privacy
+ * promise with no deletion path is an erosion of it; the note NAMED in the reset
+ * control's copy (`/learn` composes that sentence from `countNotes`); the
+ * device-scope label adjacent to the textarea, not buried in a footer; and the
+ * `note` field carried through every other write of the record, which
+ * `parseMastery`'s unknown-field bag already does for free.
+ *
+ * WHY THE MARKUP LIVES IN A `<template>`. The box appears only once the reader
+ * has said they finished the lesson — self-explanation of a lesson nobody has
+ * read yet is a prompt with no referent — and "appears" has to mean it is not
+ * there beforehand: a hidden textarea is still a form field in the DOM, and a
+ * hidden prompt is still a question the page is asking. A `<template>` is inert
+ * in every mode that matters (not rendered, not focusable, not in the
+ * accessibility tree, and its content is not in the document tree at all), so the
+ * copy, the ids and the styling stay reviewable in this file while the page a
+ * reader meets before completing carries no note box whatsoever.
+ *
+ * THIS IS THE ONE CONTROL IN THE PRODUCT THAT APPEARS WITH PROGRESS. Everything
+ * else M8 added is a display: `docs/m8-gamification.md` is emphatic that stage is
+ * never a permission, and `tests/e2e/m8-calm-invariants.spec.ts` pins that as
+ * "a Mastered lesson offers exactly what an untouched one offers" on the `arrays`
+ * lesson — which is why `arrays` deliberately authors no `explainPrompt`.
+ * Authoring one there is a design decision that reopens that invariant (the note
+ * is not an unlock — nothing is gated behind it and it grants nothing — but it IS
+ * a control that was not there before), not a bug fix to make quietly.
+ *
+ * A11Y:
+ * - A real `<label>` bound to the textarea by `for`/`id`, carrying the authored
+ *   question as its whole text, so the field's accessible name IS the prompt.
+ * - `maxlength` on the field (the store bounds it again — see `NOTE_MAX_CHARS`),
+ *   with a visible character counter that is `aria-hidden`: a counter that
+ *   announced on every keystroke would talk over the reader as they typed.
+ *   The count reaches the live region only at the two moments it becomes news —
+ *   the last stretch, and the cap — and each is announced once.
+ * - ONE polite `role="status"`, shipped EMPTY, carrying both that counter news
+ *   and the save/delete confirmation. The confirmation is text PLUS a glyph, and
+ *   never colour: the glyph is `aria-hidden` decoration beside a sentence that
+ *   says the same thing.
+ * - Delete is `aria-disabled` rather than `disabled` while there is nothing to
+ *   delete (M7.1 CMP-3): it is exactly where focus stands the instant a note is
+ *   removed, and a real `disabled` would drop that focus onto `<body>`.
+ *
+ * JS-OFF / STORAGE BLOCKED: with no script the template is never cloned, so
+ * there is no field, no button and no prompt anywhere on the page — and the
+ * `<noscript>` kill-switch below covers the class besides, the belt-and-braces
+ * rule `ReviewStrip` follows for the same reason. With storage blocked, `readNote`
+ * and `isComplete` both answer "nothing", so the box never appears rather than
+ * appearing and promising a save this device cannot keep.
+ */
+import { NOTE_MAX_CHARS } from '../lib/progress';
+import { nextUid } from './uid';
+
+interface Props {
+  slug: string;
+  prompt: string;
+}
+
+const { slug, prompt } = Astro.props;
+
+// Fail the BUILD on an authoring slip rather than rendering an empty label: a
+// blank prompt is a labelled field with no question in it, which no reader can
+// answer and no test can distinguish from a missing component.
+if (prompt.trim().length === 0) {
+  throw new Error(
+    `ExplainBack: explainPrompt is empty for "${slug}" — remove the field or author a question (spec §7).`,
+  );
+}
+
+const uid = nextUid();
+const fieldId = `explain-${uid}`;
+const countId = `${fieldId}-count`;
+const scopeId = `${fieldId}-scope`;
+---
+
+<template data-explain-template data-slug={slug}>
+  <div class="explain-back" data-explain-back>
+    {
+      /* The review replay, populated and revealed by the island only on a
+        `?review=1` visit that has something to replay. It leads the block on
+        purpose: meeting your own earlier sentence BEFORE you edit it is what
+        makes the box a calibration check rather than a blank page. */
+    }
+    <p class="explain-back__recall" data-explain-recall hidden></p>
+
+    <label class="explain-back__label" for={fieldId}>{prompt}</label>
+
+    <textarea
+      class="explain-back__field"
+      id={fieldId}
+      data-explain-field
+      rows="3"
+      maxlength={NOTE_MAX_CHARS}
+      aria-describedby={`${countId} ${scopeId}`}></textarea>
+
+    <p class="explain-back__meta">
+      {
+        /* Both halves of this line are the field's `aria-describedby`, so a
+          screen-reader user meets the remaining count and the device scope when
+          they focus the box. The count is `aria-hidden` so it is not ALSO read
+          as loose text while browsing, and a description is spoken on focus
+          rather than on change — which is what keeps the counter from
+          chattering; the live region below carries it only when it becomes
+          news. */
+      }
+      <span
+        class="explain-back__count"
+        id={countId}
+        data-explain-count
+        aria-hidden="true"></span>
+      <span class="explain-back__scope" id={scopeId}>
+        Saved only in this browser. Never sent anywhere.
+      </span>
+    </p>
+
+    <div class="explain-back__actions">
+      <button type="button" class="btn-secondary" data-explain-save>
+        Save note
+      </button>
+      {
+        /* BESIDE Save, never buried: the ethics review's requirement, and the
+          reason it is `aria-disabled` rather than `disabled` is that this is
+          where focus stands the moment a note goes. */
+      }
+      <button
+        type="button"
+        class="btn-secondary"
+        data-explain-delete
+        aria-disabled="true"
+      >
+        Delete note
+      </button>
+    </div>
+
+    {
+      /* Ships EMPTY so nothing is announced on load, and stays in the DOM: a
+        live region has to be in the accessibility tree before its first
+        population for that announcement to fire reliably. */
+    }
+    <p class="explain-back__status" role="status" data-explain-status>
+      {
+        /* The glyph is wrapped rather than carrying `hidden` itself: `hidden` is
+          an HTML attribute, not an SVG one, so the wrapper is what the script
+          toggles — and Tailwind's preflight hides `[hidden]` with `display:
+          none !important`, which beats the inline-flex below. */
+      }
+      <span class="explain-back__status-icon" data-explain-status-icon hidden>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M4 12l5 5L20 6"></path>
+        </svg>
+      </span>
+      <span data-explain-status-text></span>
+    </p>
+  </div>
+</template>
+
+<noscript>
+  <style>
+    /* Kill-switch, as every M8 component ships one. Belt-and-braces here, like
+       `ReviewStrip`'s: the box only ever exists because the island cloned the
+       template, so a JS-off page cannot show one. The rule is what makes that
+       structural fact unbreakable if the block is ever server-rendered — and
+       `!important` because a kill-switch must be unbeatable by any
+       equal-specificity rule in the bundle (QA DEFECT-1). */
+    .explain-back {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style is:global>
+  /* GLOBAL, for the reason `ReviewStrip`'s block records: Astro scopes a
+     component's CSS by stamping `data-astro-cid-*` onto the elements it renders,
+     and everything here is cloned out of a `<template>` by script. Every
+     selector is therefore namespaced under `.explain-back`, and nothing in this
+     block declares `background-color`, `border-color` or `box-shadow` — it is
+     unlayered, so it would beat `@layer components`' state rules from the
+     resting state (the trap `LessonCard` documents). */
+  .explain-back {
+    max-width: var(--measure);
+    margin-top: var(--space-8);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--border);
+  }
+
+  /* The reader's own earlier words, quoted back. A left rule and the muted role
+     make it read as a quotation rather than as authored copy — the same idiom
+     the lesson body gives a blockquote. */
+  .explain-back__recall {
+    max-width: var(--measure);
+    margin: 0 0 var(--space-4);
+    padding-left: var(--space-4);
+    border-left: 3px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* The authored question, at the weight of a control's label rather than a
+     heading: this block titles itself (it has no heading of its own, so it can
+     never leave one stranded — the rule `nojs-orphan-sections.spec.ts` guards). */
+  .explain-back__label {
+    display: block;
+    max-width: var(--measure);
+    color: var(--text);
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-normal);
+  }
+
+  .explain-back__field {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background-color: var(--surface-sunken);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+    resize: vertical;
+    transition: border-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .explain-back__field:hover {
+    border-color: var(--brand);
+  }
+
+  .explain-back__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin-top: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .explain-back__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  /* The shared disabled recipe every aria-disabled control here uses (M7.1
+     CMP-3), so "there is nothing to delete" looks the same as every other
+     unavailable control on the site. */
+  .explain-back [aria-disabled='true'] {
+    opacity: var(--disabled-opacity);
+    cursor: not-allowed;
+  }
+
+  /* Text AND a glyph, never colour: the confirmation reads the same in forced
+     colours, in greyscale and to a screen reader (which gets the text alone —
+     the glyph is aria-hidden). */
+  .explain-back__status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* The margin is unconditional, unlike MarkComplete's `:empty` trick, because
+     this region is never empty in the DOM sense — it holds the glyph wrapper and
+     the text span from the start, and it must: a live region that is only
+     inserted (or un-hidden) in the same frame as its first message is the classic
+     way to lose an announcement. With no message the two spans generate no line
+     box, so the block itself is zero-height and all this leaves under the buttons
+     is --space-3 of breathing room. */
+  .explain-back__status-icon {
+    display: inline-flex;
+    flex: none;
+  }
+
+  /* On paper a device-local control has no meaning, the same reason
+     `.whats-next` and the practice footer are dropped (global.css print rules). */
+  @media print {
+    .explain-back {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  /**
+   * The Explain-it-back island: mount the box once the reader says they are
+   * done, then read, save and delete their note.
+   *
+   * Every storage rule lives in `src/lib/progress.ts` — the key, the cap, the
+   * read-modify-write that keeps the rest of the record intact, and the delete
+   * that takes exactly one field — so this file only decides WHEN the box exists
+   * and WHAT the reader is told.
+   */
+  import {
+    deleteNote,
+    isComplete,
+    NOTE_MAX_CHARS,
+    onRestore,
+    readNote,
+    writeNote,
+  } from '../lib/progress';
+
+  /** How few characters may be left before the count becomes worth announcing. */
+  const ANNOUNCE_FROM = 20;
+
+  const template = document.querySelector<HTMLTemplateElement>(
+    '[data-explain-template]',
+  );
+  const slug = template?.dataset['slug'] ?? '';
+
+  if (template && slug) {
+    /**
+     * Whether this visit arrived from the review strip.
+     *
+     * Read, never written: `?review=1` is a URL, not a preference (spec §6
+     * permits no key for it), so a review visit leaves the device byte-identical.
+     */
+    const isReview =
+      new URLSearchParams(window.location.search).get('review') === '1';
+
+    /** The cloned box, once it exists. */
+    let box: HTMLElement | null = null;
+    let field: HTMLTextAreaElement | null = null;
+    let recall: HTMLElement | null = null;
+    let count: HTMLElement | null = null;
+    let removeBtn: HTMLElement | null = null;
+    let statusText: HTMLElement | null = null;
+    let statusIcon: HTMLElement | null = null;
+    /** The last character-count band announced, so it is said once per crossing. */
+    let announcedBand = '';
+    /**
+     * Whether the box holds typing that has not been saved.
+     *
+     * It exists so a repaint can never overwrite the reader's unsaved sentence:
+     * `paint()` runs on the completion click too (the same delegated listener
+     * that reveals the box), and a reader who types first and un-ticks
+     * completion second would otherwise watch their words be replaced by
+     * whatever storage last held.
+     */
+    let dirty = false;
+
+    /**
+     * Says one thing, politely, in the single live region — with the glyph only
+     * where the sentence is a confirmation.
+     *
+     * Rewriting a region with an identical string re-announces it, so an
+     * unchanged message is left alone (the rule `PracticeCheck` follows).
+     */
+    function say(message: string, confirmed = false): void {
+      if (!statusText || statusText.textContent === message) return;
+      statusText.textContent = message;
+      if (statusIcon) statusIcon.hidden = !confirmed || message === '';
+    }
+
+    /**
+     * Paints the counter, and announces it only when it becomes news.
+     *
+     * Two moments qualify: entering the last {@link ANNOUNCE_FROM} characters,
+     * and reaching the cap. Everything between is visible and silent — a live
+     * region that spoke on every keystroke would talk over the reader mid-word.
+     */
+    function paintCount(): void {
+      if (!field || !count) return;
+      const left = NOTE_MAX_CHARS - field.value.length;
+      count.textContent = `${left} characters left`;
+      const band = left === 0 ? 'full' : left <= ANNOUNCE_FROM ? 'near' : '';
+      if (band === announcedBand) return;
+      announcedBand = band;
+      if (band === 'full') say('No characters left in this note.');
+      else if (band === 'near') say(`${left} characters left.`);
+      else say('');
+    }
+
+    /** Reflects the stored note onto the field, the replay and Delete. */
+    function paint(): void {
+      if (!field) return;
+      const stored = readNote(slug);
+      // Unsaved typing wins over storage: see `dirty`. Everything else on the
+      // block still repaints, so Delete and the replay stay true either way.
+      if (!dirty) field.value = stored ?? '';
+      removeBtn?.setAttribute('aria-disabled', stored ? 'false' : 'true');
+      if (recall) {
+        // The replay is the payoff, so it appears where the payoff is: on a
+        // review visit, with something to replay. On an ordinary visit the
+        // reader's words are already in the box below it, and quoting them
+        // twice would be noise.
+        const replay = isReview && stored;
+        recall.textContent = replay ? `You wrote last time: “${stored}”` : '';
+        recall.hidden = !replay;
+      }
+      paintCount();
+    }
+
+    /**
+     * Clones the box into the page, once, and wires it up.
+     *
+     * Inserted after the template so it lands where this component was mounted —
+     * below "What's next", clear of the button that reveals it, so nothing the
+     * reader is looking at moves under them when it appears.
+     */
+    function mount(): void {
+      if (box) return;
+      const fragment = template!.content.cloneNode(true) as DocumentFragment;
+      const root = fragment.querySelector<HTMLElement>('[data-explain-back]');
+      if (!root) return;
+
+      field = root.querySelector<HTMLTextAreaElement>('[data-explain-field]');
+      recall = root.querySelector<HTMLElement>('[data-explain-recall]');
+      count = root.querySelector<HTMLElement>('[data-explain-count]');
+      removeBtn = root.querySelector<HTMLElement>('[data-explain-delete]');
+      statusText = root.querySelector<HTMLElement>(
+        '[data-explain-status-text]',
+      );
+      statusIcon = root.querySelector<HTMLElement>(
+        '[data-explain-status-icon]',
+      );
+      const saveBtn = root.querySelector<HTMLElement>('[data-explain-save]');
+      if (!field || !saveBtn || !removeBtn) return;
+
+      field.addEventListener('input', () => {
+        dirty = true;
+        // A confirmation describes the note as it was SAVED, so editing makes
+        // it stale: clear it rather than leave "Saved" beside text that is not.
+        if (statusIcon && !statusIcon.hidden) say('');
+        paintCount();
+      });
+
+      saveBtn.addEventListener('click', () => {
+        const typed = field!.value.trim();
+        if (typed.length === 0) {
+          // Nothing to keep, and nothing claimed: an empty box is not a delete
+          // (Delete is its own button, beside this one) and not a save either.
+          say('Nothing to save yet — the note is empty.');
+          return;
+        }
+        // The store returns what actually landed, so a blocked or full device
+        // gets the honest sentence rather than a promise (MarkComplete's rule).
+        const saved = writeNote(slug, typed);
+        announcedBand = '';
+        if (saved === null) {
+          // Still dirty: nothing landed, so the reader's text stays theirs to
+          // copy elsewhere rather than being tidied away by the next repaint.
+          say('Not saved — this browser is not letting the page store it.');
+          return;
+        }
+        dirty = false;
+        paint();
+        say('Saved. Only in this browser.', true);
+      });
+
+      removeBtn.addEventListener('click', () => {
+        if (removeBtn!.getAttribute('aria-disabled') === 'true') return;
+        const gone = deleteNote(slug);
+        announcedBand = '';
+        // A delete the reader asked for empties the box, typing included: that
+        // is the act, and leaving their words on screen beside "deleted" would
+        // contradict it.
+        dirty = false;
+        paint();
+        // Focus stays on this button (it is `aria-disabled`, never `disabled`),
+        // so the reader who just deleted their note is not dropped onto <body>.
+        say(
+          gone
+            ? 'Note deleted from this browser.'
+            : 'Not deleted — this browser is not letting the page change it.',
+          gone,
+        );
+      });
+
+      template!.insertAdjacentElement('afterend', root);
+      box = root;
+      paint();
+    }
+
+    /** Takes the box away again — nothing stored, nothing to show. */
+    function unmount(): void {
+      box?.remove();
+      box = null;
+      field = null;
+      recall = null;
+      count = null;
+      removeBtn = null;
+      statusText = null;
+      statusIcon = null;
+      announcedBand = '';
+      dirty = false;
+    }
+
+    /**
+     * The reveal rule: the reader has said they finished this lesson, OR they
+     * have a note here already.
+     *
+     * The second half is what keeps their words reachable after they un-tick
+     * completion — changing your mind about finishing a lesson must not hide the
+     * sentence you wrote, or the Delete button that removes it.
+     *
+     * Both halves are storage READS, so a blocked store answers "no" and the box
+     * stays away rather than appearing and promising a save it cannot keep.
+     */
+    function sync(): void {
+      if (isComplete(slug) || readNote(slug) !== null) {
+        if (box) paint();
+        else mount();
+      } else {
+        unmount();
+      }
+    }
+
+    sync();
+
+    // MarkComplete emits no event, so its act is observed the way the design
+    // specifies: one delegated click listener. A listener on `document` runs in
+    // the BUBBLE phase, after the button's own handler, so the completion this
+    // click wrote is already in storage by the time this re-reads it.
+    document.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-mark-complete]')) sync();
+    });
+
+    // A back/forward-cache restore replays no script, so a reader who cleared
+    // their progress on `/learn` and came Back would otherwise meet a box the
+    // device no longer has anything for.
+    onRestore(sync);
+  }
+</script>

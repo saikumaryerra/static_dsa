@@ -41,7 +41,9 @@ import {
   allChecksPassed,
   countComplete,
   countMastery,
+  countNotes,
   countPassed,
+  deleteNote,
   hasStoredProgress,
   isComplete,
   isPracticed,
@@ -53,9 +55,11 @@ import {
   masteryStageOf,
   MAX_REVIEW_CARDS,
   nextIncomplete,
+  NOTE_MAX_CHARS,
   parseLessonRefs,
   readCompleted,
   readMastery,
+  readNote,
   recordPass,
   resetProgress,
   resumeLabel,
@@ -66,6 +70,7 @@ import {
   selectDueReviews,
   storedProgress,
   writeCheck,
+  writeNote,
   type LessonRef,
   type MasteryRecord,
 } from '../../src/lib/progress';
@@ -1698,18 +1703,22 @@ describe('resetProgress (enrichment keys)', () => {
   });
 
   it('never sweeps by prefix: an `ld:` key it does not own survives', () => {
-    // The module deletes exactly two names, imported from the component that
-    // writes them. A prefix sweep is the easy shortcut here and would take
-    // whatever else the origin holds under `ld:` — spec §6's own not-yet-written
-    // `ld:days:v1` included, whose future writer must join the delete list
-    // deliberately rather than be swept up by accident. Pinned shut rather than
-    // merely avoided.
+    // The module deletes NAMED keys, each imported from the module that writes
+    // it. A prefix sweep is the easy shortcut here and would take whatever else
+    // the origin holds under `ld:` — including a key this product never wrote.
+    // Pinned shut rather than merely avoided.
+    //
+    // The fixture used to be spec §6's own `ld:days:v1`, which was then a
+    // permitted key with no writer. M8.3's learning-days counter now writes it,
+    // so it belongs to the delete list (asserted in the learning-days block
+    // below) and can no longer stand for "a key this module does not own" — a
+    // name from outside §6 does.
     const store = install(
-      memoryStorage({ ...ENRICHMENT, 'ld:days:v1': '{"count":3}' }),
+      memoryStorage({ ...ENRICHMENT, 'ld:experiment:v1': '{"count":3}' }),
     );
     resetProgress(CURRICULUM);
     expect(store.getItem(CHALLENGES_KEY)).toBeNull();
-    expect(store.getItem('ld:days:v1')).toBe('{"count":3}');
+    expect(store.getItem('ld:experiment:v1')).toBe('{"count":3}');
   });
 
   it('removes nothing and throws nothing when the store is blocked', () => {
@@ -1826,6 +1835,283 @@ describe('hasStoredProgress (enrichment)', () => {
 
   it('is false — never a throw — when the store is blocked', () => {
     install(memoryStorage({ ...ENRICHMENT }, ['getItem']));
+    expect(hasStoredProgress(CURRICULUM)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M8.3 — Explain-it-back: the reader's own words.
+//
+// This is the ONLY free-form text the product stores, so these tests are about
+// obligations rather than features (`docs/m8-gamification.md`): the note earns
+// NOTHING, it can be deleted on its own, it never leaves the record it lives in,
+// and it survives every other write path — including one from a bundle that
+// predates it.
+//
+// It lives in `progress:v1:{slug}` as a field this version's `MasteryRecord`
+// deliberately does not name, which is why the note assertions below read the
+// RAW stored JSON as often as they read `readNote`: the promise is about what
+// lands on the device, not about what one accessor happens to return.
+// ---------------------------------------------------------------------------
+
+describe('the note (Explain-it-back)', () => {
+  /** A note a reader could plausibly write. */
+  const NOTE = 'The window halves because the array is sorted.';
+
+  /** The raw JSON on the device for one lesson. */
+  function raw(store: Storage, slug: string): Record<string, unknown> {
+    return JSON.parse(store.getItem(mkey(slug)) ?? 'null') as Record<
+      string,
+      unknown
+    >;
+  }
+
+  it('saves into the EXISTING record, touching no other field', () => {
+    const store = install(
+      memoryStorage({
+        [mkey('stacks')]: seedRecord({
+          practicedAt: T0.toISOString(),
+          masteredAt: later(4).toISOString(),
+          checks: [1, 1],
+          intervalIndex: 1,
+          lastReviewAt: later(4).toISOString(),
+        }),
+      }),
+    );
+    const before = readMastery('stacks');
+
+    expect(writeNote('stacks', NOTE)).toBe(NOTE);
+
+    expect(readNote('stacks')).toBe(NOTE);
+    expect(raw(store, 'stacks')['note']).toBe(NOTE);
+    // Every field the stages and the schedule are made of is untouched — a note
+    // is not an event in the mastery system.
+    expect(readMastery('stacks')).toEqual(before);
+  });
+
+  it('earns nothing: no stage, no pass, no count', () => {
+    // The design's one currency is mastery, and writing a sentence is
+    // elaboration rather than retrieval. Skipping the prompt has to cost the
+    // reader exactly nothing, which is only true if writing one gains nothing.
+    install(memoryStorage({}));
+    writeNote('arrays', NOTE);
+    expect(masteryStage('arrays')).toBe('none');
+    expect(isPracticed('arrays')).toBe(false);
+    expect(readMastery('arrays')).toEqual(BLANK);
+    expect(countMastery(CURRICULUM)).toEqual({
+      learned: 0,
+      practiced: 0,
+      mastered: 0,
+      total: CURRICULUM.length,
+    });
+  });
+
+  it('trims, and caps at the length the textarea advertises', () => {
+    // The cap is enforced in the STORE as well as the DOM: `maxlength` bounds
+    // the typed case only, and reader-supplied text with no bound lets one
+    // paste cost the reader every other record in the origin's quota.
+    const store = install(memoryStorage({}));
+    expect(writeNote('arrays', `   ${NOTE}   `)).toBe(NOTE);
+    expect(raw(store, 'arrays')['note']).toBe(NOTE);
+
+    const long = 'x'.repeat(NOTE_MAX_CHARS + 120);
+    expect(writeNote('stacks', long)).toHaveLength(NOTE_MAX_CHARS);
+    expect(readNote('stacks')).toHaveLength(NOTE_MAX_CHARS);
+  });
+
+  it('writes nothing at all for an empty box', () => {
+    // An empty note is not a note: it must not mint a record for a lesson the
+    // reader has otherwise never touched, which would make the reset control
+    // claim data that is not there.
+    const store = install(memoryStorage({}));
+    expect(writeNote('arrays', '   ')).toBeNull();
+    expect(store.getItem(mkey('arrays'))).toBeNull();
+    expect(readNote('arrays')).toBeNull();
+  });
+
+  it('deletes ONLY the note, leaving the record — and unknown fields — whole', () => {
+    // THE ETHICS TEST, from the store's side. A privacy promise with no
+    // deletion path is an erosion of it, and "clear all progress" is not a
+    // deletion path: the reader must not have to give up their completion marks
+    // and practice history to take their own words back.
+    const store = install(
+      memoryStorage({
+        [mkey('stacks')]: JSON.stringify({
+          ...BLANK,
+          practicedAt: T0.toISOString(),
+          checks: [1, 1],
+          intervalIndex: 2,
+          lastReviewAt: later(6).toISOString(),
+          note: NOTE,
+          // A field some future version added. It must survive the delete too:
+          // this write path is a read-modify-write like every other one here.
+          tag: 'keep me',
+        }),
+      }),
+    );
+
+    expect(deleteNote('stacks')).toBe(true);
+
+    expect(raw(store, 'stacks')).toEqual({
+      practicedAt: T0.toISOString(),
+      masteredAt: null,
+      checks: [1, 1],
+      intervalIndex: 2,
+      lastReviewAt: later(6).toISOString(),
+      tag: 'keep me',
+    });
+    // Absent, not emptied: an empty string is a value the record would keep
+    // carrying, and "deleted" has to mean gone.
+    expect('note' in raw(store, 'stacks')).toBe(false);
+    expect(readNote('stacks')).toBeNull();
+  });
+
+  it('is a no-op — and still reports success — when there is no note', () => {
+    const store = install(memoryStorage({}));
+    expect(deleteNote('arrays')).toBe(true);
+    expect(store.getItem(mkey('arrays'))).toBeNull();
+  });
+
+  it('survives a self-grade and a review pass written beside it', () => {
+    // The note rides in the `extra` bag every write path spreads back, so no
+    // other mechanic can erase the reader's words — including a tab left open
+    // across a deploy, running a bundle that never heard of them.
+    install(memoryStorage({}));
+    writeNote('stacks', NOTE);
+    passAll('stacks', 2, T0);
+    expect(readNote('stacks')).toBe(NOTE);
+    recordPass('stacks', later(4));
+    expect(readMastery('stacks').masteredAt).toBe(later(4).toISOString());
+    expect(readNote('stacks')).toBe(NOTE);
+  });
+
+  it('counts notes for the injected lessons only, for the reset sentence', () => {
+    install(
+      memoryStorage({
+        [mkey('linked-lists-old-name')]: JSON.stringify({
+          ...BLANK,
+          note: 'a note for a lesson that no longer exists',
+        }),
+      }),
+    );
+    writeNote('arrays', NOTE);
+    writeNote('stacks', NOTE);
+    // The renamed lesson's leftover key is invisible here for the same reason
+    // it is everywhere else in this module: the list comes from the build, and
+    // storage is never swept by prefix.
+    expect(countNotes(CURRICULUM)).toBe(2);
+  });
+
+  it('goes with the record when progress is reset', () => {
+    // Spec §6: the note lives inside a PROGRESS key, so the reset control that
+    // clears the record clears the note with it — no orphaned text survives a
+    // delete the reader asked for.
+    const store = install(memoryStorage({ ...PREFERENCE_KEYS }));
+    writeNote('arrays', NOTE);
+    expect(hasStoredProgress(CURRICULUM)).toBe(true);
+    resetProgress(CURRICULUM);
+    expect(store.getItem(mkey('arrays'))).toBeNull();
+    expect(countNotes(CURRICULUM)).toBe(0);
+    expect(store.getItem('theme')).toBe('dark');
+  });
+
+  it('promises nothing when the store is blocked or absent', () => {
+    // Nothing installed: the build's Node pass, and every private mode.
+    expect(readNote('arrays')).toBeNull();
+    expect(writeNote('arrays', NOTE)).toBeNull();
+    expect(countNotes(CURRICULUM)).toBe(0);
+
+    install(memoryStorage({}, ['getItem', 'setItem', 'removeItem']));
+    // A write that could not land must not report the text back, or the
+    // component announces a save the device never took.
+    expect(writeNote('arrays', NOTE)).toBeNull();
+    expect(readNote('arrays')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M8.3 — the learning-days key, from the delete side.
+//
+// `src/lib/learning-days.ts` owns the name, the once-per-day rule and the write
+// (its own tests are in `tests/unit/learning-days.test.ts`). What belongs HERE
+// is the half this module owns: spec §6 lists `ld:days:v1` as a PROGRESS key, so
+// the reset control must clear it and must know it is there.
+//
+// The literal is spelled out below rather than imported, exactly as the two
+// enrichment keys are: a test that describes the implementation with the
+// implementation cannot catch a rename.
+// ---------------------------------------------------------------------------
+
+/** The learning-days counter — `src/lib/learning-days.ts` is the one writer. */
+const DAYS_KEY = 'ld:days:v1';
+
+/** A device that has recorded three learning days. */
+const DAYS_VALUE = JSON.stringify({ count: 3, last: '2026-08-01' });
+
+describe('resetProgress (the learning-days key)', () => {
+  it('clears it alongside every other progress key, and no preference', () => {
+    const store = install(
+      memoryStorage({
+        ...PREFERENCE_KEYS,
+        ...ENRICHMENT,
+        [DAYS_KEY]: DAYS_VALUE,
+        [key('arrays')]: '1',
+        [mkey('arrays')]: seedRecord({ checks: [1] }),
+      }),
+    );
+    resetProgress(CURRICULUM);
+    expect(store.getItem(DAYS_KEY)).toBeNull();
+    expect(store.getItem(CHALLENGES_KEY)).toBeNull();
+    expect(store.getItem(key('arrays'))).toBeNull();
+    expect(store.getItem('theme')).toBe('dark');
+    expect(store.getItem('pref:viz-speed')).toBe('2');
+  });
+
+  it('clears it on a device that holds nothing else', () => {
+    // A real device state, not a contrived one: a reader can mark one lesson
+    // done and then change their mind, leaving nothing behind but the day that
+    // act counted.
+    const store = install(memoryStorage({ [DAYS_KEY]: DAYS_VALUE }));
+    expect(resetProgress(CURRICULUM)).toBe(0);
+    expect(store.length).toBe(0);
+  });
+
+  it('still counts only completion marks — a learning day is not a mark', () => {
+    install(memoryStorage({ [DAYS_KEY]: DAYS_VALUE, [key('arrays')]: '1' }));
+    // The caller renders this number as "N completed marks removed", so it must
+    // keep speaking in that one unit.
+    expect(resetProgress(CURRICULUM)).toBe(1);
+  });
+
+  it('removes nothing and throws nothing when the store is blocked', () => {
+    install(
+      memoryStorage({ [DAYS_KEY]: DAYS_VALUE }, [
+        'getItem',
+        'removeItem',
+        'setItem',
+      ]),
+    );
+    expect(resetProgress(CURRICULUM)).toBe(0);
+  });
+});
+
+describe('hasStoredProgress (the learning-days key)', () => {
+  it('is true for a device whose only stored data is the day count', () => {
+    // The reset control reads `aria-disabled` from this predicate, so a reader
+    // holding only this key must not be told there is nothing to clear — and
+    // then have it deleted anyway.
+    install(memoryStorage({ [DAYS_KEY]: DAYS_VALUE }));
+    expect(countComplete(CURRICULUM).done).toBe(0);
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 0,
+      records: 0,
+      enrichment: false,
+    });
+    expect(hasStoredProgress(CURRICULUM)).toBe(true);
+  });
+
+  it('is false — never a throw — when the store is blocked', () => {
+    install(memoryStorage({ [DAYS_KEY]: DAYS_VALUE }, ['getItem']));
     expect(hasStoredProgress(CURRICULUM)).toBe(false);
   });
 });

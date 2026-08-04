@@ -197,8 +197,10 @@ test('the pixel baseline reports which of its two states it is in', async () => 
     state = `ARMED — comparing ${CAPTURES} captures against ${baselines.length} committed ${process.platform} baselines.`;
   } else if (BASELINE_ON) {
     state = `SEEDING — VISUAL_BASELINE is set and no ${process.platform} baseline is committed yet, so a run started with --update-snapshots WRITES the PNGs and passes. Review them, then commit them to tests/e2e/baseline-visual.spec.ts-snapshots/.`;
+  } else if (seeded && !process.env['CI']) {
+    state = `OFF HERE, ON IN CI — ${baselines.length} ${process.platform} baselines are committed and the DoD gate compares them in a pinned container. This local run skipped all ${CAPTURES} captures on purpose: the site ships a system-font stack, so your machine does not draw text the way the baselines were drawn. To compare (or re-seed) locally, use the same image the gate does — see the docker command above the "Seed visual baselines" job in .github/workflows/ci.yml.`;
   } else if (seeded) {
-    state = `HALF-DONE — ${baselines.length} ${process.platform} baselines are committed but nothing compares them, so all ${CAPTURES} captures skipped. Next action: step 2, below.`;
+    state = `HALF-DONE — ${baselines.length} ${process.platform} baselines are committed but this CI run is not comparing them, so all ${CAPTURES} captures skipped. Next action: step 2, below.`;
   } else {
     state = `OFF — ${CAPTURES} pixel comparisons are skipped and this run says nothing about pixels. No ${process.platform} baseline is committed. Next action: run the "Seed visual baselines" job in .github/workflows/ci.yml (Actions → CI → Run workflow), review and commit the artifact, then set VISUAL_BASELINE on the DoD gate's e2e step.`;
   }
@@ -215,9 +217,16 @@ test('the pixel baseline reports which of its two states it is in', async () => 
   // nobody forgets it; step 2 is one line in a workflow file, so everybody does.
   // Baselines committed with nothing comparing them is the outcome that looks
   // finished and is not.
+  //
+  // Scoped to CI, because "nothing compares them" is only true of the GATE. A
+  // local run skipping the captures is correct and expected — a developer's
+  // fonts are not the container's, so comparing here would report differences
+  // that say nothing about the change under test. Failing on a laptop would
+  // train everyone to ignore this test, which is the failure mode it exists to
+  // prevent.
   expect(
-    baselines.length === 0 || BASELINE_ON,
-    `${baselines.length} ${process.platform} baseline PNGs are committed, but VISUAL_BASELINE is unset, so all ${CAPTURES} comparisons skipped. Finish step 2 of the flow: add VISUAL_BASELINE: '1' to the "npm run test:e2e" step of the DoD gate in .github/workflows/ci.yml.`,
+    baselines.length === 0 || BASELINE_ON || !process.env['CI'],
+    `${baselines.length} ${process.platform} baseline PNGs are committed, but VISUAL_BASELINE is unset on a CI run, so all ${CAPTURES} comparisons skipped. Finish step 2 of the flow: add VISUAL_BASELINE: '1' to the "npm run test:e2e" step of the DoD gate in .github/workflows/ci.yml.`,
   ).toBe(true);
 });
 
