@@ -5,7 +5,9 @@
  * Props:
  * - `slug`      the lesson being read (MarkComplete's persistence key).
  * - `lessons`   every published lesson, forwarded to MarkComplete for its
- *               "N of 15 complete" line (injected at build, never enumerated
+ *               "N of 15 complete" line and for M8.1's track milestone, which
+ *               filters its own track out of this list rather than taking a
+ *               second `trackSlugs` prop (injected at build, never enumerated
  *               from localStorage).
  * - `prev` /
  *   `next`      adjacent lessons in GLOBAL order, or null at a boundary.
@@ -16,6 +18,10 @@
  * lesson is already a build-time prop — and the only JS-dependent part
  * (MarkComplete) hides itself behind its own `<noscript>` kill-switch, so with
  * JS off this section still shows the heading and the whole navigation.
+ *
+ * M8.1 adds no surface of its own here: the Quiet Milestone line lives INSIDE
+ * MarkComplete's group, so that same kill-switch covers it and this section
+ * keeps exactly one JS-dependent block to reason about.
  */
 import MarkComplete from './MarkComplete.astro';
 import PrevNext from './PrevNext.astro';

@@ -17,10 +17,17 @@
  * summary + meta row + "Builds on:" row), responsive ToC, the 7-section MDX slot
  * (prose capped at --measure, full-column breakout for viz/code/table), and the
  * "What's next" section that closes the loop (completion + prev/next).
+ *
+ * M8.1 adds the reader's current stage to the meta row — the same `MasteryPips`
+ * the curriculum cards use, painted by the second script at the bottom of this
+ * file from `src/lib/progress.ts`. It is a derived display of what MarkComplete
+ * and PracticeCheck already store: no new key, no new store, and nothing
+ * rendered at all when there is nothing recorded.
  */
 import BaseLayout from './BaseLayout.astro';
 import Breadcrumb from '../components/Breadcrumb.astro';
 import DifficultyChip from '../components/DifficultyChip.astro';
+import MasteryPips from '../components/MasteryPips.astro';
 import TableOfContents from '../components/TableOfContents.astro';
 import WhatsNext from '../components/WhatsNext.astro';
 import { courseJsonLd } from '../lib/structured-data';
@@ -137,6 +144,20 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
               </svg>
               {readingMinutes} min read
             </span>
+
+            {
+              /* Where this lesson stands, in the one progress currency (M8.1).
+                 It rides at the END of the meta row so appearing appends rather
+                 than pushing the reading estimates sideways, and the separator
+                 lives INSIDE the wrapper so a lesson with nothing recorded
+                 never shows a dangling "·". Hidden until the script below
+                 resolves a stage — with JS off, or with storage blocked, the
+                 header is exactly what M7 rendered. */
+            }
+            <span class="lesson__stage" data-lesson-stage hidden>
+              <span aria-hidden="true" class="lesson__dot">·</span>
+              <MasteryPips slug={slug} />
+            </span>
           </div>
 
           {
@@ -246,6 +267,15 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
 
   .lesson__dot {
     color: var(--text-muted);
+  }
+
+  /* Its own flex box so the separator sits at the row's gap even though the two
+     are one item; `hidden` still wins over this display, because Tailwind's
+     preflight hides `[hidden]` with `display: none !important`. */
+  .lesson__stage {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
   }
 
   /* "Builds on:" prerequisites row (M7.2; spec §3 "no dead ends", §8). The
@@ -562,4 +592,61 @@ const jsonLd = courseJsonLd(entry, Astro.site!);
     inlineToc.open = false;
     inlineToc.querySelector('summary')?.focus();
   });
+</script>
+
+<script>
+  /**
+   * Lesson header stage (M8.1) — paints the meta row's mastery pips from the
+   * shared store, and keeps them true for the rest of the visit.
+   *
+   * It reads and never writes: `MarkComplete` owns `lesson:{slug}:complete` and
+   * `progress.ts` owns the mastery record, so this is a display of their state
+   * (`src/lib/progress.ts` resolves it, `src/lib/mastery-ui.ts` words and draws
+   * it — the same two modules /learn's cards use, so a stage cannot mean one
+   * thing here and another there).
+   *
+   * Storage blocked, or nothing recorded: `masteryStage` answers `none` and the
+   * row stays hidden — absent, never a wrong stage. With JS off this script
+   * never runs and the pips carry their own `<noscript>` kill-switch besides.
+   */
+  import { masteryStage, onRestore } from '../lib/progress';
+  import { paintPips, stageLabel } from '../lib/mastery-ui';
+
+  const wrap = document.querySelector<HTMLElement>('[data-lesson-stage]');
+  const pips = wrap?.querySelector<HTMLElement>('[data-mastery-pips]') ?? null;
+  // The slug travels ON the component's own hook attribute, not on the layout,
+  // so the pips and the record they show can never be given different lessons.
+  const slug = pips?.dataset['masteryPips'] ?? '';
+
+  if (wrap && pips && slug) {
+    /** Re-reads the store and repaints; silent, and never announces. */
+    const paint = (): void => {
+      const stage = masteryStage(slug);
+      // The device-scope suffix rides in the label because this is a persistent
+      // surface far from the controls that carry their own scope line
+      // ("Saved only in this browser", "Saved on this device only"), and every
+      // one of them owes the reader that sentence.
+      paintPips(pips, stage, `${stageLabel(stage)} on this device`);
+      wrap.hidden = stage === 'none';
+    };
+
+    paint();
+    // A back/forward-cache restore replays no script, so a reader returning by
+    // Back would otherwise see the stage as it stood when they left.
+    onRestore(paint);
+
+    // Neither MarkComplete nor PracticeCheck emits an event, so the acts that
+    // can change the stage during a visit are observed the way M8.3's note is
+    // specified to: one delegated click listener. The ordering is what makes it
+    // correct — both components attach their handlers directly to their own
+    // buttons, and a listener on `document` runs in the BUBBLE phase, after the
+    // target's own, so the write this click made is already in storage by the
+    // time this re-reads it.
+    document.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-mark-complete], [data-practice-grade]')) {
+        paint();
+      }
+    });
+  }
 </script>

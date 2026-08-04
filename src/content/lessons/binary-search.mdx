@@ -18,6 +18,7 @@ import Visualizer from '../../viz/Visualizer.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
 import Callout from '../../components/Callout.astro';
 
 export const codeTabs = [
@@ -211,25 +212,25 @@ Work each one out before opening the answer.
 
 **1. How many comparisons does binary search need, at most, to search a sorted array of 1,000 items?**
 
-<Collapsible summary="Show answer to question 1">
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   About 10. Each comparison halves the range, and 2¹⁰ = 1,024, which is just
   over 1,000. In general the worst case is roughly `log₂(n)` comparisons.
-</Collapsible>
+</PracticeCheck>
 
 **2. You run binary search for the value 4 on `[1, 3, 5, 7, 9]`. Walk through the windows — what does it return, and why?**
 
-<Collapsible summary="Show answer to question 2">
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   It returns `-1`. First `mid` is index 2 (value 5), which is greater than 4, so
   `hi` drops to 1. Next `mid` is index 0 (value 1), less than 4, so `lo` rises to
   1. Then `mid` is index 1 (value 3), less than 4, so `lo` rises to 2. Now
   `lo (2) > hi (1)` — the window is empty, so 4 is not present.
-</Collapsible>
+</PracticeCheck>
 
 **3. Why can't binary search be used on an unsorted array, even if the target is definitely somewhere in it?**
 
-<Collapsible summary="Show answer to question 3">
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   Because the middle value no longer tells you which half to keep. In a sorted
   array, `arr[mid] < target` guarantees the target is to the right. Without order
   that guarantee vanishes, so discarding a half could throw away the very element
   you are looking for.
-</Collapsible>
+</PracticeCheck>

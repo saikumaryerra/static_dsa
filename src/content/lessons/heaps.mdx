@@ -18,6 +18,7 @@ import Visualizer from '../../viz/Visualizer.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
 import Callout from '../../components/Callout.astro';
 
 export const codeTabs = [
@@ -167,26 +168,26 @@ Work each one out before opening the answer.
 
 **1. In a max-heap stored as an array, where is the largest value, and where might the smallest be?**
 
-<Collapsible summary="Show answer to question 1">
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   The largest is always at index `0`, the root. The smallest must be a leaf (a
   node with no children), because any parent is greater than or equal to its
   children — but which leaf is not fixed, so you would have to scan the leaves
   to find it.
-</Collapsible>
+</PracticeCheck>
 
 **2. You insert `20` into the heap `[15, 9, 12, 5, 8, 3]`. Trace the sift-up.**
 
-<Collapsible summary="Show answer to question 2">
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   Append `20` at index `6`; its parent is index `2` (value `12`). `20 > 12`, swap,
   now `20` is at index `2` with parent index `0` (value `15`). `20 > 15`, swap,
   now `20` is at the root. Two swaps, and the new maximum has climbed to the top.
-</Collapsible>
+</PracticeCheck>
 
 **3. Why is inserting into a heap O(log n) rather than O(n)?**
 
-<Collapsible summary="Show answer to question 3">
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   Sift-up only follows the single path from the new leaf up to the root,
   swapping along the way. That path is as long as the tree is tall, and a
   complete tree of `n` nodes has height about `log n` — so at most `log n`
   comparisons and swaps, never a full scan of all `n` elements.
-</Collapsible>
+</PracticeCheck>

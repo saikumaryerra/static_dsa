@@ -18,6 +18,7 @@ import Visualizer from '../../viz/Visualizer.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
 import Callout from '../../components/Callout.astro';
 
 export const bubbleTabs = [
@@ -251,23 +252,23 @@ Work each one out before opening the answer.
 
 **1. On the already-sorted array `[1, 2, 3, 4]`, which of these three sorts finishes fastest, and why?**
 
-<Collapsible summary="Show answer to question 1">
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Insertion sort (and bubble sort with its early-exit) finish in a single O(n)
   pass, because no swaps are needed and they detect that. Selection sort still
   scans the whole unsorted remainder on every pass, so it stays O(n²) even here.
-</Collapsible>
+</PracticeCheck>
 
 **2. Why are all three called O(n²) even though selection sort does only n−1 swaps?**
 
-<Collapsible summary="Show answer to question 2">
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   Big-O counts the dominant operation. Selection sort still does about `n²/2`
   **comparisons** while scanning for each minimum, and comparisons dominate the
   running time. Fewer swaps lower the constant factor but not the O(n²) order.
-</Collapsible>
+</PracticeCheck>
 
 **3. You need to sort records so that entries with equal keys keep their original order. Which of these sorts is safe to use as-is?**
 
-<Collapsible summary="Show answer to question 3">
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   Bubble or insertion sort — both are stable because they only swap adjacent
   items. Plain selection sort is not stable, so it could reorder equal keys.
-</Collapsible>
+</PracticeCheck>

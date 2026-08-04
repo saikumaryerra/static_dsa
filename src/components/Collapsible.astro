@@ -16,6 +16,12 @@
  * whole ruleset is a progressive enhancement: an engine without
  * `::details-content` (pre-Chrome 131 / Safari 18.4 / Firefox 139) drops it and
  * keeps today's instant open.
+ *
+ * This component has **no `<noscript>` kill-switch of its own**, deliberately:
+ * it needs no JavaScript at all, so there is nothing to switch off. Anything
+ * that composes it and adds JS-only affordances must therefore ship its own —
+ * `PracticeCheck.astro` (M8.1) wraps this disclosure with self-grading buttons
+ * and hides exactly those, leaving this `<details>` untouched with JS off.
  */
 interface Props {
   summary: string;

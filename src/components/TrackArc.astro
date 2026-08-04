@@ -1,0 +1,173 @@
+---
+/**
+ * TrackArc — M7.2's per-track counter, drawn (M8.1; spec §8 "the per-track
+ * counter is drawn as a ring showing `N of M complete · Practiced n ·
+ * Mastered n`", §9; design in `docs/m8-gamification.md`).
+ *
+ * Props:
+ * - `track` the track id (`foundations` | `algorithms`). It is also the
+ *           `[data-track-progress]` hook `/learn`'s progress island fills, which
+ *           is why this component is the SAME surface M7.2 shipped rather than a
+ *           second counter beside it: same attribute, same island, same
+ *           `src/lib/progress.ts` read — the ring and the two extra counts are
+ *           all that is new.
+ *
+ * WHERE THE NUMBERS COME FROM: the island derives them from the build-injected
+ * lesson list (`[data-lessons]`), never by scraping `[data-complete]` off the
+ * cards. Astro guarantees no execution order between a page script and a
+ * component script, so reading the cards would make the DOM a second source of
+ * truth that can race the very function that writes it — and it would count
+ * only what this page happens to render.
+ *
+ * The count line is never shown alone: "Mark as complete" is self-reported with
+ * no learning precondition, so the earned Practiced/Mastered counts sit beside
+ * it always (`docs/m8-gamification.md` — "the self-reported number is never
+ * displayed alone"). Both lines carry no target, no streak and no countdown.
+ *
+ * WHAT THE RING DRAWS: the mastery states, not the completion marks. The design
+ * calls the track ring "their macro rendering" (`docs/m8-gamification.md`, design
+ * stance 2), and driving it from the self-reported count instead left a reader
+ * who had genuinely practised looking at an empty ring. So it fills by earned
+ * PIPS — one third of a lesson's slice per filled pip, exactly the pips the
+ * cards below draw — and the two lines name the stages behind them. It stays
+ * decoration for that text: it carries no value of its own, and every stage it
+ * can show has a word beside it.
+ *
+ * SSR STATE: both lines ship EMPTY and the block ships `data-track-pending`,
+ * because "0 of 9" is a claim about a device the build cannot see. It is hidden
+ * with `visibility`, not `display`, so it holds its own height from first paint
+ * and hydration shifts nothing (M7.2's layout-neutral-hydration rule). With JS
+ * off the `<noscript>` kill-switch drops it from the flow entirely rather than
+ * leaving a blank slot beside every track heading.
+ *
+ * STORAGE BLOCKED: the island swaps the pending attribute for
+ * `data-track-unreadable` and writes no text at all. "0 of 9 done on this
+ * device" is not the honest floor there — it is a claim about a store this
+ * device refused to open, and the acceptance criterion is that the ring is
+ * ABSENT rather than broken when storage is blocked. The two attributes are
+ * distinct on purpose: `data-track-pending` alone would be indistinguishable
+ * from an island that never ran, and proving "degraded, not died" is what the
+ * degradation tests hang off.
+ *
+ * A11Y: the ring is `aria-hidden` decoration, and every number it is derived
+ * from is stated as text beside it — colour is therefore never the only signal
+ * (§12). It is deliberately not a `role="progressbar"`: that would make screen
+ * readers say the same numbers twice and add an `aria-valuenow` free to go
+ * stale, which the text twin cannot (the double-encoding M7.1 removed from
+ * MarkComplete).
+ */
+import { ARC_CIRCUMFERENCE, ARC_RADIUS } from '../lib/mastery-ui';
+
+interface Props {
+  track: string;
+}
+
+const { track } = Astro.props;
+---
+
+<div class="track-arc" data-track-progress={track} data-track-pending="true">
+  <svg
+    class="track-arc__ring"
+    width="28"
+    height="28"
+    viewBox="0 0 28 28"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <circle class="track-arc__groove" cx="14" cy="14" r={ARC_RADIUS}></circle>
+    {
+      /* The dash array is baked at BUILD time so the runtime writes exactly one
+         attribute — the offset. It starts at a full offset (an empty ring), so
+         the honest "nothing known yet" state is what the SVG draws even if the
+         island never reaches it. The -90° rotation starts the sweep at 12
+         o'clock; `pathLength` is not used because the offset is computed from
+         the same constant in `src/lib/mastery-ui.ts`. */
+    }
+    <circle
+      class="track-arc__fill"
+      data-track-ring
+      cx="14"
+      cy="14"
+      r={ARC_RADIUS}
+      stroke-dasharray={ARC_CIRCUMFERENCE}
+      stroke-dashoffset={ARC_CIRCUMFERENCE}
+      transform="rotate(-90 14 14)"></circle>
+  </svg>
+
+  <div class="track-arc__text">
+    <p class="track-arc__count" data-track-count></p>
+    <p class="track-arc__mastery" data-track-mastery></p>
+  </div>
+</div>
+
+<noscript>
+  <style>
+    /* Kill-switch (every M8 component ships one). Without script the block can
+       only ever hold its reserved space for a hydration that will never come,
+       so drop it from the flow instead. `!important` because a kill-switch must
+       be unbeatable by any equal-specificity rule in the bundle (QA DEFECT-1). */
+    .track-arc {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  .track-arc {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  /* Beside the track heading from 640px (the `.learn__section-head` row), under
+     it below that — where it must not stretch to the row's width. */
+  @media (min-width: 640px) {
+    .track-arc {
+      flex: none;
+    }
+  }
+
+  /* Reserved, not hidden: see the SSR-state note above. `visibility` also keeps
+     the empty block out of the accessibility tree until it has numbers to
+     state, which `opacity` would not. */
+  .track-arc[data-track-pending] {
+    visibility: hidden;
+  }
+
+  /* Nothing could be read, so nothing is shown — including the empty ring, which
+     on its own would read as "you have done none of this". The reserved height
+     goes with it: the reservation exists to stop hydration shifting the page,
+     and on this path there is no hydrated state to shift TO. */
+  .track-arc[data-track-unreadable] {
+    display: none;
+  }
+
+  .track-arc__ring {
+    flex: none;
+    /* Both circles are 3px strokes on the same geometry; the groove is the
+       unfilled remainder, so it is the decorative --border rather than a
+       meaningful boundary. */
+    fill: none;
+    stroke-width: 3;
+  }
+
+  .track-arc__groove {
+    stroke: var(--border);
+  }
+
+  .track-arc__fill {
+    stroke: var(--brand);
+    stroke-linecap: round;
+  }
+
+  /* Holds two lines from first paint, so filling them moves nothing. `1em` is
+     this element's own --text-sm and the multiplier is the body line-height,
+     the same reservation shape `.viz-explain` uses. */
+  .track-arc__text {
+    min-height: calc(var(--leading-relaxed) * 2em);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+</style>

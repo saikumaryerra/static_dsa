@@ -18,6 +18,7 @@ import Visualizer from '../../viz/Visualizer.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
 import Callout from '../../components/Callout.astro';
 
 export const bfsTabs = [
@@ -259,26 +260,26 @@ Work each one out before opening the answer.
 
 **1. Which frontier structure does each traversal use, and how does that decide the visit order?**
 
-<Collapsible summary="Show answer to question 1">
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   BFS uses a **queue** (FIFO), so it processes nodes in the order they were
   discovered — nearest first, in expanding rings. DFS uses a **stack** (LIFO),
   so it processes the most recently discovered node first — plunging deep before
   backtracking.
-</Collapsible>
+</PracticeCheck>
 
 **2. Why does a graph traversal need a visited set when a tree traversal does not?**
 
-<Collapsible summary="Show answer to question 2">
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   A tree has no cycles and exactly one path to each node, so you never arrive
   twice. A general graph can have cycles and multiple paths, so without a
   visited set you would revisit nodes endlessly and never terminate.
-</Collapsible>
+</PracticeCheck>
 
 **3. You want the fewest-edges route between two nodes in an unweighted graph. BFS or DFS, and why?**
 
-<Collapsible summary="Show answer to question 3">
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   BFS. It explores nodes in increasing distance from the start, so the first
   time it reaches the destination is via a path with the minimum number of
   edges. DFS might find the destination down a long branch first, giving no
   shortest-path guarantee.
-</Collapsible>
+</PracticeCheck>

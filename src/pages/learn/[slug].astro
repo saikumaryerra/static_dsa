@@ -98,6 +98,11 @@ const prerequisites = entry.data.prerequisites
 // The curriculum, injected into the page for the progress module (spec §6): the
 // completion count is computed from THIS list, never by enumerating
 // localStorage keys, so a renamed lesson's stale key can't inflate it.
+//
+// `track` is load-bearing here, not decoration: M8.1's Quiet Milestone filters
+// this same list down to the lesson's own track inside `MarkComplete` (one
+// build-time `filter`, which is why no `trackSlugs` prop is threaded through the
+// layout). Dropping the field would silently retire the milestone.
 const lessonRefs: LessonRef[] = ordered.map((l) => ({
   slug: l.data.slug,
   title: l.data.title,

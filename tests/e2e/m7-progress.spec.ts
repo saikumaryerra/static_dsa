@@ -733,19 +733,22 @@ test.describe('storage blocked (private mode)', () => {
     await toggle.click({ force: true });
     await expect(page.locator('[data-reset-panel]')).toBeHidden();
 
-    // No counter may claim progress it cannot read. Zero is the only honest
-    // number here (with the store blocked nothing can have been saved), and it
-    // is asserted EXACTLY — an empty counter would mean the island stopped
-    // before this surface, which is what the pending-attribute check above
-    // already refuses to accept.
-    await expect(trackCount(page, 'foundations')).toHaveText(
-      `0 of ${FOUNDATIONS_TOTAL} done on this device`,
+    // No counter may claim progress it cannot read — and M8.1 sharpened what
+    // that means here. This test used to require an exact "0 of 9 done on this
+    // device", on the reasoning that zero is the only honest number with the
+    // store blocked. It is not: the store did not answer, so nobody has read a
+    // zero, and a reader with nine finished lessons would be shown a sentence
+    // saying they have none. The block therefore withholds itself
+    // (`docs/m8-gamification.md`: "hidden is more honest than a static '0 of
+    // 9'"), which is also exactly how it looks before hydration and with JS
+    // off. The discriminator above still separates that from a dead island.
+    // Full coverage of the M8 behaviour is in `m8-degraded.spec.ts`.
+    await expect(
+      page.locator('[data-track-progress="foundations"]'),
+    ).toBeHidden({ timeout: 2000 });
+    expect(await page.locator('body').innerText()).not.toContain(
+      'done on this device',
     );
-    for (const text of await page
-      .locator('[data-track-count]')
-      .allTextContents()) {
-      expect(text.trim()).toMatch(/^0 of \d+ done on this device$/);
-    }
 
     expect(errors, 'no script may throw when storage is blocked').toEqual([]);
   });

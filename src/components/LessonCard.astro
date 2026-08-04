@@ -4,7 +4,9 @@
  *
  * Props:
  * - `slug`             lesson slug; the whole card links to `/learn/{slug}` and
- *                      keys the completion reflect (`lesson:{slug}:complete`).
+ *                      keys the progress reflect — the completion mark
+ *                      (`lesson:{slug}:complete`) and the M8 mastery record
+ *                      behind the pips.
  * - `order`            the lesson's global order number (§7 frontmatter).
  * - `title`            lesson title (rendered as the card heading).
  * - `summary`          one-line summary (§8).
@@ -14,11 +16,24 @@
  *                      section h2; overridable if a page's heading order differs.
  *
  * The whole card is a single `<a>` (only non-interactive content inside, so it
- * stays a valid link). The done-checkmark is hidden by default and revealed only
- * when the index page's reflect script sets `data-complete="true"` from
- * localStorage — so with JS off no checkmark shows and the card is fully usable
- * (spec §6 local "completed" state, §12 a11y). The check carries an sr-only
- * "Completed" label so screen readers hear the status when it is shown.
+ * stays a valid link). Its progress state is hidden by default and revealed only
+ * when the index page's progress island resolves a stage from localStorage — so
+ * with JS off nothing shows and the card is fully usable (spec §6 local
+ * "completed" state, §12 a11y).
+ *
+ * M8.1 — the done-checkmark becomes the three MASTERY PIPS. The check glyph is
+ * unchanged, it is now pip 1's fill, so "checked off" still means what it meant
+ * in M7 and the other two pips extend the same row (design in
+ * `docs/m8-gamification.md`).
+ *
+ * // SPEC-GAP (§8): §8's M8 amendment names this swap ("the done-checkmark
+ * becomes the first of three mastery pips") but does not say what the card's
+ * sr-only STATUS TEXT becomes. It now carries the stage word ("Practiced")
+ * rather than the fixed "Completed", because mastery states are the only
+ * progress currency the product has. The text stays inside the link as CONTENT:
+ * an `aria-label` on the `<a>` would REPLACE the card's accessible name and hide
+ * the title and summary from screen-reader users — the whole card is the link,
+ * so its content is its name.
  *
  * M7.3 CMP-1: the card said "link" to nobody — hover moved a 1px border and
  * nothing else, there was no pressed state, and the home track cards carried a
@@ -28,6 +43,8 @@
  * drift again, and it ends with the same explicit "Start lesson →" affordance.
  */
 import DifficultyChip from './DifficultyChip.astro';
+import MasteryPips from './MasteryPips.astro';
+import { PIPS_KILL_SWITCH } from '../lib/mastery-ui';
 
 interface Props {
   slug: string;
@@ -63,22 +80,15 @@ const Heading = headingLevel;
       {String(order).padStart(2, '0')}
     </span>
     <DifficultyChip difficulty={difficulty} />
-    <span class="lesson-card__check" data-lesson-check>
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <circle cx="12" cy="12" r="9"></circle>
-        <path d="M8 12l3 3 5-6"></path>
-      </svg>
-      <span class="sr-only">Completed</span>
+    {
+      /* The wrapper is always in the DOM and always empty-width until the pips
+         appear, so `margin-left: auto` right-aligns the stage from first paint
+         and hydration cannot shift the row. `killSwitch={false}`: the identical
+         rule is emitted below, OUTSIDE the link — a `<style>` belongs nowhere
+         inside phrasing content. */
+    }
+    <span class="lesson-card__stage">
+      <MasteryPips slug={slug} labelHidden killSwitch={false} />
     </span>
   </div>
 
@@ -92,6 +102,14 @@ const Heading = headingLevel;
     </span>
   </div>
 </a>
+
+{
+  /* MasteryPips' kill-switch, hosted here (and suppressed there) because this
+     card renders the pips inside its `<a>`. Same shared rule, so the two can
+     never disagree; global selector, so one block covers every card. The pips
+     are ALSO hidden by their own `[data-stage]` rule, which no JS-off page can
+     satisfy — this is the belt-and-braces half every M8 component ships. */
+}<noscript set:html={PIPS_KILL_SWITCH} />
 
 <style>
   /* Fill, border, radius and the whole elevation ladder (resting --shadow-1;
@@ -125,16 +143,15 @@ const Heading = headingLevel;
     font-variant-numeric: tabular-nums;
   }
 
-  /* Hidden until the reflect script marks the card complete (JS off = never). */
-  .lesson-card__check {
-    display: none;
+  /* The stage sits at the end of the top row, where the done-checkmark did.
+     Empty until the progress island paints the pips (JS off = never), and
+     `inline-flex` on an empty span is zero-width — so the auto margin holds the
+     right edge from first paint and revealing the pips shifts nothing else in
+     the row. No colour is set here: each pip takes its own from the stage. */
+  .lesson-card__stage {
+    display: inline-flex;
     align-items: center;
     margin-left: auto;
-    color: var(--brand);
-  }
-
-  .lesson-card[data-complete='true'] .lesson-card__check {
-    display: inline-flex;
   }
 
   .lesson-card__title {

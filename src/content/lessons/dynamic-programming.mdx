@@ -18,6 +18,7 @@ import Visualizer from '../../viz/Visualizer.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
 import Callout from '../../components/Callout.astro';
 
 export const tabulationTabs = [
@@ -219,26 +220,26 @@ Work each one out before opening the answer.
 
 **1. Naively, `fib(5)` recomputes `fib(2)` five times. How many times does the memoized version compute `fib(2)`?**
 
-<Collapsible summary="Show answer to question 1">
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Exactly once. The first call to `fib(2)` computes and stores it; every later
   request is a cache hit that returns the stored value without recursing. That
   is the whole saving — each subproblem is solved a single time.
-</Collapsible>
+</PracticeCheck>
 
 **2. What are the two properties a problem must have for dynamic programming to apply, and which one does plain Fibonacci recursion reveal first?**
 
-<Collapsible summary="Show answer to question 2">
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   It needs **overlapping subproblems** (the same smaller problem recurs) and
   **optimal substructure** (the answer is built from subproblem answers). The
   naive recursion reveals the overlap first — you literally watch `fib(3)` and
   `fib(2)` get recomputed — which is the signal DP will pay off.
-</Collapsible>
+</PracticeCheck>
 
 **3. Tabulation and memoization both run in `O(n)` time and `O(n)` space here. Name one practical reason you might still prefer each.**
 
-<Collapsible summary="Show answer to question 3">
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   Tabulation avoids recursion entirely, so it cannot overflow the call stack and
   is often marginally faster (no call overhead). Memoization keeps the code
   shape of the natural recurrence, so it is easier to write correctly and only
   computes the subproblems actually needed to answer the query.
-</Collapsible>
+</PracticeCheck>

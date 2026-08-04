@@ -1,0 +1,279 @@
+---
+/**
+ * MasteryPips — the one progress currency, drawn: Learned → Practiced →
+ * Mastered (M8.1; spec §8 "the done-checkmark becomes the first of three
+ * mastery pips", §9; design in `docs/m8-gamification.md`).
+ *
+ * Props:
+ * - `slug`        the lesson whose stage this instance shows; it rides on the
+ *                 `data-mastery-pips` hook itself. The component reads nothing —
+ *                 the slug is here for the HOST island, which resolves the stage
+ *                 through `src/lib/progress.ts` and calls `paintPips()`
+ *                 (`src/lib/mastery-ui.ts`).
+ * - `labelHidden` keep the stage word for screen readers only (`sr-only`).
+ *                 `LessonCard` sets it: its top row is a dense chip row, and the
+ *                 word still reaches assistive tech through the link's content.
+ *                 Default false — the lesson header shows the word.
+ * - `killSwitch`  whether this instance emits the `<noscript>` block. Default
+ *                 true; a host that renders pips INSIDE an `<a>` (`LessonCard`)
+ *                 sets it false and emits the identical rule outside the link,
+ *                 because `<style>` is metadata content and has no business
+ *                 inside phrasing content. The rule is global (`.mastery-pips`),
+ *                 so one block anywhere on the page kills every instance.
+ * - `gateNote`    whether this instance carries the 3-day gate's one-line
+ *                 explanation (shown only at Practiced — see below). Defaults to
+ *                 `!labelHidden`, so the instance that shows the stage WORD
+ *                 explains the next stage and the dense card chip row does not:
+ *                 a sentence repeated on fifteen cards is noise, and the card
+ *                 already sits on the page whose legend explains all three
+ *                 stages.
+ *
+ * THE 3-DAY GATE EXPLAINS ITSELF (`docs/m8-gamification.md`: the gate "always
+ * explains itself in one line"). Mastered is earned by re-meeting the Practiced
+ * bar at least `MASTERY_GATE_DAYS` days later. A reader who is never told that
+ * meets a third pip they cannot fill and no reason why, which reads as
+ * manufactured scarcity rather than as the spacing effect it is. So the line
+ * renders exactly where the reader can see they are at Practiced and not yet
+ * Mastered, from the SAME constant the store enforces the gate with, and it is
+ * an explanation and not a lockout: it names no date of its own and it never
+ * counts down (a ticking "ready in 2 days" is on the killed list).
+ *
+ * NO STATE OF ITS OWN, BY DESIGN. The pips ship with no `data-stage`, and the
+ * component's CSS shows them only when that attribute is present, so:
+ * - with JS off nothing renders (plus the `<noscript>` kill-switch above, which
+ *   every M8 component ships), and the page is exactly what M7 shipped;
+ * - with storage blocked the host resolves `none` and the pips stay absent —
+ *   absent, never broken, and never a wrong stage;
+ * - a reset repaints through the same one function, so no stale row survives it.
+ * Painting from the host island (rather than a script here) is also what keeps
+ * `/learn` honest: ONE function there sets the card attribute AND the track
+ * ring from one read, instead of two scripts racing over the same keys — Astro
+ * guarantees no execution order between a page script and a component script.
+ *
+ * A11Y: the pips are `aria-hidden` decoration and the label is the whole
+ * accessible signal, so a stage is never carried by colour (§12). It is never
+ * carried by colour VISUALLY either: a filled pip differs from an empty one in
+ * shape — pip 1 gains the check glyph `LessonCard` already used (the M7 mental
+ * model survives the change), pips 2 and 3 gain a solid dot inside their ring —
+ * which survives forced-colours mode and every form of colour blindness.
+ * Deliberately NOT a live region and never `aria-label`led: it is a derived
+ * display, and the acts that change it (MarkComplete's `aria-pressed`,
+ * PracticeCheck's tally) already announce themselves.
+ */
+import { MASTERY_GATE_DAYS } from '../lib/progress';
+import { PIPS_KILL_SWITCH } from '../lib/mastery-ui';
+
+interface Props {
+  slug: string;
+  labelHidden?: boolean;
+  killSwitch?: boolean;
+  gateNote?: boolean;
+}
+
+const {
+  slug,
+  labelHidden = false,
+  killSwitch = true,
+  gateNote = !labelHidden,
+} = Astro.props;
+
+// Composed at BUILD time from the store's own constant, so the sentence and the
+// rule it describes can never disagree: `masteryGateOpen()` compares against
+// this same number, and changing the gate rewrites this copy with it.
+const gateLine = `Mastery needs a return visit at least ${MASTERY_GATE_DAYS} days after your first pass — that's how memory consolidates.`;
+---
+
+{
+  /* The slug rides ON the hook attribute rather than in a `data-slug` of its
+     own: `LessonCard` already carries `data-slug` for the same lesson, and a
+     second element answering that selector would break every existing
+     `[data-slug="…"]` query — including the /learn e2e suite's. */
+}<span class="mastery-pips" data-mastery-pips={slug}>
+  {
+    /* Pips and word on one line; the gate note (below) gets the next one. The
+      grouping is what puts it there: the root is a COLUMN, so a sentence long
+      enough to wrap cannot end up sitting beside the stage word in a host row
+      that is sizing itself to its content. */
+  }
+  <span class="mastery-pips__stage">
+    {
+      /* Exactly three children: the fill rules below select them by position. */
+    }
+    <span class="mastery-pips__row" aria-hidden="true">
+      <svg
+        class="mastery-pips__pip"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="12" cy="12" r="9"></circle>
+        {
+          /* Pip 1's fill IS the check LessonCard showed before M8 (same 24-unit
+          path), so "checked off" still means what it meant in M7. */
+        }
+        <path class="mastery-pips__fill" d="M8 12l3 3 5-6"></path>
+      </svg>
+      <svg
+        class="mastery-pips__pip"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <circle cx="12" cy="12" r="9"></circle>
+        <circle
+          class="mastery-pips__fill"
+          cx="12"
+          cy="12"
+          r="5"
+          fill="currentColor"
+          stroke="none"></circle>
+      </svg>
+      <svg
+        class="mastery-pips__pip"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <circle cx="12" cy="12" r="9"></circle>
+        <circle
+          class="mastery-pips__fill"
+          cx="12"
+          cy="12"
+          r="5"
+          fill="currentColor"
+          stroke="none"></circle>
+      </svg>
+    </span>
+
+    {
+      /* Ships EMPTY: the stage is unknowable at build time, and a word rendered
+        here would be a claim about a device the build cannot see. */
+    }
+    <span
+      class:list={['mastery-pips__label', labelHidden && 'sr-only']}
+      data-mastery-label></span>
+  </span>
+
+  {
+    /* Static copy, rendered at build and revealed by CSS at exactly one stage —
+      no script, no clock, no date arithmetic, and therefore nothing that can
+      tick. A `<span>` and not a `<p>`: this component's root is phrasing content
+      wherever it is used (`LessonCard` renders it inside an `<a>`), so nothing
+      here may be flow-only even though that host leaves this note switched off.
+      The CSS below gives it its own line. Not a live region and not `aria-live`d:
+      it explains a state the reader is already in, and the act that got them
+      there announced itself. */
+    gateNote && (
+      <span class="mastery-pips__gate" data-mastery-gate>
+        {gateLine}
+      </span>
+    )
+  }
+</span>
+
+{
+  /* With JS off there is no stage to show — the pips are painted from
+     localStorage by an island — so the page falls back to exactly what M7
+     rendered. Belt and braces on top of the `[data-stage]` rule below, which
+     already hides them: a kill-switch must not depend on the very script it
+     exists to cover. */
+  killSwitch && <noscript set:html={PIPS_KILL_SWITCH} />
+}
+
+<style>
+  /* Hidden until an island resolves a stage — the LessonCard check pattern.
+     Hiding is more honest than an empty three-pip row: "nothing recorded" and
+     "not read yet" are the same state, and neither is a thing to display. */
+  .mastery-pips {
+    display: none;
+  }
+
+  /* A COLUMN: the stage row, then the gate note under it. With no note (every
+     stage but Practiced, and every instance that opts out) there is one item and
+     one line, exactly as before — a flex `gap` is only ever paid between items
+     that exist, and a `display: none` child is not one. */
+  .mastery-pips[data-stage] {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .mastery-pips__stage {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .mastery-pips__row {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  /* An unearned pip is a thin ring in the neutral --border-strong; an earned one
+     takes --brand AND gains its inner shape (below). Two signals, one of which
+     is not colour. */
+  .mastery-pips__pip {
+    display: block;
+    color: var(--border-strong);
+  }
+
+  .mastery-pips__fill {
+    display: none;
+  }
+
+  /* The stage decides how many pips are filled, and nothing else does — one
+     attribute, three rules, no per-pip bookkeeping in either island. */
+  .mastery-pips[data-stage='learned'] .mastery-pips__pip:nth-child(-n + 1),
+  .mastery-pips[data-stage='practiced'] .mastery-pips__pip:nth-child(-n + 2),
+  .mastery-pips[data-stage='mastered'] .mastery-pips__pip:nth-child(-n + 3) {
+    color: var(--brand);
+  }
+
+  .mastery-pips[data-stage='learned']
+    .mastery-pips__pip:nth-child(-n + 1)
+    .mastery-pips__fill,
+  .mastery-pips[data-stage='practiced']
+    .mastery-pips__pip:nth-child(-n + 2)
+    .mastery-pips__fill,
+  .mastery-pips[data-stage='mastered']
+    .mastery-pips__pip:nth-child(-n + 3)
+    .mastery-pips__fill {
+    display: inline;
+  }
+
+  /* Inherits its host's type (both hosts are --text-sm/--text-muted rows), so
+     the word never looks like a chip of its own. */
+  .mastery-pips__label {
+    line-height: var(--leading-normal);
+  }
+
+  /* The gate's one-line explanation. Hidden at every other stage: at `none` and
+     `learned` there is no gate to explain yet, and at `mastered` it has already
+     been walked through — leaving it up would be an instruction with nothing to
+     do. Same `[data-stage]` attribute as the pips, so it is revealed by the one
+     paint that resolves the stage and cannot fall out of step with the pip it
+     explains. */
+  .mastery-pips__gate {
+    display: none;
+  }
+
+  .mastery-pips[data-stage='practiced'] .mastery-pips__gate {
+    display: block;
+    max-width: var(--measure);
+    color: var(--text-muted);
+    line-height: var(--leading-normal);
+  }
+</style>

@@ -18,6 +18,7 @@ import Visualizer from '../../viz/Visualizer.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
 import Callout from '../../components/Callout.astro';
 
 export const codeTabs = [
@@ -176,26 +177,26 @@ Work each one out before opening the answer.
 
 **1. A social network has 1,000,000 users, and each follows about 200 others. Adjacency list or matrix — and why?**
 
-<Collapsible summary="Show answer to question 1">
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Adjacency list. The graph is extremely sparse: 1,000,000 × 200 = 200 million
   edges, but a matrix would need 1,000,000² = a trillion cells, almost all
   empty. The list stores only the edges that exist, using O(V + E) space instead
   of O(V²).
-</Collapsible>
+</PracticeCheck>
 
 **2. In the visualizer's graph, is there an edge from vertex 1 to vertex 2? From vertex 2 to vertex 1?**
 
-<Collapsible summary="Show answer to question 2">
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   From 1 to 2: no — vertex 1's only out-edge is to 3. From 2 to 1: yes, with
   weight 2. Because the graph is directed, the two directions are independent,
   and here only one of them exists.
-</Collapsible>
+</PracticeCheck>
 
 **3. Why does an undirected graph's adjacency matrix always mirror across its diagonal?**
 
-<Collapsible summary="Show answer to question 3">
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   An undirected edge between `u` and `v` means you can go both ways, so both
   cell `[u][v]` and cell `[v][u]` hold the edge. That symmetry across the main
   diagonal is the visual signature of an undirected graph — a directed graph's
   matrix has no such guarantee.
-</Collapsible>
+</PracticeCheck>

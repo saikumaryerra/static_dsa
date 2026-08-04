@@ -10,15 +10,30 @@
  * M7.2 closes the progress loop here (§8 "curriculum index"), all of it driven
  * by `src/lib/progress.ts` reading the same `lesson:{slug}:complete` keys
  * `MarkComplete` writes: a resume CTA under the page head, a per-track
- * "N of M done on this device" counter with a meter beside each track heading,
- * a done-checkmark on each card, and a reset-progress control with an inline
- * confirm step. The lesson list those four surfaces need is injected as JSON at
- * build time (`data-lessons`) — localStorage is never enumerated by prefix.
+ * "N of M done on this device" counter beside each track heading, a progress
+ * mark on each card, and a reset-progress control with an inline confirm step.
+ * The lesson list those four surfaces need is injected as JSON at build time
+ * (`data-lessons`) — localStorage is never enumerated by prefix.
+ *
+ * M8.1 draws the same two surfaces in the one progress currency (spec §8's M8
+ * amendment; `docs/m8-gamification.md`), without adding a store or a script:
+ * the card's done-checkmark becomes `MasteryPips` (the check is pip 1), and the
+ * per-track counter becomes `TrackArc` — the same `[data-track-progress]` block
+ * with a ring around the same sentence, plus the earned Practiced/Mastered
+ * counts that must always sit beside a self-reported number. The ring itself is
+ * filled from the mastery states, not from the completion count: the design
+ * calls it their macro rendering, and one filled pip anywhere in the track is a
+ * third of a lesson's slice of it. ONE function in the island below still paints
+ * every surface from one read, which is what keeps the cards and the rings from
+ * disagreeing. A collapsed legend under the page head says what the three stages
+ * are and who is grading them (the reader) — static copy, no key, no island.
  *
  * JS off (or storage blocked): the CTA still points at lesson 01, the counters
- * stay hidden rather than lying "0 of 9", the reset control is hidden by its
- * <noscript> kill-switch (it cannot work), and every card stays a fully usable
- * link (§6 local completed state, §12 a11y).
+ * stay hidden rather than lying "0 of 9" — with the store blocked the arcs mark
+ * themselves unreadable instead of stating a zero nobody could verify — the
+ * reset control, the legend and every M8 surface are hidden by their own
+ * <noscript> kill-switches (none of them can work), and every card stays a
+ * fully usable link (§6 local completed state, §12 a11y).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
  * <h1>, then an <h2> per track section (empty tracks show a "coming soon" note so
@@ -27,9 +42,15 @@
 import { getCollection } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import Collapsible from '../../components/Collapsible.astro';
 import LessonCard from '../../components/LessonCard.astro';
+import TrackArc from '../../components/TrackArc.astro';
 import { TRACK_COPY, TRACK_ORDER } from '../../lib/tracks';
-import { resumeLabel, type LessonRef } from '../../lib/progress';
+import {
+  MASTERY_GATE_DAYS,
+  resumeLabel,
+  type LessonRef,
+} from '../../lib/progress';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
 const byOrder = (
@@ -170,12 +191,18 @@ const resumeFallback = firstLesson
             display: none !important;
           }
 
-          /* The counters reserve their space for a hydration that will never
-             come here, so drop them from the flow entirely rather than leave a
-             blank slot beside every track heading. */
-          .learn__progress {
+          /* The pip legend goes too. It needs no script — a native <details>
+             opens on its own — but with JS off there is no pip, no ring and no
+             stage word anywhere on this page, so it would be a legend for a
+             thing that is not there. Same M8 rule the components apply: no
+             gamification surface appears without JS. */
+          .learn__legend {
             display: none !important;
           }
+
+          /* The per-track counter's own kill-switch lives in TrackArc.astro
+             (every M8 component ships one), so it is deliberately not restated
+             here — one rule, in the component that owns the markup. */
         </style>
       </noscript>
 
@@ -185,6 +212,53 @@ const resumeFallback = firstLesson
           never announces on load. */
       }
       <p class="learn__status" role="status" data-progress-status></p>
+
+      {
+        /* SPEC-GAP: neither spec §8 nor `docs/m8-gamification.md` names a legend
+          for the currency — but both make the pips, the three stage words and
+          "Practiced n · Mastered n" the product's entire progress language, and
+          M8.1 shipped all of it with nothing anywhere saying what a pip means,
+          how one is earned, or that the reader is the one doing the grading.
+          This is the smallest thing that closes that: static copy in the site's
+          existing disclosure idiom (`Collapsible` — a native `<details>`, so it
+          needs no script of its own), collapsed by default, adding no key and no
+          island. It sits directly above the first track's ring, which is the
+          first place the words appear.
+          Gated on `firstLesson` alongside the reset control so "Reset progress
+          above" can never name a control this page did not render. */
+        firstLesson && (
+          <div class="learn__legend">
+            <Collapsible summary="What the three pips mean">
+              <p>
+                Each lesson can fill up to three pips. They are your own notes
+                to yourself: you decide when one is earned, nothing here is
+                graded or checked, and nothing is ever taken away.
+              </p>
+              <dl class="learn__legend-list">
+                <dt>Learned</dt>
+                <dd>
+                  You pressed "Mark as complete" at the end of the lesson.
+                </dd>
+                <dt>Practiced</dt>
+                <dd>
+                  You answered every practice question in the lesson and marked
+                  each one "I had it".
+                </dd>
+                <dt>Mastered</dt>
+                <dd>
+                  You did that again, at least {MASTERY_GATE_DAYS} days after
+                  the first time — that's how memory consolidates.
+                </dd>
+              </dl>
+              <p>
+                All three are kept on this device only, so clearing your browser
+                data clears them — and "Reset progress" above removes them
+                whenever you want.
+              </p>
+            </Collapsible>
+          </div>
+        )
+      }
     </header>
 
     {
@@ -198,26 +272,10 @@ const resumeFallback = firstLesson
 
             {/* Empty until the island fills it: "0 of 9" rendered server-side
                 would be a claim about a device the build cannot see. Its SPACE
-                is reserved all the same — see `[data-track-pending]` below. */}
-            {section.lessons.length > 0 && (
-              <div
-                class="learn__progress"
-                data-track-progress={section.id}
-                data-track-pending="true"
-              >
-                <p class="learn__progress-text" data-track-count />
-                {/* Decorative reinforcement only — aria-hidden, because the
-                    exact value is already in the text above it. A
-                    role="progressbar" here would make screen readers say the
-                    same number twice (the double-encoding M7.1 removed from
-                    MarkComplete), and would add an aria-valuenow that can go
-                    stale; the text twin can't. Colour is therefore never the
-                    only signal (§12). */}
-                <div class="learn__meter" aria-hidden="true">
-                  <span class="learn__meter-fill" data-track-meter />
-                </div>
-              </div>
-            )}
+                is reserved all the same, and every rule about what this block
+                says, reserves and hides lives in the component. An empty track
+                gets none: there is no progress to report on zero lessons. */}
+            {section.lessons.length > 0 && <TrackArc track={section.id} />}
           </div>
 
           {section.lessons.length > 0 ? (
@@ -332,6 +390,40 @@ const resumeFallback = firstLesson
     font-size: var(--text-sm);
   }
 
+  /* The pip legend. Quiet: it is reference material, not a call to action, so it
+     takes the measure and the small type and stays closed until asked for. */
+  .learn__legend {
+    max-width: var(--measure);
+    margin-top: var(--space-4);
+  }
+
+  .learn__legend p {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .learn__legend-list {
+    margin-block: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  /* The stage word carries the weight; its sentence is muted body text, so the
+     three read as a list of definitions rather than three headings. */
+  .learn__legend-list dt {
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+  }
+
+  .learn__legend-list dd {
+    margin-inline-start: 0;
+    margin-block-end: var(--space-3);
+    color: var(--text-muted);
+  }
+
+  .learn__legend-list dd:last-child {
+    margin-block-end: 0;
+  }
+
   /* Only the margin collapses while the region is empty — never `display: none`.
      A live region that is un-hidden in the same frame as its text lands is the
      classic way to lose an announcement, so this one is always rendered; an
@@ -349,17 +441,15 @@ const resumeFallback = firstLesson
   }
 
   /* From 640px the counter sits beside the heading block rather than under it;
-     below that it stacks, which is why it reserves its own height. */
+     below that it stacks, which is why it reserves its own height. TrackArc
+     carries the `flex: none` half of that arrangement — it is the item, and a
+     scoped rule here could not reach it. */
   @media (min-width: 640px) {
     .learn__section-head {
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
       gap: var(--space-6);
-    }
-
-    .learn__progress {
-      flex: none;
     }
   }
 
@@ -376,50 +466,6 @@ const resumeFallback = firstLesson
   .learn__section-blurb {
     margin-top: var(--space-1);
     color: var(--text-muted);
-  }
-
-  .learn__progress {
-    margin-top: var(--space-3);
-  }
-
-  /* Reserved, not hidden. The block ships at the height it will have once
-     filled, so hydration moves nothing: below 640px it stacks under the track
-     blurb, where `hidden` used to shove the whole lesson grid ~50px down on
-     every phone load. This is the same layout-neutral-hydration rule M7.1 gave
-     the viz metrics row. `visibility` rather than opacity keeps the empty block
-     out of the accessibility tree until it has a number to state, and a JS-off
-     reader sees only spacing — never a "0 of 9" the build cannot know. */
-  .learn__progress[data-track-pending] {
-    visibility: hidden;
-  }
-
-  /* The meter below has a fixed height; the count line is what would collapse
-     while empty, so it reserves exactly one line. `1em` is this element's own
-     --text-sm, and the line-height it inherits from <body> is --leading-relaxed
-     (same reservation shape as .viz-explain). */
-  .learn__progress-text {
-    min-height: calc(var(--leading-relaxed) * 1em);
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .learn__meter {
-    width: 12rem;
-    max-width: 100%;
-    height: 6px;
-    margin-top: var(--space-2);
-    border-radius: var(--radius-full);
-    background-color: var(--border);
-    overflow: hidden;
-  }
-
-  .learn__meter-fill {
-    display: block;
-    width: 0;
-    height: 100%;
-    border-radius: inherit;
-    background-color: var(--brand);
   }
 
   .learn__grid {
@@ -451,22 +497,29 @@ const resumeFallback = firstLesson
 
 <script>
   /**
-   * Progress island for /learn (M7.2). Reflects the `lesson:{slug}:complete`
-   * keys onto four surfaces — the resume CTA, the per-track counters, the card
-   * checkmarks and the reset control — and owns the delete path.
+   * Progress island for /learn (M7.2, extended by M8.1). Reflects the stored
+   * progress keys onto four surfaces — the resume CTA, the per-track arcs, the
+   * cards and the reset control — and owns the delete path.
    *
    * Every storage access goes through `src/lib/progress.ts`, so the try/catch
    * discipline and the "which keys count as progress" list live in one place
-   * (M8 extends that module, not this file). The few passes over storage this
-   * makes are deliberate: they are synchronous reads of at most 15 keys, and
-   * calling the shared helpers keeps each surface's logic honest.
+   * (M8 extended that module, not this file); every stage word and the ring
+   * geometry come from `src/lib/mastery-ui.ts`, which the lesson header shares.
+   * The several passes over storage this makes are deliberate: each is a
+   * synchronous read of at most the 15 lessons' own keys, and calling the shared
+   * helpers keeps every surface honest rather than re-deriving a stage locally
+   * from a value that happens to be in hand.
    *
    * Re-runs on a back/forward-cache restore (`onRestore`) and on
    * `astro:page-load` so it survives View Transitions (M4); the reset controls
    * use delegated listeners for the same reason.
    */
   import {
+    completeKey,
     countComplete,
+    countMastery,
+    hasStoredProgress,
+    masteryStage,
     nextIncomplete,
     onRestore,
     parseLessonRefs,
@@ -475,6 +528,12 @@ const resumeFallback = firstLesson
     resumeLabel,
     type LessonRef,
   } from '../../lib/progress';
+  import {
+    arcOffset,
+    masteryCountsText,
+    paintPips,
+    trackCountText,
+  } from '../../lib/mastery-ui';
 
   /** Reads the build-injected lesson list; `[]` if the attribute is missing. */
   function lessons(): LessonRef[] {
@@ -509,29 +568,122 @@ const resumeFallback = firstLesson
     }
   }
 
-  /** Fills each track's counter + meter and reveals the block holding them. */
-  function renderTracks(list: LessonRef[]): void {
+  /**
+   * How many pips one lesson can fill — the three of `MasteryPips`, which the
+   * ring below sums across a track. Named rather than inlined because it is a
+   * fact about that component, not an arbitrary divisor.
+   */
+  const PIPS_PER_LESSON = 3;
+
+  /**
+   * Can this device's storage actually be read?
+   *
+   * Every helper in `src/lib/progress.ts` degrades a blocked store to "nothing
+   * recorded", which is the right answer for a checkmark and the WRONG one for a
+   * counter: rendered, "0 of 9 done on this device" states as fact something
+   * this page could not check, on a device that may well have nine marks in a
+   * store the browser is refusing to open. So the surfaces that would otherwise
+   * assert that zero ask this question first.
+   *
+   * The probe is a real read of a real spec §6 key (the first lesson's
+   * completion mark) — nothing is written, nothing is enumerated, and the two
+   * failure shapes both land in the catch: the global missing entirely (a
+   * ReferenceError) and the getter throwing (Safari's blocked-methods mode).
+   *
+   * @param list - The build-injected lesson list; its first entry is the probe.
+   * @returns True when a read completed without throwing.
+   */
+  function storageReadable(list: LessonRef[]): boolean {
+    const probe = list[0];
+    if (!probe) return false;
+    try {
+      localStorage.getItem(completeKey(probe.slug));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Fills each track's arc — count line, mastery counts, ring — and reveals it.
+   *
+   * @param list - The build-injected lesson list.
+   * @param readable - Whether storage answered a read (see {@link storageReadable}).
+   * With `false` the block states nothing at all and marks itself unreadable:
+   * absent, not broken, and never a number nobody could verify.
+   */
+  function renderTracks(list: LessonRef[], readable: boolean): void {
     document
       .querySelectorAll<HTMLElement>('[data-track-progress]')
       .forEach((block) => {
         const track = block.dataset['trackProgress'];
         if (!track) return;
-        const { done, total } = countComplete(
-          list.filter((lesson) => lesson.track === track),
-        );
-        if (total === 0) return; // an empty track keeps its "coming soon" note
+        const inTrack = list.filter((lesson) => lesson.track === track);
+        if (inTrack.length === 0) return; // empty track keeps its "coming soon" note
 
+        if (!readable) {
+          // Both attributes move together: dropping `pending` is what proves the
+          // island ran (a block still pending is indistinguishable from a script
+          // that never executed), and `unreadable` is what hides it.
+          block.removeAttribute('data-track-pending');
+          block.setAttribute('data-track-unreadable', 'true');
+          return;
+        }
+        block.removeAttribute('data-track-unreadable');
+
+        const { done, total } = countComplete(inTrack);
         const text = block.querySelector<HTMLElement>('[data-track-count]');
-        if (text) text.textContent = `${done} of ${total} done on this device`;
-        const fill = block.querySelector<HTMLElement>('[data-track-meter]');
-        if (fill) fill.style.width = `${Math.round((done / total) * 100)}%`;
+        if (text) text.textContent = trackCountText(done, total);
+
+        // The self-reported completion count is never displayed alone: "Mark as
+        // complete" has no learning precondition, so the two EARNED counts are
+        // rendered beside it always (`docs/m8-gamification.md`). They are
+        // cumulative, so a lesson promoted to Mastered never makes the
+        // Practiced number fall — a demotion this system does not have.
+        const counts = countMastery(inTrack);
+        const mastery = block.querySelector<HTMLElement>(
+          '[data-track-mastery]',
+        );
+        if (mastery) {
+          mastery.textContent = masteryCountsText(
+            counts.practiced,
+            counts.mastered,
+          );
+        }
+
+        // The ring is the macro rendering of the MASTERY STATES, which is what
+        // the design calls it — not of the completion marks. Driven by `done` it
+        // sat at zero for a reader who had genuinely practised, displaying the
+        // one number in this system that is nobody's evidence of anything. The
+        // counts are cumulative, so summing them is the count of filled pips
+        // across the track (Mastered fills 3, Practiced 2, Learned 1) and the
+        // ring fills exactly as the cards below do. Only the offset is written —
+        // the dash array was baked at build time.
+        const ring = block.querySelector<SVGCircleElement>('[data-track-ring]');
+        const pips = counts.learned + counts.practiced + counts.mastered;
+        ring?.setAttribute(
+          'stroke-dashoffset',
+          String(arcOffset(pips, total * PIPS_PER_LESSON)),
+        );
+
         // Drops `visibility: hidden`, not a `hidden` attribute: the block has
         // been holding its own height since SSR so this reveal shifts nothing.
         block.removeAttribute('data-track-pending');
       });
   }
 
-  /** Shows the done-checkmark on each completed card (§6 local completed state). */
+  /**
+   * Marks each card with its completion state and paints its mastery pips
+   * (§6 local completed state; M8.1's "the done-checkmark becomes pip 1").
+   *
+   * `data-complete` stays on the card and keeps its exact M7 meaning — the
+   * completion MARK, which is also the only thing the reset control counts —
+   * while `data-stage` carries the wider currency the pips draw. Both are
+   * written in this one synchronous pass over the same store (the stage costs a
+   * second read of the same key, deliberately: `masteryStage` is where the
+   * OR-win rule lives, and re-deriving it here would be a second definition),
+   * so the mark and the pips on a card can never contradict each other.
+   */
   function renderCards(completed: string[]): void {
     const done = new Set(completed);
     document
@@ -541,13 +693,26 @@ const resumeFallback = firstLesson
         if (!slug) return;
         if (done.has(slug)) card.setAttribute('data-complete', 'true');
         else card.removeAttribute('data-complete');
+
+        const pips = card.querySelector<HTMLElement>('[data-mastery-pips]');
+        if (pips) paintPips(pips, masteryStage(slug));
       });
   }
 
-  /** Nothing stored = nothing to delete, so the control reads as unavailable. */
-  function renderReset(completed: number): void {
+  /**
+   * Nothing stored = nothing to delete, so the control reads as unavailable.
+   *
+   * The question is `hasStoredProgress`, not the completion count, since M8.1:
+   * a reader who self-graded practice without ever clicking "Mark as complete"
+   * has a `progress:v1:{slug}` record on the device, and a control gated on
+   * marks alone would present itself as "nothing to clear" while holding it.
+   */
+  function renderReset(list: LessonRef[]): void {
     const toggle = document.querySelector<HTMLElement>('[data-reset-toggle]');
-    toggle?.setAttribute('aria-disabled', completed === 0 ? 'true' : 'false');
+    toggle?.setAttribute(
+      'aria-disabled',
+      hasStoredProgress(list) ? 'false' : 'true',
+    );
   }
 
   /** Redraws every progress surface from storage. */
@@ -556,9 +721,11 @@ const resumeFallback = firstLesson
     if (list.length === 0) return; // no injected list: leave every fallback alone
     const completed = readCompleted(list);
     renderResume(list, completed.length);
-    renderTracks(list);
+    // Asked once per render, not once per surface: the answer cannot change
+    // mid-pass, and two probes would be two reads for one question.
+    renderTracks(list, storageReadable(list));
     renderCards(completed);
-    renderReset(completed.length);
+    renderReset(list);
   }
 
   /** Writes the polite announcement region (empty until the reader acts). */
@@ -579,7 +746,12 @@ const resumeFallback = firstLesson
     const { done } = countComplete(lessons());
     const warn = panel.querySelector<HTMLElement>('[data-reset-warn]');
     if (warn) {
-      warn.textContent = `Removes ${marks(done)} stored on this device — cannot be undone.`;
+      // A practice-only device has records but no marks: naming "0 completed
+      // marks" there would describe the delete as a no-op it is not.
+      warn.textContent =
+        done === 0
+          ? 'Removes the practice records stored on this device — cannot be undone.'
+          : `Removes ${marks(done)} stored on this device — cannot be undone.`;
     }
     panel.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
@@ -599,13 +771,21 @@ const resumeFallback = firstLesson
 
   /** Confirm: clear the keys, redraw every surface in place, say what happened. */
   function confirmReset(): void {
-    const removed = resetProgress(lessons());
+    const list = lessons();
+    // Asked BEFORE the delete, and only then: `resetProgress` counts the
+    // completion marks it removed and deliberately does not count mastery
+    // records (a practice record is not a "mark"), so this is the only moment
+    // the practice-only case is still visible.
+    const hadProgress = hasStoredProgress(list);
+    const removed = resetProgress(list);
     closePanel();
     render();
     announce(
-      removed === 0
-        ? 'Nothing to reset — no completed marks were stored on this device.'
-        : `Progress reset — ${marks(removed)} removed from this device.`,
+      removed > 0
+        ? `Progress reset — ${marks(removed)} removed from this device.`
+        : hadProgress
+          ? 'Progress reset — practice records removed from this device.'
+          : 'Nothing to reset — no progress was stored on this device.',
     );
   }
 

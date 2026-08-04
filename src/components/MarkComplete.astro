@@ -6,9 +6,11 @@
  * - `slug`    the lesson slug; persistence key is `lesson:{slug}:complete = "1"`
  *             (spec §6 *progress* key — cleared by the reset-progress control).
  * - `lessons` every published lesson, injected as JSON at build time so the
- *             saved-note can say "N of 15 complete". M7.2 rule: NEVER enumerate
- *             localStorage by key prefix — a stale `lesson:old-slug:complete`
- *             left by a rename would inflate the count.
+ *             saved-note can say "N of 15 complete" and the milestone below can
+ *             filter this lesson's own track out of it. M7.2 rule: NEVER
+ *             enumerate localStorage by key prefix — a stale
+ *             `lesson:old-slug:complete` left by a rename would inflate the
+ *             count (and would hand out a track milestone that was not earned).
  *
  * Mirrors the ThemeToggle pattern: `try/catch` localStorage access and an
  * `apply()` that keeps `aria-pressed` in sync — which in turn drives the icon
@@ -25,8 +27,41 @@
  * old rule hid only `.mark-complete` and would have orphaned the note. Reads go
  * through `src/lib/progress.ts` (the one progress module); the write stays here
  * because this component is the only writer of the completion key.
+ *
+ * M8.1 — THE QUIET MILESTONE, the system's only celebration
+ * (`docs/m8-gamification.md`). When a click takes a whole TRACK from N-1 to N of
+ * N *and every lesson in it has also been Practiced*, the check glyph draws in
+ * once and ONE line appears below the button ("Foundations complete — all 9
+ * lessons done and practiced, on this device."), replaced by the course line
+ * when that same click finishes the curriculum. No modal, no confetti, no sound,
+ * no share button — 15 identical fanfares are worth nothing, so this fires at
+ * most twice per track and once for the course.
+ *
+ * WHY THE PRACTICED HALF IS NOT OPTIONAL: `docs/m8-gamification.md` makes it a
+ * binding rule that nothing — reviews, milestones, unlocks — gates on Learned
+ * alone, because "Mark as complete" is a self-report with no learning
+ * precondition. Gated on the completion count by itself, the system's only
+ * celebration could be collected by ticking nine checkboxes and reading nothing,
+ * which is the review finding this component was rejected for. The mastery
+ * states are the currency, so the milestone spends them: the marks say the click
+ * finished the track, the Practiced count says retrieval actually happened, and
+ * the sentence names both.
+ *
+ * It adds NO storage key: the line is derived from those two reads on every
+ * paint, so un-toggling silently retires it (no shaming copy), and re-earning it
+ * legitimately shows it again. Its `role="status"` element ships EMPTY so the
+ * first population is announced reliably — and so a JS-off page renders nothing
+ * at all, since the existing kill-switch already hides the whole group.
+ *
+ * The track subset the milestone needs is derived HERE from `lessons` — every
+ * `LessonRef` carries its `track` (M7.2) — rather than threaded down as a
+ * `trackSlugs` prop: one filter over the list the component already receives
+ * keeps the milestone and the count line reading the same curriculum, and adds
+ * nothing to `WhatsNext`'s or `LessonLayout`'s API.
  */
 import type { LessonRef } from '../lib/progress';
+import { TRACK_COPY } from '../lib/tracks';
+import type { TrackCopy } from '../lib/tracks';
 
 interface Props {
   slug: string;
@@ -34,12 +69,44 @@ interface Props {
 }
 
 const { slug, lessons } = Astro.props;
+
+// The milestone's track subset, from the injected curriculum. A slug missing
+// from that list (a malformed payload) leaves the subset empty, which is the
+// honest outcome: no track can then be "all complete", so no line is offered.
+const track = lessons.find((lesson) => lesson.slug === slug)?.track ?? null;
+const trackLessons =
+  track === null ? [] : lessons.filter((lesson) => lesson.track === track);
+
+// `LessonRef.track` is a plain string (the progress module keeps it loose so any
+// caller can inject a list), so the copy lookup is written to tolerate an id the
+// site has no name for: it yields no track line rather than "undefined
+// complete". `src/lib/tracks.ts` stays the one place a track is named.
+const trackName = (TRACK_COPY as Record<string, TrackCopy | undefined>)[
+  track ?? ''
+]?.short;
+
+// Both sentences are composed at BUILD time, so their numbers are the
+// curriculum the build shipped — the browser only decides WHICH one is true.
+// `undefined` omits the attribute entirely, and the script then offers no line.
+// "done and practiced" is the honest description of what the script actually
+// checks (see the milestone note above): the completion marks AND the earned
+// Practiced state for every lesson named in the count.
+const trackLine =
+  trackName !== undefined && trackLessons.length > 0
+    ? `${trackName} complete — all ${trackLessons.length} lessons done and practiced, on this device.`
+    : undefined;
+const courseLine =
+  lessons.length > 0
+    ? `Course complete — all ${lessons.length} lessons done and practiced, on this device.`
+    : undefined;
 ---
 
 <div
   class="mark-complete-group"
   data-mark-complete-group
   data-lessons={JSON.stringify(lessons)}
+  data-track-line={trackLine}
+  data-course-line={courseLine}
 >
   <button
     type="button"
@@ -75,10 +142,23 @@ const { slug, lessons } = Astro.props;
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="9"></circle>
-      <path d="M8 12l3 3 5-6"></path>
+      <path class="mark-complete__check" d="M8 12l3 3 5-6"></path>
     </svg>
     <span class="mark-complete__label">Mark as complete</span>
   </button>
+
+  {
+    /* The Quiet Milestone. Ships EMPTY and stays in the DOM: a live region has
+      to be in the accessibility tree BEFORE its first population for its
+      announcement to fire reliably, and an empty block box costs no space
+      until the line arrives. Empty also means a JS-off page renders nothing
+      here even before the kill-switch below applies.
+      Written on ONE line deliberately: Prettier expands a wrapped empty
+      element to a `>` and a newline before `</p>`, and that whitespace text
+      node would both match `:not(:empty)` below — a permanent gap under every
+      un-milestoned button — and give the script a non-empty `textContent`. */
+  }
+  <p class="mark-complete__milestone" role="status" data-milestone></p>
 
   {
     /* Revealed by the script once a read-back confirms the save. Deliberately
@@ -96,9 +176,11 @@ const { slug, lessons } = Astro.props;
 
 <noscript>
   <style>
-    /* Kill-switch for the whole group (button + the note it reveals): neither
-       can work without JS. `!important` because a kill-switch must be
-       unbeatable by any equal-specificity rule in the bundle (QA DEFECT-1). */
+    /* Kill-switch for the whole group (button, the note it reveals, and M8.1's
+       milestone line): none of them can work without JS, and the M8 rule is
+       that no gamification affordance may appear on a JS-off page at all.
+       `!important` because a kill-switch must be unbeatable by any
+       equal-specificity rule in the bundle (QA DEFECT-1). */
     .mark-complete-group {
       display: none !important;
     }
@@ -149,15 +231,61 @@ const { slug, lessons } = Astro.props;
     display: block;
     color: var(--text-muted);
   }
+
+  /* ---- The Quiet Milestone (M8.1) ---- */
+
+  /* One line of text, and that is the entire celebration. It carries its own
+     "on this device" scope because it is a claim about stored state, which is
+     also why it never appears until a read-back confirms the save. */
+  .mark-complete__milestone {
+    margin: 0;
+    max-width: var(--measure);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+
+  /* The spacing arrives WITH the text: the element is always in the DOM (the
+     live region must pre-exist its first population), so an unconditional
+     margin would leave a permanent gap under every un-milestoned button. */
+  .mark-complete__milestone:not(:empty) {
+    margin-top: var(--space-3);
+  }
+
+  /* The check draws itself in — only on the click that completes a track, since
+     the script adds this class only then. A @keyframes animation rather than a
+     transition because the two icons swap via `display`, and transitions do not
+     run on a display change. The duration is a TOKEN because the token collapse
+     is this site's entire reduced-motion strategy (tokens.css): a literal
+     200ms here would keep animating for readers who asked it not to. */
+  @keyframes mark-complete-draw {
+    from {
+      stroke-dashoffset: 14;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* A dash of 14 user units exceeds the tick's own length (~12.1 in this 24×24
+     viewBox), so the resting state — offset 0 — is a solid, fully drawn check
+     with no gap, and the animation is purely the reveal. */
+  .mark-complete--milestone .mark-complete__check {
+    stroke-dasharray: 14;
+    animation: mark-complete-draw var(--duration-base) var(--ease-standard);
+  }
 </style>
 
 <script>
   import {
     completeKey,
     countComplete,
+    countMastery,
     isComplete,
     onRestore,
     parseLessonRefs,
+    type LessonRef,
   } from '../lib/progress';
 
   const group = document.querySelector<HTMLElement>(
@@ -169,6 +297,8 @@ const { slug, lessons } = Astro.props;
     group?.querySelector<HTMLElement>('[data-mark-complete-note]') ?? null;
   const count =
     group?.querySelector<HTMLElement>('[data-mark-complete-count]') ?? null;
+  const milestoneLine =
+    group?.querySelector<HTMLElement>('[data-milestone]') ?? null;
   const slug = button?.dataset['slug'] ?? '';
   // The key format comes from the progress module, never retyped here: this is
   // the only writer, and a template literal on both sides let the write and the
@@ -179,6 +309,79 @@ const { slug, lessons } = Astro.props;
   // contract: a malformed payload yields [] rather than throwing inside the
   // island, which costs the count line and nothing else.
   const lessons = parseLessonRefs(group?.dataset['lessons']);
+
+  // This lesson's track, read out of the SAME injected list the counts come
+  // from, so the milestone and the count line can never disagree about which
+  // lessons exist. An unknown slug leaves the subset empty and no track can then
+  // read as complete.
+  const track = lessons.find((lesson) => lesson.slug === slug)?.track ?? null;
+  const trackLessons =
+    track === null ? [] : lessons.filter((lesson) => lesson.track === track);
+
+  // The two sentences, composed at build time (see the frontmatter). Absent
+  // attributes mean "no milestone is available", not an empty announcement.
+  const TRACK_LINE = group?.dataset['trackLine'] ?? '';
+  const COURSE_LINE = group?.dataset['courseLine'] ?? '';
+
+  /**
+   * Has every lesson in `subset` been BOTH marked complete AND practiced?
+   *
+   * Both halves are required, and the second one is why this function exists:
+   * `docs/m8-gamification.md` binds the whole system to "nothing gates on
+   * Learned alone", because the completion mark is a self-report with no
+   * learning precondition. The mastery states are the currency the milestone
+   * spends — the marks establish that this click finished the track, the
+   * Practiced count establishes that retrieval actually happened.
+   *
+   * `countMastery().practiced` is CUMULATIVE (a Mastered lesson is counted in it
+   * too), so this asks "every lesson is at Practiced or above" and never
+   * "exactly Practiced" — a reader who mastered a lesson has not lost it.
+   *
+   * @param subset - The lessons the sentence names (one track, or all of them).
+   * @returns True only when the subset is non-empty and every lesson in it
+   * satisfies both halves; false whenever storage cannot be read, since both
+   * counts degrade to 0 there and a claim about a device is never made on
+   * numbers this component could not read.
+   */
+  function fullyEarned(subset: LessonRef[]): boolean {
+    const { done, total } = countComplete(subset);
+    if (total === 0 || done !== total) return false;
+    return countMastery(subset).practiced === total;
+  }
+
+  /**
+   * The milestone sentence that is TRUE right now, or `''` when none is.
+   *
+   * Course before track, because finishing the course necessarily finishes a
+   * track too and the design allows exactly ONE line. Derived on every call
+   * rather than remembered: there is no milestone key in spec §6, and deriving
+   * is what lets the line retire itself the moment its claim stops holding.
+   */
+  function currentMilestone(): string {
+    // This lesson is not in the injected curriculum (a malformed payload, or a
+    // slug renamed out from under it): no click here can be shown to have
+    // completed anything, so nothing is claimed.
+    if (track === null) return '';
+    if (COURSE_LINE && fullyEarned(lessons)) return COURSE_LINE;
+    if (TRACK_LINE && fullyEarned(trackLessons)) return TRACK_LINE;
+    return '';
+  }
+
+  /**
+   * Shows (or retires) the milestone line and the check's one-off draw-in.
+   *
+   * Writing the same string back into a live region would re-announce a fact the
+   * reader has already heard, so an unchanged line is left untouched. The class
+   * and the text are only ever set together, which is what keeps the draw-in
+   * tied to the one click that earned it.
+   */
+  function setMilestone(line: string): void {
+    if (!milestoneLine || milestoneLine.textContent === line) return;
+    milestoneLine.textContent = line;
+    // Un-toggling takes the line away with no replacement copy: nothing here
+    // shames the reader for changing their mind.
+    button?.classList.toggle('mark-complete--milestone', line !== '');
+  }
 
   /**
    * Syncs the button's pressed state to `done` and reveals the saved-note.
@@ -205,6 +408,18 @@ const { slug, lessons } = Astro.props;
           ? ''
           : `Saved — ${totals.done} of ${totals.total} complete`;
     }
+
+    // This never RAISES the milestone — only a click does (below), so returning
+    // to a finished track never replays the celebration. It only retires a line
+    // that has stopped being true: after an un-toggle, or when another tab
+    // cleared part of the track while this page sat in the bfcache. The storage
+    // reads happen only when a line is actually on screen.
+    if (
+      milestoneLine?.textContent &&
+      (!done || currentMilestone() !== milestoneLine.textContent)
+    ) {
+      setMilestone('');
+    }
   }
 
   button?.addEventListener('click', () => {
@@ -218,6 +433,21 @@ const { slug, lessons } = Astro.props;
       }
     }
     apply(next);
+
+    // The Quiet Milestone, raised only by a click and only once the save is
+    // read back — the line claims a completed track ON THIS DEVICE, and a
+    // blocked store has not got one. Because this lesson was incomplete a
+    // moment ago, a track that now reads complete was necessarily completed BY
+    // this click (N-1 → N), so no previous count has to be remembered.
+    //
+    // The Practiced half of the gate was earned earlier, in the lesson's
+    // Practice section, and is only READ here. That is deliberate and it has one
+    // consequence worth stating plainly: a reader who marks a whole track done
+    // and only practises it afterwards sees no line until some later mark
+    // re-raises it. Raising it on load instead would replay the celebration on
+    // every visit, and the design gives this feature no storage key to remember
+    // that it has already fired.
+    if (next && isComplete(slug)) setMilestone(currentMilestone());
   });
 
   // Reflect any previously stored state on load, and again after a

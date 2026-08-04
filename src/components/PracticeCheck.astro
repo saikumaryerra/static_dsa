@@ -1,0 +1,547 @@
+---
+/**
+ * PracticeCheck — a Practice answer wrapped in one-tap SELF-grading
+ * (site spec §7 body-section 7 "Practice / check yourself", §9; M8.1, designed
+ * in `docs/m8-gamification.md`).
+ *
+ * Props:
+ * - `slug`  the lesson that owns the storage record; pass `frontmatter.slug`
+ *           from the MDX so a lesson rename can never leave a literal behind.
+ * - `index` the question's number as the reader sees it — **1-based**, matching
+ *           the "**1. …**" prose above it and the disclosure label below it. It
+ *           is explicit precisely because it decides which stored self-grade the
+ *           question owns: reordering questions is then an author-visible act
+ *           rather than a silent re-keying of saved state. The script converts
+ *           it once to the store's 0-based `checks[]` position.
+ * - `total` how many questions this lesson's Practice section has. It is the
+ *           denominator for both the tally and the Practiced bar, and `checks[]`
+ *           alone cannot supply it.
+ *
+ * WHAT IT ADDS AROUND `Collapsible` (which is untouched — still a native
+ * `<details>`, still keyboard-operable and fully readable with JS off):
+ * - a retrieval prompt ABOVE the disclosure. It does not replace the `summary`,
+ *   which keeps M7.1/CNT-8's per-question-unique "Show answer to question N"
+ *   (that uniqueness was a WCAG 2.4.6 fix, so the label is derived from `index`
+ *   here rather than left to authors to retype).
+ * - inside the opened answer, two real buttons — "I had it" / "Not yet" — plus a
+ *   quiet tally. The retrieval benefit comes from ATTEMPTING before revealing
+ *   and then judging honestly whether you had it (Roediger & Karpicke;
+ *   judgments of learning, Koriat), which is why the grade is self-reported and
+ *   nothing here is ever machine-graded.
+ *
+ * "Not yet" costs nothing — in BEHAVIOUR and in WORDING. It stores an explicit
+ * `0`, which earns nothing and takes nothing away: no stage is derived from a
+ * `0`, and there is no state below "nothing recorded" for it to fall to. And
+ * the tally beside it counts questions ANSWERED rather than questions passed, so
+ * an honest "Not yet" moves that line forward instead of answering the reader
+ * with a zero — the loss frame the design killed XP and streaks to avoid. No
+ * score, no percentage, no ratio; mastery states are the only currency (see the
+ * killed list in the design doc). Nor can a later "Not yet" undo a pass already
+ * earned: `practicedAt` is stamped once by the store and never cleared, so a
+ * regrade changes what this visit claims and no stage the reader reached.
+ *
+ * A11Y:
+ * - Real `<button>`s at the shared 44px `.btn-secondary` target size, in a
+ *   labelled `role="group"` so the pair reads as one question's answer.
+ * - The chosen grade is carried by `aria-pressed` with a CONSTANT visible label
+ *   (M7.1 CMP-12: renaming the label AND toggling pressed double-encodes the
+ *   state), and never by colour alone — the pressed button fills its glyph's
+ *   ring with a dot, which survives forced-colours mode and colour blindness.
+ * - Exactly ONE polite live region per lesson (rendered by question 1, and
+ *   OUTSIDE the `<details>` — a live region inside a closed disclosure is not
+ *   rendered, and updates to a non-rendered region are not announced). It ships
+ *   EMPTY so nothing is announced on load, and carries only the tally: the
+ *   `aria-pressed` flip already announces the grade, and M7.1/CMP-4 showed a
+ *   second announcement for one action reads as a stutter. It is rewritten only
+ *   when the words actually CHANGE, so a click that moves the tally nowhere is
+ *   not announced twice.
+ *
+ * JS-OFF: the buttons and the tally disappear via this component's own
+ * `<noscript>` kill-switch (`Collapsible` has none of its own), leaving exactly
+ * M7's read-the-answer flow plus the static prompt line.
+ */
+import Collapsible from './Collapsible.astro';
+import { nextUid } from './uid';
+
+interface Props {
+  slug: string;
+  index: number;
+  total: number;
+}
+
+const { slug, index, total } = Astro.props;
+
+// Fail the BUILD on an authoring slip rather than mis-persisting at runtime: a
+// stray index writes a check the Practiced predicate will never see again, and a
+// wrong denominator moves the bar for the whole lesson.
+if (!Number.isInteger(index) || index < 1) {
+  throw new Error(
+    `PracticeCheck: index must be a whole number >= 1 (got ${index} in "${slug}").`,
+  );
+}
+if (!Number.isInteger(total) || total < index) {
+  throw new Error(
+    `PracticeCheck: total must be a whole number >= index (got total ${total} for index ${index} in "${slug}").`,
+  );
+}
+
+const askId = `pc-ask-${nextUid()}`;
+---
+
+<div
+  class="practice-check"
+  data-practice-check
+  data-slug={slug}
+  data-index={index}
+  data-total={total}
+>
+  <p class="practice-check__prompt">
+    Answer it in your head or on paper first.
+  </p>
+
+  <Collapsible summary={`Show answer to question ${index}`}>
+    <slot />
+
+    <div class="practice-check__footer" data-practice-footer>
+      <p class="practice-check__ask" id={askId}>How did question {index} go?</p>
+
+      {
+        /* Both buttons ship the real `disabled` attribute and are enabled by
+          the script on hydrate (the Visualizer's A3 pattern), so a click that
+          lands before the island runs cannot silently do nothing. */
+      }
+      <div class="practice-check__actions" role="group" aria-labelledby={askId}>
+        <button
+          type="button"
+          class="btn-secondary practice-check__btn"
+          data-practice-grade="had"
+          aria-pressed="false"
+          disabled
+        >
+          <svg
+            class="practice-check__glyph"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9"></circle>
+            <circle
+              class="practice-check__dot"
+              cx="12"
+              cy="12"
+              r="4.5"
+              fill="currentColor"
+              stroke="none"></circle>
+          </svg>
+          <span>I had it</span>
+        </button>
+
+        <button
+          type="button"
+          class="btn-secondary practice-check__btn"
+          data-practice-grade="not"
+          aria-pressed="false"
+          disabled
+        >
+          <svg
+            class="practice-check__glyph"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9"></circle>
+            <circle
+              class="practice-check__dot"
+              cx="12"
+              cy="12"
+              r="4.5"
+              fill="currentColor"
+              stroke="none"></circle>
+          </svg>
+          <span>Not yet</span>
+        </button>
+      </div>
+
+      {
+        /* Revealed only once the store reports a grade actually on disk
+          (MarkComplete's read-back rule): with storage blocked the buttons still
+          respond for this visit, and claiming a save that did not happen would
+          be a lie. The tally is `aria-hidden` because the live region below
+          announces the same string; the device-scope sentence is NOT, so it is
+          readable in every mode. */
+      }
+      <p class="practice-check__saved" data-practice-saved hidden>
+        <span
+          class="practice-check__tally"
+          data-practice-tally
+          aria-hidden="true"></span>
+        <span class="practice-check__scope">Saved on this device only.</span>
+      </p>
+    </div>
+  </Collapsible>
+
+  {
+    /* One region per lesson, rendered by the first question and shipped empty
+      (see the a11y note above). */
+    index === 1 && (
+      <p
+        class="sr-only practice-check__status"
+        role="status"
+        data-practice-status
+      />
+    )
+  }
+</div>
+
+<noscript>
+  <style>
+    /* Kill-switch (mirrors MarkComplete): the grade buttons, the tally and the
+       live region are all JS-only, so with JS off the question falls back to
+       exactly M7's read-the-answer disclosure. The prompt line above it is
+       static copy that needs no script, so it deliberately stays.
+       `!important` because a kill-switch must be unbeatable by any
+       equal-specificity rule in the bundle (QA DEFECT-1). */
+    .practice-check__footer,
+    .practice-check__status {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  /* Sits directly under the question prose and above the disclosure's keyline,
+     so it reads as part of the question rather than of the answer. The size and
+     colour keep it quiet: it is an instruction, not a heading. */
+  .practice-check__prompt {
+    margin-block: var(--space-2) 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .practice-check__footer {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  .practice-check__ask {
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .practice-check__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  /* CHOSEN state. Three signals, and the first is not a colour at all: the
+     glyph's ring gains a DOT — a shape difference, so it survives forced
+     colours and every form of colour blindness — while the border turns brand
+     and an inset ring thickens it to 2px WITHOUT reflowing the row (the same
+     no-reflow trick the header's `aria-current` underline uses). The fill is
+     MarkComplete's 12% brand tint, so "I chose this" looks the same in both
+     places. Text colour is left at --text, which measures 14.25:1 light /
+     12.91:1 dark on that tint over the lesson canvas, and the brand ring is
+     5.02:1 / 5.33:1 on it — clear of 1.4.3 and 1.4.11. The dot is also what
+     separates chosen from `.btn-secondary`'s hover, which lands on a
+     similar fill. */
+  .practice-check__dot {
+    display: none;
+  }
+
+  .practice-check__btn[aria-pressed='true'] .practice-check__dot {
+    display: inline;
+  }
+
+  .practice-check__btn[aria-pressed='true'] {
+    border-color: var(--brand);
+    box-shadow: inset 0 0 0 1px var(--brand);
+    background-color: color-mix(in srgb, var(--brand) 12%, transparent);
+  }
+
+  .practice-check__saved {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  /* Block spans, like MarkComplete's note: Tailwind's preflight hides `[hidden]`
+     with `display: none !important`, so the parent's `hidden` attribute still
+     wins over any display these carry. */
+  .practice-check__tally {
+    display: block;
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+  }
+
+  .practice-check__scope {
+    display: block;
+    color: var(--text-muted);
+  }
+
+  /* On paper the answers are revealed (global.css print rule 4) and the sheet
+     becomes a study sheet — device-local controls have no meaning there, the
+     same reason `.whats-next` is dropped. No `!important` needed: nothing else
+     targets this class. */
+  @media print {
+    .practice-check__footer {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import {
+    countPassed,
+    onRestore,
+    readMastery,
+    recordPass,
+    writeCheck,
+  } from '../lib/progress';
+  import type { MasteryRecord } from '../lib/progress';
+
+  /** One rendered question and the nodes its state drives. */
+  interface Question {
+    /**
+     * This question's position in the store's `checks[]`: the 1-based `index`
+     * prop minus one. The conversion happens here and nowhere else, so the
+     * author-facing question number and the storage position cannot drift.
+     */
+    slot: number;
+    /** How many questions this lesson's Practice section has. */
+    total: number;
+    had: HTMLButtonElement;
+    not: HTMLButtonElement;
+    /** The "N of M answered / Saved on this device only." line, if present. */
+    saved: HTMLElement | null;
+    tally: HTMLElement | null;
+  }
+
+  /** The grade shown as chosen on one question's pair of buttons. */
+  type Choice = 'had' | 'not';
+
+  /** Questions grouped by the lesson whose record they write to. */
+  const bySlug = new Map<string, Question[]>();
+  /** The one polite live region per lesson (rendered by question 1). */
+  const statusBySlug = new Map<string, HTMLElement>();
+  /** The record as the store last returned it — what the tally is painted from. */
+  const recordBySlug = new Map<string, MasteryRecord>();
+  /**
+   * Claims the store did NOT take, kept for this visit only. Blocked storage is
+   * what produces one: nothing persists, but the button still has to answer the
+   * click (MarkComplete's rule — the view updates, only the saved note is
+   * withheld). The entry is decided by comparing the record the store RETURNS
+   * against what was pressed, never by assuming which writes it accepts, so any
+   * grade it declines is covered by the same three lines. Everything else is
+   * painted straight from the record, so a clear from another tab wins at the
+   * next repaint.
+   */
+  const claimsBySlug = new Map<string, Map<number, Choice>>();
+  /**
+   * Questions graded "I had it" IN THIS VISIT, per lesson. A re-pass is the one
+   * thing storage cannot show — a second pass writes the same `1`s the first one
+   * did — so this per-visit set is what lets the store stamp Mastered on a
+   * return visit. In memory only: never `sessionStorage`, which spec §6 forbids.
+   */
+  const passedBySlug = new Map<string, Set<number>>();
+
+  /** The per-visit claim map for one lesson, created on first use. */
+  function claimsOf(slug: string): Map<number, Choice> {
+    const existing = claimsBySlug.get(slug);
+    if (existing) return existing;
+    const created = new Map<number, Choice>();
+    claimsBySlug.set(slug, created);
+    return created;
+  }
+
+  /** The per-visit "I had it" set for one lesson, created on first use. */
+  function passedOf(slug: string): Set<number> {
+    const existing = passedBySlug.get(slug);
+    if (existing) return existing;
+    const created = new Set<number>();
+    passedBySlug.set(slug, created);
+    return created;
+  }
+
+  /** The lesson's record, read through the store on first use. */
+  function recordOf(slug: string): MasteryRecord {
+    const existing = recordBySlug.get(slug);
+    if (existing) return existing;
+    const read = readMastery(slug);
+    recordBySlug.set(slug, read);
+    return read;
+  }
+
+  /**
+   * The one sentence both the visible tally and the live region carry — built
+   * here so the two can never word it differently.
+   *
+   * It describes ACTIVITY, not achievement: the count is of questions ANSWERED,
+   * so an honest "Not yet" moves it forward exactly as "I had it" does. A tally
+   * of passes only would meet the reader's first honest self-report with a zero,
+   * which is the loss frame the design killed XP and streaks to avoid.
+   *
+   * `''` means nothing for this lesson is on disk, which is what keeps the
+   * "Saved on this device only." line hidden: with storage blocked the record
+   * never gains an answer, so the promise is never made.
+   */
+  function tallyText(slug: string): string {
+    const total = (bySlug.get(slug) ?? [])[0]?.total ?? 0;
+    // `countPassed` counts the `1`s inside the lesson's question window, so
+    // every ANSWERED grade is projected to `1` first: this line asks how many
+    // questions were answered, not how many were passed. The window rule — only
+    // indices 0…total-1 count, so a grade left behind by a question the lesson
+    // has since dropped can never read as "4 of 3" — stays in the store, where
+    // the Practiced bar reads it too.
+    const answered = countPassed(
+      recordOf(slug).checks.map((check) => (check === null ? null : 1)),
+      total,
+    );
+    return answered > 0 ? `${answered} of ${total} answered` : '';
+  }
+
+  /** The grade to show as chosen: this visit's refused claim, else the record. */
+  function chosen(slug: string, slot: number): Choice | null {
+    const claim = claimsOf(slug).get(slot);
+    if (claim) return claim;
+    const stored = recordOf(slug).checks[slot];
+    if (stored === 1) return 'had';
+    if (stored === 0) return 'not';
+    return null;
+  }
+
+  /** Paints every question of one lesson. Silent — announcing is separate. */
+  function render(slug: string): void {
+    const text = tallyText(slug);
+    for (const question of bySlug.get(slug) ?? []) {
+      const choice = chosen(slug, question.slot);
+      question.had.setAttribute(
+        'aria-pressed',
+        choice === 'had' ? 'true' : 'false',
+      );
+      question.not.setAttribute(
+        'aria-pressed',
+        choice === 'not' ? 'true' : 'false',
+      );
+      if (question.tally) question.tally.textContent = text;
+      // No text means no answer reached the disk (see `tallyText`), so the line
+      // stays hidden rather than claiming a save that did not happen.
+      if (question.saved) question.saved.hidden = !text;
+    }
+  }
+
+  /**
+   * Announces the tally politely — but ONLY when the words actually changed.
+   *
+   * Rewriting a live region with an identical string still re-announces it, so a
+   * click that moves the tally nowhere would repeat it: pressing the same grade
+   * twice, or regrading a question that already counted as answered. Neither act
+   * goes unspoken — the `aria-pressed` flip announces the button itself, which is
+   * also why this region carries the tally ALONE (M7.1 CMP-4 — two announcements
+   * for one action read as a stutter).
+   *
+   * Only ever called from a click, so the region stays empty on load.
+   */
+  function announce(slug: string): void {
+    const status = statusBySlug.get(slug);
+    if (!status) return;
+    const text = tallyText(slug);
+    if (status.textContent === text) return;
+    status.textContent = text;
+  }
+
+  /** Records one self-grade and repaints the lesson's questions. */
+  function grade(slug: string, question: Question, value: 0 | 1): void {
+    // The store is the only writer of `progress:v1:{slug}`: it owns the value
+    // range, the Practiced stamp and every storage guard, and it returns the
+    // record as it now really stands (a blocked write returns the previous one).
+    let record = writeCheck(slug, question.slot, question.total, value);
+
+    const passed = passedOf(slug);
+    if (value === 1) passed.add(question.slot);
+    else passed.delete(question.slot);
+    // Meeting the bar again within one visit is the re-pass the store cannot
+    // see; three or more days after the first pass it is what earns Mastered.
+    // Safe on the first pass too — the gate is then zero days old and the store
+    // returns the record unchanged.
+    if (passed.size >= question.total) record = recordPass(slug);
+
+    recordBySlug.set(slug, record);
+
+    // Keep a claim only where the store did not take this grade, so the record
+    // stays the source of truth everywhere else.
+    const claims = claimsOf(slug);
+    if (record.checks[question.slot] === value) claims.delete(question.slot);
+    else claims.set(question.slot, value === 1 ? 'had' : 'not');
+
+    render(slug);
+    announce(slug);
+  }
+
+  /** Re-reads the record and drops this visit's refused claims, then repaints. */
+  function refresh(slug: string): void {
+    recordBySlug.set(slug, readMastery(slug));
+    claimsOf(slug).clear();
+    render(slug);
+  }
+
+  for (const root of Array.from(
+    document.querySelectorAll<HTMLElement>('[data-practice-check]'),
+  )) {
+    const slug = root.dataset['slug'] ?? '';
+    const index = Number(root.dataset['index']);
+    const total = Number(root.dataset['total']);
+    const had = root.querySelector<HTMLButtonElement>(
+      '[data-practice-grade="had"]',
+    );
+    const not = root.querySelector<HTMLButtonElement>(
+      '[data-practice-grade="not"]',
+    );
+    // A malformed instance is skipped rather than throwing: one bad question
+    // must not cost the reader the other two.
+    if (!slug || !had || !not) continue;
+    if (!Number.isInteger(index) || index < 1) continue;
+    if (!Number.isInteger(total) || total < index) continue;
+
+    const question: Question = {
+      slot: index - 1,
+      total,
+      had,
+      not,
+      saved: root.querySelector<HTMLElement>('[data-practice-saved]'),
+      tally: root.querySelector<HTMLElement>('[data-practice-tally]'),
+    };
+    const group = bySlug.get(slug);
+    if (group) group.push(question);
+    else bySlug.set(slug, [question]);
+
+    const status = root.querySelector<HTMLElement>('[data-practice-status]');
+    if (status && !statusBySlug.has(slug)) statusBySlug.set(slug, status);
+
+    // Hydrated: the buttons ship `disabled` so a click before this line cannot
+    // look like it worked (the Visualizer's A3 pattern).
+    had.disabled = false;
+    not.disabled = false;
+    had.addEventListener('click', () => grade(slug, question, 1));
+    not.addEventListener('click', () => grade(slug, question, 0));
+  }
+
+  for (const slug of bySlug.keys()) render(slug);
+
+  // A back/forward-cache restore replays no script, so a reader who graded a
+  // question, navigated away and came Back would meet the DOM exactly as they
+  // left it — including grades another tab has since cleared. Repaint from
+  // storage, but stay silent: nobody just acted.
+  onRestore(() => {
+    for (const slug of bySlug.keys()) refresh(slug);
+  });
+</script>
