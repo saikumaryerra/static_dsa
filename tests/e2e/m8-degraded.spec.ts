@@ -289,10 +289,18 @@ test.describe('a record this build cannot trust', () => {
 
     // A grade lands on a clean record rather than throwing on the way in — and
     // the corrupt value is REPLACED, not merged with, so nothing survives it.
+    //
+    // The whole documented shape is asserted (`toEqual`, not a subset match),
+    // which is what makes "replaced, not merged" checkable. M8.2 added the two
+    // scheduler fields the design's data model lists — `{ practicedAt,
+    // masteredAt, intervalIndex, lastReviewAt, checks[], note }` — so a repaired
+    // record now carries their defaults: the first interval, and no review yet.
     await gradeQuestion(page, 0, 'had');
     expect(JSON.parse((await readKey(page, masteryKey(LESSON)))!)).toEqual({
       practicedAt: null,
       masteredAt: null,
+      intervalIndex: 0,
+      lastReviewAt: null,
       checks: [1, null, null],
     });
     // Still no stage: one grade out of three is not a rung on the ladder, and

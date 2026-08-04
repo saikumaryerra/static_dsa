@@ -15,6 +15,7 @@
 import type { Algorithm, Highlight, Step, Trace } from '../core/types';
 import { snapshot } from '../core/snapshot';
 import { edgeId, nodeId } from '../core/ids';
+import { predictNextVisit } from './predictors';
 
 /** Hard cap on vertex count (site spec §11.4: graph nodes ≤ 15). */
 const MAX_NODES = 15;
@@ -225,4 +226,13 @@ export const bfs: Algorithm<TraversalInput, TraversalState> = {
     start: 0,
   }),
   parseInput,
+  // M8.2: predicting the next dequeue IS the FIFO rule — the queue's front, not
+  // the most recently discovered node (which is what DFS would take).
+  predictStep: (trace, i, input) =>
+    predictNextVisit(
+      trace,
+      i,
+      input.nodeIds,
+      'Which node comes off the queue next?',
+    ),
 };

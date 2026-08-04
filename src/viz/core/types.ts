@@ -58,6 +58,23 @@ export interface Step<TState = unknown> {
 export type Trace<TState = unknown> = Step<TState>[];
 
 /**
+ * One Predict-the-Step question (M8.2), derived from the trace the Player
+ * already holds — never from a second run of the algorithm.
+ *
+ * The literal shape spec §11.2 writes inline for `predictStep`'s return, named
+ * here so the predictors and their caller share one definition instead of two
+ * copies that can drift.
+ */
+export interface PredictQuestion {
+  /** The question asked above the buttons, e.g. `"What does the search do next?"`. */
+  prompt: string;
+  /** 2–4 button labels in display order (§11.2 caps choices at 4). */
+  choices: string[];
+  /** Index into {@link choices} of the answer the next step proves. */
+  correctIndex: number;
+}
+
+/**
  * An instrumented algorithm: a pure function that turns typed input into a
  * `Trace`, plus the helpers the Visualizer island needs to seed and validate
  * custom input. `run` must never touch the DOM, timers, or drawing.
@@ -80,6 +97,23 @@ export interface Algorithm<TInput, TState> {
    * `{ error }` object with a friendly message on failure — never throws.
    */
   parseInput(raw: string): TInput | { error: string };
+  /**
+   * OPTIONAL (M8.2, spec §11.2): the Predict-the-Step question for step `i`,
+   * graded against `trace[i + 1]`. Additive — an algorithm without it simply
+   * offers no predict mode, and every existing algorithm compiles unchanged.
+   *
+   * Must be PURE: it reads the precomputed trace the Player already holds (no
+   * DOM, no timers, no storage, no re-running `run`), which is how predict mode
+   * consumes the trace-then-render pipeline instead of forking it.
+   *
+   * Returns `null` for any step with nothing worth predicting — including the
+   * last step, which has no successor to grade against.
+   */
+  predictStep?(
+    trace: Trace<TState>,
+    i: number,
+    input: TInput,
+  ): PredictQuestion | null;
 }
 
 /**

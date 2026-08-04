@@ -83,3 +83,41 @@ describe('selectionSort.parseInput', () => {
     });
   });
 });
+
+describe('selectionSort predict-mode exclusion (M8.2)', () => {
+  it('ships no predictStep at all', () => {
+    // Deliberate, not an omission: see the deferred swap below and
+    // `docs/m8-gamification.md` M8.2.
+    expect(selectionSort.predictStep).toBeUndefined();
+  });
+
+  it('defers its pass swap past the last compare, which a metrics-delta grader would misread', () => {
+    // Selection sort swaps once per PASS, after the scan is finished. On the
+    // authored input the pass-1 scan ends with "3 vs the current smallest 1" —
+    // a compare that does not swap — yet the next step is the pass swap, so the
+    // cumulative `swaps` metric increments and a generic delta grader would
+    // answer "Swap" and mark a correct learner wrong.
+    const trace = selectionSort.run(selectionSort.defaultInput()); // [5,2,9,1,7,3]
+    const i = trace.findIndex(
+      (s) =>
+        s.explanation ===
+        'Compare index 5 (3) with the current smallest, index 3 (1).',
+    );
+    expect(i).toBeGreaterThan(-1);
+
+    const compare = trace[i]!;
+    const next = trace[i + 1]!;
+    expect(next.metrics!['swaps']).toBe(compare.metrics!['swaps']! + 1);
+
+    // ...and the cells that move are not the pair the learner was shown.
+    const comparedIds = (compare.highlights ?? []).find(
+      (h) => h.kind === 'compare',
+    )!.ids;
+    const swappedIds = (next.highlights ?? []).find(
+      (h) => h.kind === 'swap',
+    )!.ids;
+    expect(comparedIds).toEqual(['i3', 'i5']);
+    expect(swappedIds).toEqual(['i0', 'i3']);
+    expect(swappedIds).not.toContain('i5');
+  });
+});

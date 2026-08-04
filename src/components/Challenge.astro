@@ -1,0 +1,527 @@
+---
+/**
+ * Challenge — one Trace Trial, cleared through the visualizer's EXISTING
+ * custom-input form (M8.3, designed in `docs/m8-gamification.md`; spec §11.3).
+ *
+ * Props:
+ * - `id`  the trial's `{lessonSlug}/{challenge-slug}` id, defined in
+ *         `src/lib/challenges.ts`. Everything else — title, prompt, hint, rules
+ *         — comes from that catalog, so the card, the build guard and the
+ *         storage id can never disagree about what the trial asks.
+ *
+ * HOW IT IS CLEARED, AND WHY IT ADDS NO INPUT OF ITS OWN: the reader crafts an
+ * input in the visualization's "Try your own input" box, exactly as they already
+ * can. The island dispatches a bubbling `viz:run` CustomEvent
+ * `{ algorithmId, input, finalStep }` on a successful run (spec §11.3, M8
+ * amendment) and this card grades THAT step. It never re-runs the algorithm the
+ * reader just ran — trials consume the precomputed trace, they do not fork the
+ * pipeline. The one exception is a `duel` rule's rival, which is a run the island
+ * never made: the card awaits the registry thunk itself and runs only the rival.
+ *
+ * BUILD-TIME GUARD: the frontmatter resolves the same lazy registry thunks the
+ * island uses (the Visualizer-still pattern) and calls `validateChallenge`, so a
+ * trial whose witness does not satisfy its own rules — or one the lesson's own
+ * pinned example would clear by pressing Run — FAILS THE BUILD rather than
+ * meeting a reader as an unsolvable or free puzzle.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO:
+ * - **Time anything.** No clock, no countdown, no "fastest" (2.2.1, and beginner
+ *   anxiety — timed challenges are on the design's killed list).
+ * - **Keep score.** No attempt count, no clear-rate, no "n of N collected"; the
+ *   status line reports what a run DID, in the algorithm's own units, and a run
+ *   that does not clear the trial costs nothing at all.
+ * - **Earn mastery.** Clearing writes `ld:challenges:v1` and stops there. The
+ *   three Practiced paths are the practice checks, a predict session and a
+ *   cleared Final Run; a trial is enrichment, not a promotion.
+ * - **Ration the hint.** It is always present, in a native `<details>`: a trial
+ *   nobody can get into is not a learning act, and gating the hint behind failed
+ *   attempts would price the first wrong try.
+ *
+ * JS-OFF: the whole card is hidden by its own `<noscript>` kill-switch. The
+ * grading needs both the event and storage, so a JS-off visitor would otherwise
+ * be shown a puzzle with no way to complete it (the M8 rule: no gamification
+ * affordance appears at all without JS).
+ */
+import { algorithms } from '../viz/registry';
+import { challengeById, validateChallenge } from '../lib/challenges';
+import type { ChallengeRule } from '../lib/challenges';
+import type { Algorithm } from '../viz/core/types';
+import { nextUid } from './uid';
+
+interface Props {
+  id: string;
+}
+
+const { id } = Astro.props;
+
+const challenge = challengeById(id);
+if (!challenge) {
+  throw new Error(
+    `Unknown challenge id "${id}" — add it to src/lib/challenges.ts (ids are {lessonSlug}/{challenge-slug}).`,
+  );
+}
+
+// The page this card is on. Same derivation as the Visualizer's, so it is true
+// under either `build.format`; empty outside `/learn/{slug}`, where the check
+// below simply does not apply.
+const routePath = Astro.url.pathname
+  .replace(/(?:\/index)?\.html$/, '')
+  .replace(/\/$/, '');
+const pageSlug = /^\/learn\/([^/]+)$/.exec(routePath)?.[1] ?? '';
+if (pageSlug && pageSlug !== challenge.lesson) {
+  throw new Error(
+    `Challenge "${id}" belongs to lesson "${challenge.lesson}" but was placed in "${pageSlug}". Its storage id names the lesson, so the two must match.`,
+  );
+}
+
+// The build guard. Resolving the thunks here costs the reader nothing (Astro
+// frontmatter ships no client JS) and proves, against the algorithms that
+// actually ship, that this trial is both solvable and not already cleared by the
+// lesson's own example.
+await validateChallenge(challenge, (algorithmId) =>
+  (algorithms as Record<string, () => Promise<Algorithm<unknown, unknown>>>)[
+    algorithmId
+  ]?.(),
+);
+
+// A pinned array is rendered as copyable code: the trial asks the reader to vary
+// something else about the run, so they must be able to paste the array back
+// exactly. (Every other rule kind describes a property of the run, not a literal
+// the reader has to reproduce.)
+// The predicate is written out rather than left to TypeScript's inference: this
+// reads `rule.array`, which only one member of the union has.
+const pinned = challenge.rules.find(
+  (rule): rule is Extract<ChallengeRule, { kind: 'pinnedArray' }> =>
+    rule.kind === 'pinnedArray',
+);
+const pinnedText = pinned ? `[${pinned.array.join(',')}]` : null;
+
+const uid = nextUid();
+const titleId = `ch-title-${uid}`;
+---
+
+<div
+  class="challenge"
+  role="group"
+  aria-labelledby={titleId}
+  data-challenge
+  data-challenge-id={challenge.id}
+  data-challenge-algorithm={challenge.algorithm}
+  data-challenge-rules={JSON.stringify(challenge.rules)}
+>
+  <p class="challenge__kicker">Trace trial</p>
+  <p class="challenge__title" id={titleId}>{challenge.title}</p>
+  <p class="challenge__prompt">{challenge.prompt}</p>
+
+  {
+    pinnedText && (
+      <p class="challenge__pinned">
+        Keep this array: <code>{pinnedText}</code>
+      </p>
+    )
+  }
+
+  {
+    /* Native `<details>`, so the hint is keyboard-operable and needs no script
+      of its own. Not `Collapsible`: that component's keyline is drawn for prose
+      sections, and inside a card it reads as a divider that means nothing. */
+  }
+  <details class="challenge__hint">
+    <summary>Hint for {challenge.title}</summary>
+    <p>{challenge.hint}</p>
+  </details>
+
+  <p class="challenge__how">
+    Craft an input in <b>Try your own input</b> on the visualization, then press Run.
+  </p>
+
+  {
+    /* Ships with no words and is written only after a run the READER triggered,
+      so nothing is announced on load. It stays in the DOM from the start because
+      a live region has to exist before its first population for the announcement
+      to fire reliably. */
+  }
+  <p class="challenge__run" role="status" data-challenge-run></p>
+
+  {
+    /* The persistent state, server-rendered and revealed by the script for a
+      trial already cleared on this device. Static text rather than a scripted
+      write, deliberately: revealing hidden content announces nothing, while
+      writing into the live region above at load time would greet a returning
+      reader with an announcement per cleared card. */
+  }
+  <p class="challenge__cleared" data-challenge-cleared hidden>
+    Cleared on this device.
+  </p>
+</div>
+
+<noscript>
+  <style>
+    /* Kill-switch (mirrors MarkComplete): grading needs the run event and
+       storage, so with JS off this card could only ever be a puzzle with no way
+       to finish it. `!important` because a kill-switch must be unbeatable by any
+       equal-specificity rule in the bundle. */
+    .challenge {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  /* A card at level 1 on the lesson canvas, sized to the prose measure so it
+     reads as part of the lesson rather than as chrome bolted beside it. */
+  .challenge {
+    margin-block: var(--space-6);
+    max-width: var(--measure);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background-color: var(--surface);
+    box-shadow: var(--shadow-1);
+    padding: var(--space-5);
+  }
+
+  .challenge__kicker {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Styled as a title, not marked up as a heading: the card can sit under an h2
+     or an h3 depending on the lesson, and inventing a level would put a wrong
+     rung in the document outline. `role="group"` + `aria-labelledby` gives it the
+     same accessible name without touching the heading structure or the ToC. */
+  .challenge__title {
+    margin: var(--space-1) 0 var(--space-3);
+    color: var(--text);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+  }
+
+  .challenge__prompt {
+    margin: 0;
+    color: var(--text);
+    line-height: var(--leading-relaxed);
+  }
+
+  .challenge__pinned {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .challenge__pinned code {
+    color: var(--text);
+    font-family: var(--font-mono);
+    /* Selectable, not a button: copying is the browser's job, and a clipboard
+       control here would be a second thing to learn for six characters. */
+    user-select: all;
+  }
+
+  .challenge__hint {
+    margin-top: var(--space-4);
+  }
+
+  .challenge__hint summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  .challenge__hint p {
+    margin: var(--space-2) 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+  }
+
+  .challenge__how {
+    margin: var(--space-4) 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* The state line takes its top margin only once it says something, so an
+     untouched card carries no empty gap (the live region must stay in the DOM
+     from the start for its first announcement to fire reliably). A CLASS rather
+     than `:empty`, because whether this element is `:empty` depends on how the
+     formatter wraps its attributes — a wrapped tag leaves a whitespace text
+     node, and whitespace is not empty. */
+  .challenge__run {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  .challenge__run.is-said {
+    margin-top: var(--space-3);
+  }
+
+  .challenge__cleared {
+    margin: var(--space-3) 0 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* CLEARED. Three signals and only one is a colour: the word "Cleared" in the
+     status line, this check glyph, and the brand keyline — so the state survives
+     forced colours, greyscale and every form of colour blindness (§12: never
+     colour alone). The tint is MarkComplete's brand mix at half strength, which
+     keeps `--text` at 14.6:1 light / 12.9:1 dark on it. */
+  .challenge[data-cleared] {
+    border-color: var(--brand);
+    background-color: color-mix(in srgb, var(--brand) 6%, var(--surface));
+  }
+
+  .challenge[data-cleared] .challenge__kicker::after {
+    content: ' ✓';
+    color: var(--brand);
+  }
+
+  /* On paper a trial is uncompletable — there is no input box — exactly like the
+     practice check's grade buttons and the player's controls. */
+  @media print {
+    .challenge {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import {
+    VIZ_RUN_EVENT,
+    evaluateRules,
+    factsFrom,
+    isChallengeCleared,
+    markChallengeCleared,
+    metricsOf,
+    metricsSentence,
+    rivalIds,
+    runFinalStep,
+  } from '../lib/challenges';
+  import type {
+    AlgorithmLoader,
+    ChallengeRule,
+    VizRunDetail,
+  } from '../lib/challenges';
+  import type { Algorithm } from '../viz/core/types';
+
+  /** One rendered trial and the nodes its state drives. */
+  interface Card {
+    root: HTMLElement;
+    /** `{lessonSlug}/{challenge-slug}` — the storage id. */
+    id: string;
+    /** Only a run of THIS algorithm can clear it. */
+    algorithm: string;
+    rules: ChallengeRule[];
+    /** The polite live region; written only after a run. */
+    run: HTMLElement | null;
+    /** The persistent "cleared on this device" line. */
+    cleared: HTMLElement | null;
+    /** Once true, this card ignores every later run: nothing ever un-clears. */
+    done: boolean;
+  }
+
+  /** Every card on the page, keyed by nothing — the algorithm filter is per run. */
+  const cards: Card[] = [];
+
+  /**
+   * Teardown for the document-level listener, mirroring the Visualizer's (TD-4):
+   * a listener bound to `document` is exactly the kind that outlives a View
+   * Transition and then handles the same event twice.
+   */
+  const controller = new AbortController();
+
+  /**
+   * The registry, fetched only when a `duel` rule actually needs a rival run.
+   * A trial without one never downloads it — and on a lesson page the chunk is
+   * already there, because the visualizer above imported it.
+   */
+  const loadAlgorithm: AlgorithmLoader = (id) =>
+    import('../viz/registry').then((mod) => {
+      const thunk = (
+        mod.algorithms as Record<
+          string,
+          () => Promise<Algorithm<unknown, unknown>>
+        >
+      )[id];
+      if (!thunk) throw new Error(`Unknown algorithm "${id}".`);
+      return thunk();
+    });
+
+  /**
+   * Parses the rules serialised into the card's data attribute.
+   *
+   * Defensive for the same reason `parseLessonRefs` is: the JSON crosses a DOM
+   * boundary. A malformed payload yields `[]`, and an empty rule list can never
+   * clear anything (`evaluateRules` fails closed), so the trial stays open
+   * instead of throwing inside the island or clearing itself.
+   */
+  function parseRules(json: string | undefined): ChallengeRule[] {
+    if (!json) return [];
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (rule): rule is ChallengeRule =>
+          typeof rule === 'object' &&
+          rule !== null &&
+          typeof (rule as { kind?: unknown }).kind === 'string',
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  /** Marks a card cleared on screen. Never reversed — no trial decays. */
+  function paintCleared(card: Card): void {
+    card.done = true;
+    card.root.dataset['cleared'] = 'true';
+  }
+
+  /**
+   * Writes the card's one line, politely.
+   *
+   * Only ever called after a run the reader triggered, so nothing is announced
+   * on load; an unchanged string is never rewritten, because re-announcing a
+   * sentence the reader has already heard reads as a stutter (M7.1 CMP-4).
+   */
+  function say(card: Card, text: string): void {
+    if (!card.run || card.run.textContent === text) return;
+    card.run.textContent = text;
+    // The line's own top margin (see the stylesheet): carried by a class so it
+    // cannot depend on whether the formatter left a whitespace text node here.
+    card.run.classList.add('is-said');
+  }
+
+  /**
+   * Grades one finished run against one card.
+   *
+   * Rival runs (duel rules) are resolved first, because they are the only facts
+   * the island cannot supply — it ran one algorithm, and a duel asks about
+   * another one on the same input.
+   */
+  async function grade(card: Card, detail: VizRunDetail): Promise<void> {
+    const rivals: Record<string, Record<string, number>> = {};
+    for (const id of rivalIds(card.rules)) {
+      try {
+        rivals[id] = metricsOf(
+          await runFinalStep(id, detail.input, loadAlgorithm),
+        );
+      } catch {
+        // A rival chunk that will not load, or an input its parser rejects:
+        // the duel simply cannot be judged, so the trial stays open. Failing
+        // closed here is the honest outcome — nothing is claimed either way.
+        return;
+      }
+    }
+
+    const facts = factsFrom(detail, rivals);
+    const sentence = metricsSentence(facts.metrics);
+    if (!evaluateRules(card.rules, facts)) {
+      // ACTIVITY, never a verdict about the reader: the line reports what the
+      // run did and leaves the trial open. No attempt is counted anywhere, and
+      // "not yet" is a state of the puzzle, not a mark against the person.
+      say(
+        card,
+        sentence
+          ? `Not yet — that run made ${sentence}.`
+          : 'Not yet — that run did not meet it.',
+      );
+      return;
+    }
+
+    // Cleared. The storage write is allowed to fail (private mode): the card
+    // still shows the result for this visit, and only the "saved" half of the
+    // sentence is withheld — the same rule MarkComplete's note follows.
+    const saved = markChallengeCleared(card.id);
+    paintCleared(card);
+    say(
+      card,
+      saved
+        ? `Cleared — that run made ${sentence}. Saved on this device only.`
+        : `Cleared — that run made ${sentence}.`,
+    );
+  }
+
+  /** Wires every card on the page. Safe to call again after a page swap. */
+  function initCards(): void {
+    for (const root of Array.from(
+      document.querySelectorAll<HTMLElement>('[data-challenge]'),
+    )) {
+      if (root.dataset['challengeInit'] === 'true') continue;
+      root.dataset['challengeInit'] = 'true';
+
+      const id = root.dataset['challengeId'] ?? '';
+      const algorithm = root.dataset['challengeAlgorithm'] ?? '';
+      const rules = parseRules(root.dataset['challengeRules']);
+      // A malformed card is skipped rather than throwing: one bad trial must not
+      // cost the reader the other two on the page.
+      if (!id || !algorithm || rules.length === 0) continue;
+
+      const card: Card = {
+        root,
+        id,
+        algorithm,
+        rules,
+        run: root.querySelector<HTMLElement>('[data-challenge-run]'),
+        cleared: root.querySelector<HTMLElement>('[data-challenge-cleared]'),
+        done: false,
+      };
+      cards.push(card);
+
+      // Already cleared on this device: reveal the server-rendered line rather
+      // than writing one, so a returning reader hears no announcement.
+      if (isChallengeCleared(id)) {
+        paintCleared(card);
+        if (card.cleared) card.cleared.hidden = false;
+      }
+    }
+  }
+
+  initCards();
+
+  document.addEventListener(
+    VIZ_RUN_EVENT,
+    (event) => {
+      const detail = (event as CustomEvent<VizRunDetail>).detail;
+      // The payload crosses an event boundary this component does not own, so
+      // every field it reads is checked before it is read: a malformed detail is
+      // ignored rather than thrown on inside a listener.
+      if (
+        !detail ||
+        typeof detail.algorithmId !== 'string' ||
+        typeof detail.input !== 'string' ||
+        !detail.finalStep
+      ) {
+        return;
+      }
+      for (const card of cards) {
+        // A cleared trial ignores every later run: it never un-clears, and a
+        // reader who keeps experimenting is not told "not yet" about something
+        // they already did.
+        if (card.done || card.algorithm !== detail.algorithmId) continue;
+        void grade(card, detail);
+      }
+    },
+    { signal: controller.signal },
+  );
+
+  // View Transitions (none installed today): re-wire the incoming page's cards,
+  // and let the abort take BOTH document listeners with it. The re-init has to
+  // go too — a retired generation that kept marking fresh cards as initialised
+  // would claim them for a `viz:run` listener that no longer exists, leaving the
+  // incoming page's trials permanently ungraded.
+  document.addEventListener('astro:page-load', initCards, {
+    signal: controller.signal,
+  });
+  document.addEventListener('astro:before-swap', () => controller.abort(), {
+    once: true,
+  });
+</script>

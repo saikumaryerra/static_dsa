@@ -85,3 +85,13 @@ describe('mergeSort.parseInput', () => {
     });
   });
 });
+
+describe('mergeSort predict-mode exclusion (M8.2)', () => {
+  it('ships no predictStep: it counts comparisons only, so there is no swap to predict', () => {
+    expect(mergeSort.predictStep).toBeUndefined();
+    const trace = mergeSort.run(mergeSort.defaultInput());
+    for (const step of trace) {
+      expect(step.metrics).not.toHaveProperty('swaps');
+    }
+  });
+});

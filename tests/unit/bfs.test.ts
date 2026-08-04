@@ -139,3 +139,63 @@ describe('bfs.parseInput', () => {
     });
   });
 });
+
+describe('bfs.predictStep (M8.2)', () => {
+  it('asks the FIFO question and grades it against the node actually dequeued', () => {
+    const input = bfs.defaultInput();
+    const trace = bfs.run(input);
+    let asked = 0;
+    for (let i = 0; i < trace.length; i += 1) {
+      const q = bfs.predictStep!(trace, i, input);
+      if (!q) continue;
+      asked += 1;
+      expect(q.prompt).toBe('Which node comes off the queue next?');
+      // §11.2 caps choices at 4; two is the floor for a real prediction.
+      expect(q.choices.length).toBeGreaterThanOrEqual(2);
+      expect(q.choices.length).toBeLessThanOrEqual(4);
+      const dequeued = /^Dequeue node (\d+)/.exec(trace[i + 1]!.explanation);
+      expect(dequeued).not.toBeNull();
+      expect(q.choices[q.correctIndex]).toBe(`Node ${dequeued![1]}`);
+    }
+    expect(asked).toBeGreaterThan(0);
+  });
+
+  it('never renders a one-button question, even where the frontier holds one node', () => {
+    // The shipped graph is nearly a path: at step 0 the queue is just [0], so
+    // the choices must be widened past the frontier (M8.2's floor guard).
+    const input = bfs.defaultInput();
+    const trace = bfs.run(input);
+    const frontier = (trace[0]!.highlights ?? []).filter(
+      (h) => h.kind === 'frontier',
+    );
+    expect(frontier.flatMap((h) => h.ids)).toEqual(['n0']);
+
+    const q = bfs.predictStep!(trace, 0, input)!;
+    expect(q.choices.length).toBeGreaterThanOrEqual(2);
+    expect(q.choices[q.correctIndex]).toBe('Node 0');
+  });
+
+  it('returns null on a discovery step (the same node is still being processed)', () => {
+    const input = bfs.defaultInput();
+    const trace = bfs.run(input);
+    const i = trace.findIndex((s) => /^Dequeue node 0/.test(s.explanation));
+    expect(trace[i + 1]!.explanation).toMatch(/is undiscovered — enqueue it/);
+    expect(bfs.predictStep!(trace, i, input)).toBeNull();
+  });
+
+  it('returns null when the next step is the terminal summary, and on the last step', () => {
+    const input = bfs.defaultInput();
+    const trace = bfs.run(input);
+    expect(bfs.predictStep!(trace, trace.length - 2, input)).toBeNull();
+    expect(bfs.predictStep!(trace, trace.length - 1, input)).toBeNull();
+  });
+
+  it('asks nothing at all when the graph offers no alternative to choose', () => {
+    // One vertex: the only "prediction" available would be a single button.
+    const input = { nodeIds: [0], edges: [], start: 0 };
+    const trace = bfs.run(input);
+    for (let i = 0; i < trace.length; i += 1) {
+      expect(bfs.predictStep!(trace, i, input)).toBeNull();
+    }
+  });
+});

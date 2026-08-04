@@ -19,6 +19,8 @@ import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import Challenge from '../../components/Challenge.astro';
+import FinalRun from '../../components/FinalRun.astro';
 import Callout from '../../components/Callout.astro';
 
 export const codeTabs = [
@@ -156,6 +158,9 @@ Here is linear search on an **unsorted** array, so you can see it march through 
   input="[8,3,5,9,1,7] target=9"
 />
 
+<Challenge id="binary-search/two-probes" />
+<Challenge id="binary-search/every-door" />
+
 ## Complexity
 
 <ComplexityTable complexity={frontmatter.complexity} />
@@ -234,3 +239,7 @@ Work each one out before opening the answer.
   that guarantee vanishes, so discarding a half could throw away the very element
   you are looking for.
 </PracticeCheck>
+
+## Final run
+
+<FinalRun slug="binary-search" algorithm="binary-search" metric="comparisons" />

@@ -97,3 +97,49 @@ describe('bubbleSort.parseInput', () => {
     });
   });
 });
+
+describe('bubbleSort.predictStep (M8.2)', () => {
+  it('asks only on compare steps, and never on the last one', () => {
+    const input = bubbleSort.defaultInput();
+    const trace = bubbleSort.run(input);
+    let asked = 0;
+    for (let i = 0; i < trace.length; i += 1) {
+      const q = bubbleSort.predictStep!(trace, i, input);
+      const isCompare = (trace[i]!.highlights ?? []).some(
+        (h) => h.kind === 'compare',
+      );
+      const isLast = i === trace.length - 1;
+      expect(q !== null).toBe(isCompare && !isLast);
+      if (q) asked += 1;
+    }
+    expect(asked).toBeGreaterThan(0);
+  });
+
+  it('grades every compare against what the next step actually does', () => {
+    // Bubble sort is an ADJACENT-swap sort: a compare's own swap is the very
+    // next step, so the cumulative metric delta and the next step's `swap`
+    // highlight always agree. (Quick/selection sort break exactly this.)
+    for (const array of [[5, 2, 9, 1, 7, 3], [1, 2, 3, 4], [3, 3, 1], [42]]) {
+      const input = { array };
+      const trace = bubbleSort.run(input);
+      for (let i = 0; i < trace.length; i += 1) {
+        const q = bubbleSort.predictStep!(trace, i, input);
+        if (!q) continue;
+        const swapsNext = (trace[i + 1]!.highlights ?? []).some(
+          (h) => h.kind === 'swap',
+        );
+        expect(q.choices[q.correctIndex]).toBe(swapsNext ? 'Swap' : 'No swap');
+      }
+    }
+  });
+
+  it('offers the two neutral choices — no score, no ratio', () => {
+    const input = bubbleSort.defaultInput();
+    const trace = bubbleSort.run(input);
+    const q = trace
+      .map((_, i) => bubbleSort.predictStep!(trace, i, input))
+      .find((candidate) => candidate !== null)!;
+    expect(q.choices).toEqual(['Swap', 'No swap']);
+    expect(q.prompt).toBe('Do these two values swap in the next step?');
+  });
+});

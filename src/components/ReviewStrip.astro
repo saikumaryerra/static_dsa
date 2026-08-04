@@ -1,0 +1,277 @@
+---
+/**
+ * ReviewStrip — the ready-to-review queue under `/learn`'s page head (spec §8
+ * "M8.2 adds: a ready-to-review strip directly under the page head — at most two
+ * cards, zero DOM when empty, never any 'overdue'/countdown vocabulary"; design
+ * in `docs/m8-gamification.md`).
+ *
+ * No props: the lessons it schedules over are the ones `/learn` already injects
+ * for its progress island (`[data-lessons]` on the page head), so the strip
+ * reads the same build-time list every other surface on the page does and there
+ * is no second list to fall out of step. Placement follows from the same
+ * attribute — the strip is inserted immediately after that element.
+ *
+ * THIS IS THE ONLY SURFACE IN THE PRODUCT THAT EVER PROMPTS THE READER. Every
+ * other progress display is passive. That is why the design caps it at two
+ * cards, why the copy is an invitation rather than an obligation, and why it
+ * carries no count of days waited, no lateness, no countdown, no badge, no
+ * `role="alert"` and no announcement: it is quiet furniture that happens to be
+ * clickable. All of its words live in `REVIEW_COPY` (`src/lib/progress.ts`) so
+ * the vocabulary ban is a unit test rather than a review habit.
+ *
+ * WHY IT RENDERS NOTHING SERVER-SIDE, NOT EVEN A SHELL: "empty ⇒ zero DOM" is a
+ * tested calm invariant, not a preference. A reader with nothing due must not
+ * meet an empty state, an "all caught up" badge, or a hidden container that
+ * quietly tells them a queue exists — nothing here shames absence, and the
+ * cheapest way to guarantee that is to have no markup to hide. Due-ness is a
+ * question about `localStorage` anyway, which only the client can answer, so the
+ * island below BUILDS the strip when there is something to offer and otherwise
+ * leaves the page exactly as it shipped. The strip is structurally invisible
+ * until a first `practicedAt` exists, which is what makes week one pure learning.
+ *
+ * WHY THE STYLES ARE `is:global`: Astro scopes a component's CSS by stamping
+ * `data-astro-cid-*` onto the elements in ITS TEMPLATE, and this component
+ * deliberately has none, so a scoped rule would match nothing it draws. The
+ * Visualizer's predict strip is in the same position — its rules "only ever
+ * paint something a script created" — and they live in an `is:global` block
+ * too. Every selector here is therefore namespaced under `.review-strip`, and
+ * the card composes the shared `.track-card` recipe (global.css) rather than
+ * restating a lookalike, so the elevation ladder and its hover/pressed steps
+ * stay defined once for both card families. Nothing
+ * here declares `border-color`, `background-color` or `box-shadow`: this block
+ * is unlayered and would beat `@layer components`' state rules from the resting
+ * state — the trap `LessonCard` documents.
+ *
+ * A11Y: a real `<section>` named by a real `<h2>`, so the strip is a landmark a
+ * screen-reader user can skip past, sitting at the same heading level as the
+ * track sections it precedes. The cards are ordinary links — the whole card is
+ * the `<a>`, and its visible text is its accessible name (never an `aria-label`,
+ * which would replace it). The arrow is `aria-hidden` decoration and no state is
+ * carried by colour.
+ */
+---
+
+<noscript>
+  <style>
+    /* Kill-switch, as every M8 component ships one. Belt-and-braces here: the
+       strip only ever exists because the island created it, so a JS-off page
+       cannot show one. The rule is what makes that structural fact
+       unbreakable if the strip is ever server-rendered — and `!important`
+       because a kill-switch must be unbeatable by any equal-specificity rule in
+       the bundle (QA DEFECT-1). */
+    .review-strip {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style is:global>
+  /* Sits between the page head and the first track section, closer to the head
+     than the tracks are to each other: it belongs to the page's opening, not to
+     Foundations. */
+  .review-strip {
+    margin-top: var(--space-8);
+  }
+
+  /* Deliberately quieter than the track h2s below it (--text-2xl/bold): an
+     invitation should not out-shout the curriculum. */
+  .review-strip__heading {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-normal);
+  }
+
+  .review-strip__note {
+    max-width: var(--measure);
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Capped at the prose measure rather than stretched across the 3-column
+     lesson grid: two cards spanning the full width would read as the page's
+     main event, which they are not. */
+  .review-strip__list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+    max-width: var(--measure);
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (min-width: 640px) {
+    .review-strip__list {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  /* Layout only — the fill, border, radius, shadow and every state come from
+     `.track-card`. Padding is denser than that recipe's --space-6 for the same
+     reason `.lesson-card` overrides it: these are small cards. */
+  .review-strip__card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    height: 100%;
+    padding: var(--space-4);
+  }
+
+  .review-strip__text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0-5);
+  }
+
+  .review-strip__lesson {
+    color: var(--text);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* States the size of the ask, in the muted role the estimate takes on a
+     lesson card. It is an estimate, never a timer: nothing here counts down. */
+  .review-strip__check {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* The same "this card is a link" convention the lesson and track cards use. */
+  .review-strip__arrow {
+    margin-left: auto;
+    color: var(--brand);
+  }
+
+  /* On paper the page is a curriculum listing; a device-local invitation to
+     come back has no meaning there (the same reason `.whats-next` is dropped). */
+  @media print {
+    .review-strip {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  /**
+   * The review strip's island: derive what is due, build the strip, insert it.
+   *
+   * Every rule about WHAT is due lives in `src/lib/progress.ts` — the intervals,
+   * the clamp, the two-card cap and the words — so this file only ever decides
+   * where the nodes go. Deriving on each render (rather than storing a queue) is
+   * what makes two open tabs impossible to disagree: neither of them wrote one.
+   */
+  import {
+    onRestore,
+    parseLessonRefs,
+    PROGRESS_RESET_EVENT,
+    REVIEW_COPY,
+    reviewHref,
+    selectDueReviews,
+    type LessonRef,
+  } from '../lib/progress';
+
+  /** Links the section to its heading; one strip per page, so one id is enough. */
+  const HEADING_ID = 'review-strip-heading';
+
+  /**
+   * The slugs currently drawn, so an unchanged queue is left alone.
+   *
+   * Not an optimisation: the repaint hooks below fire on a page that is already
+   * live and may hold focus, and replacing a card with an identical new node
+   * would drop that focus onto `<body>` mid-keyboard-navigation.
+   */
+  let rendered: string | null = null;
+
+  /** One card: the whole thing is the link, its text is its accessible name. */
+  function card(lesson: LessonRef): HTMLLIElement {
+    const item = document.createElement('li');
+
+    const link = document.createElement('a');
+    link.className = 'track-card review-strip__card';
+    link.href = reviewHref(lesson.slug);
+    link.setAttribute('data-review-card', lesson.slug);
+
+    const text = document.createElement('span');
+    text.className = 'review-strip__text';
+
+    const title = document.createElement('span');
+    title.className = 'review-strip__lesson';
+    title.textContent = lesson.title;
+
+    const check = document.createElement('span');
+    check.className = 'review-strip__check';
+    check.textContent = REVIEW_COPY.check;
+
+    text.append(title, check);
+
+    const arrow = document.createElement('span');
+    arrow.className = 'review-strip__arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '→';
+
+    link.append(text, arrow);
+    item.append(link);
+    return item;
+  }
+
+  /** The whole strip for a non-empty queue. */
+  function build(due: LessonRef[]): HTMLElement {
+    const strip = document.createElement('section');
+    strip.className = 'review-strip';
+    strip.setAttribute('data-review-strip', '');
+    strip.setAttribute('aria-labelledby', HEADING_ID);
+
+    const heading = document.createElement('h2');
+    heading.className = 'review-strip__heading';
+    heading.id = HEADING_ID;
+    heading.textContent = REVIEW_COPY.heading;
+
+    const note = document.createElement('p');
+    note.className = 'review-strip__note';
+    note.textContent = REVIEW_COPY.note;
+
+    const list = document.createElement('ul');
+    list.className = 'review-strip__list';
+    // Explicit `role`: Safari drops list semantics from a `list-style: none`
+    // list, and the count of what is on offer is the one thing this strip
+    // genuinely owes a screen-reader user.
+    list.setAttribute('role', 'list');
+    for (const lesson of due) list.append(card(lesson));
+
+    strip.append(heading, note, list);
+    return strip;
+  }
+
+  /**
+   * Redraws the strip from storage — or removes it, or does nothing at all.
+   *
+   * Nothing due means no nodes: not a hidden container, not an empty state.
+   */
+  function render(): void {
+    const host = document.querySelector<HTMLElement>('[data-lessons]');
+    if (!host) return; // not `/learn` (or no injected list): leave the page alone
+    const due = selectDueReviews(parseLessonRefs(host.dataset['lessons']));
+    const signature = due.map((lesson) => lesson.slug).join(' ');
+
+    const existing = document.querySelector<HTMLElement>('[data-review-strip]');
+    if (existing && signature === rendered) return;
+    existing?.remove();
+    rendered = signature;
+    if (due.length === 0) return;
+
+    host.insertAdjacentElement('afterend', build(due));
+  }
+
+  render();
+  // A back/forward-cache restore replays no script, so a reader who reviewed a
+  // lesson and came Back would still be invited to review it. (`astro:page-load`
+  // covers View Transitions if a ClientRouter is ever added; none is installed
+  // today, so it is the pageshow hook that actually fires.)
+  onRestore(render);
+  document.addEventListener('astro:page-load', render);
+  // The reset control lives in `/learn`'s own island and deletes the records
+  // this strip is derived from. Nothing else would tell this one, and a strip
+  // left standing after a reset would invite the reader to review a lesson the
+  // device has just forgotten.
+  document.addEventListener(PROGRESS_RESET_EVENT, render);
+</script>

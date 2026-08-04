@@ -51,6 +51,33 @@
  *   drawing below readable, and becomes a keyboard-reachable scroll region for
  *   exactly as long as it actually overflows.
  *
+ * M8.2 adds PREDICT-THE-STEP — an opt-in retrieval mode, not a second player.
+ * It consumes the SAME precomputed trace (spec §11.3: no mechanic may add
+ * algorithm logic to the island, the Player, or a renderer) by asking the
+ * algorithm's optional `predictStep(trace, i, input)` what is worth predicting
+ * at the current index:
+ * - the toggle is rendered ONLY where the build proved this lesson's authored
+ *   run really asks something, and it is NEVER persisted — no storage key
+ *   exists for it, so "per page visit" is a property of the code rather than a
+ *   promise about it (spec §6);
+ * - while it is on, auto-play and the scrubber are `aria-disabled` with a
+ *   stated reason (A11Y-1 again: never the `disabled` attribute), Step forward
+ *   stays live as an explicit no-penalty SKIP, and answering advances one step
+ *   so the authored explanation of that step IS the feedback — a right and a
+ *   wrong answer get the same immediate elaboration, which is the whole
+ *   mechanism (errorful generation with elaborated feedback);
+ * - the session line counts ACTIVITY ("7 answered · 2 skipped") and never a
+ *   score, ratio or percentage: an accuracy display during a learning act makes
+ *   beginners protect a number instead of attempting hard predictions
+ *   (`docs/m8-gamification.md`, calm invariants). The ≥5-answers-at-≥80% bar
+ *   that feeds the mastery ladder is therefore computed silently and written
+ *   through `recordPass()`, which owns the 3-day Mastered gate — predict adds no
+ *   promotion rule of its own and stores no attempt history.
+ * The question strip is INJECTED at runtime rather than server-rendered:
+ * predict needs JS anyway, and `.viz-frame` is outside the `<noscript>`
+ * kill-switch's reach (it only targets `.viz-controls`), so a JS-off page must
+ * never grow one.
+ *
  * M7.3 changes only how this island is PAINTED — no markup, no script, no new
  * token, no new key:
  * - the elevation inversion (VD-8) flipped what `--bg` and `--surface` mean, so
@@ -153,6 +180,54 @@ const metricPills = Object.entries(step0.metrics ?? {}).map(([key, value]) => ({
 // this lesson never uses are never shown.
 const legend = collectLegend(trace);
 
+// --- Predict-the-Step (M8.2) ---
+// `predictStep` is OPTIONAL on the Algorithm contract (spec §11.2), so the
+// toggle exists only where this lesson's algorithm ships one AND the authored
+// run really has something to ask about — a mode control that can never ask a
+// question is worse than no control at all. Both facts are settled HERE, at
+// build time, from the same trace the Player will index into: predict CONSUMES
+// the precomputed trace and never forks the pipeline (spec §11.3).
+//
+// The scan doubles as the contract's enforcement point. A question with fewer
+// than 2 or more than 4 choices, or a `correctIndex` outside them, fails the
+// BUILD rather than rendering a one-button "prediction" (the design's floor
+// guard for BFS's near-path graph, where the frontier often holds a single id)
+// or a strip whose answer cannot be picked.
+let predictQuestions = 0;
+if (algo.predictStep) {
+  for (let i = 0; i < trace.length; i += 1) {
+    const question = algo.predictStep(trace, i, parsed);
+    if (!question) continue;
+    const size = question.choices.length;
+    if (
+      size < 2 ||
+      size > 4 ||
+      !Number.isInteger(question.correctIndex) ||
+      question.correctIndex < 0 ||
+      question.correctIndex >= size
+    ) {
+      throw new Error(
+        `predictStep("${algorithm}") returned an out-of-contract question at step ${i}: choices must number 2–4 with correctIndex inside them (spec §11.2). Got ${size} choices, correctIndex ${question.correctIndex}.`,
+      );
+    }
+    predictQuestions += 1;
+  }
+}
+const showPredict = predictQuestions > 0;
+
+// The lesson a passed predict session credits, resolved at BUILD time from the
+// page URL — `/learn/{slug}` and nothing else. This island also renders on
+// /about and in the dev gallery, where there is no lesson to credit and the
+// attribute is simply absent; `recordPass` is then never called, which is the
+// honest outcome (the prediction practice still works). Build-time rather than a
+// client-side path parse: the answer is static per page, costs no bytes, and
+// cannot disagree with the route after a View Transition. The `.html`/trailing-
+// slash trim keeps it true under either `build.format`.
+const routePath = Astro.url.pathname
+  .replace(/(?:\/index)?\.html$/, '')
+  .replace(/\/$/, '');
+const lessonSlug = /^\/learn\/([^/]+)$/.exec(routePath)?.[1] ?? '';
+
 // CMP-14: the fields advertised a generic `[1,3,5,7,9,11]` while the canvas
 // showed the AUTHORED example, so "Run" on a half-edited field produced
 // something unrelated to the picture. Derive both placeholders from the authored
@@ -177,6 +252,7 @@ const itemCap = probeListCap(input ?? '', (raw) => algo.parseInput(raw));
 const helpText = inputHelpText({ example: arrayPlaceholder, cap: itemCap });
 
 const explainId = `${uid}-explain`;
+const predictNoteId = `${uid}-predict-note`;
 const errId = `${uid}-err`;
 const helpId = `${uid}-help`;
 const stepId = `${uid}-step`;
@@ -195,6 +271,7 @@ const targetId = `${uid}-target`;
   data-label={label}
   data-show-metrics={showMetrics ? 'true' : 'false'}
   data-target-label={showTarget ? targetLabel : ''}
+  data-slug={showPredict && lessonSlug ? lessonSlug : undefined}
 >
   <figure class="viz-frame">
     {
@@ -395,6 +472,51 @@ const targetId = `${uid}-target`;
             <path d="M9 5l7 7-7 7"></path>
           </svg>
         </button>
+
+        {
+          /* Predict-the-Step (M8.2), rendered only where the build proved this
+             algorithm's predictor really asks something about this run. It is a
+             MODE, not transport, so it takes the constant-label + `aria-pressed`
+             pattern (M7.1 CMP-12: renaming the label AND reporting pressed
+             double-encodes the state) and opts out of `.viz-btn`'s square 44px
+             box. Last in the row, so the four icons keep the order readers
+             already know and the tab order still runs left to right. `disabled`
+             in SSR like every other control here — it can ask nothing until the
+             algorithm chunk has loaded. */
+        }
+        {
+          showPredict && (
+            <button
+              type="button"
+              class="viz-btn viz-predict-toggle"
+              data-viz-predict
+              aria-pressed="false"
+              title="Predict each step before it happens"
+              disabled
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <circle
+                  class="viz-predict-toggle__dot"
+                  cx="12"
+                  cy="12"
+                  r="4.5"
+                  fill="currentColor"
+                  stroke="none"
+                />
+              </svg>
+              <span>Predict</span>
+            </button>
+          )
+        }
       </div>
 
       <div class="viz-scrub">
@@ -427,6 +549,28 @@ const targetId = `${uid}-target`;
         </select>
       </div>
     </div>
+
+    {
+      /* The STATED REASON behind the two controls predict marks unavailable
+         (task: `aria-disabled` + a reason, never the `disabled` attribute).
+         Shipped hidden, revealed by the toggle, and named by `aria-describedby`
+         on both of them while it is on: `aria-disabled` says "no", this says
+         why — and names the control that still moves, because skipping is a
+         first-class choice here, not a failure. */
+    }
+    {
+      showPredict && (
+        <p
+          class="viz-predict-note"
+          id={predictNoteId}
+          data-viz-predict-note
+          hidden
+        >
+          Auto-play and the step slider are off while Predict is on. Step
+          forward moves on without answering.
+        </p>
+      )
+    }
 
     {
       /* Discoverability: the island's shortcuts were previously undocumented in
@@ -1117,6 +1261,85 @@ const targetId = `${uid}-target`;
     font-variant-numeric: tabular-nums;
   }
 
+  /* ---- Predict-the-Step strip (M8.2) ----
+     Injected above the explanation at RUNTIME only: the noscript kill-switch
+     covers `.viz-controls`, not `.viz-frame`, so a server-rendered strip would
+     survive with JS off and offer a question nothing could grade. Every rule
+     below therefore only ever paints something a script created.
+
+     Each `[hidden]` companion rule is load-bearing, not belt-and-braces: this
+     stylesheet is UNLAYERED and Tailwind's preflight (which hides `[hidden]`)
+     is in `@layer base`, so an unlayered `display` here would beat the
+     attribute — the same reason `.viz-error[hidden]` exists further down. */
+  .viz-predict {
+    margin-bottom: var(--space-3);
+  }
+
+  .viz-predict[hidden] {
+    display: none;
+  }
+
+  .viz-predict__prompt {
+    margin: 0 0 var(--space-2);
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* The steps a predictor has nothing to ask about (no dequeue next, the trace
+     has ended) say so plainly and quietly — no nudge, no scolding, and the
+     transport still does exactly what it always did. */
+  .viz-predict[data-idle] .viz-predict__prompt {
+    color: var(--text-muted);
+    font-weight: var(--weight-normal);
+  }
+
+  .viz-predict__choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .viz-predict__choices[hidden] {
+    display: none;
+  }
+
+  /* `.btn-secondary` carries the fill, the 44px target and all five states; only
+     the flex behaviour is added here, so up to four labels share the row on a
+     desktop and wrap instead of overflowing the frame on a phone. */
+  .viz-predict__choice {
+    flex: 1 1 auto;
+  }
+
+  /* ACTIVITY, never accuracy. This line may not grow a ratio, a percentage or a
+     score (`docs/m8-gamification.md` calm invariants): a scoreboard during a
+     learning act makes beginners protect the number instead of attempting the
+     hard predictions the mechanic exists to elicit. It is a `.viz-pill`, so it
+     inherits the sunken-chip recipe every other in-frame chip uses. */
+  .viz-predict__activity {
+    margin: var(--space-3) 0 0;
+  }
+
+  .viz-predict__activity[hidden] {
+    display: none;
+  }
+
+  /* The verdict prefix, written into the EXISTING live region together with the
+     step explanation it belongs to. Deliberately not coloured: the glyph and the
+     word carry it (§12 — never colour alone), painting "wrong" in
+     `--accent-warn` would loss-frame the errorful first attempt this mechanic
+     wants, and the six `--hl-*` roles stay reserved for the drawing
+     (design-tokens-m1.md Decision 3). `data-verdict` is a test hook, not a paint
+     hook — which is also why forced colours need no rule here. */
+  .viz-verdict {
+    font-weight: var(--weight-semibold);
+  }
+
+  .viz-verdict__glyph {
+    margin-inline-end: var(--space-1);
+    font-family: var(--font-mono);
+  }
+
   /* ---- Control bar ----
      Two rows on a phone (transport, then scrubber + speed) collapsing to ONE row
      from 640px up: transport | scrubber (takes the slack) | speed. Named areas
@@ -1347,6 +1570,40 @@ const targetId = `${uid}-target`;
     display: inline;
   }
 
+  /* Predict toggle: a `.viz-btn` that is text-labelled, so it drops the square
+     44px box for an auto width (the 44px MINIMUM survives — `.viz-btn`'s height
+     is unchanged). */
+  .viz-predict-toggle {
+    width: auto;
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* ON, in three signals, and the first is not a colour: the glyph's ring gains
+     a DOT — a shape, so it survives forced colours and every form of colour
+     blindness — while the border turns brand and an inset ring thickens it
+     WITHOUT reflowing the row. It is PracticeCheck's chosen-grade recipe on
+     purpose: the same 12% brand tint over the same `--surface` control fill, so
+     "this is on" looks identical in both places and its measured `--text`
+     contrast (14.25:1 light / 12.91:1 dark) carries over unchanged. The state
+     itself is carried to assistive tech by `aria-pressed`, and the visible label
+     stays the constant "Predict". */
+  .viz-predict-toggle__dot {
+    display: none;
+  }
+
+  .viz-predict-toggle[aria-pressed='true'] .viz-predict-toggle__dot {
+    display: inline;
+  }
+
+  .viz-predict-toggle[aria-pressed='true'] {
+    border-color: var(--brand);
+    box-shadow: inset 0 0 0 1px var(--brand);
+    background-color: color-mix(in srgb, var(--brand) 12%, transparent);
+  }
+
   .viz-speed {
     display: flex;
     align-items: center;
@@ -1424,6 +1681,7 @@ const targetId = `${uid}-target`;
      all have to read identically in that first paint — one token, one rule,
      instead of the two ad-hoc opacities this replaces. */
   .viz-slider:disabled,
+  .viz-slider[aria-disabled='true'],
   .viz-btn:disabled,
   .viz-btn[aria-disabled='true'],
   .viz-select:disabled,
@@ -1470,6 +1728,17 @@ const targetId = `${uid}-target`;
   .viz-error svg {
     flex-shrink: 0;
     margin-top: 2px;
+  }
+
+  /* The stated reason behind predict's two unavailable controls. Shipped hidden
+     in SSR and revealed by the toggle; `--text-muted` on the page canvas is
+     7.24:1 / 7.30:1. Sized like `.viz-keys`, because it is the same kind of
+     thing: a quiet note about how the transport behaves right now. */
+  .viz-predict-note {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    line-height: var(--leading-normal);
   }
 
   /* ---- Keyboard hint (JS-only affordance, so it lives inside .viz-controls) ---- */
@@ -1733,7 +2002,37 @@ const targetId = `${uid}-target`;
   import { errorField } from './core/error-field';
   import { splitAuthoredInput } from './core/input-hint';
   import { algorithms, renderers } from './registry';
-  import type { Algorithm, Renderer, RendererModule, Step } from './core/types';
+  // The `viz:run` name and its payload shape (M8.3). Imported rather than
+  // retyped: `src/lib/challenges.ts` owns the contract because its consumers do,
+  // and a second string literal here is exactly how a dispatcher and a listener
+  // drift apart. It costs nothing on a lesson with no trials — that module is
+  // pure declarations importing only types, so everything but this one string is
+  // tree-shaken out of the island's chunk.
+  import { VIZ_RUN_EVENT } from '../lib/challenges';
+  import type { VizRunDetail } from '../lib/challenges';
+  import type {
+    Algorithm,
+    PredictQuestion,
+    Renderer,
+    RendererModule,
+    Step,
+    Trace,
+  } from './core/types';
+
+  /**
+   * The optional Predict-the-Step grader (spec §11.2), with the `undefined` an
+   * algorithm without one contributes stripped off — this island stores it
+   * bound, or `null`, and never re-checks the option.
+   */
+  type Predictor = NonNullable<Algorithm<unknown, unknown>['predictStep']>;
+
+  /**
+   * What the strip says on a step the predictor declines to ask about — a
+   * dequeue is not next, the trace has ended. Plain and final: no nudge, no
+   * "try again", nothing that reads as the product asking for something. The
+   * review queue is the only surface in this product that ever prompts.
+   */
+  const PREDICT_IDLE = 'No prediction at this step.';
 
   /**
    * SPEC-GAP: §6 (amended for M7.2) permits the PREFERENCE key `pref:viz-speed`
@@ -1804,6 +2103,11 @@ const targetId = `${uid}-target`;
     // "Start node"); empty when that field isn't rendered. errorField reads it
     // so error attribution follows the actual UI instead of a hardcoded word.
     const targetLabel = root.dataset['targetLabel'] ?? '';
+    // The lesson a passed predict session credits (M8.2). Emitted by the build
+    // only for a `/learn/{slug}` page that also has a predictor, so it is empty
+    // on /about and in the dev gallery — where the practice still works and
+    // nothing is written, because there is no lesson to credit.
+    const lessonSlug = root.dataset['slug'] ?? '';
 
     // Query the pieces we drive.
     const canvas = root.querySelector<HTMLElement>('[data-viz-canvas]');
@@ -1825,6 +2129,12 @@ const targetId = `${uid}-target`;
       root.querySelector<HTMLButtonElement>('[data-viz-restore]');
     const errorBox = root.querySelector<HTMLElement>('[data-viz-error]');
     const errorText = root.querySelector<HTMLElement>('[data-viz-error-text]');
+    // Both absent unless the BUILD found real questions in this run's trace.
+    const predictBtn =
+      root.querySelector<HTMLButtonElement>('[data-viz-predict]');
+    const predictNote = root.querySelector<HTMLElement>(
+      '[data-viz-predict-note]',
+    );
 
     if (!canvas || !explain || !slider) return;
 
@@ -1852,10 +2162,53 @@ const targetId = `${uid}-target`;
      * drawing's geometry alone costs one string compare (RSP-2, below).
      */
     let measuredViewBox: string | null = null;
+    /**
+     * The PARSED input and the trace it produced — the two things `predictStep`
+     * needs beside the current index (M8.2). They live in the island's closure
+     * rather than inside `mount()` because a custom run replaces both, and the
+     * Player deliberately keeps its trace private. Nothing here re-runs the
+     * algorithm: this is the same trace object the Player is indexing into.
+     */
+    let input: unknown;
+    let currentTrace: Trace<unknown> = [];
+    /** The loaded algorithm's predictor, bound to it; `null` when it has none. */
+    let predictFn: Predictor | null = null;
+    /**
+     * Whether predict mode is on. In memory and NOWHERE else: the toggle has no
+     * storage key, by design (`docs/m8-gamification.md`), so it is per page
+     * visit and no preference can be rewritten by a link.
+     */
+    let predictOn = false;
+    /** The injected strip and its three parts; built on first use, never in SSR. */
+    let strip: HTMLElement | null = null;
+    let predictPrompt: HTMLElement | null = null;
+    let predictChoices: HTMLElement | null = null;
+    let predictActivity: HTMLElement | null = null;
+    /**
+     * This session's counts. `correct` is never displayed and never stored — it
+     * exists only to compute the ≥80% bar silently (see `recordSessionPass`);
+     * `answered` and `skipped` are the ACTIVITY the chip shows.
+     */
+    let answered = 0;
+    let correct = 0;
+    let skipped = 0;
+    /** Whether this session has already met the bar, so the write happens once. */
+    let passRecorded = false;
+    /** A graded prediction waiting to ride the next explanation into the live region. */
+    let pendingVerdict: 'right' | 'wrong' | null = null;
+    /** The current step's explanation without any verdict prefix. */
+    let lastText = explain.textContent ?? '';
 
     function teardown(): void {
       if (destroyed) return;
       destroyed = true;
+      // Predict leaves nothing behind: the injected strip goes with the island
+      // and the SSR toggle returns to the unpressed state the server rendered,
+      // so a re-init after a View Transition starts where a first paint does.
+      // There is nothing persisted to clear — that is the point of the toggle.
+      setPredict(false);
+      strip?.remove();
+      strip = null;
       observer?.disconnect();
       controller.abort(); // removes every {signal}-bound listener
       if (measureFrame !== null) cancelAnimationFrame(measureFrame);
@@ -1938,12 +2291,262 @@ const targetId = `${uid}-target`;
         // through is bound. This is also the single writer of the play button's
         // accessible name — onPlayStateChange routes back through here so the
         // two can never disagree about the state.
-        setBound(playBtn, length < 2);
+        //
+        // M8.2: predict mode is the second reason play can be unavailable, and
+        // it has to be applied HERE because this function re-decides the state
+        // on every step — deciding it only in `setPredict` would leave the
+        // button available again one step later.
+        setBound(playBtn, length < 2 || predictOn);
         setButtonLabel(
           playBtn,
           playing ? 'Pause' : atEnd ? 'Replay from start' : 'Play',
         );
       }
+    }
+
+    // ---- Predict-the-Step (M8.2) ------------------------------------------
+    // Everything below reads the SAME `currentTrace` the Player is playing and
+    // asks the algorithm's own `predictStep` about it. No second trace, no
+    // algorithm logic in the island, no timers: predict is a reading of the
+    // pipeline, never a fork of it (spec §11.3).
+
+    /**
+     * The question for the CURRENT index, or `null` when there is nothing worth
+     * predicting here (including the last step, which has no successor).
+     *
+     * The 2–4 choice contract the build enforces for the authored run is
+     * re-checked at runtime because a custom input reaches states the build
+     * never saw: a one-button "prediction" — the shape the design's floor guard
+     * exists to prevent on BFS's near-path graph — is treated as no question
+     * rather than rendered.
+     */
+    function currentQuestion(): PredictQuestion | null {
+      if (!predictFn || !player) return null;
+      const question = predictFn(currentTrace, player.currentIndex, input);
+      if (!question || !Array.isArray(question.choices)) return null;
+      const size = question.choices.length;
+      return size >= 2 &&
+        size <= 4 &&
+        question.correctIndex >= 0 &&
+        question.correctIndex < size
+        ? question
+        : null;
+    }
+
+    /**
+     * Builds the strip once, immediately ABOVE the explanation — at runtime, and
+     * only at runtime. The `<noscript>` kill-switch hides `.viz-controls`, not
+     * `.viz-frame`, so a server-rendered strip would be the one gamification
+     * affordance that survived with JS off, offering a question nothing on the
+     * page could grade.
+     */
+    function buildStrip(): void {
+      if (strip) return;
+      // `explain` already carries a per-island unique id (the aria-live region
+      // is referenced by nothing else), so deriving from it needs no second
+      // uid channel and stays unique when a page hosts several visualizers.
+      const promptId = `${explain!.id}-predict`;
+      strip = document.createElement('div');
+      strip.className = 'viz-predict';
+      strip.dataset['vizPredictStrip'] = '';
+      predictPrompt = document.createElement('p');
+      predictPrompt.className = 'viz-predict__prompt';
+      predictPrompt.id = promptId;
+      predictChoices = document.createElement('div');
+      predictChoices.className = 'viz-predict__choices';
+      // A labelled group, so the choices are announced as one question's answers
+      // and the label follows the question with no second write.
+      predictChoices.setAttribute('role', 'group');
+      predictChoices.setAttribute('aria-labelledby', promptId);
+      predictActivity = document.createElement('p');
+      predictActivity.className = 'viz-pill viz-predict__activity';
+      predictActivity.hidden = true;
+      strip.append(predictPrompt, predictChoices, predictActivity);
+      // One delegated listener for all four buttons, torn down with the island.
+      predictChoices.addEventListener(
+        'click',
+        (event) => {
+          const btn = (event.target as HTMLElement | null)?.closest('button');
+          if (btn) answer(Number(btn.dataset['choice']));
+        },
+        { signal },
+      );
+      explain!.before(strip);
+    }
+
+    /** Draws the question (or the idle line) for wherever the player now is. */
+    function renderStrip(): void {
+      if (!strip || !predictOn) return;
+      const question = currentQuestion();
+      strip.toggleAttribute('data-idle', !question);
+      predictPrompt!.textContent = question ? question.prompt : PREDICT_IDLE;
+      paintChoices(question);
+    }
+
+    /**
+     * Reconciles the choice buttons in place.
+     *
+     * Reusing the existing elements is what keeps a keyboard user's focus alive
+     * across the redraw that follows their own answer: replacing the buttons
+     * would drop focus on `<body>`, which is exactly the failure A11Y-1 removed
+     * from the transport. Only a question with FEWER choices can pull the
+     * focused button out from under them, and that case is caught explicitly.
+     */
+    function paintChoices(question: PredictQuestion | null): void {
+      const box = predictChoices!;
+      const held = box.contains(document.activeElement);
+      const want = question ? question.choices.length : 0;
+      while (box.childElementCount > want) box.lastElementChild!.remove();
+      while (box.childElementCount < want) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-secondary viz-predict__choice';
+        box.appendChild(btn);
+      }
+      question?.choices.forEach((label, i) => {
+        const btn = box.children[i] as HTMLButtonElement;
+        btn.dataset['choice'] = String(i);
+        btn.textContent = label;
+      });
+      box.hidden = want === 0;
+      if (held && !box.contains(document.activeElement)) {
+        // Land on the first choice of the new question, or — when this step has
+        // none — on the control that carries the reader onward.
+        const fallback =
+          (box.firstElementChild as HTMLElement | null) ?? fwdBtn;
+        fallback?.focus();
+      }
+    }
+
+    /**
+     * The session line: how much the reader DID, never how well.
+     *
+     * "7 answered · 2 skipped" is a binding calm invariant — no ratio, no
+     * percentage, no score. A beginner shown an accuracy figure starts
+     * protecting it instead of attempting the hard predictions, and a
+     * wrong-but-attempted prediction is this mechanic working, not failing.
+     * Hidden until there is something to report, so a fresh session opens with
+     * no zeros staring back.
+     */
+    function paintActivity(): void {
+      if (!predictActivity) return;
+      predictActivity.hidden = answered + skipped === 0;
+      predictActivity.textContent = `${answered} answered · ${skipped} skipped`;
+    }
+
+    /**
+     * Grades one prediction and moves on.
+     *
+     * The verdict does not get its own panel: it is prefixed to the NEXT step's
+     * authored explanation, so a correct and an incorrect answer both land on
+     * the same immediate, elaborated feedback. Nothing here costs the reader
+     * anything for being wrong — that first wrong attempt is the intervention.
+     */
+    function answer(choice: number): void {
+      const question = currentQuestion();
+      if (!question || !player) return;
+      answered += 1;
+      const right = choice === question.correctIndex;
+      if (right) correct += 1;
+      pendingVerdict = right ? 'right' : 'wrong';
+      player.stepForward();
+      // A predictor is contracted to return `null` on the last step, so the step
+      // above always lands and `onStep` has already spoken the verdict. If a
+      // custom run ever proves otherwise, say it anyway rather than swallow it.
+      if (pendingVerdict) writeExplanation(lastText);
+      paintActivity();
+      recordSessionPass();
+    }
+
+    /**
+     * Step forward, counting an on-screen question the reader chose not to
+     * answer as an explicit SKIP — never as a wrong answer.
+     *
+     * Skipping is a first-class option (autonomy is the design's stated reason),
+     * so BOTH routes to the control go through here: the button and the → key.
+     */
+    function stepForwardCounted(): void {
+      if (predictOn && currentQuestion()) {
+        skipped += 1;
+        paintActivity();
+      }
+      player?.stepForward();
+    }
+
+    /**
+     * The predict path onto the mastery ladder: ≥5 answers at ≥80% in this
+     * session (`docs/m8-gamification.md` M8.2).
+     *
+     * Computed in integers — the ratio is never formatted, let alone displayed —
+     * and written through `recordPass`, which owns the 3-day Mastered gate, so
+     * predict re-implements no promotion rule. Nothing about the attempts is
+     * stored: the session is infinitely retriable and its history is not the
+     * product's business.
+     *
+     * The store is imported on demand so that its ~2 KB gz is not in the bundle
+     * of every page that merely SHOWS a visualization (/about ships one and has
+     * no lesson to credit). On a lesson page `PracticeCheck` imports the same
+     * module statically, so the chunk is already loaded and this resolves out of
+     * the module registry rather than the network — which is also why a failed
+     * import here is treated as "not saved yet" rather than an error state.
+     */
+    function recordSessionPass(): void {
+      if (
+        passRecorded ||
+        !lessonSlug ||
+        answered < 5 ||
+        correct * 5 < answered * 4
+      ) {
+        return;
+      }
+      passRecorded = true;
+      void import('../lib/progress')
+        .then((store) => {
+          store.recordPass(lessonSlug);
+        })
+        .catch(() => {
+          // Nothing on screen ever claimed this was saved, and the bar can be
+          // met again in the same session — so the only repair needed is to let
+          // the next answer try the write again.
+          passRecorded = false;
+        });
+    }
+
+    /**
+     * Turns predict mode on or off. The single writer of every piece of state it
+     * touches, so the toggle, the review deep link and teardown cannot disagree.
+     */
+    function setPredict(on: boolean): void {
+      if (!predictBtn || predictOn === on) return;
+      predictOn = on;
+      predictBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) {
+        // Predicting and watching are incompatible, so stop any run first.
+        player?.pause();
+        // A fresh session each time it is switched on. Nothing is carried over
+        // and nothing was written down, which is what "infinitely retriable"
+        // means in practice.
+        answered = 0;
+        correct = 0;
+        skipped = 0;
+        passRecorded = false;
+        buildStrip();
+      }
+      // A11Y-1 again: auto-play and the scrubber become unavailable through
+      // `aria-disabled` plus the note that says why — never the `disabled`
+      // attribute, which would drop a focused control's focus on `<body>` and
+      // take the island's own shortcuts with it.
+      slider!.setAttribute('aria-disabled', on ? 'true' : 'false');
+      if (predictNote) predictNote.hidden = !on;
+      for (const el of [playBtn, slider]) {
+        if (!el || !predictNote) continue;
+        if (on) el.setAttribute('aria-describedby', predictNote.id);
+        else el.removeAttribute('aria-describedby');
+      }
+      if (strip) strip.hidden = !on;
+      paintActivity();
+      renderStrip();
+      updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);
     }
 
     /**
@@ -1973,6 +2576,37 @@ const targetId = `${uid}-target`;
       syncLiveMute();
     }
 
+    /**
+     * Writes one step's explanation into the live region — and, when a
+     * prediction has just been graded, the verdict with it, as ONE change.
+     *
+     * One write, not two: the region is `aria-atomic`, so a separate verdict
+     * write would either be announced as a second, competing utterance or be
+     * overwritten before it was spoken. The verdict is carried by a glyph AND a
+     * word, never by colour (§12), and the glyph is `aria-hidden` so the
+     * announcement reads "Correct — <the step's own explanation>".
+     */
+    function writeExplanation(text: string): void {
+      lastText = text;
+      if (!pendingVerdict) {
+        explain!.textContent = text;
+        return;
+      }
+      const right = pendingVerdict === 'right';
+      pendingVerdict = null;
+      const tag = document.createElement('span');
+      tag.className = 'viz-verdict';
+      tag.dataset['verdict'] = right ? 'right' : 'wrong';
+      const glyph = document.createElement('span');
+      glyph.className = 'viz-verdict__glyph';
+      glyph.setAttribute('aria-hidden', 'true');
+      glyph.textContent = right ? '✓' : '✗';
+      // "Not quite" and not "Wrong": the wording never makes a first miss cost
+      // something, because eliciting that miss is the point of predicting.
+      tag.append(glyph, right ? 'Correct' : 'Not quite');
+      explain!.replaceChildren(tag, ` — ${text}`);
+    }
+
     /** onStep: sync explanation, slider, counter, metrics, and button states. */
     function onStep(index: number, step: Step<unknown>): void {
       const length = player?.length ?? 1;
@@ -1980,7 +2614,7 @@ const targetId = `${uid}-target`;
       // afterwards announces nothing, because the region's content stopped
       // changing at the same moment (A11Y-6).
       if (index >= length - 1) explain!.setAttribute('aria-live', 'polite');
-      explain!.textContent = step.explanation;
+      writeExplanation(step.explanation);
       slider!.value = String(index);
       slider!.setAttribute('aria-valuetext', `Step ${index + 1} of ${length}`);
       // VD-4: one custom-property write per step drives the track's elapsed
@@ -1990,6 +2624,9 @@ const targetId = `${uid}-target`;
       if (counter) counter.textContent = `${index + 1} / ${length}`;
       renderMetrics(step);
       updateButtons(index, length, player?.isPlaying ?? false);
+      // The question belongs to the index, so it is re-asked wherever the reader
+      // lands — by answering, by stepping, or by running a new input.
+      renderStrip();
       // The renderer has just redrawn: if that widened the drawing, the RSP-2
       // floor and the scroll-region state both have to be recomputed for it.
       remeasureIfResized();
@@ -2053,6 +2690,46 @@ const targetId = `${uid}-target`;
       slider!.max = String(Math.max(player.length - 1, 0));
       slider!.disabled = false;
       measureCanvas();
+    }
+
+    /**
+     * Announces a finished custom run to the page (`viz:run`; spec §11.3's M8
+     * amendment, contract in `src/lib/challenges.ts`).
+     *
+     * CONSUMES, NEVER RECOMPUTES: the payload's `finalStep` is the last element
+     * of the trace this island just computed and the Player is already indexing
+     * into — the same object, not a copy and not a second run. No mechanic's
+     * logic enters the pipeline here; a Trace Trial grades what the reader
+     * watched, which is the whole reason the event carries a step at all.
+     *
+     * Fired ONLY from the custom-input submit path. Deliberately NOT on mount —
+     * a trial has to be earned by crafting an input, not by loading the page —
+     * and deliberately NOT from "Restore example", which replays the AUTHORED
+     * run: the challenge build guard already proves the lesson's own example
+     * clears nothing, so announcing it could only ever write "Not yet" onto a
+     * card in answer to a recovery click.
+     *
+     * Adds no listener and no timer, so the island's teardown contract (TD-4)
+     * is untouched: a dispatch owns nothing that could outlive the island.
+     *
+     * @param raw - The exact string this run's `parseInput` accepted, so a
+     * consumer reads back the input the reader really submitted.
+     */
+    function announceRun(raw: string): void {
+      // An empty trace has nothing to grade. Unreachable for a parsed input in
+      // practice, but a listener must never be handed an `undefined` step it
+      // would then have to defend against.
+      const finalStep = currentTrace[currentTrace.length - 1];
+      if (!finalStep) return;
+      // Bubbling per the contract even though it is dispatched on `document`:
+      // the cards listen there today, and a future consumer on `window` must
+      // still hear it.
+      document.dispatchEvent(
+        new CustomEvent<VizRunDetail>(VIZ_RUN_EVENT, {
+          bubbles: true,
+          detail: { algorithmId: algoId, input: raw, finalStep },
+        }),
+      );
     }
 
     /**
@@ -2152,8 +2829,9 @@ const targetId = `${uid}-target`;
       }
       if (destroyed) return; // torn down while awaiting the chunks
 
-      // Resolve initial input: authored `input` prop, else defaultInput().
-      let input: unknown;
+      // Resolve initial input: authored `input` prop, else defaultInput(). Both
+      // it and the trace it produces are kept in the island's closure, because
+      // `predictStep(trace, i, input)` needs them on every step (M8.2).
       if (rawInput) {
         const parsed = algo.parseInput(rawInput);
         if (isParseError(parsed)) {
@@ -2165,7 +2843,15 @@ const targetId = `${uid}-target`;
         input = algo.defaultInput();
       }
 
+      // The predictor, bound to its algorithm so one written as a method keeps
+      // its `this`. The build already proved this one exists and asks real
+      // questions about this run; if a loaded chunk ever disagrees, the toggle
+      // cannot work, so it goes rather than sitting there asking nothing.
+      predictFn = algo.predictStep?.bind(algo) ?? null;
+      if (!predictFn) predictBtn?.remove();
+
       const trace = algo.run(input);
+      currentTrace = trace;
       renderer = rmod.create();
       // Replace the static still, then mount the live renderer in its place.
       canvas!.replaceChildren();
@@ -2202,7 +2888,7 @@ const targetId = `${uid}-target`;
       );
       fwdBtn?.addEventListener(
         'click',
-        () => activate(fwdBtn, () => player?.stepForward()),
+        () => activate(fwdBtn, stepForwardCounted),
         { signal },
       );
       resetBtn?.addEventListener(
@@ -2212,9 +2898,22 @@ const targetId = `${uid}-target`;
       );
       slider!.addEventListener(
         'input',
-        () => player?.seek(Number(slider!.value)),
+        () => {
+          // `aria-disabled` blocks nothing by itself (A11Y-1), so the handler
+          // declines while predicting and puts the thumb back where the trace
+          // actually is — scrubbing past a question is the one thing predict
+          // mode exists to prevent.
+          if (predictOn) {
+            slider!.value = String(player?.currentIndex ?? 0);
+            return;
+          }
+          player?.seek(Number(slider!.value));
+        },
         { signal },
       );
+      predictBtn?.addEventListener('click', () => setPredict(!predictOn), {
+        signal,
+      });
       speedSel?.addEventListener(
         'change',
         () => {
@@ -2261,6 +2960,7 @@ const targetId = `${uid}-target`;
         backBtn,
         fwdBtn,
         resetBtn,
+        predictBtn,
         speedSel,
         arrayInput,
         targetInput,
@@ -2270,6 +2970,18 @@ const targetId = `${uid}-target`;
         if (el) el.disabled = false;
       });
       updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);
+
+      // The review queue's deep link (M8.2): `?review=1` opens predict mode for
+      // THIS page visit and nothing else. It cannot rewrite a preference because
+      // there is none to rewrite — the toggle is never persisted, which is
+      // precisely why the design routes the review card through a query
+      // parameter instead of a stored flag.
+      if (
+        predictBtn &&
+        new URLSearchParams(location.search).get('review') === '1'
+      ) {
+        setPredict(true);
+      }
 
       // Restore the reader's speed preference (§6 `pref:viz-speed`). Applied
       // AFTER the enable pass so the <select> is already interactive, and only
@@ -2293,8 +3005,17 @@ const targetId = `${uid}-target`;
             return;
           }
           clearError();
-          player.loadTrace(algo.run(parsed));
+          // The parsed input and its trace are what predict grades against, so
+          // both move with the run (M8.2). The trace is still computed once and
+          // only indexed into — this is the same object the Player receives.
+          input = parsed;
+          currentTrace = algo.run(parsed);
+          player.loadTrace(currentTrace);
           syncTraceBounds();
+          // The reader crafted a run and it succeeded: tell the page (M8.3).
+          // Last, so anything listening sees a settled island — and only here,
+          // because this is the only path where the input is the reader's own.
+          announceRun(raw);
         },
         { signal },
       );
@@ -2314,7 +3035,9 @@ const targetId = `${uid}-target`;
           if (arrayInput) arrayInput.value = fields.input;
           if (targetInput) targetInput.value = fields.target;
           clearError();
-          player.loadTrace(algo.run(parsed));
+          input = parsed;
+          currentTrace = algo.run(parsed);
+          player.loadTrace(currentTrace);
           syncTraceBounds();
         },
         { signal },
@@ -2368,7 +3091,9 @@ const targetId = `${uid}-target`;
             event.preventDefault();
             if (event.key === 'ArrowLeft')
               activate(backBtn, () => player?.stepBackward());
-            else activate(fwdBtn, () => player?.stepForward());
+            // The SAME skip-counting route as the button it mirrors (M8.2), so
+            // the key can never advance past a question without counting it.
+            else activate(fwdBtn, stepForwardCounted);
           }
         },
         { signal },

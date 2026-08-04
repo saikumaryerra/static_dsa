@@ -19,6 +19,8 @@ import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import Challenge from '../../components/Challenge.astro';
+import FinalRun from '../../components/FinalRun.astro';
 import Callout from '../../components/Callout.astro';
 
 export const codeTabs = [
@@ -80,6 +82,8 @@ The visualization makes this concrete: watch the frames pile up as `factorial` c
 />
 
 Press **Play**, or **Step forward** one call at a time. The top card is the current (innermost) call. New calls are pushed with a **+**; when a call returns, its frame is marked with **✕** and popped, and its value flows into the frame below. Try a different `n` in the input box to see the stack grow taller.
+
+<Challenge id="recursion/base-case-only" />
 
 ## Complexity
 
@@ -149,3 +153,7 @@ Work each one out before opening the answer.
   call stack at once. A loop keeps just one running product, needing constant
   space.
 </PracticeCheck>
+
+## Final run
+
+<FinalRun slug="recursion" algorithm="recursion-callstack" metric="calls" />

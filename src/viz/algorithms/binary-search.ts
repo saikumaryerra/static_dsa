@@ -7,7 +7,13 @@
  * renderer's pure `cellId` string helper (architecture §8 — the one allowed
  * renderer→algorithm import, a pure function, no structural coupling).
  */
-import type { Algorithm, Highlight, Step, Trace } from '../core/types';
+import type {
+  Algorithm,
+  Highlight,
+  PredictQuestion,
+  Step,
+  Trace,
+} from '../core/types';
 import { snapshot } from '../core/snapshot';
 import { cellId } from '../core/ids';
 
@@ -185,6 +191,56 @@ function parseInput(raw: string): BinarySearchInput | { error: string } {
   return { array, target: Number(targetMatch[1]) };
 }
 
+/**
+ * Predict-the-Step choices, in fixed display order (§11.2 caps choices at 4 —
+ * binary search is the algorithm that needs all four).
+ */
+const PREDICT_CHOICES = ['Go left', 'Go right', 'Found it', 'Not present'];
+
+/**
+ * The "what does the search do next?" question for step `i` (M8.2), graded
+ * against `trace[i + 1]` — the step the Player already holds.
+ *
+ * The order of the checks below is LOAD-BEARING:
+ *   1. no successor → `null` (the last step has nothing to predict);
+ *   2. `foundIndex !== null` → the probe hit the target;
+ *   3. `mid === null` → the empty-window terminal → the target is absent;
+ *   4. otherwise compare the next probe's value against the target.
+ * Reading `array[mid]` before check 3 would dereference `array[null]` on that
+ * terminal step and misgrade "not present" as "go left".
+ *
+ * `lo`/`hi` are deliberately NOT consulted: `run` pushes each compare BEFORE it
+ * narrows the window, so a `lo`/`hi` delta gives no signal on step 0 and
+ * afterwards only restates the decision the current step's explanation has
+ * already spelled out on screen.
+ */
+function predictStep(
+  trace: Trace<BinarySearchState>,
+  i: number,
+  input: BinarySearchInput,
+): PredictQuestion | null {
+  const next = trace[i + 1];
+  if (!next) return null;
+
+  const { array, foundIndex, mid } = next.state;
+  let correctIndex: number;
+  if (foundIndex !== null) {
+    correctIndex = 2;
+  } else if (mid === null) {
+    correctIndex = 3;
+  } else {
+    correctIndex = array[mid]! < input.target ? 1 : 0;
+  }
+
+  return {
+    prompt: 'What does the search do next?',
+    // A fresh array per call, so rendering one question can never mutate the
+    // shared constant behind the next one.
+    choices: [...PREDICT_CHOICES],
+    correctIndex,
+  };
+}
+
 /** The registered Binary Search algorithm. */
 export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   id: 'binary-search',
@@ -192,4 +248,5 @@ export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   run,
   defaultInput: () => ({ array: [1, 3, 5, 7, 9, 11], target: 7 }),
   parseInput,
+  predictStep,
 };

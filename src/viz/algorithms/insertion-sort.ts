@@ -14,6 +14,7 @@
 import type { Algorithm, Highlight, Step, Trace } from '../core/types';
 import { snapshot } from '../core/snapshot';
 import { cellId } from '../core/ids';
+import { predictAdjacentSwap } from './predictors';
 
 /** Hard cap on array length (CLAUDE.md / site spec §11.4: arrays ≤ 30). */
 const MAX_ARRAY_LENGTH = 30;
@@ -156,4 +157,7 @@ export const insertionSort: Algorithm<SortInput, SortState> = {
   run,
   defaultInput: () => ({ array: [5, 2, 9, 1, 7, 3] }),
   parseInput,
+  // M8.2: an adjacent-swap sort — each compare's own swap (or its "in order"
+  // step) is the very next step, so the cumulative `swaps` delta grades it.
+  predictStep: predictAdjacentSwap,
 };

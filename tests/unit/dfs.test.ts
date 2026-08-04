@@ -115,3 +115,75 @@ describe('dfs.parseInput', () => {
     });
   });
 });
+
+describe('dfs.predictStep (M8.2)', () => {
+  it('asks the LIFO question and grades it against the node actually popped', () => {
+    const input = dfs.defaultInput();
+    const trace = dfs.run(input);
+    let asked = 0;
+    for (let i = 0; i < trace.length; i += 1) {
+      const q = dfs.predictStep!(trace, i, input);
+      if (!q) continue;
+      asked += 1;
+      expect(q.prompt).toBe('Which node comes off the stack next?');
+      // §11.2 caps choices at 4; two is the floor for a real prediction.
+      expect(q.choices.length).toBeGreaterThanOrEqual(2);
+      expect(q.choices.length).toBeLessThanOrEqual(4);
+      const popped = /^Pop node (\d+)/.exec(trace[i + 1]!.explanation);
+      expect(popped).not.toBeNull();
+      expect(q.choices[q.correctIndex]).toBe(`Node ${popped![1]}`);
+    }
+    expect(asked).toBeGreaterThan(0);
+  });
+
+  it('keeps the node BFS would have taken on the ballot as a decoy', () => {
+    // After visiting 0 the stack holds [2, 1]: LIFO answers 1, while the node
+    // discovered first — 2, the FIFO answer — must stay a visible option, since
+    // choosing between them IS the lesson.
+    const input = dfs.defaultInput();
+    const trace = dfs.run(input);
+    const i = trace.findIndex((s) => /^Pop node 1\b/.test(s.explanation)) - 1;
+    const q = dfs.predictStep!(trace, i, input)!;
+    expect(q.choices[q.correctIndex]).toBe('Node 1');
+    expect(q.choices).toContain('Node 2');
+  });
+
+  it('never renders a one-button question, even where the frontier holds one node', () => {
+    // The shipped graph is nearly a path: at step 0 the stack is just [0], so
+    // the choices must be widened past the frontier (M8.2's floor guard).
+    const input = dfs.defaultInput();
+    const trace = dfs.run(input);
+    const frontier = (trace[0]!.highlights ?? []).filter(
+      (h) => h.kind === 'frontier',
+    );
+    expect(frontier.flatMap((h) => h.ids)).toEqual(['n0']);
+
+    const q = dfs.predictStep!(trace, 0, input)!;
+    expect(q.choices.length).toBeGreaterThanOrEqual(2);
+    expect(q.choices[q.correctIndex]).toBe('Node 0');
+  });
+
+  it('returns null on a discovery step (the same node is still being processed)', () => {
+    const input = dfs.defaultInput();
+    const trace = dfs.run(input);
+    const i = trace.findIndex((s) => /^Pop node 0/.test(s.explanation));
+    expect(trace[i + 1]!.explanation).toMatch(/is undiscovered — push it/);
+    expect(dfs.predictStep!(trace, i, input)).toBeNull();
+  });
+
+  it('returns null when the next step is the terminal summary, and on the last step', () => {
+    const input = dfs.defaultInput();
+    const trace = dfs.run(input);
+    expect(dfs.predictStep!(trace, trace.length - 2, input)).toBeNull();
+    expect(dfs.predictStep!(trace, trace.length - 1, input)).toBeNull();
+  });
+
+  it('asks nothing at all when the graph offers no alternative to choose', () => {
+    // One vertex: the only "prediction" available would be a single button.
+    const input = { nodeIds: [0], edges: [], start: 0 };
+    const trace = dfs.run(input);
+    for (let i = 0; i < trace.length; i += 1) {
+      expect(dfs.predictStep!(trace, i, input)).toBeNull();
+    }
+  });
+});

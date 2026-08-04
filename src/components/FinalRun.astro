@@ -1,0 +1,579 @@
+---
+/**
+ * FinalRun — one numeric prediction about the run the reader can watch on this
+ * page, with the truth computed at BUILD time (M8.3, designed in
+ * `docs/m8-gamification.md`; spec §7 body-section 8).
+ *
+ * Props:
+ * - `slug`      the lesson that owns the storage record; pass `frontmatter.slug`.
+ * - `algorithm` WHICH visualizer this asks about. Explicit because five of the
+ *               six Algorithms lessons host two or three visualizers under one
+ *               `## Visualizer` heading, so "the lesson's visualizer" names
+ *               nothing.
+ * - `metric`    the counter to predict, e.g. `comparisons`. The build fails if
+ *               that run never emits it, so an authored question can never be
+ *               one the visualization does not answer.
+ * - `anchor`    where "Watch it happen" points. OPTIONAL, and best left unset:
+ *               the default resolves to the heading this lesson's
+ *               `<Visualizer algorithm="…">` actually sits under. An explicit
+ *               value is checked against the lesson's real heading ids, so a
+ *               typo fails the build instead of shipping a link to nowhere.
+ * - `subject`   how the algorithm is named in the question (default: its
+ *               registry label, e.g. "Quick sort (Lomuto partition)").
+ *
+ * WHY THE ANSWER CANNOT BE WRONG: it is not authored. The frontmatter resolves
+ * the same lazy registry thunk the island uses, runs the algorithm on the
+ * lesson's PINNED input, and reads the final step's metric — so the number in
+ * the card is by construction the number the reader will watch the player reach.
+ * The pinned input comes from `src/lib/challenges.ts`, the one module both this
+ * component and the lesson's `<Visualizer input>` read, which makes divergence
+ * impossible by construction rather than by assertion (and
+ * `tests/unit/challenges.test.ts` holds that map against the actual `.mdx`
+ * bodies until they are migrated to import it).
+ *
+ * NO FIRST-TRY BONUS AND NO ATTEMPT COUNT — killed in the design's ethics review,
+ * so this is a rule and not a simplification: loss-framing the errorful first
+ * attempt destroys the testing-effect value it decorates (Kornell & Metcalfe),
+ * and beginners respond by peeking before committing. Nothing here counts
+ * attempts, in storage or in memory; a miss shows the real number immediately
+ * (hypercorrection — a surprising correction right after a confident error is
+ * when it sticks), the escape hatch is visible from the start, and the credit for
+ * clearing it is identical however many tries it took.
+ *
+ * A cleared Final Run is the third Practiced path, so it calls `recordPass()` in
+ * `src/lib/progress.ts` — the single promotion path, which owns the 3-day
+ * Mastered gate. This component adds no gate, no bar and no stage of its own,
+ * which is also why a re-visit re-asks the question instead of showing the
+ * answer: on a review visit, getting it again IS the re-pass the ladder needs.
+ *
+ * JS-OFF: the whole card is hidden by its own `<noscript>` kill-switch — nothing
+ * here can be checked without a script, and an unanswerable question is worse
+ * than no question.
+ */
+import { getCollection, render } from 'astro:content';
+import { algorithms } from '../viz/registry';
+import {
+  finalMetric,
+  metricNoun,
+  metricsSentence,
+  pinnedInput,
+} from '../lib/challenges';
+import type { Algorithm } from '../viz/core/types';
+import { nextUid } from './uid';
+
+interface Props {
+  slug: string;
+  algorithm: string;
+  metric: string;
+  anchor?: string;
+  subject?: string;
+}
+
+const { slug, algorithm, metric, anchor, subject } = Astro.props;
+
+if (anchor !== undefined && !anchor.startsWith('#')) {
+  throw new Error(
+    `FinalRun ("${slug}"): anchor must be a same-page fragment like "#quick-sort" (got "${anchor}").`,
+  );
+}
+
+const algo = await (
+  algorithms as Record<string, () => Promise<Algorithm<unknown, unknown>>>
+)[algorithm]?.();
+if (!algo) {
+  throw new Error(`FinalRun ("${slug}"): unknown algorithm "${algorithm}".`);
+}
+
+// The pinned input — the ONE string this lesson's visualizer is also seeded
+// with. Without an entry there is no run to grade against, and guessing a
+// default would ask about a run nobody can watch.
+const input = pinnedInput(slug, algorithm);
+if (input === null) {
+  throw new Error(
+    `FinalRun ("${slug}"): no pinned input for "${algorithm}" — add "${slug}/${algorithm}" to PINNED_INPUTS in src/lib/challenges.ts (it must equal the lesson's <Visualizer input>).`,
+  );
+}
+
+const parsed = algo.parseInput(input);
+if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+  throw new Error(
+    `FinalRun ("${slug}"): pinned input "${input}" was rejected by "${algorithm}": ${(parsed as { error: string }).error}`,
+  );
+}
+
+const answer = finalMetric(algo.run(parsed), metric);
+if (answer === null) {
+  throw new Error(
+    `FinalRun ("${slug}"): "${algorithm}" emits no "${metric}" metric on "${input}", so that question has no answer.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Where "Watch it happen" points
+//
+// It has to land on a heading that EXISTS. The old flat default `#visualizer`
+// was a link to nowhere on three of the six Algorithms lessons — sorting-basics,
+// sorting-efficient and graph-traversal head each visualizer with its own `###`
+// and carry no `## Visualizer` heading at all — and it is the one affordance a
+// reader reaches for straight after a miss, which is exactly when the correction
+// is landing. So the target is RESOLVED against the lesson's real heading ids
+// (the same list the table of contents is built from), never assumed.
+// ---------------------------------------------------------------------------
+const entry = (await getCollection('lessons')).find(
+  (lesson) => lesson.data.slug === slug,
+);
+if (!entry) {
+  throw new Error(
+    `FinalRun ("${slug}"): no lesson has that slug — pass frontmatter.slug.`,
+  );
+}
+const { headings } = await render(entry);
+const headingIds = new Set(headings.map((heading) => heading.slug));
+// Hoisted rather than read inside the helper below: TypeScript does not carry
+// the `if (!entry) throw` narrowing into a function body.
+const body = entry.body ?? '';
+
+/**
+ * The id of the heading THIS algorithm's visualizer sits under.
+ *
+ * Read from the lesson body rather than guessed from the algorithm's registry
+ * label: the heading says "Quick sort" while the label says "Quick sort (Lomuto
+ * partition)", and a lesson is free to word it however it likes. The last
+ * heading line before the matching `<Visualizer>` tag is that section's, and its
+ * TEXT is matched back to the rendered heading list so the returned id is one
+ * the page really has — this never invents a slug of its own.
+ *
+ * @returns The heading id, or `null` when the tag or its heading cannot be found
+ * (the caller falls back, then fails the build).
+ */
+function visualizerHeadingId(): string | null {
+  // Tag by tag, lazily up to each `/>` — the same segmentation
+  // `findVisualizerInput` uses in `src/lib/challenges.ts`. A single regex
+  // spanning `algorithm="…"` would match from the FIRST tag on the page and
+  // report its position, which on a two-visualizer lesson silently anchors quick
+  // sort's question to merge sort's heading.
+  const names = new RegExp(`algorithm=(["'])${algorithm}\\1`);
+  const tag = [...body.matchAll(/<Visualizer\b([\s\S]*?)\/>/g)].find((match) =>
+    names.test(match[1] ?? ''),
+  );
+  if (!tag) return null;
+  const above = [
+    ...body.slice(0, tag.index).matchAll(/^#{2,6}[ \t]+(.+?)\s*$/gm),
+  ];
+  const nearest = above[above.length - 1]?.[1];
+  if (nearest === undefined) return null;
+  // Markdown emphasis and code ticks are styling, not part of the heading text
+  // Astro slugified.
+  const text = nearest.replace(/[*_`]/g, '').trim();
+  return headings.find((heading) => heading.text.trim() === text)?.slug ?? null;
+}
+
+const ownHeading = visualizerHeadingId();
+const target =
+  anchor ??
+  (ownHeading !== null
+    ? `#${ownHeading}`
+    : headingIds.has('visualizer')
+      ? '#visualizer'
+      : null);
+if (target === null || !headingIds.has(target.slice(1))) {
+  throw new Error(
+    `FinalRun ("${slug}"): "Watch it happen" would point at ${target ?? 'nothing'}, which is not a heading on this lesson. Available: ${[...headingIds].map((id) => `#${id}`).join(', ')}.`,
+  );
+}
+
+const noun = metricNoun(metric);
+const label = subject ?? algo.label;
+// "14 comparisons" / "1 comparison" — composed at BUILD time from the same
+// number the check uses, and through the same vocabulary the trial cards use, so
+// no two surfaces can name the counter differently.
+const answerText = metricsSentence({ [metric]: answer });
+
+const uid = nextUid();
+const promptId = `fr-prompt-${uid}`;
+const inputId = `fr-input-${uid}`;
+const statusId = `fr-status-${uid}`;
+---
+
+<div
+  class="final-run"
+  role="group"
+  aria-labelledby={promptId}
+  data-final-run
+  data-slug={slug}
+  data-answer={String(answer)}
+  data-answer-text={answerText}
+>
+  <p class="final-run__kicker">Final run</p>
+
+  <p class="final-run__prompt" id={promptId}>
+    <b>{label}</b> on <code>{input}</code> — how many {noun}?
+  </p>
+
+  <p class="final-run__lead">Work it out before you run it.</p>
+
+  {
+    /* Every control ships the real `disabled` attribute for the pre-hydration
+      paint only (the Visualizer's A3 pattern): this form has no action, so a
+      submit that lands before the script does would reload the page and lose
+      the reader's place. */
+  }
+  <form class="final-run__form" data-final-run-form novalidate>
+    <div class="final-run__field">
+      <label for={inputId}>Your prediction</label>
+      <input
+        type="text"
+        id={inputId}
+        inputmode="numeric"
+        data-final-run-input
+        aria-describedby={statusId}
+        spellcheck="false"
+        autocapitalize="none"
+        autocorrect="off"
+        disabled
+      />
+    </div>
+    <button type="submit" class="btn-secondary" data-final-run-check disabled>
+      Check
+    </button>
+    {
+      /* The escape, visible from the start and never rationed: a reader who
+        does not want to guess must not have to guess wrong to move on. */
+    }
+    <button type="button" class="btn-secondary" data-final-run-reveal disabled>
+      Show the answer
+    </button>
+  </form>
+
+  {
+    /* Ships with no words and is written only after the reader acts, so nothing
+      is announced on load. It stays in the DOM from the start because a live
+      region has to exist before its first population for the announcement to
+      fire reliably. */
+  }
+  <p
+    class="final-run__status"
+    id={statusId}
+    role="status"
+    data-final-run-status
+  >
+  </p>
+
+  {
+    /* Revealed beside a miss or a reveal. A LINK cannot live inside the status
+      line above — that is written with `textContent`, which would delete it — and
+      revealing hidden content announces nothing, which is what keeps the
+      announcement to the one sentence that changed. */
+  }
+  <p class="final-run__watch" data-final-run-watch hidden>
+    <a href={target}>Watch it happen</a>
+  </p>
+
+  {
+    /* The hypercorrection framing, and ONLY that. An earlier draft closed with
+      "There is no attempt count here." — do not restore it: announcing that
+      nothing is counted makes counting the subject, which is the frame the
+      design removed (and it puts the killed vocabulary back on the card, where
+      the calm-invariant test rightly catches it). The absence of a count is
+      already the whole statement. */
+  }
+  <p class="final-run__note">
+    A miss is the useful part — the real number sticks harder after a guess than
+    after a peek.
+  </p>
+
+  {
+    /* The persistent state, server-rendered and revealed by the script for a
+      lesson already cleared on this device. Static text rather than a scripted
+      write, so a returning reader meets no announcement — and deliberately
+      WITHOUT the answer, so a review visit still gets to predict it. */
+  }
+  <p class="final-run__cleared" data-final-run-cleared hidden>
+    Cleared on this device.
+  </p>
+</div>
+
+<noscript>
+  <style>
+    /* Kill-switch (mirrors MarkComplete): the check, the reveal and the saved
+       state are all JS-only, so with JS off this is a question with no answer.
+       `!important` because a kill-switch must be unbeatable by any
+       equal-specificity rule in the bundle. */
+    .final-run {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<style>
+  .final-run {
+    margin-block: var(--space-8);
+    max-width: var(--measure);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background-color: var(--surface);
+    box-shadow: var(--shadow-1);
+    padding: var(--space-5);
+  }
+
+  .final-run__kicker {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* The question is the card's accessible name, so it is styled as the title
+     rather than marked up as a heading: this card sits after `## Practice` in
+     some lessons and under a `###` in others, and inventing a level would put a
+     wrong rung in the document outline. */
+  .final-run__prompt {
+    margin: var(--space-1) 0 var(--space-2);
+    color: var(--text);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-normal);
+    line-height: var(--leading-snug);
+  }
+
+  .final-run__prompt code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    user-select: all;
+  }
+
+  .final-run__lead {
+    margin: 0 0 var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .final-run__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+  }
+
+  .final-run__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .final-run__field label {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+
+  /* Matches the visualizer's custom-input field: level 1 on the page canvas,
+     `--border-strong` (4.55:1 on the canvas) so the box is a shape and not a
+     suggestion, and 44px tall like every control it sits beside. */
+  .final-run__field input {
+    min-height: 44px;
+    width: 7rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    background-color: var(--surface);
+    padding: var(--space-2) var(--space-3);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+  }
+
+  .final-run__status {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  /* The gap arrives with the words: the region stays in the DOM from the start
+     (a live region has to pre-exist its first population), so an unconditional
+     margin would leave a permanent hole under the form. A CLASS rather than
+     `:empty`, because whether this element is `:empty` depends on how the
+     formatter wraps its attributes — a wrapped tag leaves a whitespace text
+     node, and whitespace is not empty. */
+  .final-run__status.is-said {
+    margin-top: var(--space-4);
+  }
+
+  .final-run__watch {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+  }
+
+  .final-run__note {
+    margin: var(--space-4) 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+  }
+
+  .final-run__cleared {
+    margin: var(--space-3) 0 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  /* CLEARED — the same three-signal treatment the trial card uses: the word in
+     the status line, the check glyph, and the brand keyline, so the state never
+     depends on colour alone (§12). */
+  .final-run[data-cleared] {
+    border-color: var(--brand);
+    background-color: color-mix(in srgb, var(--brand) 6%, var(--surface));
+  }
+
+  .final-run[data-cleared] .final-run__kicker::after {
+    content: ' ✓';
+    color: var(--brand);
+  }
+
+  /* On paper the prediction cannot be checked, exactly like the practice check's
+     grade buttons and the player's controls. */
+  @media print {
+    .final-run {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import { isFinalRunCleared, markFinalRunCleared } from '../lib/challenges';
+  import { recordPass } from '../lib/progress';
+
+  /** Wires one Final Run card. */
+  function setup(root: HTMLElement): void {
+    if (root.dataset['finalRunInit'] === 'true') return;
+    root.dataset['finalRunInit'] = 'true';
+
+    const form = root.querySelector<HTMLFormElement>('[data-final-run-form]');
+    const field = root.querySelector<HTMLInputElement>(
+      '[data-final-run-input]',
+    );
+    const status = root.querySelector<HTMLElement>('[data-final-run-status]');
+    const watch = root.querySelector<HTMLElement>('[data-final-run-watch]');
+    const clearedLine = root.querySelector<HTMLElement>(
+      '[data-final-run-cleared]',
+    );
+
+    const slug = root.dataset['slug'] ?? '';
+    // Computed at build from the same run the player walks through. It is in
+    // the DOM because the check happens on the reader's device and there is no
+    // server — the same reason the whole trace ships in the page's JS. Nothing
+    // is hidden from a reader determined to look, and nothing needs to be:
+    // peeking only costs them the prediction, which is the whole value here.
+    const answer = Number(root.dataset['answer']);
+    const answerText = root.dataset['answerText'] ?? String(answer);
+    // A card whose payload did not survive is left exactly as rendered — a
+    // question with disabled controls — rather than half-wired.
+    if (!form || !field || !Number.isFinite(answer)) return;
+
+    /**
+     * Writes the one line the reader is told, politely.
+     *
+     * Only ever called from a click or a submit, so nothing is announced on
+     * load — and an unchanged string is never rewritten, since re-announcing a
+     * sentence the reader has already heard reads as a stutter (M7.1 CMP-4).
+     */
+    const say = (text: string): void => {
+      if (!status || status.textContent === text) return;
+      status.textContent = text;
+      // The line's own top margin (see the stylesheet): carried by a class so it
+      // cannot depend on whether the formatter left a whitespace text node here.
+      status.classList.add('is-said');
+    };
+
+    /** Reveals the anchor into the visualization, once there is a reason to. */
+    const offerWatch = (): void => {
+      if (watch) watch.hidden = false;
+    };
+
+    /** Marks the card cleared on screen. Never reversed — no stage goes down. */
+    const paintCleared = (): void => {
+      root.dataset['cleared'] = 'true';
+    };
+
+    // Hydrated: every control ships `disabled` so a pre-hydration submit cannot
+    // reload the page (this form has no action).
+    for (const control of Array.from(
+      root.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+        '[data-final-run-input], [data-final-run-check], [data-final-run-reveal]',
+      ),
+    )) {
+      control.disabled = false;
+    }
+
+    // Already cleared on this device: reveal the server-rendered line rather
+    // than writing one — no announcement, and no answer given away, so a review
+    // visit still gets to predict it.
+    if (isFinalRunCleared(slug)) {
+      paintCleared();
+      if (clearedLine) clearedLine.hidden = false;
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const raw = field.value.trim();
+      const guess = Number(raw);
+      if (raw.length === 0 || !Number.isInteger(guess)) {
+        // Not a miss and not a mark against anyone: there is simply nothing to
+        // check yet.
+        say('Type a whole number to check it.');
+        return;
+      }
+
+      if (guess !== answer) {
+        // Hypercorrection: the real number arrives immediately, beside the
+        // invitation to watch it happen. No attempt is counted, here or in
+        // storage — the credit for clearing this is the same on the first try
+        // and the fifth.
+        say(`Not quite — the answer is ${answerText}.`);
+        offerWatch();
+        return;
+      }
+
+      // Cleared. `recordPass` is the ONE promotion path (it owns the 3-day
+      // Mastered gate), so this component decides nothing about mastery: on a
+      // first pass it stamps Practiced, on a due review it advances the
+      // schedule, and otherwise it changes nothing at all. Calling it again on
+      // a second correct answer in the same visit is therefore a no-op.
+      const saved = markFinalRunCleared(slug);
+      if (slug) recordPass(slug);
+      paintCleared();
+      // The storage write is allowed to fail (private mode): the result still
+      // stands for this visit, and only the "saved" half of the sentence is
+      // withheld rather than claiming a save that did not happen.
+      say(
+        saved
+          ? `That's it — ${answerText}. Saved on this device only.`
+          : `That's it — ${answerText}.`,
+      );
+      offerWatch();
+    });
+
+    root
+      .querySelector<HTMLButtonElement>('[data-final-run-reveal]')
+      ?.addEventListener('click', () => {
+        // The escape reveals and nothing more: it does not clear the Final Run,
+        // because the reader has not predicted anything — and it costs nothing
+        // either, because this system has no penalty to charge.
+        say(`The answer is ${answerText}.`);
+        offerWatch();
+      });
+  }
+
+  /** (Re)wires every card on the page. */
+  function initAll(): void {
+    document
+      .querySelectorAll<HTMLElement>('[data-final-run]')
+      .forEach((root) => setup(root));
+  }
+
+  initAll();
+  // View Transitions (none installed today): the incoming page's card is wired
+  // by the same guarded pass, which skips anything already initialised.
+  document.addEventListener('astro:page-load', initAll);
+</script>

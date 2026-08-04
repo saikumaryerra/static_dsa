@@ -19,6 +19,8 @@ import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import Challenge from '../../components/Challenge.astro';
+import FinalRun from '../../components/FinalRun.astro';
 import Callout from '../../components/Callout.astro';
 
 export const mergeTabs = [
@@ -187,6 +189,10 @@ Step through both below. In merge sort, watch the `k` marker write merged values
 
 <Visualizer algorithm="quick-sort" renderer="bars" input="[5,2,9,1,7,3]" />
 
+<Challenge id="sorting-efficient/worst-case" />
+<Challenge id="sorting-efficient/pivot-in-the-middle" />
+<Challenge id="sorting-efficient/merges-best-day" />
+
 ## Complexity
 
 <ComplexityTable complexity={frontmatter.complexity} />
@@ -262,3 +268,11 @@ Work each one out before opening the answer.
   sort needs an O(n) buffer. Since stability is not required, quick sort's
   in-place speed makes it the better fit — just use a randomized pivot.
 </PracticeCheck>
+
+## Final run
+
+<FinalRun
+  slug="sorting-efficient"
+  algorithm="quick-sort"
+  metric="comparisons"
+/>

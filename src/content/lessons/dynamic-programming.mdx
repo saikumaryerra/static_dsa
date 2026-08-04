@@ -19,6 +19,8 @@ import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import Challenge from '../../components/Challenge.astro';
+import FinalRun from '../../components/FinalRun.astro';
 import Callout from '../../components/Callout.astro';
 
 export const tabulationTabs = [
@@ -167,6 +169,9 @@ Tabulation fills left → right; every value is ready before it is needed. There
 
 Memoization recurses down from `dp[n]`, then backfills on the way up. A ✓ marks a value reused from the cache — the same subproblem the naive recursion would have recomputed. Memoization is simply the recursion lesson's `fib` call structure plus a lookup table.
 
+<Challenge id="dynamic-programming/cache-earns-its-keep" />
+<Challenge id="dynamic-programming/nothing-to-add" />
+
 ## Complexity
 
 <ComplexityTable complexity={frontmatter.complexity} />
@@ -243,3 +248,11 @@ Work each one out before opening the answer.
   shape of the natural recurrence, so it is easier to write correctly and only
   computes the subproblems actually needed to answer the query.
 </PracticeCheck>
+
+## Final run
+
+<FinalRun
+  slug="dynamic-programming"
+  algorithm="dp-fib-memoization"
+  metric="cacheHits"
+/>

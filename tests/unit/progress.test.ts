@@ -24,9 +24,17 @@
  * "what storage does" free to drift from this one. They are the invariants the
  * whole gamification layer rests on — the Practiced predicate and its
  * total-vs-checks trap, the 3-day gate, "the later grade wins but no STAGE ever
- * decays", Learned = the completion mark, the unknown fields M8.2/M8.3 will add
+ * decays", Learned = the completion mark, the unknown fields M8.3 will add
  * surviving a write from this version, and the reset that must take mastery
  * records but never a preference.
+ *
+ * The M8.2 REVIEW blocks follow them, for the same reason and one more: the
+ * queue is derived from those very records, so the schedule and the stage ladder
+ * have to be exercised against ONE store or they are not being tested together
+ * at all. They cover the calm invariants the design says must be tests rather
+ * than intentions — at most two cards, `[]` when nothing is due, the interval
+ * clamp that decides whether a lesson is ever offered again, and the vocabulary
+ * ban read off the exported copy.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -37,11 +45,13 @@ import {
   hasStoredProgress,
   isComplete,
   isPracticed,
+  isReviewDue,
   MASTERY_GATE_DAYS,
   masteryGateOpen,
   masteryKey,
   masteryStage,
   masteryStageOf,
+  MAX_REVIEW_CARDS,
   nextIncomplete,
   parseLessonRefs,
   readCompleted,
@@ -49,6 +59,12 @@ import {
   recordPass,
   resetProgress,
   resumeLabel,
+  REVIEW_COPY,
+  REVIEW_INTERVAL_DAYS,
+  reviewHref,
+  reviewReadyAt,
+  selectDueReviews,
+  storedProgress,
   writeCheck,
   type LessonRef,
   type MasteryRecord,
@@ -442,11 +458,21 @@ function mkey(slug: string): string {
   return `progress:v1:${slug}`;
 }
 
-/** A record with nothing recorded — what every degraded path must return. */
+/**
+ * A record with nothing recorded — what every degraded path must return.
+ *
+ * The last two fields are M8.2's review schedule, and their defaults are a
+ * statement in themselves: a lesson nobody has practised is on the FIRST
+ * interval and has never been reviewed, which is exactly what an M8.1-era record
+ * with neither field stored parses as. That is the no-migration promise, seen
+ * from the blank end.
+ */
 const BLANK: MasteryRecord = {
   practicedAt: null,
   masteredAt: null,
   checks: [],
+  intervalIndex: 0,
+  lastReviewAt: null,
 };
 
 const DAY_MS = 86_400_000;
@@ -595,6 +621,7 @@ describe('masteryStageOf (which act earns which stage, pure)', () => {
     expect(
       masteryStageOf(
         {
+          ...BLANK,
           practicedAt: T0.toISOString(),
           masteredAt: later(5).toISOString(),
           checks: [1],
@@ -783,6 +810,11 @@ describe('recordPass (the Mastered gate, with storage)', () => {
     const record = recordPass('stacks', later(3));
     expect(record.masteredAt).toBe(later(3).toISOString());
     expect(masteryStage('stacks')).toBe('mastered');
+    // The same pass is also the first REVIEW: the two numbers coincide by
+    // design (the first interval is the gate), so a return visit that earns
+    // Mastered is exactly the one the review strip invited.
+    expect(record.lastReviewAt).toBe(later(3).toISOString());
+    expect(record.intervalIndex).toBe(1);
   });
 
   it('stamps practicedAt for an earning path that has no practice checks', () => {
@@ -790,11 +822,14 @@ describe('recordPass (the Mastered gate, with storage)', () => {
     install(memoryStorage());
     const record = recordPass('binary-search', T0);
     expect(record).toEqual({
+      ...BLANK,
       practicedAt: T0.toISOString(),
-      masteredAt: null,
-      checks: [],
     });
     expect(masteryStage('binary-search')).toBe('practiced');
+    // A first pass is not a review: it puts the lesson ON the schedule (the
+    // first interval, measured from this instant) rather than through one.
+    expect(record.lastReviewAt).toBeNull();
+    expect(record.intervalIndex).toBe(0);
   });
 
   it('never re-stamps an already-Mastered lesson', () => {
@@ -1021,10 +1056,12 @@ describe('readMastery (defensive parse)', () => {
 
 describe('forward compatibility (fields this version has no name for)', () => {
   /**
-   * The record as M8.2/M8.3 will write it. `docs/m8-gamification.md` extends
-   * THIS key with `intervalIndex`, `lastReviewAt` and `note` and promises no
-   * migration step — which only holds if a write from an older bundle carries
-   * the newer fields through.
+   * The record as M8.3 will write it. `docs/m8-gamification.md` extends THIS key
+   * with `intervalIndex`, `lastReviewAt` and `note` and promises no migration
+   * step — which only holds if a write from an older bundle carries the newer
+   * fields through. M8.2 has since claimed the first two, so `note` is the
+   * unknown one here now; the schedule fields stay in the fixture because the
+   * same payload must also prove that CLAIMING a field kept its value intact.
    */
   const FUTURE = {
     practicedAt: T0.toISOString(),
@@ -1043,12 +1080,14 @@ describe('forward compatibility (fields this version has no name for)', () => {
     >;
   }
 
-  it('ignores the unknown fields on read rather than choking on them', () => {
+  it('ignores the unknown field on read, and parses the schedule it now knows', () => {
     install(memoryStorage({ [mkey('stacks')]: JSON.stringify(FUTURE) }));
     expect(readMastery('stacks')).toEqual({
       practicedAt: FUTURE.practicedAt,
       masteredAt: null,
       checks: [1, 1],
+      intervalIndex: 2,
+      lastReviewAt: FUTURE.lastReviewAt,
     });
   });
 
@@ -1071,12 +1110,15 @@ describe('forward compatibility (fields this version has no name for)', () => {
     const store = install(
       memoryStorage({ [mkey('stacks')]: JSON.stringify(FUTURE) }),
     );
-    expect(recordPass('stacks', later(10)).masteredAt).toBe(
-      later(10).toISOString(),
+    // Day 40: the record's last review was day 6 and it is on the 30-day
+    // interval, so this pass is a DUE one — the only kind that writes.
+    expect(recordPass('stacks', later(40)).masteredAt).toBe(
+      later(40).toISOString(),
     );
     const raw = stored(store, 'stacks');
     expect(raw['note']).toBe(FUTURE.note);
-    expect(raw['masteredAt']).toBe(later(10).toISOString());
+    expect(raw['masteredAt']).toBe(later(40).toISOString());
+    expect(raw['lastReviewAt']).toBe(later(40).toISOString());
   });
 
   it('never lets an unknown field masquerade as a known one', () => {
@@ -1211,5 +1253,579 @@ describe('mastery on a store that throws on every call', () => {
   it('records nothing without throwing into the island', () => {
     expect(writeCheck('arrays', 0, 2, 1, T0)).toEqual(BLANK);
     expect(recordPass('arrays', later(30))).toEqual(BLANK);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M8.2 — the ready-to-review queue: the only surface in this product that ever
+// prompts the reader, and therefore the one with the strictest rules about what
+// it may say and how much of it there may be.
+// ---------------------------------------------------------------------------
+
+/** A record for a lesson first passed at `at`, plus any schedule state. */
+function practisedAt(
+  at: Date,
+  extra: Partial<MasteryRecord> = {},
+): MasteryRecord {
+  return { ...BLANK, practicedAt: at.toISOString(), ...extra };
+}
+
+describe('the review schedule (pure)', () => {
+  it('is the schedule the design specifies, and its first step IS the gate', () => {
+    expect(REVIEW_INTERVAL_DAYS).toEqual([3, 10, 30]);
+    // Not a coincidence worth relying on in code, but worth stating here: the
+    // first review a reader is invited to is exactly the return visit that can
+    // earn Mastered, so the strip never offers a trip that cannot pay.
+    expect(REVIEW_INTERVAL_DAYS[0]).toBe(MASTERY_GATE_DAYS);
+    expect(MAX_REVIEW_CARDS).toBe(2);
+  });
+
+  it('never offers a lesson that was never practised', () => {
+    // Week one is pure learning: with no first pass there is nothing to space
+    // out, so the strip is structurally invisible rather than empty.
+    expect(reviewReadyAt(BLANK)).toBeNull();
+    expect(isReviewDue(BLANK, later(365))).toBe(false);
+    // A partial self-grade is not a pass, and Learned alone gates nothing.
+    expect(isReviewDue({ ...BLANK, checks: [1, null] }, later(365))).toBe(
+      false,
+    );
+  });
+
+  it('offers a first review exactly three days after the first pass', () => {
+    const record = practisedAt(T0);
+    expect(reviewReadyAt(record)).toBe(later(3).getTime());
+    expect(isReviewDue(record, later(3, -1))).toBe(false);
+    expect(isReviewDue(record, later(3))).toBe(true);
+  });
+
+  it('measures from the last review once one exists, and the gaps GROW', () => {
+    const record = practisedAt(T0, {
+      intervalIndex: 1,
+      lastReviewAt: later(3).toISOString(),
+    });
+    // Ten days from the review, not three from the first pass. Growing gaps are
+    // the spacing effect; they are never a penalty for having been away.
+    expect(isReviewDue(record, later(12))).toBe(false);
+    expect(isReviewDue(record, later(13))).toBe(true);
+  });
+
+  it('still becomes due after the LAST interval when the index runs past the end', () => {
+    // THE CLAMP, which is the whole reason this function is unit-tested.
+    // Unclamped, `REVIEW_INTERVAL_DAYS[3]` is `undefined`, every comparison
+    // against it is false, and the lesson is silently never offered again — a
+    // queue that fails SHUT, which nothing on screen could ever report.
+    const record = practisedAt(T0, {
+      intervalIndex: 3,
+      lastReviewAt: later(1).toISOString(),
+    });
+    expect(reviewReadyAt(record)).toBe(later(31).getTime());
+    expect(isReviewDue(record, later(30))).toBe(false);
+    expect(isReviewDue(record, later(31))).toBe(true);
+  });
+
+  it('treats an unusable index as the first interval, which only offers SOONER', () => {
+    // The safe direction for a corrupt value: an invitation costs nothing, and
+    // a lesson offered early is a lesson the reader can ignore.
+    expect(reviewReadyAt(practisedAt(T0, { intervalIndex: -2 }))).toBe(
+      later(3).getTime(),
+    );
+    expect(reviewReadyAt(practisedAt(T0, { intervalIndex: 1.5 }))).toBe(
+      later(3).getTime(),
+    );
+  });
+
+  it('offers nothing on garbage timestamps or a clock that ran backwards', () => {
+    expect(reviewReadyAt({ ...BLANK, practicedAt: 'whenever' })).toBeNull();
+    expect(isReviewDue(practisedAt(T0), later(-10))).toBe(false);
+    // An unparseable review date falls back to the first pass rather than
+    // dropping the lesson out of the schedule entirely.
+    expect(
+      reviewReadyAt(practisedAt(T0, { lastReviewAt: 'last tuesday' })),
+    ).toBe(later(3).getTime());
+    // A review stamped in the FUTURE (a clock that jumped) pushes the offer
+    // out: the schedule takes the later of the two dates, never the earlier.
+    expect(
+      isReviewDue(
+        practisedAt(T0, { lastReviewAt: later(100).toISOString() }),
+        later(50),
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts a millisecond clock as well as a Date', () => {
+    expect(isReviewDue(practisedAt(T0), later(4).getTime())).toBe(true);
+  });
+});
+
+describe('selectDueReviews (with storage)', () => {
+  /** The stored record for a lesson first passed at `at`. */
+  function seedPractised(at: Date, extra: Partial<MasteryRecord> = {}): string {
+    return seedRecord(practisedAt(at, extra));
+  }
+
+  it('offers nothing when nothing is due — so the strip has no empty state', () => {
+    install(memoryStorage({ [mkey('arrays')]: seedPractised(T0) }));
+    expect(selectDueReviews(CURRICULUM, later(2))).toEqual([]);
+  });
+
+  it('offers nothing on a device that has only completion marks', () => {
+    install(memoryStorage({ [key('arrays')]: '1', theme: 'dark' }));
+    expect(selectDueReviews(CURRICULUM, later(365))).toEqual([]);
+  });
+
+  it('never offers more than two, however many are ready', () => {
+    // The cap is a design rule, not a layout convenience: a list of fifteen
+    // things owed is a chore, and a chore is the felt obligation this whole
+    // phase exists to avoid.
+    install(
+      memoryStorage(
+        Object.fromEntries(
+          CURRICULUM.map((lesson) => [mkey(lesson.slug), seedPractised(T0)]),
+        ),
+      ),
+    );
+    const due = selectDueReviews(CURRICULUM, later(90));
+    expect(due).toHaveLength(MAX_REVIEW_CARDS);
+    expect(due.length).toBeLessThanOrEqual(2);
+  });
+
+  it('offers the ones ready longest first, ties broken by curriculum order', () => {
+    install(
+      memoryStorage({
+        // Ready on day 23 — the newest, so it waits.
+        [mkey('sorting-basics')]: seedPractised(later(20)),
+        // Both ready on day 3; `arrays` is order 2 and `stacks` order 3.
+        [mkey('stacks')]: seedPractised(T0),
+        [mkey('arrays')]: seedPractised(T0),
+        [mkey('binary-search')]: seedPractised(later(10)),
+      }),
+    );
+    expect(
+      selectDueReviews(CURRICULUM, later(30)).map((lesson) => lesson.slug),
+    ).toEqual(['arrays', 'stacks']);
+  });
+
+  it('ignores a stale record for a lesson that no longer exists', () => {
+    // The same rule every function here lives under: the lesson list comes from
+    // the build, so a renamed lesson can never surface a card for itself.
+    install(
+      memoryStorage({ [mkey('linked-lists-old-name')]: seedPractised(T0) }),
+    );
+    expect(selectDueReviews(CURRICULUM, later(90))).toEqual([]);
+  });
+
+  it('offers a Mastered lesson again — the loop is relearning, not a finish line', () => {
+    install(
+      memoryStorage({
+        [mkey('stacks')]: seedPractised(T0, {
+          masteredAt: later(3).toISOString(),
+          intervalIndex: 1,
+          lastReviewAt: later(3).toISOString(),
+        }),
+      }),
+    );
+    expect(
+      selectDueReviews(CURRICULUM, later(13)).map((lesson) => lesson.slug),
+    ).toEqual(['stacks']);
+  });
+
+  it('offers a record parked past the end of the schedule (the clamp, end to end)', () => {
+    install(
+      memoryStorage({
+        [mkey('stacks')]: seedPractised(T0, {
+          masteredAt: later(3).toISOString(),
+          intervalIndex: 3,
+          lastReviewAt: later(30).toISOString(),
+        }),
+      }),
+    );
+    expect(selectDueReviews(CURRICULUM, later(59))).toEqual([]);
+    expect(
+      selectDueReviews(CURRICULUM, later(60)).map((lesson) => lesson.slug),
+    ).toEqual(['stacks']);
+  });
+
+  it('stops offering a lesson the moment its review pass lands', () => {
+    install(memoryStorage({ [mkey('stacks')]: seedPractised(T0) }));
+    expect(
+      selectDueReviews(CURRICULUM, later(5)).map((lesson) => lesson.slug),
+    ).toEqual(['stacks']);
+
+    recordPass('stacks', later(5));
+    expect(selectDueReviews(CURRICULUM, later(5))).toEqual([]);
+    // …and comes back on the NEXT gap — ten days later, not three.
+    expect(selectDueReviews(CURRICULUM, later(14))).toEqual([]);
+    expect(
+      selectDueReviews(CURRICULUM, later(15)).map((lesson) => lesson.slug),
+    ).toEqual(['stacks']);
+  });
+
+  it('offers nothing with no storage, and nothing when every read throws', () => {
+    // No install: the Node/SSR case, where the strip must simply never appear.
+    expect(selectDueReviews(CURRICULUM, later(90))).toEqual([]);
+    install(
+      memoryStorage({ [mkey('stacks')]: seedPractised(T0) }, ['getItem']),
+    );
+    expect(selectDueReviews(CURRICULUM, later(90))).toEqual([]);
+  });
+
+  it('reads the wall clock when no clock is injected', () => {
+    // The shipped path: the island calls this with one argument.
+    install(
+      memoryStorage({
+        [mkey('stacks')]: seedRecord({
+          practicedAt: new Date(Date.now() - 40 * DAY_MS).toISOString(),
+        }),
+        [mkey('arrays')]: seedRecord({
+          practicedAt: new Date(Date.now() + DAY_MS).toISOString(),
+        }),
+      }),
+    );
+    expect(selectDueReviews(CURRICULUM).map((lesson) => lesson.slug)).toEqual([
+      'stacks',
+    ]);
+  });
+});
+
+describe('recordPass (the review schedule)', () => {
+  it('advances one interval per due pass, and stops at the last', () => {
+    install(memoryStorage());
+    passAll('stacks', 1, T0);
+    expect(recordPass('stacks', later(3)).intervalIndex).toBe(1);
+    expect(recordPass('stacks', later(13)).intervalIndex).toBe(2);
+    const third = recordPass('stacks', later(43));
+    // Clamped: the last gap simply repeats. An index that kept climbing would
+    // eventually index past the end of the schedule, and an unclamped LOOKUP
+    // there stops offering the lesson at all.
+    expect(third.intervalIndex).toBe(2);
+    expect(third.lastReviewAt).toBe(later(43).toISOString());
+  });
+
+  it('changes nothing when the reader comes back early', () => {
+    const store = install(memoryStorage());
+    passAll('stacks', 1, T0);
+    const before = store.getItem(mkey('stacks'));
+    expect(recordPass('stacks', later(2))).toEqual(readMastery('stacks'));
+    expect(store.getItem(mkey('stacks'))).toBe(before);
+    // The point of asking: an eager re-pass on day 2 must not push the real
+    // review from day 3 out to day 12. Studying more can never cost anything.
+    expect(isReviewDue(readMastery('stacks'), later(3))).toBe(true);
+  });
+
+  it('costs nothing when a review goes badly — the card simply stays', () => {
+    install(memoryStorage());
+    passAll('stacks', 2, T0);
+    // Day 5, the lesson is due, the reader returns and answers "Not yet". No
+    // pass is recorded, so nothing moves: no stage falls, no schedule shifts,
+    // and the invitation is still there when they want it.
+    const record = writeCheck('stacks', 1, 2, 0, later(5));
+    expect(record.practicedAt).toBe(T0.toISOString());
+    expect(record.lastReviewAt).toBeNull();
+    expect(record.intervalIndex).toBe(0);
+    expect(
+      selectDueReviews(CURRICULUM, later(5)).map((lesson) => lesson.slug),
+    ).toEqual(['stacks']);
+  });
+
+  it('promotes and reschedules in ONE write, so a review is never half-recorded', () => {
+    const store = install(memoryStorage());
+    passAll('stacks', 1, T0);
+    recordPass('stacks', later(4));
+    const raw = JSON.parse(store.getItem(mkey('stacks')) ?? '{}') as Record<
+      string,
+      unknown
+    >;
+    expect(raw['masteredAt']).toBe(later(4).toISOString());
+    expect(raw['lastReviewAt']).toBe(later(4).toISOString());
+    expect(raw['intervalIndex']).toBe(1);
+  });
+});
+
+describe('the review strip copy (the vocabulary ban, read off the exports)', () => {
+  /** Every word the strip can say. Exported precisely so this can read them. */
+  const COPY: string[] = Object.values(REVIEW_COPY);
+
+  it('never uses lateness, guilt, or a second currency', () => {
+    // Each word is a mechanic the design killed on the evidence: "overdue" and
+    // "missed" punish the very absence the spacing effect says is the point,
+    // and every currency term is a scoreboard this product does not keep.
+    for (const line of COPY) {
+      expect(line, `banned vocabulary in "${line}"`).not.toMatch(
+        /\b(overdue|missed|behind|late|expired|lost|streak|xp|points?|levels?|badges?|score|rank|leaderboard)\b/i,
+      );
+    }
+  });
+
+  it('never counts down, counts days waited, or shows a ratio', () => {
+    for (const line of COPY) {
+      expect(line, `countdown in "${line}"`).not.toMatch(
+        /\b(in \d+ (seconds?|minutes?|hours?|days?)|\d+ (seconds?|minutes?|hours?|days?) (left|remaining|to go|ago)|ready in|come back in|counting down)\b|\d{1,2}:\d{2}/i,
+      );
+      expect(line, `a score in "${line}"`).not.toMatch(/%|\d\s*\/\s*\d/);
+    }
+  });
+
+  it('invites rather than instructs', () => {
+    expect(REVIEW_COPY.heading).toBe('Ready to review');
+    for (const line of COPY) {
+      expect(line, `an obligation in "${line}"`).not.toMatch(
+        /\b(must|should|need to|have to|don't forget)\b/i,
+      );
+    }
+  });
+
+  it('says where the record lives, like every persistent surface here', () => {
+    expect(REVIEW_COPY.note).toMatch(/on this device/i);
+  });
+
+  it('is honest about the size of the ask', () => {
+    expect(REVIEW_COPY.check).toMatch(/quick check/);
+  });
+});
+
+describe('reviewHref', () => {
+  it('deep-links to the practice section with predict on for one visit', () => {
+    expect(reviewHref('binary-search')).toBe(
+      '/learn/binary-search?review=1#practice',
+    );
+  });
+});
+
+describe('the Predict toggle has no storage surface at all', () => {
+  /** Every key the store currently holds. */
+  function keysOf(store: Storage): string[] {
+    return Array.from({ length: store.length }, (_, i) => store.key(i) ?? '');
+  }
+
+  it('writes only the per-lesson keys spec §6 enumerates', () => {
+    // A whole review round-trip through the shipped write paths — grade the
+    // questions, meet the bar again on the due day, ask what is due — and then
+    // ask what actually landed on the device. The review deep link is a URL,
+    // not a stored flag, so the mode it enables has nothing to persist and the
+    // reset control has nothing extra to miss.
+    const store = install(memoryStorage({ theme: 'dark' }));
+    passAll('stacks', 2, T0);
+    recordPass('stacks', later(4));
+    selectDueReviews(CURRICULUM, later(4));
+    expect(keysOf(store).filter((name) => name !== 'theme')).toEqual([
+      mkey('stacks'),
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M8.3 — the enrichment keys, from the delete side.
+//
+// Spec §6 lists `ld:challenges:v1` and `ld:finalrun:v1` as PROGRESS keys, so the
+// reset control owns them: the delete path ships with the read path, or a reader
+// who asks to clear their device keeps records nothing on screen admits to. They
+// are GLOBAL rather than per-lesson, which is the one structural difference from
+// everything above — cleared outright, never per-slug — and the rule they must
+// NOT bend is the one this module has held since M7.2: no prefix sweep, which is
+// what the "never sweeps by prefix" case below stands against.
+//
+// Their names are spelled out here rather than imported from
+// `src/lib/challenges.ts`, exactly as `key()` and `mkey()` are: a test that
+// describes the implementation with the implementation cannot catch a rename.
+// (`tests/unit/challenges.test.ts` pins the same two literals to the exported
+// constants, so the chain from spec §6 to the writer to this delete list is
+// covered end to end.)
+// ---------------------------------------------------------------------------
+
+/** Cleared Trace Trials — `Challenge.astro` is the one writer. */
+const CHALLENGES_KEY = 'ld:challenges:v1';
+/** Cleared Final Runs — `FinalRun.astro` is the one writer. */
+const FINAL_RUN_KEY = 'ld:finalrun:v1';
+
+/** One cleared trial, in the shape `Challenge.astro` writes. */
+const CLEARED_TRIAL = JSON.stringify({ 'sorting-efficient/worst-case': 1 });
+/** One cleared Final Run, in the shape `FinalRun.astro` writes. */
+const CLEARED_FINAL_RUN = JSON.stringify({ 'binary-search': { c: 1 } });
+
+/** A device that has cleared one Trace Trial and one Final Run. */
+const ENRICHMENT: Record<string, string> = {
+  [CHALLENGES_KEY]: CLEARED_TRIAL,
+  [FINAL_RUN_KEY]: CLEARED_FINAL_RUN,
+};
+
+/** The three §6 PREFERENCE keys — deliberately outside every delete list. */
+const PREFERENCE_KEYS: Record<string, string> = {
+  theme: 'dark',
+  'pref:viz-speed': '2',
+  'pref:code-lang': 'javascript',
+};
+
+describe('resetProgress (enrichment keys)', () => {
+  it('clears both global keys alongside the per-lesson ones, and no preference', () => {
+    const store = install(
+      memoryStorage({
+        ...PREFERENCE_KEYS,
+        ...ENRICHMENT,
+        [key('arrays')]: '1',
+        [mkey('arrays')]: seedRecord({ checks: [1] }),
+      }),
+    );
+    resetProgress(CURRICULUM);
+    expect(store.getItem(CHALLENGES_KEY)).toBeNull();
+    expect(store.getItem(FINAL_RUN_KEY)).toBeNull();
+    expect(store.getItem(key('arrays'))).toBeNull();
+    expect(store.getItem(mkey('arrays'))).toBeNull();
+    expect(store.getItem('theme')).toBe('dark');
+    expect(store.getItem('pref:viz-speed')).toBe('2');
+    expect(store.getItem('pref:code-lang')).toBe('javascript');
+  });
+
+  it('clears them on a device that has nothing else at all', () => {
+    // The gap this closed: the enrichment layer is reachable without ever
+    // marking a lesson complete or grading a question, so "only trials" is a
+    // real device state and not a contrived one.
+    const store = install(memoryStorage({ ...ENRICHMENT }));
+    expect(resetProgress(CURRICULUM)).toBe(0);
+    expect(store.length).toBe(0);
+  });
+
+  it('still counts only completion marks — a cleared trial is not a mark', () => {
+    // The caller renders this number as "N completed marks removed" and names
+    // the other kinds separately, so it must keep speaking in that one unit.
+    install(
+      memoryStorage({
+        ...ENRICHMENT,
+        [key('arrays')]: '1',
+        [mkey('stacks')]: seedRecord({ checks: [1] }),
+      }),
+    );
+    expect(resetProgress(CURRICULUM)).toBe(1);
+  });
+
+  it('never sweeps by prefix: an `ld:` key it does not own survives', () => {
+    // The module deletes exactly two names, imported from the component that
+    // writes them. A prefix sweep is the easy shortcut here and would take
+    // whatever else the origin holds under `ld:` — spec §6's own not-yet-written
+    // `ld:days:v1` included, whose future writer must join the delete list
+    // deliberately rather than be swept up by accident. Pinned shut rather than
+    // merely avoided.
+    const store = install(
+      memoryStorage({ ...ENRICHMENT, 'ld:days:v1': '{"count":3}' }),
+    );
+    resetProgress(CURRICULUM);
+    expect(store.getItem(CHALLENGES_KEY)).toBeNull();
+    expect(store.getItem('ld:days:v1')).toBe('{"count":3}');
+  });
+
+  it('removes nothing and throws nothing when the store is blocked', () => {
+    install(
+      memoryStorage({ ...ENRICHMENT, [key('arrays')]: '1' }, [
+        'getItem',
+        'removeItem',
+        'setItem',
+      ]),
+    );
+    expect(resetProgress(CURRICULUM)).toBe(0);
+  });
+});
+
+describe('storedProgress', () => {
+  it('names each kind separately, so a sentence can be true about any device', () => {
+    install(
+      memoryStorage({
+        ...PREFERENCE_KEYS,
+        ...ENRICHMENT,
+        [key('arrays')]: '1',
+        [key('stacks')]: '1',
+        [mkey('stacks')]: seedRecord({ checks: [1] }),
+      }),
+    );
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 2,
+      records: 1,
+      enrichment: true,
+    });
+  });
+
+  it('reports a device holding only cleared trials', () => {
+    install(memoryStorage({ ...ENRICHMENT }));
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 0,
+      records: 0,
+      enrichment: true,
+    });
+  });
+
+  it('is all-zero for preferences alone — they are not progress', () => {
+    install(memoryStorage({ ...PREFERENCE_KEYS }));
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 0,
+      records: 0,
+      enrichment: false,
+    });
+  });
+
+  it('counts a mark by PRESENCE, exactly as the delete does', () => {
+    // `removeKey` deletes any key that is there, whatever it holds, and
+    // `resetProgress` counts what it deleted. Counting presence here is what
+    // keeps "N will be removed" and "N were removed" the same number on a
+    // device holding a value `MarkComplete` never writes.
+    install(memoryStorage({ [key('arrays')]: '0' }));
+    expect(countComplete(CURRICULUM).done).toBe(0);
+    expect(storedProgress(CURRICULUM).marks).toBe(1);
+    expect(resetProgress(CURRICULUM)).toBe(1);
+  });
+
+  it('ignores keys for lessons outside the injected list', () => {
+    install(
+      memoryStorage({
+        [key('linked-lists-old-name')]: '1',
+        [mkey('linked-lists-old-name')]: seedRecord({ checks: [1] }),
+      }),
+    );
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 0,
+      records: 0,
+      enrichment: false,
+    });
+  });
+
+  it('reports nothing rather than something wrong when the store throws', () => {
+    install(memoryStorage({ ...ENRICHMENT }, ['getItem']));
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 0,
+      records: 0,
+      enrichment: false,
+    });
+  });
+
+  it("reports nothing with no store at all (the build's Node pass)", () => {
+    // No `install` — `afterEach` has removed the global, which is the SSR case.
+    expect(storedProgress(CURRICULUM)).toEqual({
+      marks: 0,
+      records: 0,
+      enrichment: false,
+    });
+  });
+});
+
+describe('hasStoredProgress (enrichment)', () => {
+  it('is true for a device whose only stored data is a cleared trial', () => {
+    // The failure this fixes: the reset control reads `aria-disabled="true"`
+    // from this predicate, so a reader with real stored data was told there was
+    // nothing to clear.
+    install(memoryStorage({ [CHALLENGES_KEY]: CLEARED_TRIAL }));
+    expect(countComplete(CURRICULUM).done).toBe(0);
+    expect(hasStoredProgress(CURRICULUM)).toBe(true);
+  });
+
+  it('is true for a device whose only stored data is a cleared Final Run', () => {
+    install(memoryStorage({ [FINAL_RUN_KEY]: CLEARED_FINAL_RUN }));
+    expect(hasStoredProgress(CURRICULUM)).toBe(true);
+  });
+
+  it('is still false when only preferences are stored', () => {
+    install(memoryStorage({ ...PREFERENCE_KEYS }));
+    expect(hasStoredProgress(CURRICULUM)).toBe(false);
+  });
+
+  it('is false — never a throw — when the store is blocked', () => {
+    install(memoryStorage({ ...ENRICHMENT }, ['getItem']));
+    expect(hasStoredProgress(CURRICULUM)).toBe(false);
   });
 });

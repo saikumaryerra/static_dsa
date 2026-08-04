@@ -16,6 +16,7 @@
 import type { Algorithm, Highlight, Step, Trace } from '../core/types';
 import { snapshot } from '../core/snapshot';
 import { edgeId, nodeId } from '../core/ids';
+import { predictNextVisit } from './predictors';
 
 /** Hard cap on vertex count (site spec §11.4: graph nodes ≤ 15). */
 const MAX_NODES = 15;
@@ -249,4 +250,13 @@ export const dfs: Algorithm<TraversalInput, TraversalState> = {
     start: 0,
   }),
   parseInput,
+  // M8.2: predicting the next pop IS the LIFO rule — the stack's top, the most
+  // recently pushed node, not the one that has waited longest.
+  predictStep: (trace, i, input) =>
+    predictNextVisit(
+      trace,
+      i,
+      input.nodeIds,
+      'Which node comes off the stack next?',
+    ),
 };

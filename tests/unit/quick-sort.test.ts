@@ -88,3 +88,39 @@ describe('quickSort.parseInput', () => {
     });
   });
 });
+
+describe('quickSort predict-mode exclusion (M8.2)', () => {
+  it('ships no predictStep at all', () => {
+    // Deliberate, not an omission: see the deferred swap below and
+    // `docs/m8-gamification.md` M8.2.
+    expect(quickSort.predictStep).toBeUndefined();
+  });
+
+  it('defers its pivot swap past the last compare, which a metrics-delta grader would misread', () => {
+    // The authored input the lesson ships. Its last partition compare is
+    // "7 vs pivot 3" — a compare that does NOT swap — but the very next step is
+    // the pivot placement, so the cumulative `swaps` metric still increments.
+    // A generic delta grader would answer "Swap" and mark a correct learner
+    // wrong; that is why quick sort has no predictor.
+    const trace = quickSort.run(quickSort.defaultInput()); // [5,2,9,1,7,3]
+    const i = trace.findIndex(
+      (s) => s.explanation === 'Compare index 4 (7) with pivot 3.',
+    );
+    expect(i).toBeGreaterThan(-1);
+
+    const compare = trace[i]!;
+    const next = trace[i + 1]!;
+    expect(next.metrics!['swaps']).toBe(compare.metrics!['swaps']! + 1);
+
+    // ...and the cells that move are not the pair the learner was shown.
+    const comparedIds = (compare.highlights ?? []).find(
+      (h) => h.kind === 'compare',
+    )!.ids;
+    const swappedIds = (next.highlights ?? []).find(
+      (h) => h.kind === 'swap',
+    )!.ids;
+    expect(comparedIds).toEqual(['i4', 'i5']);
+    expect(swappedIds).toEqual(['i2', 'i5']);
+    expect(swappedIds).not.toContain('i4');
+  });
+});

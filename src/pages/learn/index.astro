@@ -28,22 +28,43 @@
  * disagreeing. A collapsed legend under the page head says what the three stages
  * are and who is grading them (the reader) — static copy, no key, no island.
  *
+ * M8.2 adds the ready-to-review strip directly under the page head (spec §8) —
+ * at most two quiet link-cards, and ZERO DOM when nothing is due, so a reader
+ * with nothing to review never meets an empty state or an "all caught up"
+ * badge. It is the only surface in the product that ever prompts, which is why
+ * it is capped, wordless about lateness, and derived at render rather than
+ * stored. `ReviewStrip` reads the SAME build-injected `data-lessons` list the
+ * progress island does — one list, one schedule — and inserts itself after the
+ * element carrying it, so its placement is not a second fact to keep in sync.
+ *
+ * M8.3 adds no surface here, only truth to an existing one. `ld:challenges:v1`
+ * and `ld:finalrun:v1` are spec §6 PROGRESS keys, so the reset control clears
+ * them — through `src/lib/progress.ts`, which owns the delete list — and its
+ * confirm warning and its announcement now name whichever record kinds this
+ * device actually holds. A reader whose only stored data is a cleared trial is
+ * therefore neither told there is nothing to clear nor told that "0 completed
+ * marks" went.
+ *
  * JS off (or storage blocked): the CTA still points at lesson 01, the counters
  * stay hidden rather than lying "0 of 9" — with the store blocked the arcs mark
  * themselves unreadable instead of stating a zero nobody could verify — the
  * reset control, the legend and every M8 surface are hidden by their own
- * <noscript> kill-switches (none of them can work), and every card stays a
- * fully usable link (§6 local completed state, §12 a11y).
+ * <noscript> kill-switches (none of them can work; the review strip has no
+ * markup to hide in the first place), and every card stays a fully usable link
+ * (§6 local completed state, §12 a11y).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
  * <h1>, then an <h2> per track section (empty tracks show a "coming soon" note so
- * both labelled sections always render — spec §8 requires both).
+ * both labelled sections always render — spec §8 requires both), plus the review
+ * strip's own <h2> on the visits where it has something to offer — the same
+ * level, since it is a section of this page and not part of a track.
  */
 import { getCollection } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import Collapsible from '../../components/Collapsible.astro';
 import LessonCard from '../../components/LessonCard.astro';
+import ReviewStrip from '../../components/ReviewStrip.astro';
 import TrackArc from '../../components/TrackArc.astro';
 import { TRACK_COPY, TRACK_ORDER } from '../../lib/tracks';
 import {
@@ -86,6 +107,31 @@ const lessonRefs: LessonRef[] = published
 
 /** First lesson in global order — the JS-off / nothing-stored resume target. */
 const firstLesson = lessonRefs[0];
+
+/**
+ * Build guard for the review strip's deep link (M8.2).
+ *
+ * Every review card points at `/learn/{slug}?review=1#practice`, and that
+ * fragment is the id Astro derives from the lesson's `## Practice` heading. A
+ * heading renamed to anything else — "## Practice questions", or spec §7's own
+ * long form "Practice / check yourself" — keeps the page valid and silently
+ * turns the link into a no-op that dumps the reader at the top of the lesson.
+ * That is invisible in review and invisible in the rendered page, so it fails
+ * the build instead. Checked here rather than in the component because the
+ * component builds its links at runtime from slugs alone, and this page is what
+ * mounts it. Entries whose raw body cannot be read are skipped: a guard can only
+ * assert about text it actually has.
+ */
+const missingPractice = published
+  .filter(
+    (entry) => entry.body && !/^##[ \t]+Practice[ \t]*$/m.test(entry.body),
+  )
+  .map((entry) => entry.data.slug);
+if (missingPractice.length > 0) {
+  throw new Error(
+    `Lesson(s) ${missingPractice.join(', ')} have no "## Practice" heading, so the review strip's #practice deep link would land nowhere. Restore the heading (spec §7 body-section 7) or change ReviewStrip's target.`,
+  );
+}
 
 /**
  * The CTA's server-rendered wording, from the SAME helper the island calls at
@@ -161,8 +207,12 @@ const resumeFallback = firstLesson
                 id="reset-progress-warn"
                 data-reset-warn
               >
-                Removes every completed mark stored on this device — cannot be
-                undone.
+                {/* Rewritten by the island every time the panel opens, naming
+                    only the record kinds this device actually holds. This is
+                    the build's honest version of that sentence: it cannot know
+                    the device, so it names every progress key §6 lists. */}
+                Removes every completed mark, practice record and trial record
+                stored on this device — cannot be undone.
               </p>
               <div class="learn__reset-actions">
                 <button
@@ -260,6 +310,16 @@ const resumeFallback = firstLesson
         )
       }
     </header>
+
+    {
+      /* The ready-to-review strip (M8.2). Nothing of the strip renders here —
+         the component emits only its styles and its <noscript> kill-switch, and
+         its island inserts the cards after the page head (the element above,
+         which carries the injected lesson list) only when something is actually
+         due. Mounted at the position it will occupy so the source reads in
+         document order. */
+    }
+    <ReviewStrip />
 
     {
       sections.map((section) => (
@@ -523,9 +583,11 @@ const resumeFallback = firstLesson
     nextIncomplete,
     onRestore,
     parseLessonRefs,
+    PROGRESS_RESET_EVENT,
     readCompleted,
     resetProgress,
     resumeLabel,
+    storedProgress,
     type LessonRef,
   } from '../../lib/progress';
   import {
@@ -544,6 +606,35 @@ const resumeFallback = firstLesson
   /** "3 completed marks" / "1 completed mark" — used by the confirm and the announcement. */
   function marks(count: number): string {
     return `${count} completed mark${count === 1 ? '' : 's'}`;
+  }
+
+  /**
+   * What a reset removes BESIDES completion marks, named in the reader's words:
+   * "practice records", "trial records", or both.
+   *
+   * Two sentences share it — the confirm warning and the announcement — so a
+   * device is described the same way before and after the delete. It names only
+   * what is actually there, which is why it takes the storage reading rather
+   * than a fixed phrase: "practice and trial records" on a device holding only
+   * practice records would over-claim a delete the reader cannot undo.
+   *
+   * "Trial records" covers both enrichment keys (cleared Trace Trials and
+   * cleared Final Runs) deliberately: the reader met them as one thing — puzzles
+   * they cleared — and spelling out two internal key names in a warning sentence
+   * would trade clarity for an accuracy nobody asked for.
+   *
+   * @param stored - The reading from `storedProgress`.
+   * @returns The phrase without an article, or `''` when neither kind is stored
+   * (each caller adds the article its own sentence needs).
+   */
+  function recordKinds(stored: {
+    records: number;
+    enrichment: boolean;
+  }): string {
+    const kinds: string[] = [];
+    if (stored.records > 0) kinds.push('practice');
+    if (stored.enrichment) kinds.push('trial');
+    return kinds.length > 0 ? `${kinds.join(' and ')} records` : '';
   }
 
   /** Points the CTA at the first unfinished lesson, or stands it down when all are done. */
@@ -706,6 +797,8 @@ const resumeFallback = firstLesson
    * a reader who self-graded practice without ever clicking "Mark as complete"
    * has a `progress:v1:{slug}` record on the device, and a control gated on
    * marks alone would present itself as "nothing to clear" while holding it.
+   * M8.3 widened the same question rather than adding a second one — a device
+   * whose only stored data is a cleared Trace Trial reaches this control too.
    */
   function renderReset(list: LessonRef[]): void {
     const toggle = document.querySelector<HTMLElement>('[data-reset-toggle]');
@@ -743,15 +836,25 @@ const resumeFallback = firstLesson
    * destructive button under a Space keypress the reader has not released yet.
    */
   function openPanel(toggle: HTMLElement, panel: HTMLElement): void {
-    const { done } = countComplete(lessons());
+    const stored = storedProgress(lessons());
+    const kinds = recordKinds(stored);
     const warn = panel.querySelector<HTMLElement>('[data-reset-warn]');
     if (warn) {
-      // A practice-only device has records but no marks: naming "0 completed
-      // marks" there would describe the delete as a no-op it is not.
-      warn.textContent =
-        done === 0
-          ? 'Removes the practice records stored on this device — cannot be undone.'
-          : `Removes ${marks(done)} stored on this device — cannot be undone.`;
+      // A device with records but no marks — practice-only, or one that has
+      // only cleared trials — must not be told "0 completed marks", which would
+      // describe the delete as a no-op it is not. The three §6 progress shapes
+      // are named in whatever combination is actually stored; the fallback
+      // never renders (the toggle is aria-disabled with nothing stored) and is
+      // here so no arrangement of this sentence can come out empty.
+      const what =
+        stored.marks > 0
+          ? kinds
+            ? `${marks(stored.marks)} and the ${kinds}`
+            : marks(stored.marks)
+          : kinds
+            ? `the ${kinds}`
+            : 'the progress';
+      warn.textContent = `Removes ${what} stored on this device — cannot be undone.`;
     }
     panel.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
@@ -772,19 +875,34 @@ const resumeFallback = firstLesson
   /** Confirm: clear the keys, redraw every surface in place, say what happened. */
   function confirmReset(): void {
     const list = lessons();
-    // Asked BEFORE the delete, and only then: `resetProgress` counts the
-    // completion marks it removed and deliberately does not count mastery
-    // records (a practice record is not a "mark"), so this is the only moment
-    // the practice-only case is still visible.
-    const hadProgress = hasStoredProgress(list);
+    // Read BEFORE the delete, and only then: `resetProgress` counts the
+    // completion marks it removed and deliberately counts neither mastery
+    // records nor the enrichment keys (neither a practice record nor a cleared
+    // trial is a "mark"), so this is the only moment the rest is still there to
+    // be named.
+    const stored = storedProgress(list);
+    const kinds = recordKinds(stored);
     const removed = resetProgress(list);
     closePanel();
     render();
+    // The review strip paints from the records this just deleted, and it is a
+    // SECOND island with no shared scope — so it is told, or it keeps inviting
+    // the reader to review lessons the device no longer remembers. Announced
+    // rather than called: this file must not learn how another component
+    // renders itself.
+    document.dispatchEvent(new CustomEvent(PROGRESS_RESET_EVENT));
+    // Said in the same units the warning used, so the reader hears back exactly
+    // what they agreed to: the marks the delete actually removed (never the
+    // count it hoped to — a blocked key is not a removal), plus whichever other
+    // record kinds were there. "Nothing to reset" is what a clean device and a
+    // blocked store both come out as, which is the honest answer for both.
     announce(
       removed > 0
-        ? `Progress reset — ${marks(removed)} removed from this device.`
-        : hadProgress
-          ? 'Progress reset — practice records removed from this device.'
+        ? `Progress reset — ${marks(removed)} removed from this device${
+            kinds ? `, along with the ${kinds}` : ''
+          }.`
+        : kinds
+          ? `Progress reset — ${kinds} removed from this device.`
           : 'Nothing to reset — no progress was stored on this device.',
     );
   }

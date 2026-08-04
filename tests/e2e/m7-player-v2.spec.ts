@@ -47,6 +47,11 @@ test.describe('consolidated control bar', () => {
       'vizBack',
       'vizPlay',
       'vizForward',
+      // M8.2's Predict toggle sits LAST in the transport row — after the four
+      // icons, whose order readers already know, and before the scrubber — so
+      // the row still reads left to right. It exists only on a lesson whose
+      // algorithm ships a predictor, which binary search does.
+      'vizPredict',
       'vizSlider',
       'vizSpeed',
       'vizArray',

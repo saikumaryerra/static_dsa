@@ -131,3 +131,87 @@ describe('binarySearch.parseInput', () => {
     });
   });
 });
+
+describe('binarySearch.predictStep (M8.2)', () => {
+  /** The question for step `i`, or `null`. */
+  const ask = (
+    input: BinarySearchInput,
+    i: number,
+  ): ReturnType<NonNullable<typeof binarySearch.predictStep>> =>
+    binarySearch.predictStep!(binarySearch.run(input), i, input);
+
+  it('returns null on the last step — there is no successor to grade against', () => {
+    const input: BinarySearchInput = { array: [1, 3, 5, 7], target: 5 };
+    const trace = binarySearch.run(input);
+    expect(ask(input, trace.length - 1)).toBeNull();
+    // Every earlier step DOES have a question — binary search always decides.
+    for (let i = 0; i < trace.length - 1; i += 1) {
+      expect(ask(input, i)).not.toBeNull();
+    }
+  });
+
+  it('checks foundIndex FIRST: the hit grades "Found it", not a left/right read', () => {
+    // [1,3,5,7] target 5: step 1 probes index 1 (3 < 5), step 2 probes index 2
+    // and hits. That hit's value (5) is NOT less than the target, so a grader
+    // that compared before checking foundIndex would answer "Go left".
+    const input: BinarySearchInput = { array: [1, 3, 5, 7], target: 5 };
+    expect(binarySearch.run(input)[2]!.state.foundIndex).toBe(2);
+    expect(ask(input, 1)!.choices[ask(input, 1)!.correctIndex]).toBe(
+      'Found it',
+    );
+  });
+
+  it('checks the empty-window terminal before reading array[mid]', () => {
+    // [1,3,5,7] target 4 ends with mid === null. A grader that read
+    // array[mid] first would get `undefined`, and `undefined < 4` is false —
+    // silently answering "Go left" on the step where the search gives up.
+    const input: BinarySearchInput = { array: [1, 3, 5, 7], target: 4 };
+    const trace = binarySearch.run(input);
+    const terminal = trace[trace.length - 1]!;
+    expect(terminal.state.mid).toBeNull();
+    expect(terminal.state.foundIndex).toBeNull();
+
+    const q = ask(input, trace.length - 2)!;
+    expect(q.choices[q.correctIndex]).toBe('Not present');
+  });
+
+  it('grades the next probe against the target, not the lo/hi window', () => {
+    // Probe below the target → the search moves right.
+    const right: BinarySearchInput = { array: [1, 3, 5, 7, 9, 11], target: 11 };
+    expect(binarySearch.run(right)[1]!.state.mid).toBe(2); // holds 5
+    const qRight = ask(right, 0)!;
+    expect(qRight.choices[qRight.correctIndex]).toBe('Go right');
+
+    // Probe above the target → the search moves left.
+    const left: BinarySearchInput = { array: [1, 3, 5, 7], target: 1 };
+    expect(binarySearch.run(left)[1]!.state.mid).toBe(1); // holds 3
+    const qLeft = ask(left, 0)!;
+    expect(qLeft.choices[qLeft.correctIndex]).toBe('Go left');
+  });
+
+  it('offers the four fixed choices with a correctIndex inside them, at every step', () => {
+    const inputs: BinarySearchInput[] = [
+      binarySearch.defaultInput(),
+      { array: [1, 3, 5, 7], target: 4 },
+      { array: [], target: 5 },
+      { array: [5], target: 5 },
+    ];
+    for (const input of inputs) {
+      const trace = binarySearch.run(input);
+      for (let i = 0; i < trace.length; i += 1) {
+        const q = binarySearch.predictStep!(trace, i, input);
+        if (!q) continue;
+        expect(q.choices).toEqual([
+          'Go left',
+          'Go right',
+          'Found it',
+          'Not present',
+        ]);
+        // §11.2 caps choices at 4.
+        expect(q.choices.length).toBeLessThanOrEqual(4);
+        expect(q.correctIndex).toBeGreaterThanOrEqual(0);
+        expect(q.correctIndex).toBeLessThan(q.choices.length);
+      }
+    }
+  });
+});

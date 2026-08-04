@@ -29,13 +29,17 @@
  * real island import sets and gzipping each emitted chunk.
  *
  * WHAT IT NEVER DOES:
- * - **Enumerate `localStorage` by key prefix.** Every function takes the lesson
- *   list injected from the build (`LessonRef[]`), so a renamed or unpublished
- *   lesson can never leave a stale key behind that inflates a count.
+ * - **Enumerate `localStorage` by key prefix.** Every per-lesson function takes
+ *   the lesson list injected from the build (`LessonRef[]`), so a renamed or
+ *   unpublished lesson can never leave a stale key behind that inflates a count;
+ *   M8.3's two GLOBAL keys are addressed by name, imported from their writer
+ *   (see the import below), never found by sweeping for an `ld:` prefix.
  * - **Write completion.** `MarkComplete.astro` owns that write path; this module
  *   reads and deletes `lesson:{slug}:complete`, so it has exactly one writer.
  *   (The M8.1 mastery record is a *different* key, `progress:v1:{slug}`, and
- *   this module is the only thing that writes it — same rule, one writer each.)
+ *   this module is the only thing that writes it — same rule, one writer each.
+ *   M8.3's `ld:*` keys are the same story once more: `Challenge.astro` and
+ *   `FinalRun.astro` write them, this module only clears them.)
  * - **Infer anything.** Only explicit user acts are stored (spec §6: no
  *   behavioral tracking — nothing here observes scroll depth or time on page).
  *   Every mastery timestamp below is stamped by a click the reader made.
@@ -45,6 +49,25 @@
  * (Safari's blocked-methods mode) degrades to "nothing is complete" instead of
  * throwing, so the caller's server-rendered fallback simply stays on screen.
  */
+
+/**
+ * M8.3's two GLOBAL progress keys and their delete path, IMPORTED from the module
+ * that writes them (`src/lib/challenges.ts`) rather than retyped here.
+ *
+ * The rule this file already applies per-lesson — one writer per key, and the
+ * key format stated once — is the reason: a literal spelled in both modules is a
+ * literal free to drift, and a reset pointing at `ld:challenge:v1` while the card
+ * writes `ld:challenges:v1` would fail silently, leaving the reader with data
+ * they asked to delete and nothing on screen to say so.
+ *
+ * Cheap to import, which is what makes that rule affordable on a page with a
+ * gzip budget: `challenges.ts` is side-effect free and its catalog, DSL and
+ * build-time guard are all unreferenced from here, so they shake out and only
+ * the two key strings plus this one function travel. Measured at +13 B gz over
+ * retyping the literals here (both variants bundled under the `/learn` island's
+ * real import set and gzipped; the catalog's own strings appear in neither).
+ */
+import { ENRICHMENT_KEYS, resetEnrichment } from './challenges';
 
 /** A lesson's identity as injected from the build (never read back out of storage). */
 export interface LessonRef {
@@ -177,23 +200,44 @@ export function countComplete(lessons: LessonRef[]): {
 }
 
 /**
- * Clears every per-lesson PROGRESS key for the given lessons — the delete half
- * of the progress system, shipped with the read half so the data is never
- * one-way. Both keys go: the completion mark AND the M8.1 mastery record.
+ * Clears every PROGRESS key on this device — the delete half of the progress
+ * system, shipped with the read half so the data is never one-way. Four keys in
+ * two shapes go:
+ * - PER-LESSON, for the injected slugs only: the completion mark and the M8.1
+ *   mastery record.
+ * - GLOBAL, cleared outright because they are not keyed by slug: M8.3's
+ *   `ld:challenges:v1` and `ld:finalrun:v1`, through their own module's
+ *   {@link resetEnrichment} (spec §6 lists both as progress keys, so a reset
+ *   that skipped them would keep records the reader asked to delete while the
+ *   control described itself as having nothing to clear).
+ *
+ * Still no prefix scan, in either shape: the per-lesson keys are addressed from
+ * the build-injected list and the global ones are two names imported from their
+ * writer. Nothing here ever enumerates storage looking for an `ld:` prefix,
+ * which is what stops a reset from deleting a key this product does not own.
+ *
+ * SPEC-GAP: spec §6 enumerates a THIRD global progress key, `ld:days:v1` (the
+ * M8.3 learning-days counter). No module writes it — `docs/m8-gamification.md`
+ * lists Learning Days as the "first cut under budget pressure" and this batch
+ * shipped without it — so no device can be holding one and there is nothing to
+ * delete. Spelling the literal here anyway would put a key format in a module
+ * that is not its writer, the exact drift this file's key rules exist to
+ * prevent; when that counter lands, its writer exports the name and joins it to
+ * the imported list above, the same way the two enrichment keys did.
  *
  * Preference keys (`theme`, `pref:viz-speed`, `pref:code-lang`) are deliberately
  * NOT cleared (spec §6): resetting progress must not also throw away the
- * reader's theme or speed. M8.2/M8.3's remaining progress keys
- * (`ld:challenges:v1`, `ld:finalrun:v1`, `ld:days:v1`) are global rather than
- * per-lesson and join this clear list when those phases land — which is the
- * whole reason the reset control routes through this module.
+ * reader's theme or speed — which is the whole reason the reset control routes
+ * through this module rather than clearing the store.
  *
- * @param lessons - The build-injected lesson list; only these slugs are touched.
+ * @param lessons - The build-injected lesson list; only these slugs are touched
+ * per-lesson (the global keys belong to no lesson and always go).
  * @returns How many COMPLETION MARKS were actually removed (0 when storage is
- * unavailable). Mastery records are cleared too but deliberately not counted:
- * the caller renders this number as "N completed marks removed", and a practice
- * record is not a mark — counting it would make that sentence false. Callers
- * that need "is there anything at all to clear?" use {@link hasStoredProgress}.
+ * unavailable). Mastery records and enrichment keys are cleared too but
+ * deliberately not counted: the caller renders this number as "N completed marks
+ * removed", and neither a practice record nor a cleared trial is a mark —
+ * counting them would make that sentence false. Callers that need to NAME what
+ * else went use {@link storedProgress} before calling this.
  */
 export function resetProgress(lessons: LessonRef[]): number {
   const store = getStore();
@@ -203,6 +247,9 @@ export function resetProgress(lessons: LessonRef[]): number {
     if (removeKey(store, completeKey(lesson.slug))) removed += 1;
     removeKey(store, masteryKey(lesson.slug));
   }
+  // The global half, owned by the module that writes it: same per-key try/catch
+  // discipline, so one blocked key cannot strand the others.
+  resetEnrichment();
   return removed;
 }
 
@@ -229,31 +276,79 @@ function removeKey(store: Storage, key: string): boolean {
 }
 
 /**
- * Whether ANY per-lesson progress is stored for the given lessons — a completion
- * mark or a mastery record.
+ * What this device is actually holding, by KIND — the read half of the reset,
+ * and the only place a caller can learn what a reset is about to remove.
+ *
+ * The kinds are separate because the reader is told about them in different
+ * words: `resetProgress` reports completion marks and nothing else, so a control
+ * that named only that number would describe a delete of practice records and
+ * cleared trials as "0 completed marks" — a no-op it is not. `/learn` composes
+ * its confirm warning and its announcement from these three fields, which is how
+ * both sentences stay true on a device holding any combination of them.
+ *
+ * @param lessons - The build-injected lesson list; per-lesson keys are counted
+ * for these slugs only, so a renamed lesson's leftover key can never inflate a
+ * count (the global keys belong to no lesson and are simply present or absent).
+ * @returns Counts of completion marks and mastery records, plus whether either
+ * enrichment key holds anything. All zero/false when storage is unavailable or a
+ * read throws — the same "report nothing rather than something wrong" rule
+ * {@link readCompleted} follows, since a partial answer here would understate a
+ * delete the reader is being asked to confirm.
+ */
+export function storedProgress(lessons: LessonRef[]): {
+  /** Lessons with a `lesson:{slug}:complete` key present. */
+  marks: number;
+  /** Lessons with a `progress:v1:{slug}` record present. */
+  records: number;
+  /** Whether `ld:challenges:v1` or `ld:finalrun:v1` holds anything. */
+  enrichment: boolean;
+} {
+  const nothing = { marks: 0, records: 0, enrichment: false };
+  const store = getStore();
+  if (!store) return nothing;
+  let marks = 0;
+  let records = 0;
+  try {
+    for (const lesson of lessons) {
+      // Presence, not value: `removeKey` deletes any key that is there, so
+      // counting the same way is what keeps "N will be removed" and "N were
+      // removed" the same number.
+      if (store.getItem(completeKey(lesson.slug)) !== null) marks += 1;
+      if (store.getItem(masteryKey(lesson.slug)) !== null) records += 1;
+    }
+    // Named, never found by prefix: the two keys are imported from their writer.
+    for (const key of ENRICHMENT_KEYS) {
+      if (store.getItem(key) !== null)
+        return { marks, records, enrichment: true };
+    }
+  } catch {
+    return nothing;
+  }
+  return { marks, records, enrichment: false };
+}
+
+/**
+ * Whether ANY progress at all is stored — a completion mark, a mastery record,
+ * or an enrichment key.
  *
  * Exists because `resetProgress`'s return value counts only marks: a reader who
- * self-graded practice without ever clicking "Mark as complete" still has data
- * on the device, and a reset control gated on the completion count alone would
- * present itself as "nothing to clear" while holding their practice records.
+ * self-graded practice without ever clicking "Mark as complete", or who cleared
+ * a Trace Trial and nothing else, still has data on the device, and a reset
+ * control gated on the completion count alone would present itself as "nothing
+ * to clear" while holding it.
+ *
+ * Derived from {@link storedProgress} rather than short-circuiting on the first
+ * hit: one definition of "what counts as progress" is worth the handful of extra
+ * synchronous reads (at most two per lesson plus two), and a second predicate
+ * here is a second list of keys free to fall behind the delete list.
  *
  * @param lessons - The build-injected lesson list.
  * @returns True if at least one progress key exists; false when storage is
- * unavailable or every read throws.
+ * unavailable or a read throws.
  */
 export function hasStoredProgress(lessons: LessonRef[]): boolean {
-  const store = getStore();
-  if (!store) return false;
-  return lessons.some((lesson) => {
-    try {
-      return (
-        store.getItem(completeKey(lesson.slug)) !== null ||
-        store.getItem(masteryKey(lesson.slug)) !== null
-      );
-    } catch {
-      return false;
-    }
-  });
+  const stored = storedProgress(lessons);
+  return stored.marks > 0 || stored.records > 0 || stored.enrichment;
 }
 
 /**
@@ -341,6 +436,24 @@ export function onRestore(refresh: () => void): void {
   });
 }
 
+/**
+ * Same-page channel announcing that {@link resetProgress} has just run — the
+ * second rule about WHEN a surface re-reads storage, and here for the same
+ * reason {@link onRestore} is.
+ *
+ * `/learn` now paints its progress from TWO islands (the page's own, and the
+ * review strip's), and only the first of them owns the delete. Astro gives
+ * component scripts no shared scope, so without a channel the island that did
+ * not run the reset keeps whatever it last drew: cleared records, and a strip
+ * still inviting the reader to review lessons the device no longer remembers.
+ * A `storage` event cannot cover this — browsers fire it in OTHER tabs only.
+ *
+ * Dispatch on `document` with no detail, mirroring `codetabs:lang` and
+ * `viz:speed`: every listener re-reads storage itself, so the message carries no
+ * state that could be stale by the time it arrives.
+ */
+export const PROGRESS_RESET_EVENT = 'progress:reset';
+
 // ---------------------------------------------------------------------------
 // Mastery (M8.1) — the one currency: Learned → Practiced → Mastered.
 //
@@ -383,12 +496,14 @@ export type MasteryStage = 'none' | 'learned' | 'practiced' | 'mastered';
 /**
  * The stored shape of `progress:v1:{slug}` — the fields THIS version knows.
  *
- * Timestamps rather than booleans: the Mastered gate and M8.2's review schedule
- * are both derived from them, so a boolean would have to be re-derived from a
- * date anyway. M8.2/M8.3 extend this record (`intervalIndex`, `lastReviewAt`,
- * `note`) with no migration, which has to work in BOTH directions: a record that
- * lacks the newer fields parses fine here, and a record that already has them
- * survives a write from this version untouched (see {@link readStored}).
+ * Timestamps rather than booleans: the Mastered gate and the review schedule are
+ * both derived from them, so a boolean would have to be re-derived from a date
+ * anyway. M8.2 added the last two fields and M8.3 adds `note`, all with no
+ * migration step, which has to work in BOTH directions: a record written before
+ * they existed parses fine here (an M8.1 record reads as "first interval, never
+ * reviewed", which is exactly what a lesson that has only ever been practised
+ * is), and a record that already carries a field this version has no name for
+ * survives a write from it untouched (see {@link readStored}).
  */
 export interface MasteryRecord {
   /**
@@ -400,6 +515,17 @@ export interface MasteryRecord {
   masteredAt: string | null;
   /** Self-grades indexed by question order: 1 = "I had it", 0 = "Not yet". */
   checks: (0 | 1 | null)[];
+  /**
+   * Which spacing interval this lesson is on — a position in
+   * {@link REVIEW_INTERVAL_DAYS}, advanced by each review pass (M8.2). `0` for a
+   * lesson that has been practised but never reviewed.
+   */
+  intervalIndex: number;
+  /**
+   * ISO timestamp of the most recent review pass; `null` until one happens, when
+   * the schedule measures from {@link MasteryRecord.practicedAt} instead.
+   */
+  lastReviewAt: string | null;
 }
 
 /**
@@ -426,7 +552,13 @@ const MAX_CHECKS = 32;
 
 /** A record with nothing recorded — the answer for "no key" and "unreadable key". */
 function blankMastery(): MasteryRecord {
-  return { practicedAt: null, masteredAt: null, checks: [] };
+  return {
+    practicedAt: null,
+    masteredAt: null,
+    checks: [],
+    intervalIndex: 0,
+    lastReviewAt: null,
+  };
 }
 
 /**
@@ -552,6 +684,23 @@ function toIso(value: unknown): string | null {
 }
 
 /**
+ * Coerces a stored `intervalIndex`; anything unusable reads as the first
+ * interval, which only ever makes a lesson due SOONER — the safe direction for a
+ * corrupt value, since a review invitation costs the reader nothing.
+ *
+ * Deliberately NOT clamped to the interval list here. The clamp belongs at the
+ * lookup ({@link intervalDays}), because a record outlives the bundle that wrote
+ * it: rewriting the stored number on read would hide a value a future version
+ * gives more positions to, and would move the clamp away from the one place that
+ * must never index past the end.
+ */
+function toIntervalIndex(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : 0;
+}
+
+/**
  * A parsed record plus the fields this version did not recognise.
  *
  * The second half is not decoration: `docs/m8-gamification.md` has M8.2 and M8.3
@@ -598,10 +747,14 @@ function parseMastery(raw: string | null): StoredMastery {
   }
   // Rest destructuring IS the forward-compatibility mechanism: whatever this
   // version has no name for lands in `extra` and is written straight back.
-  const { practicedAt, masteredAt, checks, ...extra } = parsed as Record<
-    string,
-    unknown
-  >;
+  const {
+    practicedAt,
+    masteredAt,
+    checks,
+    intervalIndex,
+    lastReviewAt,
+    ...extra
+  } = parsed as Record<string, unknown>;
   return {
     record: {
       practicedAt: toIso(practicedAt),
@@ -609,6 +762,8 @@ function parseMastery(raw: string | null): StoredMastery {
       checks: Array.isArray(checks)
         ? checks.slice(0, MAX_CHECKS).map(toCheck)
         : [],
+      intervalIndex: toIntervalIndex(intervalIndex),
+      lastReviewAt: toIso(lastReviewAt),
     },
     extra,
   };
@@ -686,9 +841,10 @@ function writeMastery(
  * request to come back.
  *
  * Stamps `practicedAt` when a grade completes the bar for the FIRST time. It
- * never stamps `masteredAt`: after a pass the stored checks are all `1`, so
- * storage cannot tell a re-pass from a re-write — only the caller's in-memory
- * count of this visit can, which is what {@link recordPass} is for.
+ * never stamps `masteredAt` and never moves the review schedule: after a pass
+ * the stored checks are all `1`, so storage cannot tell a re-pass from a
+ * re-write — only the caller's in-memory count of this visit can, which is what
+ * {@link recordPass} is for.
  *
  * @param slug - Lesson slug.
  * @param index - Question position, from the component's explicit `index` prop.
@@ -722,12 +878,16 @@ export function writeCheck(
   }
 
   const next: MasteryRecord = {
+    // Spread first so every field this function does not decide — `masteredAt`
+    // and the whole review schedule ({@link recordPass} owns both) — rides
+    // through a self-grade untouched, and so a field added to the record later
+    // cannot be dropped here by omission.
+    ...record,
     // `??`, so an earned first-pass timestamp is never re-stamped and never
     // cleared: it is only ever ADDED, when the bar is met and nothing is there.
     practicedAt:
       record.practicedAt ??
       (allChecksPassed(checks, total) ? now.toISOString() : null),
-    masteredAt: record.masteredAt,
     checks,
   };
   return writeMastery(slug, next, extra) ? next : record;
@@ -745,15 +905,31 @@ export function writeCheck(
  * this function: M8.1's practice checks, and M8.2/M8.3's predict session and
  * cleared Final Run.
  *
+ * It is also the ONE place the review schedule advances (M8.2), and it moves it
+ * without any caller changing: a re-pass on a lesson the schedule says is DUE
+ * *is* the review the strip invited, whichever surface the learner met it on. So
+ * a due pass stamps `lastReviewAt` and moves the lesson to the next interval,
+ * and an early one changes nothing at all — the same "coming back early costs
+ * nothing" rule the Mastered gate already had, now covering the spacing too, so
+ * a keen re-pass on day 1 can never push the real review out to day 11.
+ *
+ * A failed review is deliberately not a case here: "Not yet" writes no pass, so
+ * the schedule does not move and the card simply stays. (`docs/m8-gamification.md`
+ * describes the failure path as halving the current interval; leaving the
+ * schedule untouched is that rule's limit — the lesson stays due right now,
+ * which is sooner than any halved interval — and it needs no failure signal to
+ * reach this module, which keeps the promotion path single.)
+ *
  * Safe to call on the first pass too — `writeCheck` has just stamped
  * `practicedAt`, the gate is then zero days old, and this returns unchanged.
  *
  * @param slug - Lesson slug.
  * @param now - Clock, injected in tests.
  * @returns The record as it now stands in storage: `practicedAt` stamped if this
- * is the first pass, `masteredAt` stamped if the gate has opened, otherwise
- * unchanged (an already-Mastered lesson is never re-stamped, and a failed write
- * returns the previous record).
+ * is the first pass; on a due review `lastReviewAt` stamped, `intervalIndex`
+ * advanced and `masteredAt` stamped if the gate has opened; otherwise unchanged
+ * (an already-Mastered lesson is never re-stamped, and a failed write returns
+ * the previous record).
  */
 export function recordPass(
   slug: string,
@@ -763,11 +939,22 @@ export function recordPass(
   let next: MasteryRecord;
   if (!record.practicedAt) {
     next = { ...record, practicedAt: now.toISOString() };
-  } else if (!record.masteredAt && masteryGateOpen(record.practicedAt, now)) {
-    next = { ...record, masteredAt: now.toISOString() };
+  } else if (isReviewDue(record, now)) {
+    next = {
+      ...record,
+      // The gate is asked again rather than assumed: today the first interval
+      // and MASTERY_GATE_DAYS are both 3 days, so a due review always clears it
+      // — but that is an arithmetic coincidence of two numbers this module lets
+      // move independently, and Mastered may only ever be stamped by the gate.
+      masteredAt:
+        record.masteredAt ??
+        (masteryGateOpen(record.practicedAt, now) ? now.toISOString() : null),
+      intervalIndex: nextIntervalIndex(record.intervalIndex),
+      lastReviewAt: now.toISOString(),
+    };
   } else {
-    // Gate still closed, or already Mastered: nothing to write. Costing the
-    // learner nothing for coming back early is the point of the gate.
+    // Not due yet: nothing to write. Costing the learner nothing for coming back
+    // early is the point of both the gate and the spacing.
     return record;
   }
   return writeMastery(slug, next, extra) ? next : record;
@@ -833,4 +1020,209 @@ export function countMastery(lessons: LessonRef[]): {
     if (stage === 'mastered') mastered += 1;
   }
   return { learned, practiced, mastered, total: lessons.length };
+}
+
+// ---------------------------------------------------------------------------
+// The ready-to-review queue (M8.2) — spacing, and the ONLY surface in this
+// product that ever prompts the reader.
+//
+// It lives in this file, beside the record it reads, for the reason the module
+// header gives: `/learn` is one of the two pages that would pay the extra
+// compressed chunk boundary a split costs, and everything below is ~0.5 KB gz of
+// date arithmetic over a record this module already owns (measured by minifying
+// and gzipping the module with and without it).
+//
+// The rules, in full (`docs/m8-gamification.md`):
+// - **Due** when `now - max(practicedAt, lastReviewAt)` reaches the lesson's
+//   current interval — 3, then 10, then 30 days. Spacing (Cepeda et al.) and
+//   successive relearning (Rawson & Dunlosky), which is why the gaps GROW.
+// - **Derived at render, never stored.** There is no queue key and no "dismissed"
+//   list: two tabs open on `/learn` cannot disagree about a queue neither of them
+//   wrote, and nothing can be left behind pointing at a lesson that no longer
+//   exists.
+// - **At most {@link MAX_REVIEW_CARDS} cards**, and none at all until a first
+//   `practicedAt` exists — so week one is pure learning. The cap is the design's
+//   own answer to felt obligation: a 15-item list of things "to do" is a chore,
+//   and a chore is what kills the intrinsic motivation this whole phase is built
+//   around.
+// - **Never punished, never counted.** No lateness, no lapse count, no "days
+//   since" (the vocabulary ban lives on {@link REVIEW_COPY}, where a unit test
+//   can read it). A lesson that has waited a year is offered in exactly the words
+//   one that waited a week is.
+//
+// Pure/impure split as everywhere else here: the schedule arithmetic takes a
+// record and an injected clock, so the cap, the empty case and the interval
+// clamp are testable in Vitest's `node` environment with no storage at all.
+// ---------------------------------------------------------------------------
+
+/**
+ * The spacing schedule in days: the gap before the first review, then the
+ * second, then every one after that.
+ *
+ * Three fixed steps rather than a scheduler: at 15 lessons an SM-2 with ease
+ * factors is complexity theater (`docs/m8-gamification.md` killed it), and a
+ * learner can read this list and predict what the product will do.
+ */
+export const REVIEW_INTERVAL_DAYS = [3, 10, 30] as const;
+
+/**
+ * How many review cards may ever be offered at once.
+ *
+ * A design rule, not a layout one — see the note above — so it is exported and
+ * asserted rather than left implicit in a `slice`.
+ */
+export const MAX_REVIEW_CARDS = 2;
+
+/**
+ * The gap a record is currently on, in days.
+ *
+ * THE CLAMP IS LOAD-BEARING: a stored `intervalIndex` can sit past the end of
+ * this list — a hand-edited record, or a build with more intervals than this one
+ * — and an unclamped lookup would return `undefined`, making every comparison
+ * against it false. The lesson would then silently never become reviewable
+ * again, which is the one failure mode a queue nobody can see would never
+ * report.
+ *
+ * @param intervalIndex - The record's position in the schedule.
+ * @returns The current gap in days; the first gap for any unusable index, the
+ * last gap for anything past the end.
+ */
+function intervalDays(intervalIndex: number): number {
+  const last = REVIEW_INTERVAL_DAYS.length - 1;
+  const index =
+    Number.isInteger(intervalIndex) && intervalIndex > 0
+      ? Math.min(intervalIndex, last)
+      : 0;
+  return REVIEW_INTERVAL_DAYS[index];
+}
+
+/**
+ * The position one review pass moves a record to.
+ *
+ * Stopped at the last interval on the WRITE as well as the read, so a decade of
+ * reviews cannot inflate a stored integer that has no meaning past the end. The
+ * read clamp is still the load-bearing one ({@link intervalDays}): records
+ * outlive the bundles that wrote them.
+ *
+ * @param intervalIndex - The record's current position.
+ * @returns The next position, never past the last interval.
+ */
+function nextIntervalIndex(intervalIndex: number): number {
+  const last = REVIEW_INTERVAL_DAYS.length - 1;
+  const current =
+    Number.isInteger(intervalIndex) && intervalIndex > 0 ? intervalIndex : 0;
+  return Math.min(current + 1, last);
+}
+
+/**
+ * When a lesson becomes offerable again — pure, so the whole schedule is
+ * testable without storage or a wall clock.
+ *
+ * Measured from the LATER of the first pass and the last review: once a review
+ * has landed the schedule runs from it, and a record whose two timestamps
+ * disagree (a device whose clock moved between them) can never pull the next
+ * offer backwards.
+ *
+ * @param record - The lesson's mastery record.
+ * @returns The instant (ms) the lesson is ready for review, or `null` when it
+ * never becomes ready — a lesson with no first pass has nothing to space out, so
+ * a reader who has only read lessons is never prompted at all.
+ */
+export function reviewReadyAt(record: MasteryRecord): number | null {
+  if (!record.practicedAt) return null;
+  const practiced = Date.parse(record.practicedAt);
+  if (Number.isNaN(practiced)) return null;
+  const reviewed = record.lastReviewAt
+    ? Date.parse(record.lastReviewAt)
+    : Number.NaN;
+  const from = Number.isNaN(reviewed)
+    ? practiced
+    : Math.max(practiced, reviewed);
+  return from + intervalDays(record.intervalIndex) * DAY_MS;
+}
+
+/**
+ * Is this lesson ready to be offered for review? Pure, clock injected.
+ *
+ * @param record - The lesson's mastery record.
+ * @param now - The moment to measure at (injected in tests).
+ * @returns True once the gap has elapsed; false for a lesson never practised, an
+ * unparseable timestamp, or a device whose clock sits before the last pass.
+ */
+export function isReviewDue(
+  record: MasteryRecord,
+  now: Date | number = new Date(),
+): boolean {
+  const readyAt = reviewReadyAt(record);
+  if (readyAt === null) return false;
+  return (typeof now === 'number' ? now : now.getTime()) >= readyAt;
+}
+
+/**
+ * The lessons to offer for review right now — at most {@link MAX_REVIEW_CARDS}.
+ *
+ * Derived on every render from the records themselves; nothing here is stored,
+ * so a pass in another tab simply changes what the next render selects.
+ *
+ * @param lessons - The build-injected lesson list (a stale key for a lesson that
+ * no longer exists can therefore never surface a card for it).
+ * @param now - Clock, injected in tests.
+ * @returns Up to two lessons, the ones ready longest first so a lesson can never
+ * be starved by newer ones, ties broken by curriculum order for a stable render.
+ * `[]` when nothing is due, which is what lets the strip render zero DOM.
+ */
+export function selectDueReviews(
+  lessons: LessonRef[],
+  now: Date | number = new Date(),
+): LessonRef[] {
+  const at = typeof now === 'number' ? now : now.getTime();
+  const due: { lesson: LessonRef; readyAt: number }[] = [];
+  for (const lesson of lessons) {
+    const readyAt = reviewReadyAt(readMastery(lesson.slug));
+    if (readyAt === null || readyAt > at) continue;
+    due.push({ lesson, readyAt });
+  }
+  due.sort((a, b) => a.readyAt - b.readyAt || a.lesson.order - b.lesson.order);
+  return due.slice(0, MAX_REVIEW_CARDS).map((entry) => entry.lesson);
+}
+
+/**
+ * Every word the review strip says — exported so the vocabulary ban is a unit
+ * test rather than a review habit (`docs/m8-gamification.md`, calm invariants).
+ *
+ * Copy lives in this module for the same reason {@link resumeLabel} does: one
+ * place per sentence. What is BANNED here is as load-bearing as what is present
+ * — no "overdue", no "missed", no count of days waited, no countdown, no urgency
+ * — because felt obligation is what turns a spacing prompt into a chore, and a
+ * chore is quit. A lesson that has waited a year is offered in exactly these
+ * words, which is the whole point: the invitation never escalates, and it never
+ * keeps score.
+ */
+export const REVIEW_COPY = {
+  /** The strip's own heading — an invitation, in the reader's own time. */
+  heading: 'Ready to review',
+  /**
+   * Why it is here at all, and where the record lives. It explains the spacing
+   * in one line (the same honesty the Mastered gate's line owes) and carries the
+   * device scope every persistent surface in this product states.
+   */
+  note: 'Coming back after a gap is what makes it stick — saved on this device only.',
+  /** What the card offers. Small, finite, and honest about the size of the ask. */
+  check: 'quick check (~2 min)',
+} as const;
+
+/**
+ * Where a review card points: the lesson's Practice section, with Predict on.
+ *
+ * `?review=1` is the mechanism ON PURPOSE. The Predict toggle is never persisted
+ * — spec §6 permits no key for it and this module's key list has none — so a
+ * review visit has no preference to rewrite and nothing to restore afterwards:
+ * the mode lasts exactly one page visit and leaves the device byte-identical.
+ * (The lesson island reads the parameter; nothing writes it.)
+ *
+ * @param slug - Lesson slug.
+ * @returns The deep link, e.g. `/learn/binary-search?review=1#practice`.
+ */
+export function reviewHref(slug: string): string {
+  return `/learn/${slug}?review=1#practice`;
 }

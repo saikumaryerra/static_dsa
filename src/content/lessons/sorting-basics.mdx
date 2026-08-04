@@ -19,6 +19,8 @@ import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import Challenge from '../../components/Challenge.astro';
+import FinalRun from '../../components/FinalRun.astro';
 import Callout from '../../components/Callout.astro';
 
 export const bubbleTabs = [
@@ -193,6 +195,10 @@ Watch all three below on the same numbers. Notice the dimmed cells: they are the
 
 <Visualizer algorithm="insertion-sort" renderer="bars" input="[5,2,9,1,7,3]" />
 
+<Challenge id="sorting-basics/one-clean-pass" />
+<Challenge id="sorting-basics/no-shortcuts" />
+<Challenge id="sorting-basics/insertions-edge" />
+
 ## Complexity
 
 <ComplexityTable complexity={frontmatter.complexity} />
@@ -272,3 +278,7 @@ Work each one out before opening the answer.
   Bubble or insertion sort — both are stable because they only swap adjacent
   items. Plain selection sort is not stable, so it could reorder equal keys.
 </PracticeCheck>
+
+## Final run
+
+<FinalRun slug="sorting-basics" algorithm="bubble-sort" metric="comparisons" />

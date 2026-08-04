@@ -31,11 +31,21 @@ export interface LessonRef {
   track: string;
 }
 
-/** The stored shape of `progress:v1:{slug}` (src/lib/progress.ts `MasteryRecord`). */
+/**
+ * The stored shape of `progress:v1:{slug}` (src/lib/progress.ts `MasteryRecord`).
+ *
+ * The two scheduler fields are optional here on purpose: M8.1's tests seed
+ * records without them (the store defaults both), while M8.2's review tests have
+ * to read them back to prove a pass moved — or did not move — the schedule.
+ */
 export interface MasteryRecord {
   practicedAt: string | null;
   masteredAt: string | null;
   checks: (0 | 1 | null)[];
+  /** Position in `REVIEW_INTERVAL_DAYS`; absent reads as the first interval. */
+  intervalIndex?: number;
+  /** When the last review pass landed; absent means none has. */
+  lastReviewAt?: string | null;
 }
 
 /** Completion key for one lesson — the M7 key M8 leaves untouched (spec §6). */
