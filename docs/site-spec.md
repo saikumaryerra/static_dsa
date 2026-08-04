@@ -126,7 +126,10 @@ Ship these lessons in v1, grouped into two tracks. Each lesson gets its own page
   here; anything else needs a spec change.
   - *Progress keys* — **cleared by the reset-progress control** (M7.2): `lesson:{slug}:complete`
     (completion; the source of truth, never migrated away), `progress:v1:{slug}` (M8 mastery),
-    `ld:challenges:v1`, `ld:finalrun:v1`, `ld:days:v1` (M8 trials, Final Runs, learning days).
+    `ld:challenges:v1`, `ld:finalrun:v1` (M8 trials, Final Runs), and `ld:days:v1` (learning days) —
+    the last of which is **permitted but unused**: the learning-days line was deferred, nothing
+    writes the key, so no device holds one and the reset control deliberately does not name it.
+    Its writer, if one ever ships, exports the key name and joins the delete list.
   - *Preference keys* — **not** cleared by the reset-progress control: `theme`, `pref:viz-speed`,
     `pref:code-lang`.
 
@@ -168,10 +171,42 @@ Lesson body sections (authors follow this order; enforce with a lint/checklist, 
 5. **Code** — `<CodeTabs>` with the same algorithm in **Python, JavaScript, and Java** (pick these three; each tab is a fenced code block).
 6. **Common pitfalls / edge cases** — collapsible.
 7. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
-8. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson.
+8. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson, and authored as a card at the **end of the Practice section**, not under a heading of its own (it is one prompt, and a heading would promise a section).
 
-Optional frontmatter added by M8: `explainPrompt` (the "why does this work?" question for the
-Explain-it-back note). Lessons without it render nothing.
+**Authoring the M8 components (amended M8.1/M8.3).** Three components are dropped into the body like
+`<Visualizer>`; each is optional, each ships its own `<noscript>` kill-switch, and none of them
+introduces a new section heading:
+
+```mdx
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>…answer prose…</PracticeCheck>
+<Challenge id="binary-search/two-probes" />
+<FinalRun slug="binary-search" algorithm="binary-search" metric="comparisons" />
+```
+
+- `PracticeCheck` wraps each §7.7 answer. `index` is the question's 1-based position and `total` the
+  number of questions in the lesson — both explicit, because the stored self-grades are indexed by
+  position and `total` is the denominator the Practiced bar needs. Reordering questions is therefore
+  an author-visible act.
+- **`Challenge` — Trace Trials (M8.3).** 1–3 per Algorithms lesson, authored **directly after the
+  visualizer(s) they are graded against** — the end of `## Visualizer`, or of whichever section hosts
+  those visualizers (`## How it works` in the two sorting lessons). A trial is cleared through that
+  visualizer's existing custom-input form, so it must sit with it, never in Practice. The
+  only prop is `id`, which must name an entry in the `CHALLENGES` catalog in `src/lib/challenges.ts`;
+  prompts, hints, rules and the solvability `witness` all live there, never in frontmatter or MDX,
+  because client code cannot call `getCollection()` and an MDX-authored predicate could not be
+  validated. Each trial's `witness` is run at **build time**, so an unsolvable or already-cleared
+  trial fails the build. Shipped in 5 lessons; graph traversal deliberately has none (BFS/DFS expose
+  no metric a fair trial could constrain).
+- `FinalRun` goes after the §7.7 Practice questions. `slug`, `algorithm` and `metric` are required
+  (plus optional `anchor` and `subject` for the "watch why" link and its wording). `algorithm` is
+  explicit rather than inferred, because a lesson may host several visualizers under one
+  `## Visualizer` heading; the truth is computed at build time from that algorithm's own trace, so an
+  authored answer cannot be wrong.
+
+**`explainPrompt` — DEFERRED, not implemented.** M8 designed an optional `explainPrompt` frontmatter
+field for the Explain-it-back note; that mechanic did not ship (see `docs/m8-gamification.md`, "As
+shipped"), so the field has no reader and no schema entry today. Do not author it — it would be a
+frontmatter key nothing validates and nothing renders.
 
 ---
 
@@ -207,9 +242,12 @@ Build these reusable components (Astro components unless they need interactivity
 | `MarkComplete` | island | localStorage checkmark |
 | `Visualizer` | island | **the interactive DSA visualization — see §11** |
 | `PracticeCheck` | island (minimal) | *M8* — wraps a Practice answer with one-tap **self**-grading |
-| `TrackArc` | island (minimal) | *M8* — per-track progress ring + mastery counts on `/learn` |
+| `TrackArc` | static markup, host-painted | *M8* — per-track progress ring + mastery counts on `/learn`; ships its own `<noscript>` kill-switch and is filled in by the page's progress island (no second store, no second script) |
+| `MasteryPips` | static markup, host-painted | *M8* — the three-pip stage indicator on `LessonCard` and the lesson header, painted by the same island |
+| `ReviewStrip` | island (minimal) | *M8.2* — the ready-to-review cards on `/learn`; ≤2 cards, zero DOM when empty |
 | `Challenge` | island (minimal) | *M8.3* — input-crafting trial validated against the run's final metrics; a build-time `witness` input proves solvability or the build fails |
 | `FinalRun` | island (minimal) | *M8.3* — one numeric prediction per lesson; truth computed at build time |
+| `WhatsNext` | static | *M7.2* — end-of-lesson section merging mark-complete with the next-lesson card |
 
 **Gamification components (M8) inherit every rule in this spec plus the design stance in
 `docs/m8-gamification.md`:** mastery states are the only progress currency; nothing rewards
@@ -435,7 +473,14 @@ learndsa/
 
 ## 17. Build order (milestones with acceptance criteria)
 
-Work top to bottom. Do not start a milestone until the previous one's criteria pass.
+**Status: M1–M8 have all shipped.** This section is now the historical build order and the record of
+each milestone's acceptance criteria — the criteria still describe what the product must keep doing,
+so a change that breaks one is a regression. New work is no longer a milestone: it is repair,
+extension, or an amendment to this spec. The two designed-but-unbuilt M8.3 items are marked
+*deferred* below; everything else here exists.
+
+Original instruction, kept for the record: work top to bottom; do not start a milestone until the
+previous one's criteria pass.
 
 **M1 — Scaffold & tokens.**
 Astro + TS + Tailwind + MDX configured. `BaseLayout`, header/footer, theme toggle, tokens, global styles.
@@ -485,10 +530,17 @@ M7.2's progress system and reset control. Mastery states (Learned → Practiced 
 **only** progress currency in the product.
 - **M8.1** shared progress store + `PracticeCheck` self-grading + mastery pips + `TrackArc` +
   the single Quiet Milestone.
-- **M8.2** Predict-the-Step (binary-search + bubble/insertion sort first — quick-sort and
-  selection-sort defer swaps and need bespoke predictors) + the spaced review queue.
-- **M8.3** Trace Trials + Final Run + Explain-it-back + optional learning-days line. *Trims first
-  under budget pressure; the M8.1–8.2 spine is never sacrificed.*
+- **M8.2** Predict-the-Step + the spaced review queue. Shipped with predictors for binary-search,
+  bubble sort, insertion sort, BFS and DFS; quick-sort and selection-sort still have none (they defer
+  swaps, so the generic predictor would mark a correct learner wrong) and neither does recursion,
+  merge sort or DP.
+- **M8.3** Trace Trials + Final Run **shipped**; **Explain-it-back and the optional learning-days
+  line are DEFERRED — designed, not built.** This phase was defined as the one that trims first
+  under budget pressure, and those two were the trims; the M8.1–8.2 spine was not touched.
+  Consequences a contributor must know: §7's `explainPrompt` frontmatter field has no reader and no
+  schema entry (do not author it), and §6's `ld:days:v1` key has no writer, so no device holds one
+  and the reset control has nothing to clear for it. Reasons and re-entry conditions:
+  `docs/m8-gamification.md`, "As shipped".
 
 *Accept (every phase):* §18 DoD; calm-invariant tests green (review strip ≤2 cards and zero DOM when
 empty, no "overdue"/countdown vocabulary, the Predict toggle never persisted, no accuracy ratios

@@ -13,10 +13,16 @@
  *    existing custom-input form. The evaluator is a pure function over injected
  *    facts (the harness runs Vitest in `node` with no DOM), which is what lets
  *    the witness guard below be a unit test rather than a hand-broken fixture.
- * 3. **The two enrichment storage keys** (`ld:challenges:v1`, `ld:finalrun:v1`),
- *    because `Challenge.astro` and `FinalRun.astro` would otherwise each grow
- *    their own copy of the same `try/catch` discipline. Same rule as
- *    `src/lib/progress.ts`: one writer per key, never a prefix scan.
+ * 3. **The pinned visualizers** — the input each lesson's `<Visualizer>` is
+ *    seeded with and the heading it sits under. ONE description per visualizer,
+ *    so that neither the trial guard nor `FinalRun.astro` has to re-derive it by
+ *    reading the lesson body (`docs/m8-gamification.md`, M8.3).
+ *
+ * What does NOT live here is the pair of storage keys and the `viz:run` event
+ * name: `src/lib/enrichment-store.ts` owns those, for the budget reason its
+ * header measures — pages with no trial need them and would otherwise download
+ * this whole module to get them. They are re-exported at the foot of this file,
+ * so its public surface is unchanged.
  *
  * WHAT THIS MODULE NEVER DOES:
  * - **Re-run the algorithm the reader just ran.** Trials CONSUME the precomputed
@@ -36,6 +42,7 @@
  *   cleared or it is open, and a run that does not clear one costs nothing.
  */
 import type { Algorithm, Step, Trace } from '../viz/core/types';
+import type { VizRunDetail } from './enrichment-store';
 
 // ---------------------------------------------------------------------------
 // The predicate DSL
@@ -343,7 +350,17 @@ export function challengeById(id: string): Challenge | null {
 }
 
 // ---------------------------------------------------------------------------
-// Pinned inputs — the one place a lesson's authored `<Visualizer input>` lives
+// Pinned visualizers — the one place a lesson's authored `<Visualizer>` lives
+//
+// ONE description per lesson visualizer, for the components to read.
+// `docs/m8-gamification.md` (M8.3) names this module as THE mechanism — "move
+// pinned inputs into a shared data module … making divergence impossible by
+// construction rather than by assertion" — and names MDX scanning only as the
+// fallback for if the inputs stayed inline. Shipping both is the two-sources-of-
+// truth the design set out to avoid, so nothing here is a build-time scan:
+// {@link findVisualizerInput} exists for the drift TEST, and {@link pinnedInput}
+// plus {@link visualizerAnchor} are between them everything `FinalRun.astro`
+// needs to stop matching `<Visualizer>` tags of its own.
 // ---------------------------------------------------------------------------
 
 /**
@@ -393,6 +410,59 @@ export function pinnedInput(lesson: string, algorithm: string): string | null {
 }
 
 /**
+ * The id of the heading each pinned visualizer sits under, keyed exactly like
+ * {@link PINNED_INPUTS} — the second half of "the run you can watch", and what
+ * lets `FinalRun.astro` stop reading the lesson body.
+ *
+ * WHY IT IS AUTHORED HERE rather than derived: the Final Run's "Watch it happen"
+ * link has to land on a heading that EXISTS, and the only other way to know
+ * which one is to re-scan the lesson body for the `<Visualizer>` tag and walk
+ * back to the nearest heading — a second derivation of the very thing this map
+ * is. Authoring it beside the input keeps one description per visualizer.
+ *
+ * NOT AN UNCHECKED CLAIM: whatever target the Final Run resolves, it checks
+ * against the lesson's real rendered heading ids (the same list its table of
+ * contents is built from) and throws when it is not one of them — so a renamed
+ * heading is a named build failure rather than a link to nowhere. Bare ids, no
+ * `#`: that component's optional `anchor` prop takes the fragment, this takes
+ * the id it must equal.
+ *
+ * Only the visualizers a Final Run actually asks about are listed. An anchor
+ * nobody reads is validated by nothing and would rot silently; hosting a new
+ * Final Run without adding one is a build error naming the missing pair, which
+ * is the honest order to discover it in.
+ *
+ * Verified against the built pages' heading ids at authoring time — e.g.
+ * `sorting-basics` renders `bubble-sort` for the visualization and
+ * `bubble-sort-1` for the code section below it, so the first occurrence (the
+ * one a reader is sent to) is the one named here.
+ */
+export const PINNED_ANCHORS: Readonly<Record<string, string>> = {
+  'recursion/recursion-callstack': 'visualizer',
+  'binary-search/binary-search': 'visualizer',
+  'sorting-basics/bubble-sort': 'bubble-sort',
+  'sorting-efficient/quick-sort': 'quick-sort',
+  'graph-traversal/bfs': 'breadth-first-search',
+  'dynamic-programming/dp-fib-memoization': 'top-down-memoization',
+};
+
+/**
+ * The heading id one lesson's visualizer sits under.
+ *
+ * @param lesson - Lesson slug.
+ * @param algorithm - Registry algorithm id.
+ * @returns The heading id without its `#`, or `null` when that pair has none
+ * (the Final Run fails the build on `null` rather than falling back to a
+ * fragment the page may not have).
+ */
+export function visualizerAnchor(
+  lesson: string,
+  algorithm: string,
+): string | null {
+  return PINNED_ANCHORS[`${lesson}/${algorithm}`] ?? null;
+}
+
+/**
  * What a `<Visualizer>` tag in a lesson body says about one algorithm — the pure
  * half of the "the Final Run grades the run you can watch" guarantee.
  *
@@ -401,6 +471,11 @@ export function pinnedInput(lesson: string, algorithm: string): string | null {
  * conservative. An `input={…}` binding is reported as an expression rather than
  * guessed at, because after the migration that is exactly what a correct lesson
  * looks like.
+ *
+ * A TEST tool, not a build path: `tests/unit/challenges.test.ts` is its only
+ * caller. No component needs a lesson body to learn what its visualizer was
+ * given or where it sits — the two maps above answer both, and a second reader
+ * of the MDX would be the second source of truth the design rejected.
  *
  * @param body - Raw MDX source of one lesson.
  * @param algorithm - Registry algorithm id to look for.
@@ -428,27 +503,13 @@ export function findVisualizerInput(
 
 // ---------------------------------------------------------------------------
 // The run a trial is graded against
+//
+// The event that carries it — `viz:run` and its `detail` — lives in
+// `src/lib/enrichment-store.ts` with the storage keys, because every page with
+// a visualizer needs the NAME while only a page with a trial needs the rules
+// below (the measurement is in that module's header). It is re-exported at the
+// foot of this file, so an importer's specifier need not care.
 // ---------------------------------------------------------------------------
-
-/**
- * The event the visualizer island dispatches after a SUCCESSFUL custom run
- * (spec §11.3, M8 amendment). Bubbling, so a card anywhere below the island
- * hears it on `document`.
- *
- * Named here rather than in the island because two components consume it and
- * one dispatches it; a retyped string literal is how those three drift apart.
- */
-export const VIZ_RUN_EVENT = 'viz:run';
-
-/** The `detail` of a {@link VIZ_RUN_EVENT}. */
-export interface VizRunDetail {
-  /** Registry algorithm id of the island that ran. */
-  algorithmId: string;
-  /** The RAW string the reader submitted, exactly as `parseInput` received it. */
-  input: string;
-  /** The last step of the trace the island just computed — never a second run. */
-  finalStep: Step<unknown>;
-}
 
 /**
  * Everything a rule may ask about one finished run. Injected rather than read,
@@ -806,174 +867,35 @@ export async function validateChallenge(
 }
 
 // ---------------------------------------------------------------------------
-// Storage (spec §6 progress keys)
+// Re-exports — the storage half and the run event, which live in
+// `src/lib/enrichment-store.ts`
 //
-// Both keys are PROGRESS keys, so the reset-progress control must clear them —
-// which is what {@link resetEnrichment} is for. `src/lib/progress.ts` owns that
-// delete list, and calling this from `resetProgress()` is the one-line handoff
-// M8.3 leaves it (the module comment there already names these two keys as
-// joining the list "when those phases land"). UNTIL THAT CALL EXISTS, a reader
-// who resets progress keeps their cleared trials and Final Runs — a real spec §6
-// gap, and the reason this function is exported rather than kept private.
+// They moved for a MEASURED reason (the table in that module's header): every
+// page that draws a visualizer or offers the reset control needs them, while
+// only the five lessons that host a trial need the catalog and DSL above. One
+// module carrying both shipped a single 1323 gz chunk to 18 of the 21 built
+// pages, of which the 419 gz below was all most of them could use.
 //
-// Same discipline as that module: version in the KEY (an incompatible shape
-// moves to `v2` and this reader ignores the unknown version by construction),
-// every access `try/catch`-guarded, never a prefix scan, and one writer per key
-// — `Challenge.astro` for the first, `FinalRun.astro` for the second.
+// Re-exported rather than re-pointed at the importers, because this module's
+// public surface is what `src/lib/progress.ts`, `src/viz/Visualizer.astro`,
+// `src/components/FinalRun.astro` and `tests/unit/challenges.test.ts` already
+// name. The bundler folds the pass-through away entirely, so the split measures
+// the same whether an importer says this module or that one — verified by
+// building both and diffing: identical chunk names, hashes and bytes. An
+// importer that wants the store alone may of course say so directly
+// (`Challenge.astro` does), and either way there is exactly one definition, in
+// one module, with one writer per key.
 // ---------------------------------------------------------------------------
 
-/** Cleared Trace Trials: `{ "sorting-efficient/worst-case": 1 }`. */
-export const CHALLENGES_KEY = 'ld:challenges:v1';
-
-/** Cleared Final Runs: `{ "binary-search": { c: 1 } }`. Cleared-only — there is
- * deliberately no attempt count and no first-try flag (killed: loss-framing the
- * errorful first attempt destroys the testing-effect value it decorates). */
-export const FINAL_RUN_KEY = 'ld:finalrun:v1';
-
-/**
- * Every key this module writes — the list the reset control clears.
- *
- * Exported so the invariant "no mechanic here has a hidden storage surface" is
- * assertable: notably the Predict toggle appears in NO list anywhere, because it
- * is never persisted at all (spec §6).
- */
-export const ENRICHMENT_KEYS = [CHALLENGES_KEY, FINAL_RUN_KEY] as const;
-
-/**
- * `localStorage`, or `null` when it is unavailable.
- *
- * Deliberately a second copy of `src/lib/progress.ts`'s private helper rather
- * than an import: that one is not exported, and both failure shapes must be
- * handled identically — an absent global (the build's Node pass, some privacy
- * modes) and a getter that throws (blocked storage).
- */
-function getStore(): Storage | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
-/** Reads and parses one key as a plain object; `{}` for anything unusable. */
-function readMap(key: string): Record<string, unknown> {
-  const store = getStore();
-  if (!store) return {};
-  try {
-    const raw = store.getItem(key);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      return {};
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    // Blocked storage, or a value another tab or a hand edit left malformed.
-    // "Nothing cleared" is the honest degradation: the reader can clear it
-    // again, and nothing on screen claims progress that isn't there.
-    return {};
-  }
-}
-
-/**
- * Merges one entry into a stored map, keeping every other entry verbatim.
- *
- * Read-modify-write rather than overwrite: an older bundle in another tab must
- * not drop trials this one has never heard of, and neither must a newer one.
- *
- * @returns True only if the write landed, so a caller never announces a save a
- * blocked store refused.
- */
-function writeEntry(key: string, id: string, value: unknown): boolean {
-  const store = getStore();
-  if (!store) return false;
-  try {
-    const map = readMap(key);
-    map[id] = value;
-    store.setItem(key, JSON.stringify(map));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Has this trial been cleared on this device?
- *
- * @param id - `{lessonSlug}/{challenge-slug}`.
- * @returns True only for an explicit stored `1`; false when storage is
- * unavailable, so a blocked store shows an open trial rather than a wrong one.
- */
-export function isChallengeCleared(id: string): boolean {
-  return readMap(CHALLENGES_KEY)[id] === 1;
-}
-
-/**
- * Records a cleared trial. Nothing ever un-clears one: no trial decays, and only
- * the reset control removes it.
- *
- * @param id - `{lessonSlug}/{challenge-slug}`.
- * @returns Whether the write landed.
- */
-export function markChallengeCleared(id: string): boolean {
-  return writeEntry(CHALLENGES_KEY, id, 1);
-}
-
-/**
- * Has this lesson's Final Run been cleared on this device?
- *
- * @param slug - Lesson slug.
- * @returns True only for a stored `{ c: 1 }`.
- */
-export function isFinalRunCleared(slug: string): boolean {
-  const entry = readMap(FINAL_RUN_KEY)[slug];
-  return (
-    typeof entry === 'object' &&
-    entry !== null &&
-    (entry as { c?: unknown }).c === 1
-  );
-}
-
-/**
- * Records a cleared Final Run.
- *
- * The record is cleared-only, by design: no attempt count, no first-try flag,
- * nothing that could later be rendered as a score. Promotion to Practiced is
- * NOT done here — `FinalRun.astro` calls `recordPass()` in `progress.ts`, which
- * owns the 3-day Mastered gate and is the single promotion path.
- *
- * @param slug - Lesson slug.
- * @returns Whether the write landed.
- */
-export function markFinalRunCleared(slug: string): boolean {
-  return writeEntry(FINAL_RUN_KEY, slug, { c: 1 });
-}
-
-/**
- * Removes both enrichment keys — the delete half, shipped with the read half so
- * this data is never one-way.
- *
- * Called by the reset-progress control through `src/lib/progress.ts`. Per-key
- * `try/catch`: one blocked key must not strand the other.
- *
- * @returns How many keys were actually removed (0 when storage is unavailable).
- */
-export function resetEnrichment(): number {
-  const store = getStore();
-  if (!store) return 0;
-  let removed = 0;
-  for (const key of ENRICHMENT_KEYS) {
-    try {
-      if (store.getItem(key) === null) continue;
-      store.removeItem(key);
-      removed += 1;
-    } catch {
-      // Blocked per call; keep going so the other key still clears.
-    }
-  }
-  return removed;
-}
+export {
+  CHALLENGES_KEY,
+  ENRICHMENT_KEYS,
+  FINAL_RUN_KEY,
+  VIZ_RUN_EVENT,
+  isChallengeCleared,
+  isFinalRunCleared,
+  markChallengeCleared,
+  markFinalRunCleared,
+  resetEnrichment,
+} from './enrichment-store';
+export type { VizRunDetail } from './enrichment-store';

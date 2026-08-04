@@ -219,6 +219,19 @@ const titleId = `ch-title-${uid}`;
     /* Selectable, not a button: copying is the browser's job, and a clipboard
        control here would be a second thing to learn for six characters. */
     user-select: all;
+    /* REFLOW (WCAG 1.4.10). The longest pinned array is binary search's
+       `[1,2,...,15]` — 37 characters of --font-mono at 0.9 × --text-sm, which
+       lays out 290px wide inside a 246px content box at 320px — and a comma
+       carries no break opportunity of its own, so without this the line pushed
+       the whole document to 327px against a 320px viewport (measured) and the
+       page scrolled sideways. `anywhere` rather than a scroll container of its
+       own: 1.4.10 asks for reflow and only excuses two-dimensional content,
+       which a list of numbers is not, and a nested scroll region would owe a
+       keyboard path (2.1.1) for a string that reads perfectly well wrapped.
+       `anywhere` and not `break-word` so the break counts toward min-content
+       too — this element is `user-select: all`, so a wrapped array still copies
+       whole. */
+    overflow-wrap: anywhere;
   }
 
   .challenge__hint {
@@ -272,8 +285,12 @@ const titleId = `ch-title-${uid}`;
   /* CLEARED. Three signals and only one is a colour: the word "Cleared" in the
      status line, this check glyph, and the brand keyline — so the state survives
      forced colours, greyscale and every form of colour blindness (§12: never
-     colour alone). The tint is MarkComplete's brand mix at half strength, which
-     keeps `--text` at 14.6:1 light / 12.9:1 dark on it. */
+     colour alone). The tint is MarkComplete's brand mix at half strength (6% of
+     --brand, against this card's --surface rather than MarkComplete's
+     `transparent`), and --text stays far clear of AA on it: 16.33:1 light,
+     10.85:1 dark — recomputed with the same sRGB `color-mix` + WCAG luminance
+     math `tests/unit/tokens-contrast.test.ts` uses, because the numbers this
+     comment carried before (14.6 / 12.9) matched neither theme. */
   .challenge[data-cleared] {
     border-color: var(--brand);
     background-color: color-mix(in srgb, var(--brand) 6%, var(--surface));
@@ -294,22 +311,26 @@ const titleId = `ch-title-${uid}`;
 </style>
 
 <script>
+  // Two modules on purpose, not one: the DSL is this card's alone, while the
+  // store and the run-event name are the enrichment layer's page-wide half that
+  // 18 of the 21 built pages already carry (`src/lib/enrichment-store.ts`
+  // measures it). Naming them separately is what keeps the predicate machinery
+  // out of the pages that can never use it.
   import {
-    VIZ_RUN_EVENT,
     evaluateRules,
     factsFrom,
-    isChallengeCleared,
-    markChallengeCleared,
     metricsOf,
     metricsSentence,
     rivalIds,
     runFinalStep,
   } from '../lib/challenges';
-  import type {
-    AlgorithmLoader,
-    ChallengeRule,
-    VizRunDetail,
-  } from '../lib/challenges';
+  import {
+    VIZ_RUN_EVENT,
+    isChallengeCleared,
+    markChallengeCleared,
+  } from '../lib/enrichment-store';
+  import type { AlgorithmLoader, ChallengeRule } from '../lib/challenges';
+  import type { VizRunDetail } from '../lib/enrichment-store';
   import type { Algorithm } from '../viz/core/types';
 
   /** One rendered trial and the nodes its state drives. */
@@ -332,11 +353,13 @@ const titleId = `ch-title-${uid}`;
   const cards: Card[] = [];
 
   /**
-   * Teardown for the document-level listener, mirroring the Visualizer's (TD-4):
-   * a listener bound to `document` is exactly the kind that outlives a View
-   * Transition and then handles the same event twice.
+   * The listeners of ONE page generation, mirroring the Visualizer's teardown
+   * contract (TD-4): a listener bound to `document` is exactly the kind that
+   * outlives a View Transition and then handles the same event twice. It is
+   * created by `initCards()` and aborted by `teardownCards()` — never the other
+   * way round, which would retire the wiring instead of renewing it.
    */
-  const controller = new AbortController();
+  let controller: AbortController | null = null;
 
   /**
    * The registry, fetched only when a `duel` rule actually needs a rival run.
@@ -450,8 +473,47 @@ const titleId = `ch-title-${uid}`;
     );
   }
 
+  /**
+   * Grades one finished run against every open card that names its algorithm.
+   *
+   * A named function rather than an inline listener so the same reference is
+   * added once per page generation and removed with that generation's
+   * controller.
+   */
+  function onVizRun(event: Event): void {
+    const detail = (event as CustomEvent<VizRunDetail>).detail;
+    // The payload crosses an event boundary this component does not own, so
+    // every field it reads is checked before it is read: a malformed detail is
+    // ignored rather than thrown on inside a listener.
+    if (
+      !detail ||
+      typeof detail.algorithmId !== 'string' ||
+      typeof detail.input !== 'string' ||
+      !detail.finalStep
+    ) {
+      return;
+    }
+    for (const card of cards) {
+      // A cleared trial ignores every later run: it never un-clears, and a
+      // reader who keeps experimenting is not told "not yet" about something
+      // they already did.
+      if (card.done || card.algorithm !== detail.algorithmId) continue;
+      void grade(card, detail);
+    }
+  }
+
   /** Wires every card on the page. Safe to call again after a page swap. */
   function initCards(): void {
+    // Rebind this generation's run listener FIRST. Aborting the previous one is
+    // what makes the call idempotent: with a ClientRouter installed
+    // `astro:page-load` also fires for the very first page, so without it this
+    // page would end up with two listeners grading every run twice.
+    controller?.abort();
+    controller = new AbortController();
+    document.addEventListener(VIZ_RUN_EVENT, onVizRun, {
+      signal: controller.signal,
+    });
+
     for (const root of Array.from(
       document.querySelectorAll<HTMLElement>('[data-challenge]'),
     )) {
@@ -485,43 +547,27 @@ const titleId = `ch-title-${uid}`;
     }
   }
 
+  /**
+   * Disposes the outgoing page before a View Transition swap (TD-4).
+   *
+   * The card list goes with the listener: a retired card left in it points at
+   * an element the swap has already discarded, and would still be graded — and
+   * painted — by the incoming page's runs.
+   */
+  function teardownCards(): void {
+    controller?.abort();
+    controller = null;
+    cards.length = 0;
+  }
+
   initCards();
 
-  document.addEventListener(
-    VIZ_RUN_EVENT,
-    (event) => {
-      const detail = (event as CustomEvent<VizRunDetail>).detail;
-      // The payload crosses an event boundary this component does not own, so
-      // every field it reads is checked before it is read: a malformed detail is
-      // ignored rather than thrown on inside a listener.
-      if (
-        !detail ||
-        typeof detail.algorithmId !== 'string' ||
-        typeof detail.input !== 'string' ||
-        !detail.finalStep
-      ) {
-        return;
-      }
-      for (const card of cards) {
-        // A cleared trial ignores every later run: it never un-clears, and a
-        // reader who keeps experimenting is not told "not yet" about something
-        // they already did.
-        if (card.done || card.algorithm !== detail.algorithmId) continue;
-        void grade(card, detail);
-      }
-    },
-    { signal: controller.signal },
-  );
-
-  // View Transitions (none installed today): re-wire the incoming page's cards,
-  // and let the abort take BOTH document listeners with it. The re-init has to
-  // go too — a retired generation that kept marking fresh cards as initialised
-  // would claim them for a `viz:run` listener that no longer exists, leaving the
-  // incoming page's trials permanently ungraded.
-  document.addEventListener('astro:page-load', initCards, {
-    signal: controller.signal,
-  });
-  document.addEventListener('astro:before-swap', () => controller.abort(), {
-    once: true,
-  });
+  // View Transitions (no ClientRouter installed today): register on
+  // `astro:page-load`, dispose on `astro:before-swap` — the same direction
+  // `Visualizer.astro` uses. These two listeners are deliberately NOT aborted:
+  // they belong to the module, which Astro executes once however many swaps
+  // follow, so aborting them would leave every page after the first with cards
+  // nothing ever wires.
+  document.addEventListener('astro:page-load', initCards);
+  document.addEventListener('astro:before-swap', teardownCards);
 </script>

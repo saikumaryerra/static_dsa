@@ -1,7 +1,13 @@
 # M1 Design Tokens & Layout Spec — UI/UX Designer handoff
 
-**Status:** Approved for M1 implementation
-**Consumer:** Frontend Engineer (implement verbatim in `src/styles/tokens.css` and `tailwind.config.ts`)
+**Status:** Implemented and since amended — M1 shipped this handoff; M7.1 (contrast repairs), M7.2
+(`--accent-warn`, `--header-h`, `--disabled-opacity`) and M7.3 (light elevation inversion, sunken /
+raised levels, brand tints, display tier) all changed the palette afterwards. **The live token set is
+`src/styles/tokens.css`, and `tests/unit/tokens-contrast.test.ts` is what enforces it.** Read this
+document for the *rationales* — they are still binding, especially Decision 3's viz-only `--hl-*`
+reservation and the neutral difficulty chip — and read it for the M1 record; do not copy its code
+blocks, which are frozen at M1 and marked retired below.
+**Consumer:** Frontend Engineer (M1 handoff; later phases amend the shipped file directly)
 **Scope:** M1 (scaffold & tokens, home page). Visualization behavior is owned by M2/M3 — this spec only reserves the highlight color roles renderers will consume.
 
 ---
@@ -126,10 +132,25 @@ text and owe 4.5:1 — the original values cleared the 3:1 graphics bar but not 
 light values are now `#15803D` / `#BE185D`; `tests/unit/tokens-contrast.test.ts` enforces this
 whole matrix (axe cannot, because it skips SVG text). FE note for M3 renderers: use highlight tokens as 2px strokes/rings with fills derived via `color-mix(in srgb, var(--hl-*) 15%, transparent)`, keeping `--text` for labels on top — never put small text directly on a solid highlight fill.
 
-### Ready-to-paste `src/styles/tokens.css`
+### The M1 `tokens.css` snapshot — **RETIRED, do not paste**
+
+> **This block is the M1 palette, frozen. `src/styles/tokens.css` is the source of truth and has
+> moved on: pasting this would revert M7.3's light elevation inversion (it still has `--bg: #FFFFFF`
+> / `--surface: #F6F7F9`, the pre-inversion pair) and would delete eleven tokens the site now
+> consumes — `--text-5xl`, `--weight-heavy`, `--tracking-tighter`, `--header-h` (plus its ≥768px
+> override), `--disabled-opacity`, `--surface-sunken`, `--surface-raised`, `--brand-soft`,
+> `--brand-border`, `--brand-hover` and `--accent-warn`. It is kept only as the M1 design record and
+> to show the shape the file must keep: every colour token declared in all three blocks — `:root`,
+> `[data-theme="dark"]`, and the byte-identical `prefers-color-scheme: dark` mirror (a unit test
+> asserts that mirror), with the reduced-motion duration collapse at the end. To change a token, edit
+> `src/styles/tokens.css` and re-run `tests/unit/tokens-contrast.test.ts`, which enforces the contrast
+> matrix above against the values that actually ship.
 
 ```css
-/* LearnDSA design tokens — M1. Source of truth for all color/type/space/motion.
+/* RETIRED M1 SNAPSHOT — not the shipped file. See the note above; the live file
+   is src/styles/tokens.css.
+
+   LearnDSA design tokens — M1. Source of truth for all color/type/space/motion.
    SPEC-GAP §19: system font stack chosen over Inter for 0-byte cost and zero CLS;
    swap --font-sans here if brand direction changes. */
 
@@ -285,9 +306,14 @@ whole matrix (axe cannot, because it skips SVG text). FE note for M3 renderers: 
 }
 ```
 
-### Tailwind theme extension for `tailwind.config.ts`
+### Tailwind theme extension — **also retired** (there is no `tailwind.config.ts`)
 
-Tokens.css stays the single source of truth; Tailwind only aliases the variables.
+Tokens.css stays the single source of truth and Tailwind still only aliases the variables, but the
+mechanism changed with Tailwind v4: there is no JS config file at all. The site loads Tailwind
+through `@tailwindcss/vite` (`astro.config.mjs`) and declares the aliases in a CSS-first
+`@theme inline` block in `src/styles/global.css`, which references the same `tokens.css` variables.
+The block below is kept as the M1 record of *which* roles get aliased — add a token to `@theme`
+there, never to a config file that does not exist.
 
 ```ts
 export default {

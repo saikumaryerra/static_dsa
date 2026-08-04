@@ -329,10 +329,12 @@ test.describe('answering is the act, and the explanation is the feedback', () =>
     const viz = await openBinary(page);
     await enablePredict(viz);
 
-    // The question is about the NEXT step, which is what makes it a prediction
-    // rather than a reading of what is already on screen.
+    // The question is about a probe that has not happened yet, which is what
+    // makes it a prediction rather than a reading of what is already on screen —
+    // and the prompt says WHICH probe. Step 0 has none of its own, so it asks
+    // about the first (the sweep below covers every other step).
     await expect(predictPrompt(viz)).toHaveText(
-      'What does the search do next?',
+      'What happens at the first probe?',
     );
     await expect(predictChoices(viz)).toHaveCount(4);
     await expect(counter(viz)).toHaveText(`1 / ${AUTHORED.steps}`);
@@ -398,6 +400,57 @@ test.describe('answering is the act, and the explanation is the feedback', () =>
     // Answering after skipping still counts as answering.
     await answer(viz, AUTHORED.answers[2]!);
     await expect(activityChip(viz)).toHaveText('1 answered · 2 skipped');
+  });
+
+  test('the prompt the reader sees never punishes them for reading the screen', async ({
+    page,
+  }) => {
+    // THE REGRESSION GUARD, at the surface the reader actually meets. Grading is
+    // one step ahead on purpose — grading the current step would let the answer
+    // be read straight off the explanation the strip sits above — so on every
+    // step but the first, the screen already shows a RESOLVED comparison and
+    // names its direction while the graded answer belongs to the probe after it.
+    // At index 1 of this authored run the explanation says "search the right"
+    // and the answer is "Go left": a prompt that said only "next" marked a
+    // reader wrong for reading correctly, twice in three questions.
+    //
+    // `tests/unit/binary-search.test.ts` holds the grader to this. What only a
+    // browser can add is that the fix REACHES the reader: the island writes
+    // `question.prompt` into the strip, so a prompt corrected in the algorithm
+    // and dropped on the way to the DOM would pass there and fail here.
+    const viz = await openBinary(page);
+    await enablePredict(viz);
+
+    for (let i = 0; i < AUTHORED.answers.length; i += 1) {
+      // Synchronises on the step before reading either surface: both are written
+      // by the same handler, so a settled counter means a settled strip.
+      await expect(counter(viz)).toHaveText(`${i + 1} / ${AUTHORED.steps}`);
+      const prompt = (await predictPrompt(viz).innerText())
+        .replace(/\s+/g, ' ')
+        .trim();
+      const onScreen = (await explanation(viz).innerText()).replace(
+        /\s+/g,
+        ' ',
+      );
+      const where = `step ${i + 1}: prompt "${prompt}" over "${onScreen}"`;
+
+      // Every question names the probe it is about…
+      expect(prompt, where).toMatch(/\b(first|next) probe\b/);
+      // …and the moment the step on screen has resolved a direction, the prompt
+      // must put the question AFTER it. This is the guard, and it is on the
+      // PROMPT rather than on the answer: two consecutive probes may legitimately
+      // run the same way, so "the answer never matches what the explanation says"
+      // is false for correct traces.
+      if (/search the (left|right)/.test(onScreen)) {
+        expect(prompt, where).toBe(
+          'After this step, what happens at the next probe?',
+        );
+      }
+      // …and it gives nothing away in either direction.
+      expect(prompt, where).not.toMatch(/left|right|found|present/i);
+
+      await answer(viz, AUTHORED.answers[i]!);
+    }
   });
 
   test('the last step asks nothing rather than asking the unanswerable', async ({
@@ -573,7 +626,20 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     expect(Object.keys(record ?? {})).not.toContain('predict');
     expect(JSON.stringify(record)).not.toMatch(/answered|correct|attempts/i);
 
-    // The stage the reader sees is the shared one, worded by the shared module.
+    // THE STAGE MOVES IN THIS VISIT, WITH NO RELOAD. This used to be asserted
+    // only after `page.reload()`, which proves the storage write and nothing
+    // else — so the visit that earned Practiced was the one visit that never
+    // showed it, and the test stayed green through the whole gap. Predict is the
+    // harder of the two retrieval paths to repaint, because its write happens
+    // inside a lazy `import()` (the store is not in the bundle of a page that
+    // merely SHOWS a visualization): no click-time listener can observe it,
+    // whatever it watches, so the write has to announce itself on
+    // `progress:changed` from inside that callback for the lesson header to
+    // hear (`src/lib/progress-events.ts`).
+    await expect(headerLabel(page)).toHaveText('Practiced on this device');
+
+    // …and the repaint is a display catching up, never a replacement for the
+    // record: the same wording survives a reload, and the index counts it once.
     await page.reload();
     await expect(headerLabel(page)).toHaveText('Practiced on this device');
     await page.goto('/learn');
@@ -588,10 +654,24 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     const viz = await openBinary(page);
     const before = await storageFingerprint(page);
     await enablePredict(viz);
-    await answerAuthored(viz);
 
-    // Three correct answers out of three is a perfect session and still under
-    // the five-answer floor. Nothing is written…
+    // Two right out of three (67%) is under the >=80% accuracy bar, so this
+    // session earns nothing.
+    //
+    // It used to answer all three correctly and rely on the ANSWER floor
+    // instead — a flat five, which the authored run could never reach. That
+    // made the advertised path unearnable on the very lesson `/learn`'s review
+    // card deep-links with `?review=1`, so the floor is now
+    // `min(5, authoredQuestions)` and three correct answers legitimately pass.
+    // Accuracy is the bar this test is about, so it is the one it now misses.
+    const [first, ...rest] = AUTHORED.answers;
+    // Any choice that is not the graded one is wrong; the four are fixed.
+    const wrong = (['Go left', 'Go right', 'Found it', 'Not present'] as const)
+      .filter((choice) => choice !== (first as string))
+      .at(0)!;
+    await answer(viz, wrong);
+    for (const label of rest) await answer(viz, label);
+
     await expect(activityChip(viz)).toHaveText('3 answered · 0 skipped');
     expect(await storageFingerprint(page)).toBe(before);
     // …and nothing tells the reader they fell short of a threshold they were

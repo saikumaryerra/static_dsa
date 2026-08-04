@@ -2,31 +2,35 @@
  * Local progress — the ONE module that reads and clears the site's completion
  * state (site spec §6 client persistence; M7.2 "close the loops").
  *
- * WHY ONE MODULE: three surfaces now answer questions about the same keys — the
- * `/learn` resume CTA, its per-track counters and reset control, and the home
- * hero's continue line — and M8.1 layers mastery on top of exactly these keys by
- * extending this file rather than opening a second store (see the mastery
- * section at the bottom). Keeping the key format, the `try/catch` discipline,
- * the delete list and the rule for WHEN a surface re-reads storage (`onRestore`)
- * in one place is what stops them from drifting apart.
+ * WHY ONE MODULE: eight islands now answer questions about the same keys — the
+ * home hero's continue line, the `/learn` resume CTA with its per-track rings and
+ * reset control, the review strip, the lesson header's pips, `MarkComplete`,
+ * `PracticeCheck`, `FinalRun` and the Visualizer's predict session — because M8
+ * layered mastery on top of exactly these keys by extending this file rather than
+ * opening a second store (see the mastery section at the bottom). Keeping the key
+ * format, the `try/catch` discipline, the delete list and the rule for WHEN a
+ * surface re-reads storage (`onRestore`) in one place is what stops them from
+ * drifting apart.
  *
  * WHY THE MASTERY HALF IS NOT A `mastery.ts` OF ITS OWN: it was built and
- * measured both ways during the M8.1 review. Rollup picks a chunk per MODULE,
- * not per export, so today the home page's resume island does download record
- * parsing and gate maths it can never execute — and splitting does remove that,
- * worth −656 B gz on `/`. But every page that needs BOTH halves then fetches two
- * separately-compressed chunks instead of one, which costs more than it saves:
- * `/learn` +263 B gz, a lesson page +282 B gz, and +290 B for a visitor who
- * loads `/` and then a lesson, because the shared chunk is cached site-wide, so
- * a session pays the boundary once and the home saving is only ever collected by
- * a visitor who bounces. The two pages that get worse are the two the
- * gamification budget names (`docs/m8-gamification.md`: lesson ≈ 4.3 KB gz,
- * `/learn` ≈ 2.2 KB), and against the review's own measurement of M8.1's ground
- * floor — ~22% over its ~2 KB allowance — the extra 282 B would take it to ~36%
- * over. The split therefore worsens the budget finding it was proposed to fix.
- * Revisit if M8.2/M8.3 grow the mastery half enough to flip that arithmetic;
- * every delta above is reproducible by bundling these exports under the five
- * real island import sets and gzipping each emitted chunk.
+ * measured both ways during the M8.1 review, and re-measured after M8.2/M8.3
+ * grew this file (the figures below are the current ones — the M8.1-era numbers
+ * were smaller on `/` because the mastery half itself was). Rollup picks a chunk
+ * per MODULE, not per export, so today the home page's resume island does
+ * download record parsing, gate maths and the review scheduler it can never
+ * execute — and splitting does remove that, now worth −1,098 B gz on `/`. But
+ * every page that needs BOTH halves then fetches two separately-compressed
+ * chunks instead of one, which costs more than it saves: `/learn` +268 B gz, a
+ * lesson page +285 B gz, and +285 B for a visitor who loads `/` and then a
+ * lesson, because the shared chunk is cached site-wide — so a session pays the
+ * boundary once and the home saving is only ever collected by a visitor who
+ * bounces. The two pages that get worse are the two the gamification budget
+ * names (`docs/m8-gamification.md`: lesson ≈ 4.3 KB gz, `/learn` ≈ 2.2 KB), and
+ * both still sit over that self-imposed slice, so the split worsens the exact
+ * finding it was proposed to fix. It is a close call now and worth revisiting if
+ * the mastery half grows again; every delta above is reproducible by bundling
+ * these exports under the real island import sets, once as one module and once as
+ * two, and gzipping each emitted chunk (gzip -9).
  *
  * WHAT IT NEVER DOES:
  * - **Enumerate `localStorage` by key prefix.** Every per-lesson function takes
@@ -52,7 +56,8 @@
 
 /**
  * M8.3's two GLOBAL progress keys and their delete path, IMPORTED from the module
- * that writes them (`src/lib/challenges.ts`) rather than retyped here.
+ * that owns them (`src/lib/enrichment-store.ts`, re-exported by `challenges.ts`)
+ * rather than retyped here.
  *
  * The rule this file already applies per-lesson — one writer per key, and the
  * key format stated once — is the reason: a literal spelled in both modules is a
@@ -60,12 +65,24 @@
  * writes `ld:challenges:v1` would fail silently, leaving the reader with data
  * they asked to delete and nothing on screen to say so.
  *
- * Cheap to import, which is what makes that rule affordable on a page with a
- * gzip budget: `challenges.ts` is side-effect free and its catalog, DSL and
- * build-time guard are all unreferenced from here, so they shake out and only
- * the two key strings plus this one function travel. Measured at +13 B gz over
- * retyping the literals here (both variants bundled under the `/learn` island's
- * real import set and gzipped; the catalog's own strings appear in neither).
+ * WHERE THEY LIVE, AND WHAT THE IMPORT COSTS — measured, because a comment here
+ * once claimed "+13 B gz over retyping the literals", which was wrong by two
+ * orders of magnitude and hid a real bundling problem for a whole phase.
+ * Bundlers chunk per MODULE, not per export, so while these two names sat beside
+ * the trial catalog and its predicate DSL, this one import dragged that entire
+ * ~1.3 KB gz chunk onto every page holding a reset control or a resume line —
+ * `/` and `/learn` included, neither of which hosts a trial. The keys therefore
+ * now live in `src/lib/enrichment-store.ts`, a module holding only them, the
+ * `viz:run` event name and their two writers' helpers; `challenges.ts` re-exports
+ * them, so this import stays pointed at the name it always named and the bundler
+ * folds the pass-through away (the measured before/after table is in
+ * `enrichment-store.ts`'s header — the split took ~900 B gz off each of those two
+ * pages and cost no page a request).
+ *
+ * The lesson, since the number is the thing that failed: a size claim in a
+ * comment is an assertion about the BUILD, so measure it against a build — gzip
+ * every chunk in a page's static import closure, or bundle the variants under the
+ * real island import sets and gzip each emitted chunk. Do not estimate it.
  */
 import { ENRICHMENT_KEYS, resetEnrichment } from './challenges';
 
@@ -457,10 +474,10 @@ export const PROGRESS_RESET_EVENT = 'progress:reset';
 // ---------------------------------------------------------------------------
 // Mastery (M8.1) — the one currency: Learned → Practiced → Mastered.
 //
-// Every rule that decides a stage lives HERE, once, because five surfaces will
-// ask about it (practice checks, the lesson header pips, `LessonCard`, the
-// track arc, and M8.2's review queue) and a predicate copied into any of them
-// is a definition free to drift.
+// Every rule that decides a stage lives HERE, once, because every M8 surface
+// asks about it — practice checks, the lesson header pips, `LessonCard`, the
+// track arc, the review queue, the predict session and the Final Run — and a
+// predicate copied into any of them is a definition free to drift.
 //
 // The rules, in full (`docs/m8-gamification.md`):
 // - **Learned is the completion mark.** `lesson:{slug}:complete` (the M7 key,
@@ -498,12 +515,14 @@ export type MasteryStage = 'none' | 'learned' | 'practiced' | 'mastered';
  *
  * Timestamps rather than booleans: the Mastered gate and the review schedule are
  * both derived from them, so a boolean would have to be re-derived from a date
- * anyway. M8.2 added the last two fields and M8.3 adds `note`, all with no
- * migration step, which has to work in BOTH directions: a record written before
- * they existed parses fine here (an M8.1 record reads as "first interval, never
- * reviewed", which is exactly what a lesson that has only ever been practised
- * is), and a record that already carries a field this version has no name for
- * survives a write from it untouched (see {@link readStored}).
+ * anyway. M8.2 added the last two fields with no migration step, and the design's
+ * Explain-it-back note would add one more the same way if it is ever built — it
+ * was deferred, so no `note` is written today (`docs/m8-gamification.md`, "As
+ * shipped"). That forward-compatibility has to work in BOTH directions: a
+ * record written before a field existed parses fine here (an M8.1 record reads as
+ * "first interval, never reviewed", which is exactly what a lesson that has only
+ * ever been practised is), and a record that already carries a field this version
+ * has no name for survives a write from it untouched (see {@link readStored}).
  */
 export interface MasteryRecord {
   /**
@@ -703,11 +722,12 @@ function toIntervalIndex(value: unknown): number {
 /**
  * A parsed record plus the fields this version did not recognise.
  *
- * The second half is not decoration: `docs/m8-gamification.md` has M8.2 and M8.3
- * adding `intervalIndex`, `lastReviewAt` and `note` to THIS key with no
- * migration step. A read-modify-write that serialised only the three known
- * fields would erase a newer one every time an older bundle graded a question —
- * a tab left open across a deploy, or a browser holding the previous build.
+ * The second half is not decoration: M8.2 added `intervalIndex` and
+ * `lastReviewAt` to THIS key with no migration step, and the deferred
+ * Explain-it-back note would add a third the same way. A read-modify-write that
+ * serialised only the fields one bundle happens to know would erase a newer one
+ * every time an older bundle graded a question — a tab left open across a
+ * deploy, or a browser holding the previous build.
  */
 interface StoredMastery {
   record: MasteryRecord;
@@ -1028,9 +1048,9 @@ export function countMastery(lessons: LessonRef[]): {
 //
 // It lives in this file, beside the record it reads, for the reason the module
 // header gives: `/learn` is one of the two pages that would pay the extra
-// compressed chunk boundary a split costs, and everything below is ~0.5 KB gz of
-// date arithmetic over a record this module already owns (measured by minifying
-// and gzipping the module with and without it).
+// compressed chunk boundary a split costs, and everything below is 349 B gz of
+// date arithmetic over a record this module already owns (measured by bundling
+// and minifying the module with and without this section and gzipping each).
 //
 // The rules, in full (`docs/m8-gamification.md`):
 // - **Due** when `now - max(practicedAt, lastReviewAt)` reaches the lesson's

@@ -14,7 +14,11 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Manual only, and only for the `seed-visual-baselines` job below.
+  # Added FOR the `seed-visual-baselines` job below, which is the only job gated
+  # on this event. Note what that does NOT mean: a manual dispatch also runs the
+  # `DoD gate` job, which carries no event filter — deliberately, since the
+  # seeding instructions say to seed from a commit whose gate is green, and this
+  # is what proves it at seeding time.
   workflow_dispatch:
 
 concurrency:
@@ -67,10 +71,12 @@ jobs:
 
   # M7.1 Task 0 — step 1 of the two-step flow that turns the PIXEL baseline on.
   #
-  # tests/e2e/baseline-visual.spec.ts skips itself unless VISUAL_BASELINE is set,
-  # and no PNG is committed yet, so today that half of the baseline configures a
-  # code path nothing can reach. Closing that gap needs two deliberate steps, in
-  # this order:
+  # tests/e2e/baseline-visual.spec.ts skips its 14 captures unless VISUAL_BASELINE
+  # is set, and no PNG is committed yet, so today that half of the baseline
+  # configures a code path nothing can reach. That state is no longer silent: the
+  # one always-running test in that file prints it on every e2e run and fails if
+  # this flow is left half-done (baselines committed, comparison still off).
+  # Closing the gap needs two deliberate steps, in this order:
   #
   #   1. Run this job (Actions → CI → Run workflow) from a commit whose DoD gate
   #      is green. Download the `visual-baselines` artifact, review the PNGs like
@@ -80,7 +86,8 @@ jobs:
   #      `npm run test:e2e` step above. In the other order every run goes red:
   #      `updateSnapshots: 'none'` on CI (playwright.config.ts) makes a missing
   #      baseline a failure rather than a silent regeneration — which is the
-  #      point, but only once a baseline exists.
+  #      point, but only once a baseline exists. (This job is unaffected: it
+  #      passes `--update-snapshots`, which overrides that config value.)
   #
   # It has to run HERE rather than on a laptop: the site ships a pure system font
   # stack, so glyph rasterization — and with it every pixel — is specific to the
@@ -107,9 +114,19 @@ jobs:
 
       - run: npx playwright install --with-deps chromium
 
-      # The whole file is gated on this flag; --update-snapshots writes the PNGs
-      # into the snapshot dir uploaded below. Nothing else runs — a full e2e pass
-      # is the `verify` job's business.
+      # Every capture in that file is gated on this flag; --update-snapshots
+      # writes the PNGs into the snapshot dir uploaded below. No other spec runs
+      # — a full e2e pass is the `verify` job's business.
+      #
+      # This step is expected to end GREEN, and all three of the things that make
+      # it work were verified against the installed Playwright (1.61.1) rather
+      # than assumed:
+      #   - the CLI option beats the config, so `updateSnapshots: 'none'` (which
+      #     `playwright.config.ts` sets whenever CI is set, as it is here) does
+      #     not disarm the flag;
+      #   - a bare `--update-snapshots` means `changed`, not `all`;
+      #   - in `changed` mode a MISSING snapshot is written and the assertion
+      #     passes, so a red run here means something genuinely broke.
       - run: VISUAL_BASELINE=1 npx playwright test tests/e2e/baseline-visual.spec.ts --update-snapshots
 
       # always(): a partial set still shows WHICH capture went wrong, and these

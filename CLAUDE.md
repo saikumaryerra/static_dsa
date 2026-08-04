@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-LearnDSA — a static, no-backend Astro + TypeScript site teaching data structures & algorithms with interactive step-through visualizations. M1–M6 are built and shipped (15 lessons, 11 renderer modules / 12 registered renderer ids, glossary, SEO). M7 (UX overhaul) and M8 (gamification) are designed and planned but **not implemented**.
+LearnDSA — a static, no-backend Astro + TypeScript site teaching data structures & algorithms with interactive step-through visualizations. **Every milestone in spec §17 has shipped (M1–M8)**: 15 lessons, 11 renderer modules / 12 registered renderer ids, glossary and SEO (M1–M6); the UX overhaul (M7.1 repair → M7.2 progress/player v2/wayfinding → M7.3 brand/print/forced-colors); and the M8 mastery loop (self-graded practice + pips + track rings, predict mode + spaced review, Trace Trials + Final Run). Two designed M8.3 items were deliberately **not** built — Explain-it-back and the Learning Days line; both are recorded as deferred in `docs/m8-gamification.md`, so treat them as scope, not as bugs to fix.
 
 **`docs/site-spec.md` is the authoritative spec.** Read the relevant sections before implementing anything. If a request conflicts with the spec, flag the conflict instead of guessing; if the spec is silent, choose the simplest option that satisfies the goals and leave a `// SPEC-GAP:` comment explaining the choice. Never invent scope.
 
@@ -16,8 +16,8 @@ touching its area:
 | `docs/m2-*`, `docs/m3-*`, `docs/m5-*`, `docs/m6-design.md` | shipped milestones: lesson layout, viz framework, glossary/about/SEO, DP lesson |
 | `docs/design-tokens-m1.md` | the token system and its documented rationales (e.g. left-aligned measure, neutral chips) |
 | `docs/deployment.md` | production deploy: Cloudflare Pages + GitHub Actions, Node pin, DoD gate |
-| `docs/m7-ux-overhaul.md` | UX audit findings + the three-phase redesign plan, with per-fix file pointers |
-| `docs/m8-gamification.md` | the mastery-loop design, its binding stance, data model, and killed mechanics |
+| `docs/m7-ux-overhaul.md` | UX audit findings + the three-phase redesign **as shipped**, with per-fix file pointers and the deviations from plan |
+| `docs/m8-gamification.md` | the mastery-loop design **as shipped**, its binding stance, data model, killed mechanics, and what was deferred |
 
 ## Workflow: sub-agent orchestration
 
@@ -63,15 +63,33 @@ frames come from the real renderer's build-time `renderStatic()` output so they 
 the neutral difficulty chips are deliberate, documented decisions, so changing them is a spec
 amendment with designer sign-off, not a bug fix.
 
-## Build order
+## Where the build stands
 
-Follow the spec's §17 milestones strictly in order; each has acceptance criteria that must pass before starting the next. Prefer the vertical slice: one lesson (Binary Search) end-to-end before scaling to all lessons.
+Spec §17's milestone ladder is finished — it is history, not a plan. M7 and M8 shipped in five
+commits after their design PR (`632f4b4` plans + spec amendments; `7367685` M7.1, `80373a4` M7.2,
+`12d2486` M7.3, `2b6b821` M8.1, `4f34cff` M8.2+M8.3). New work is repair, extension or a spec
+amendment; it still runs through the same design → implement → QA → review flow and the same DoD
+(§18). Prefer the smallest shippable batch, and still prefer the vertical slice (one lesson
+end-to-end) before scaling a change across all 15.
 
-M1–M6 are done. Next: **M7.1 → M7.2 → M7.3** (UX overhaul), then **M8.1 → M8.2 → M8.3**
-(gamification). M8 depends on M7.2's progress system and reset control — don't start it earlier.
-Within a phase, prefer the smallest shippable batch that passes the DoD. M7.1 is pure repair with
-no spec changes and is the right first PR; the sticky-rail fix (RSP-1) is a one-line change with
-outsized impact.
+**Know what an area already guarantees before touching it:**
+
+- **Progress & mastery** — `src/lib/progress.ts` is the one reader and the one deleter of every progress key; exactly one writer exists per key (`MarkComplete` → completion, `progress.ts` → `progress:v1:{slug}`, `Challenge`/`FinalRun` → the two `ld:*` keys through `src/lib/enrichment-store.ts`). Lesson lists are injected from the build; storage is never enumerated by prefix.
+- **Visualization** — trace-then-render survived M8 intact: predict mode and trials consume the same precomputed `Step[]`. `predictStep` is optional per algorithm and ships for binary-search, bubble, insertion, BFS and DFS; quick-sort and selection-sort deliberately have none (they defer swaps — see `docs/m8-gamification.md`).
+- **Tokens & chrome** — light elevation is *inverted* (`--bg` tinted `#F8FAFC`, `--surface` white, plus sunken/raised levels); the six `--hl-*` roles stay viz-only and chrome attention uses `--accent-warn`; every sticky offset and `scroll-margin-top` derives from `--header-h`; durations come only from `--duration-*` tokens. `src/styles/tokens.css` is the source of truth — `docs/design-tokens-m1.md`'s code block is the retired M1 snapshot, not something to paste.
+- **JS-off** — every M8 component carries its own `<noscript>` kill-switch: with JS disabled no pip, ring, milestone, review card, trial or Final Run appears (`/learn`'s pip legend is hidden for the same reason). Newly server-rendered M7 content (prerequisites, "What's next", glossary aliases) *is* expected to appear.
+- **The calm invariants are tests**, not conventions: review strip ≤2 cards and zero DOM when empty, the banned vocabulary, the Predict toggle's absence from storage, the token contrast matrix. Breaking one fails CI rather than review.
+
+**Deliberately not built** (decisions, not gaps): Explain-it-back and its `explainPrompt` frontmatter
+field, the Learning Days counter (`ld:days:v1` is enumerated in §6 with no writer), semantic
+difficulty chips (design sign-off withheld), per-track OG cards, the glossary search island, and
+Astro prefetch. Spec §19 and the two milestone docs carry the reasoning; re-proposing one is a spec
+amendment, not a fix.
+
+**Budget note:** a size claim in a comment is a claim about the *build* — measure it (gzip every
+chunk in a page's static import closure) or don't write it. A wrong one here hid a 1.3 KB gz chunk
+riding onto `/` and `/learn` for two key strings; the fix and its measurement now live in
+`src/lib/enrichment-store.ts` and at the top of `src/lib/progress.ts`.
 
 ## Hard constraints (details in the spec)
 
@@ -96,6 +114,7 @@ Definition of Done for any change (spec §18): `npm run build`, `npm run lint`, 
 - JSDoc on public functions; inline "why" comments; no `console.log` or dead code in production.
 - Renderer elements get stable ids (e.g. `i0`, `n5`) so highlights and CSS transitions can target them.
 - `opencode.json` contains an API key and is gitignored — never commit it.
+- `README.md` is the human entry point (this file is the agent one). If a change alters how the project is run, tested or constrained, update it in the same PR; docs that describe the plan instead of the product are a review failure.
 
 
 ## git

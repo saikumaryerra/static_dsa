@@ -46,9 +46,24 @@
  * which is also why a re-visit re-asks the question instead of showing the
  * answer: on a review visit, getting it again IS the re-pass the ladder needs.
  *
+ * WHAT CLEARING EARNS, AND WHAT IT DOES NOT: clearing stays free, unlimited and
+ * worded identically however many tries it took — but the PRACTICED credit is
+ * only claimed when the number came out of the reader's head, meaning this card
+ * had not put the answer on screen since the page loaded. Practiced and Mastered
+ * are the two EARNED counts the track headers show beside the self-reported
+ * Learned one, and a pass also seeds the spaced review queue, so a "clear" typed
+ * straight back off the correction line would make both of those claims false.
+ * The rule is written out in full beside the flag that implements it, in the
+ * script at the bottom of this file.
+ *
  * JS-OFF: the whole card is hidden by its own `<noscript>` kill-switch — nothing
  * here can be checked without a script, and an unanswerable question is worse
- * than no question.
+ * than no question. That kill-switch is ALSO why no lesson authors a
+ * `## Final run` heading: a heading in the MDX body survives it, leaving an
+ * empty section and two dead table-of-contents links (inline bar + rail) on
+ * every lesson that hosts one. So the card titles itself — the "Final run"
+ * kicker below — and heading, card and ToC entry live and die together, exactly
+ * as a headless `Challenge` trial does.
  */
 import { getCollection, render } from 'astro:content';
 import { algorithms } from '../viz/registry';
@@ -326,9 +341,11 @@ const statusId = `fr-status-${uid}`;
   }
 
   /* The question is the card's accessible name, so it is styled as the title
-     rather than marked up as a heading: this card sits after `## Practice` in
-     some lessons and under a `###` in others, and inventing a level would put a
-     wrong rung in the document outline. */
+     rather than marked up as a heading. The card is authored HEADLESS — every
+     lesson that hosts one drops it into that lesson's `## Practice` section,
+     because a heading of its own would outlive the `<noscript>` kill-switch (see
+     the note at the top of this file) — and inventing a level here would put a
+     rung in the outline that no section on the page owns. */
   .final-run__prompt {
     margin: var(--space-1) 0 var(--space-2);
     color: var(--text);
@@ -443,6 +460,7 @@ const statusId = `fr-status-${uid}`;
 <script>
   import { isFinalRunCleared, markFinalRunCleared } from '../lib/challenges';
   import { recordPass } from '../lib/progress';
+  import { PROGRESS_CHANGED_EVENT } from '../lib/progress-events';
 
   /** Wires one Final Run card. */
   function setup(root: HTMLElement): void {
@@ -491,6 +509,38 @@ const statusId = `fr-status-${uid}`;
       if (watch) watch.hidden = false;
     };
 
+    /**
+     * Has this card put the answer on screen since the page loaded?
+     *
+     * THE EARNING RULE, in full. Clearing is free, unlimited and identical
+     * however many tries it took — the card says "cleared" either way, stores
+     * the same `ld:finalrun:v1` record either way, and says the same sentence
+     * either way. What this flag gates is the one thing that is not free:
+     * `recordPass()`, which mints **Practiced**. Practiced (with Mastered) is an
+     * EARNED count, shown beside the self-reported Learned one precisely because
+     * it is evidence of retrieval, and it also seeds the spaced review queue. A
+     * miss hands the reader the real number (hypercorrection — that is the
+     * point) and "Show the answer" hands it over with no miss at all, so typing
+     * that number back is transcription, not retrieval: the card clears, and the
+     * product declines to claim on the reader's behalf something it just told
+     * them.
+     *
+     * NOT a first-try bonus and NOT an attempt count — both killed
+     * (`docs/m8-gamification.md`), and this is neither. Nothing is added for
+     * being early, nothing is deducted for missing, no attempt is counted here
+     * or in storage, and the reader is never told, scored or shown a difference.
+     * The distinction is about what the PRODUCT is entitled to claim, never
+     * about grading the reader.
+     *
+     * And it costs them nothing they cannot recover: the flag is in memory for
+     * this page VISIT only (never `sessionStorage`, which spec §6 forbids, and
+     * never a stored key — there is no attempt history to keep), a cleared card
+     * deliberately withholds the answer on a later visit so the question can be
+     * predicted again, and the other two Practiced paths — every practice
+     * question self-graded, or a predict session — are untouched.
+     */
+    let shown = false;
+
     /** Marks the card cleared on screen. Never reversed — no stage goes down. */
     const paintCleared = (): void => {
       root.dataset['cleared'] = 'true';
@@ -528,8 +578,10 @@ const statusId = `fr-status-${uid}`;
       if (guess !== answer) {
         // Hypercorrection: the real number arrives immediately, beside the
         // invitation to watch it happen. No attempt is counted, here or in
-        // storage — the credit for clearing this is the same on the first try
-        // and the fifth.
+        // storage — clearing this card costs nothing and reads identically on
+        // the first try and on the fifth. What handing the number over does end
+        // is the RETRIEVAL claim for this visit, and only that (see `shown`).
+        shown = true;
         say(`Not quite — the answer is ${answerText}.`);
         offerWatch();
         return;
@@ -540,8 +592,17 @@ const statusId = `fr-status-${uid}`;
       // first pass it stamps Practiced, on a due review it advances the
       // schedule, and otherwise it changes nothing at all. Calling it again on
       // a second correct answer in the same visit is therefore a no-op.
+      //
+      // `!shown` is the earning rule above: the card clears regardless, but a
+      // number this card had already displayed earns nothing.
       const saved = markFinalRunCleared(slug);
-      if (slug) recordPass(slug);
+      if (slug && !shown) {
+        recordPass(slug);
+        // The stage this may have just changed is painted by other islands (the
+        // lesson header's pips), and Astro gives component scripts no shared
+        // scope — so say so, and let each listener re-read storage itself.
+        document.dispatchEvent(new CustomEvent(PROGRESS_CHANGED_EVENT));
+      }
       paintCleared();
       // The storage write is allowed to fail (private mode): the result still
       // stands for this visit, and only the "saved" half of the sentence is
@@ -559,7 +620,11 @@ const statusId = `fr-status-${uid}`;
       ?.addEventListener('click', () => {
         // The escape reveals and nothing more: it does not clear the Final Run,
         // because the reader has not predicted anything — and it costs nothing
-        // either, because this system has no penalty to charge.
+        // either, because this system has no penalty to charge. It does put the
+        // answer on screen, so the retrieval claim for this visit goes with it
+        // (see `shown`): typing back a number the card is displaying can still
+        // clear the card, but it cannot earn Practiced.
+        shown = true;
         say(`The answer is ${answerText}.`);
         offerWatch();
       });

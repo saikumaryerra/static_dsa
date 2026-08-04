@@ -197,9 +197,46 @@ function parseInput(raw: string): BinarySearchInput | { error: string } {
  */
 const PREDICT_CHOICES = ['Go left', 'Go right', 'Found it', 'Not present'];
 
+/** Asked on the one step that has no probe of its own yet: the initial state. */
+const FIRST_PROBE_PROMPT = 'What happens at the first probe?';
+
 /**
- * The "what does the search do next?" question for step `i` (M8.2), graded
- * against `trace[i + 1]` — the step the Player already holds.
+ * Asked on every step that has already resolved a comparison. "After this step"
+ * is the load-bearing half — see {@link predictStep}.
+ */
+const NEXT_PROBE_PROMPT = 'After this step, what happens at the next probe?';
+
+/**
+ * The Predict-the-Step question for step `i` (M8.2), graded against
+ * `trace[i + 1]` — the step the Player already holds.
+ *
+ * THE PROMPT NAMES WHICH PROBE IT ASKS ABOUT, and that is a correctness
+ * requirement rather than a copy preference. Grading is deliberately one step
+ * ahead (grading the CURRENT step would let the reader read the answer straight
+ * off the explanation this strip sits above), which means that on every step
+ * but the first, the screen ALREADY shows a resolved comparison *and names its
+ * direction*: at index 1 of the authored run `[1,3,5,7,9,11] target=7` the
+ * explanation reads "…Discard the left half and search the right." while the
+ * graded answer is "Go left" — the direction of the probe that has not happened
+ * yet. A prompt that said only "next" ("What does the search do next?") let a
+ * reader answer the question the explanation had already answered and be marked
+ * wrong for reading the screen correctly; on that three-question run it
+ * punished correct reasoning twice. Hypercorrection fired on a wording trap
+ * teaches the opposite of what predicting is for, so the prompt scopes itself
+ * past the step on screen:
+ *   - before any probe → {@link FIRST_PROBE_PROMPT};
+ *   - after one        → {@link NEXT_PROBE_PROMPT}.
+ * "Probe" is this page's own word for it — the Trace Trial below the
+ * visualizer is titled "Two Probes, Fifteen Doors" and its hint reads "The
+ * first probe is always the middle."
+ *
+ * The prompt deliberately does NOT restate the window the next probe runs in.
+ * It could on most steps ("the window is now 3–5"), but the step before the
+ * empty-window terminal has no window left to name, so that prompt's different
+ * shape would itself be a tell for the "Not present" answer — one leak traded
+ * for another. One wording for every resolved step keeps the retrieval act
+ * whole: apply this step's decision, find the next middle, compare it with the
+ * target.
  *
  * The order of the checks below is LOAD-BEARING:
  *   1. no successor → `null` (the last step has nothing to predict);
@@ -219,8 +256,19 @@ function predictStep(
   i: number,
   input: BinarySearchInput,
 ): PredictQuestion | null {
+  const current = trace[i];
   const next = trace[i + 1];
-  if (!next) return null;
+  if (!current || !next) return null;
+
+  // The initial step is the only step with a successor and no probe of its own:
+  // the other `mid === null` step is the empty-window terminal, and `run`
+  // returns immediately after pushing that one, so it never has a successor.
+  const beforeFirstProbe = current.state.mid === null;
+  // …unless there is nothing to probe at all. On an empty array the successor
+  // IS that terminal, step 0 already reads "The array is empty, so N cannot be
+  // found" — the answer, in words, on screen — and "the first probe" would name
+  // something that never happens. Nothing to retrieve, so nothing is asked.
+  if (beforeFirstProbe && next.state.mid === null) return null;
 
   const { array, foundIndex, mid } = next.state;
   let correctIndex: number;
@@ -233,7 +281,7 @@ function predictStep(
   }
 
   return {
-    prompt: 'What does the search do next?',
+    prompt: beforeFirstProbe ? FIRST_PROBE_PROMPT : NEXT_PROBE_PROMPT,
     // A fresh array per call, so rendering one question can never mutate the
     // shared constant behind the next one.
     choices: [...PREDICT_CHOICES],

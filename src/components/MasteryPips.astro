@@ -254,6 +254,39 @@ const gateLine = `Mastery needs a return visit at least ${MASTERY_GATE_DAYS} day
     display: inline;
   }
 
+  /* FORCED COLOURS. The colour half of the two rules above is author colour on
+     an SVG, and that is the half this mode does NOT take back. Measured in
+     Chromium with forced colours active: `color: #4F46E5` on an HTML element
+     computes to CanvasText, but the same declaration on an `<svg>` computes to
+     #4F46E5 — as does `stroke`, from CSS or from a presentation attribute. So
+     without this block the pips kept --brand and --border-strong on a Canvas
+     they were never picked against, and the EARNED pip was the fainter of the
+     two: light tokens on a black Canvas put --brand at 3.34:1 and
+     --border-strong at 4.41:1. Said explicitly in system colours instead, which
+     are the one kind of author colour this mode does not override — the pips
+     draw from `currentColor`, so setting `color` carries the ring, the check and
+     the inner dot together.
+
+     Highlight for earned / GrayText for unearned mirrors how a native progress
+     control renders its value against its track. The SHAPE difference (a check
+     or a filled dot inside the ring) is untouched and remains the primary cue,
+     and the stage word beside the pips is the accessible one — this rule is
+     about not losing the visual cue, never about being the only one.
+
+     Same selectors as the rules they follow, so they win on source order; a
+     lighter selector would lose to the (0,4,0) stage rules above. */
+  @media (forced-colors: active) {
+    .mastery-pips__pip {
+      color: GrayText;
+    }
+
+    .mastery-pips[data-stage='learned'] .mastery-pips__pip:nth-child(-n + 1),
+    .mastery-pips[data-stage='practiced'] .mastery-pips__pip:nth-child(-n + 2),
+    .mastery-pips[data-stage='mastered'] .mastery-pips__pip:nth-child(-n + 3) {
+      color: Highlight;
+    }
+  }
+
   /* Inherits its host's type (both hosts are --text-sm/--text-muted rows), so
      the word never looks like a chip of its own. */
   .mastery-pips__label {

@@ -69,10 +69,12 @@
  * - the session line counts ACTIVITY ("7 answered · 2 skipped") and never a
  *   score, ratio or percentage: an accuracy display during a learning act makes
  *   beginners protect a number instead of attempting hard predictions
- *   (`docs/m8-gamification.md`, calm invariants). The ≥5-answers-at-≥80% bar
- *   that feeds the mastery ladder is therefore computed silently and written
- *   through `recordPass()`, which owns the 3-day Mastered gate — predict adds no
- *   promotion rule of its own and stores no attempt history.
+ *   (`docs/m8-gamification.md`, calm invariants). The bar that feeds the mastery
+ *   ladder — ≥80% across the design's five answers, or across a complete pass of
+ *   an authored run that is shorter than that (`recordSessionPass`) — is
+ *   therefore computed silently and written through `recordPass()`, which owns
+ *   the 3-day Mastered gate: predict adds no promotion rule of its own and
+ *   stores no attempt history.
  * The question strip is INJECTED at runtime rather than server-rendered:
  * predict needs JS anyway, and `.viz-frame` is outside the `<noscript>`
  * kill-switch's reach (it only targets `.viz-controls`), so a JS-off page must
@@ -215,6 +217,16 @@ if (algo.predictStep) {
 }
 const showPredict = predictQuestions > 0;
 
+// The same scan also settles HOW MANY answers a passing session needs here. The
+// design's bar is "≥5 answers at ≥80%", but this run is the item bank the reader
+// is actually offered, and binary search's authored four-step run holds exactly
+// three predictable steps — so one pass of that lesson's own run cannot reach
+// the bar, including through `/learn`'s review card, which deep-links it with
+// `?review=1` and turns this mode on. The island credits a pass at
+// `min(5, this number)` instead (see `recordSessionPass`); handing it the
+// AUTHORED count keeps a short custom input from lowering the bar.
+const predictItems = String(predictQuestions);
+
 // The lesson a passed predict session credits, resolved at BUILD time from the
 // page URL — `/learn/{slug}` and nothing else. This island also renders on
 // /about and in the dev gallery, where there is no lesson to credit and the
@@ -272,6 +284,7 @@ const targetId = `${uid}-target`;
   data-show-metrics={showMetrics ? 'true' : 'false'}
   data-target-label={showTarget ? targetLabel : ''}
   data-slug={showPredict && lessonSlug ? lessonSlug : undefined}
+  data-predict-items={showPredict && lessonSlug ? predictItems : undefined}
 >
   <figure class="viz-frame">
     {
@@ -2009,6 +2022,7 @@ const targetId = `${uid}-target`;
   // pure declarations importing only types, so everything but this one string is
   // tree-shaken out of the island's chunk.
   import { VIZ_RUN_EVENT } from '../lib/challenges';
+  import { PROGRESS_CHANGED_EVENT } from '../lib/progress-events';
   import type { VizRunDetail } from '../lib/challenges';
   import type {
     Algorithm,
@@ -2033,6 +2047,15 @@ const targetId = `${uid}-target`;
    * review queue is the only surface in this product that ever prompts.
    */
   const PREDICT_IDLE = 'No prediction at this step.';
+
+  /**
+   * The design's answer floor for a passing predict session
+   * (`docs/m8-gamification.md` M8.2: "≥5 answers at ≥80%"). A lesson whose
+   * authored run offers fewer questions than this credits a pass at a complete
+   * pass of that run instead — see `recordSessionPass`, which is the only reader
+   * of this constant.
+   */
+  const PASS_ANSWERS = 5;
 
   /**
    * SPEC-GAP: §6 (amended for M7.2) permits the PREFERENCE key `pref:viz-speed`
@@ -2108,6 +2131,17 @@ const targetId = `${uid}-target`;
     // on /about and in the dev gallery — where the practice still works and
     // nothing is written, because there is no lesson to credit.
     const lessonSlug = root.dataset['slug'] ?? '';
+    // How many predictable steps the AUTHORED run holds, counted by the build's
+    // own scan of the same trace. Emitted under exactly the same condition as
+    // `data-slug`, so it is missing wherever that is; `Number('')` is 0, and a
+    // falsy count falls back to the full design bar.
+    const authoredItems = Number(root.dataset['predictItems'] ?? '');
+    /**
+     * The answers a passing session needs HERE: the design's five, or a complete
+     * pass of a shorter authored run. Never more than five, and never more than
+     * this lesson's own run can ask.
+     */
+    const passFloor = Math.min(PASS_ANSWERS, authoredItems || PASS_ANSWERS);
 
     // Query the pieces we drive.
     const canvas = root.querySelector<HTMLElement>('[data-viz-canvas]');
@@ -2474,8 +2508,29 @@ const targetId = `${uid}-target`;
     }
 
     /**
-     * The predict path onto the mastery ladder: ≥5 answers at ≥80% in this
-     * session (`docs/m8-gamification.md` M8.2).
+     * The predict path onto the mastery ladder: ≥80% correct across at least
+     * `passFloor` answers in this session (`docs/m8-gamification.md` M8.2).
+     *
+     * THE FLOOR IS THE DESIGN'S FIVE, OR A COMPLETE PASS OF A SHORTER AUTHORED
+     * RUN. "≥5 answers" was written without measuring what the shipped traces
+     * can offer: binary search's authored run is four steps, so it holds exactly
+     * three predictable ones — and `/learn`'s review card deep-links that lesson
+     * with `?review=1`, which turns this mode on. A bar that one pass of the
+     * lesson's own run cannot reach is worse than a lower one, and three correct
+     * predictions out of three IS a complete, accurate pass of that run: three
+     * answers graded against the trace, where the other two paths to Practiced
+     * are self-reports (practice checks) and a single graded number (the Final
+     * Run). Every other predict-capable run today offers five or more, so
+     * nothing else moves — and because the count is per island, a future run
+     * that is shorter gets the same treatment without a code change. It comes
+     * from the BUILD's scan of the authored trace, so a one-question custom
+     * input cannot cheapen the bar: only the lesson's own run defines
+     * "complete".
+     *
+     * A session accumulates across custom runs within this page visit — the
+     * design's "infinite item bank" — because these counters live in the island
+     * closure and a new trace never touches them; only toggling predict off and
+     * on starts a fresh one.
      *
      * Computed in integers — the ratio is never formatted, let alone displayed —
      * and written through `recordPass`, which owns the 3-day Mastered gate, so
@@ -2494,7 +2549,7 @@ const targetId = `${uid}-target`;
       if (
         passRecorded ||
         !lessonSlug ||
-        answered < 5 ||
+        answered < passFloor ||
         correct * 5 < answered * 4
       ) {
         return;
@@ -2503,6 +2558,13 @@ const targetId = `${uid}-target`;
       void import('../lib/progress')
         .then((store) => {
           store.recordPass(lessonSlug);
+          // Tell the surfaces that render mastery to re-read, INSIDE the async
+          // callback: this write happens after a dynamic import resolves, so no
+          // click-time listener can observe it however it is scoped, and without
+          // this the one visit that earned Practiced is the one visit that never
+          // shows it. `FinalRun` — the other retrieval path that promotes —
+          // dispatches the same event for the same reason.
+          document.dispatchEvent(new CustomEvent(PROGRESS_CHANGED_EVENT));
         })
         .catch(() => {
           // Nothing on screen ever claimed this was saved, and the bar can be

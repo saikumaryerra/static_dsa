@@ -189,6 +189,128 @@ describe('binarySearch.predictStep (M8.2)', () => {
     expect(qLeft.choices[qLeft.correctIndex]).toBe('Go left');
   });
 
+  it('asks about the FIRST probe on the step where none has happened yet', () => {
+    const input = binarySearch.defaultInput();
+    const trace = binarySearch.run(input);
+    // The initial step is the only one that can have a successor without a
+    // probe of its own: the empty-window terminal is `mid === null` too, but it
+    // is always the last step.
+    expect(trace[0]!.state.mid).toBeNull();
+    expect(binarySearch.predictStep!(trace, 0, input)!.prompt).toBe(
+      'What happens at the first probe?',
+    );
+  });
+
+  it('asks nothing about an array that never probes at all', () => {
+    // Step 0 of an empty array already reads "The array is empty, so 5 cannot
+    // be found" — the answer, in words, on screen — and there is no first probe
+    // to name. A question here would be free, not retrieval.
+    const input: BinarySearchInput = { array: [], target: 5 };
+    const trace = binarySearch.run(input);
+    expect(trace).toHaveLength(2);
+    expect(trace[0]!.explanation).toContain('cannot be found');
+    expect(binarySearch.predictStep!(trace, 0, input)).toBeNull();
+  });
+
+  /**
+   * THE REGRESSION GUARD for the whole "marked wrong for reading the screen
+   * correctly" class of bug.
+   *
+   * Grading is one step ahead on purpose (grading the current step would let
+   * the reader read the answer off the explanation the strip sits above), so
+   * the fix has to live in the prompt: it must scope the question past the step
+   * the reader is looking at. Note the guard is on the PROMPT and never on the
+   * answer — the answer legitimately equals the direction the current
+   * explanation names whenever two probes run the same way, which the last case
+   * in this block pins.
+   */
+  describe('the prompt always names WHICH probe it asks about', () => {
+    /**
+     * The authored run (defaultInput is the same input the lesson passes), an
+     * absent target so the empty-window terminal is covered, a target the first
+     * probe overshoots, a single-item array, and a longer even-length run.
+     */
+    const INPUTS: BinarySearchInput[] = [
+      binarySearch.defaultInput(),
+      { array: [1, 3, 5, 7], target: 4 },
+      { array: [1, 3, 5, 7], target: 1 },
+      { array: [5], target: 5 },
+      { array: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], target: 10 },
+    ];
+
+    it('reproduces the defect it fixes: at index 1 the screen says "right" and the answer is "Go left"', () => {
+      // The lesson's authored <Visualizer input="[1,3,5,7,9,11] target=7">.
+      const input = binarySearch.parseInput(
+        '[1,3,5,7,9,11] target=7',
+      ) as BinarySearchInput;
+      const trace = binarySearch.run(input);
+
+      expect(trace[1]!.explanation).toContain('search the right');
+      const q = binarySearch.predictStep!(trace, 1, input)!;
+      // The graded answer is the NEXT probe's direction, not this step's.
+      expect(q.choices[q.correctIndex]).toBe('Go left');
+      // So the prompt must say which probe it means. Spelled out rather than
+      // imported: a test that read the constant could not catch a bad edit.
+      expect(q.prompt).toBe('After this step, what happens at the next probe?');
+    });
+
+    it('scopes every question past the step on screen, and leaks no answer word', () => {
+      for (const input of INPUTS) {
+        const trace = binarySearch.run(input);
+        for (let i = 0; i < trace.length; i += 1) {
+          const q = binarySearch.predictStep!(trace, i, input);
+          if (!q) continue;
+          const label = `step ${i} of [${input.array.join(',')}] target=${input.target}`;
+
+          // Every prompt names the probe it asks about.
+          expect(q.prompt, label).toMatch(/\b(first|next) probe\b/);
+          // The moment the step on screen has resolved a direction, the prompt
+          // has to put the question AFTER it — the exact trap this guards.
+          if (/search the (left|right)/.test(trace[i]!.explanation)) {
+            expect(q.prompt, label).toBe(
+              'After this step, what happens at the next probe?',
+            );
+          }
+          // And the prompt never carries an answer word itself, in either
+          // direction: it may not leak the outcome, and it may not repeat the
+          // decision the explanation below has already made.
+          expect(q.prompt, label).not.toMatch(/left|right|found|present/i);
+        }
+      }
+    });
+
+    it('cannot be a guard on the ANSWER: consecutive probes may share a direction', () => {
+      // [1,3,5,7,9,11] target 11 probes index 2 (5 < 11) and then index 4
+      // (9 < 11) — both go right. So "the answer never matches the direction
+      // the current explanation names" is FALSE for correct traces, and only
+      // the prompt's wording can carry the invariant.
+      const input: BinarySearchInput = {
+        array: [1, 3, 5, 7, 9, 11],
+        target: 11,
+      };
+      const trace = binarySearch.run(input);
+      expect(trace[1]!.explanation).toContain('search the right');
+      const q = binarySearch.predictStep!(trace, 1, input)!;
+      expect(q.choices[q.correctIndex]).toBe('Go right');
+    });
+  });
+
+  it('offers three questions on the authored run — the floor a pass is credited at', () => {
+    // The Visualizer counts these at build time and hands the number to the
+    // island (`data-predict-items`), which credits a predict pass at ≥80%
+    // across min(5, that count) answers. Pinned here so the number quoted in
+    // `Visualizer.astro` cannot rot: four steps, three predictable.
+    const input = binarySearch.parseInput(
+      '[1,3,5,7,9,11] target=7',
+    ) as BinarySearchInput;
+    const trace = binarySearch.run(input);
+    const asked = trace.filter(
+      (_, i) => binarySearch.predictStep!(trace, i, input) !== null,
+    );
+    expect(trace).toHaveLength(4);
+    expect(asked).toHaveLength(3);
+  });
+
   it('offers the four fixed choices with a correctIndex inside them, at every step', () => {
     const inputs: BinarySearchInput[] = [
       binarySearch.defaultInput(),

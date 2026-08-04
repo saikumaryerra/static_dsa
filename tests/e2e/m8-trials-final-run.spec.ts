@@ -30,6 +30,8 @@ import {
   blockStorage,
   curriculum,
   daysAgo,
+  headerLabel,
+  headerStage,
   masteryKey,
   readKey,
   readRecord,
@@ -451,6 +453,8 @@ test.describe('the Final Run: unlimited attempts, no first-try anything', () => 
     const slug = await findFinalRunLesson(page);
     const card = page.locator(FINAL);
     const answer = (await card.getAttribute('data-answer'))!;
+    // Nothing is claimed before the reader acts.
+    await expect(headerStage(page)).toBeHidden();
 
     await card.locator('[data-final-run-input]').fill(answer);
     await card.locator('[data-final-run-check]').click();
@@ -462,11 +466,132 @@ test.describe('the Final Run: unlimited attempts, no first-try anything', () => 
     expect(record?.practicedAt ?? null).not.toBeNull();
     expect(record?.masteredAt ?? null).toBeNull();
 
+    // IN THIS VISIT, AND WITHOUT A RELOAD. This assertion used to run after
+    // `page.reload()`, which proved only that the WRITE had landed — so the
+    // header could (and did) keep showing the old stage for the whole visit that
+    // earned the new one, and the test stayed green. The card owns no pips, so
+    // the only thing that can close that gap is the write announcing itself on
+    // `progress:changed` (`src/lib/progress-events.ts`) for the lesson header to
+    // hear.
+    await expect(headerStage(page)).toBeVisible();
+    await expect(headerLabel(page)).toHaveText('Practiced on this device');
+
+    // …and the repaint is a display catching up, not a substitute for the
+    // record: it survives the reload the assertion used to depend on.
     await page.reload();
-    await expect(page.locator('[data-lesson-stage]')).toBeVisible();
-    await expect(page.locator('[data-mastery-label]').first()).toHaveText(
-      'Practiced on this device',
+    await expect(headerLabel(page)).toHaveText('Practiced on this device');
+  });
+
+  test('the answer shown and then typed back clears the card but earns nothing', async ({
+    page,
+  }) => {
+    const slug = await findFinalRunLesson(page);
+    const card = page.locator(FINAL);
+    const answer = (await card.getAttribute('data-answer'))!;
+    const status = card.locator('[data-final-run-status]');
+
+    // "Show the answer" is the escape hatch, and it stays free: no penalty, no
+    // mark, no attempt counted. What it does end is the RETRIEVAL claim — the
+    // number is now on screen, so typing it back is transcription. Practiced is
+    // one of the two EARNED counts the track headers show beside the
+    // self-reported Learned one, and it seeds the review queue besides, so
+    // minting it here would make both of those claims false.
+    await card.locator('[data-final-run-reveal]').click();
+    await expect(status).toContainText(
+      (await card.getAttribute('data-answer-text'))!,
     );
+
+    await card.locator('[data-final-run-input]').fill(answer);
+    await card.locator('[data-final-run-check]').click();
+
+    // The card clears — the reader typed the right number and the product does
+    // not argue with them…
+    await expect(card).toHaveAttribute('data-cleared', 'true');
+    await expect(status).toContainText("That's it");
+    expect(JSON.parse((await readKey(page, FINAL_RUN_KEY))!)).toEqual({
+      [slug]: { c: 1 },
+    });
+    // …and no mastery is claimed, in the store or on screen. `masteryKey` is
+    // ABSENT rather than present-and-empty: `recordPass` was never called.
+    expect(await readKey(page, masteryKey(slug))).toBeNull();
+    await expect(headerStage(page)).toBeHidden();
+
+    // Not a punishment, and never described as one: the difference lives in what
+    // the product claims, never in what the reader is told. No attempt count, no
+    // first-try language, no score — on the card or in the store.
+    // No attempt count, no first-try language, no score — and no scolding for
+    // having looked. (The card's own "…than after a peek" is the hypercorrection
+    // note, addressed to nobody in particular, so the ban is on the killed
+    // scorekeeping vocabulary rather than on the word.)
+    const text = (await card.innerText()).replace(/\s+/g, ' ');
+    expect(text, `scorekeeping in "${text}"`).not.toMatch(BANNED);
+    expect(await storageFingerprint(page)).not.toMatch(BANNED);
+  });
+
+  test('a miss, then the right number, is the same story — the correction was the giveaway', async ({
+    page,
+  }) => {
+    const slug = await findFinalRunLesson(page);
+    const card = page.locator(FINAL);
+    const answer = (await card.getAttribute('data-answer'))!;
+    const field = card.locator('[data-final-run-input]');
+    const check = card.locator('[data-final-run-check]');
+
+    // A miss hands over the real number immediately — that IS the mechanic
+    // (hypercorrection), and it is why the miss costs nothing. It also puts the
+    // answer on screen, so the visit's retrieval claim goes with it, exactly as
+    // the reveal button's does. Deriving the miss from the answer keeps this
+    // honest on a lesson whose metric happens to be small.
+    await field.fill(String(Number(answer) + 1));
+    await check.click();
+    await expect(card.locator('[data-final-run-status]')).toContainText(
+      (await card.getAttribute('data-answer-text'))!,
+    );
+
+    await field.fill(answer);
+    await check.click();
+
+    await expect(card).toHaveAttribute('data-cleared', 'true');
+    expect(await readKey(page, masteryKey(slug))).toBeNull();
+    await expect(headerStage(page)).toBeHidden();
+    const text = (await card.innerText()).replace(/\s+/g, ' ');
+    expect(text, `scorekeeping in "${text}"`).not.toMatch(BANNED);
+    expect(await storageFingerprint(page)).not.toMatch(BANNED);
+  });
+
+  test('the retrieval claim is per VISIT, not a mark on the record', async ({
+    page,
+  }) => {
+    const slug = await findFinalRunLesson(page);
+    const card = page.locator(FINAL);
+    const answer = (await card.getAttribute('data-answer'))!;
+
+    await card.locator('[data-final-run-reveal]').click();
+    await card.locator('[data-final-run-input]').fill(answer);
+    await card.locator('[data-final-run-check]').click();
+    await expect(card).toHaveAttribute('data-cleared', 'true');
+    expect(await readKey(page, masteryKey(slug))).toBeNull();
+
+    // Nothing about "the answer was shown" is written down — it is a flag in the
+    // island's closure for this page visit only (never `sessionStorage`, which
+    // spec §6 forbids; never a key, because there is no attempt history to
+    // keep). So the next visit asks the question again and the reader can earn
+    // Practiced on it, which is what "costs them nothing they cannot recover"
+    // has to mean to be true.
+    expect(await storageFingerprint(page)).not.toMatch(
+      /shown|revealed|peeked|attempts?/i,
+    );
+
+    await page.reload();
+    await expect(card).toHaveAttribute('data-cleared', 'true');
+    await expect(card.locator('[data-final-run-status]')).toHaveText('');
+    await card.locator('[data-final-run-input]').fill(answer);
+    await card.locator('[data-final-run-check]').click();
+
+    await expect
+      .poll(async () => (await readRecord(page, slug))?.practicedAt ?? null)
+      .not.toBeNull();
+    await expect(headerLabel(page)).toHaveText('Practiced on this device');
   });
 
   test('a re-pass after the gate promotes, and a returning reader still gets to predict', async ({

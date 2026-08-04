@@ -1,7 +1,15 @@
-# M7 — UX Overhaul (implementation plan)
+# M7 — UX Overhaul (shipped; this doc is the plan plus what actually landed)
 
-Status: **planned** (nothing implemented). Follows M6; M8 (gamification, `docs/m8-gamification.md`)
-builds on M7.2's progress foundations. Spec §17 lists both milestones; this doc is the working plan.
+Status: **shipped** — M7.1 in `7367685`, M7.2 in `80373a4`, M7.3 in `12d2486`. M8 (gamification,
+`docs/m8-gamification.md`) then built on M7.2's progress system and reset control, and has shipped
+too. Spec §17 lists both milestones.
+
+Everything below the phase headings is the *plan as written before implementation* and is kept
+verbatim as the design record — read it for the reasoning and the file pointers, not as a to-do
+list. **What shipped, and every place the result deliberately differs from this plan, is recorded
+in "As shipped" at the end of this document.** Where the two disagree, the shipped behaviour and
+the code comments that explain it win; changing one of those decisions is a spec amendment with
+sign-off, not a bug fix.
 
 ## Provenance — how this design was produced
 
@@ -232,6 +240,50 @@ Harness note: `vitest.config.ts` runs `environment: 'node'` with no DOM library 
 therefore an **e2e** test, and anything unit-tested must be a pure function with injected inputs —
 the pattern `src/lib/theme.ts`'s `resolveTheme(stored, prefersDark)` already establishes. Adding
 jsdom/happy-dom would be a new dependency and needs a SPEC-GAP.
+
+## As shipped — what landed, and where it deviates from the plan above
+
+All three phases shipped (`7367685`, `80373a4`, `12d2486`), each with its own e2e suite:
+`tests/e2e/m7-repair.spec.ts`, `m7-progress.spec.ts`, `m7-player-v2.spec.ts`, `m7-wayfinding.spec.ts`,
+`m7-glossary.spec.ts`, `m7-codetabs.spec.ts`, `m7-brand.spec.ts`, `m7-print-hcm.spec.ts`, plus the
+`viz-focus-retention` journey (flipped live in M7.2 as planned) and the unit-side
+`tokens-contrast.test.ts` / `viz-player-v2.test.ts`. The token deltas landed as specified — inverted
+light elevation, sunken/raised levels, the brand tint family, `--accent-warn`, `--header-h`,
+`--text-5xl`/`--weight-heavy`/`--tracking-tighter`, `--disabled-opacity` — in all three blocks
+including the `prefers-color-scheme` mirror, and THM-1's follow-through landed too (the light
+`theme-color` meta is `#F8FAFC`). `src/styles/tokens.css` is the source of truth for all of it.
+
+**Deviations — decisions, not drift:**
+
+1. **Difficulty chips stayed NEUTRAL.** M7.3's soft-fill treatment (VD-6/CMP-2) was built and then
+   **rejected at design review, which withheld the sign-off spec §8 requires**. Three reasons, all
+   measured or structural: the fills are 1.00–1.06:1 against the card they sit on, so they do almost
+   no perceptual work; the separation that remained was carried by label hue alone — the colour-only
+   channel the chip exists to avoid; and painting all thirteen "Beginner" chips as loudly as the two
+   "Intermediate" ones inverts the Von Restorff argument the change was made from. The full record is
+   `design-tokens-m1.md` Decision 3 and the header comment in `src/components/DifficultyChip.astro`.
+   **Badge-the-exception is still open, not rejected** — it needs a §8 amendment *and* sign-off
+   (spec §19). Do not "fix" the neutral chip.
+2. **One OG card, generated, not hand-exported; no per-track cards.** The plan called for
+   hand-exported 1200×630 PNGs, site + per-track. What shipped is a single site card produced by
+   `scripts/build-og.mjs` (`npm run og`) from the real renderer's `renderStatic()` output, rasterised
+   by the Chromium `@playwright/test` already installs (so still no new dependency), committed as
+   `public/og-source.svg` + `public/og-default.png` and served to every page through `BaseLayout`'s
+   `ogImage` default. Hand-export was abandoned because the first hand-made card drew a binary-search
+   frame the renderer does not produce (no index row for lo/mid/hi to point at) — the site advertising
+   a product that does not exist, which is exactly what "never hand-mock the product" forbids. The
+   script is deliberately **not** wired into `npm run build`.
+3. **The visual half of Task 0 is a gate, not coverage.** `tests/e2e/baseline-aria.spec.ts` ships with
+   five committed aria snapshots and runs on every push; `tests/e2e/baseline-visual.spec.ts` is
+   **unseeded and skips by default** — no PNG has ever been committed, and `VISUAL_BASELINE` is set
+   only in the manual seeding job in `.github/workflows/ci.yml`, never on the DoD gate. So a green
+   `npm run test:e2e` says nothing about pixels. Turning it on is two steps, documented at the top of
+   that file. M7.3 repainted the whole site with this half inert; that is a known, recorded gap.
+4. **Scope added during implementation** — already recorded inline under M7.2: the home hero's
+   secondary resume line and the PrevNext redesign (next promoted to a card, prev demoted to a text
+   link, synthetic last-lesson card so lesson 15 is not a dead end).
+5. **Still deferred, exactly as §19 says:** the glossary search island (the zero-JS "Also called:"
+   aliases shipped regardless) and Astro prefetch.
 
 ## Considered & rejected (do not re-litigate)
 

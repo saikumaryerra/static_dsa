@@ -161,6 +161,29 @@ const { track } = Astro.props;
     stroke-linecap: round;
   }
 
+  /* FORCED COLOURS. Both strokes above are author colour on an SVG, and this
+     mode does not take those back: measured in Chromium with forced colours
+     active, `stroke` set from CSS (or from a presentation attribute) computes to
+     the author's value, unlike `color` on an HTML element. So without this block
+     the ring kept --brand on a repainted Canvas it was never picked against, and
+     the decorative groove outshone the fill that carries the meaning: light
+     tokens on a black Canvas put --border at 17.03:1 and --brand at 3.34:1.
+     Said explicitly in system colours, which this mode does not override, and
+     split the way a native progress control splits value from track.
+
+     The ring is `aria-hidden` decoration whose every number is stated in the two
+     text lines beside it, so this restores a redundant cue rather than the only
+     one. Same selectors as the rules above, so they win on source order. */
+  @media (forced-colors: active) {
+    .track-arc__groove {
+      stroke: GrayText;
+    }
+
+    .track-arc__fill {
+      stroke: Highlight;
+    }
+  }
+
   /* Holds two lines from first paint, so filling them moves nothing. `1em` is
      this element's own --text-sm and the multiplier is the body line-height,
      the same reservation shape `.viz-explain` uses. */
