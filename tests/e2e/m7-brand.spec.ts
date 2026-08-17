@@ -262,7 +262,6 @@ test.describe('lesson cards', () => {
     const restingShadow = await computed(card, 'boxShadow');
     expect(restingShadow).not.toBe('none');
     const restingBorder = await computed(card, 'borderTopColor');
-    const restingTitle = await computed(title, 'color');
 
     await card.hover();
 
@@ -272,12 +271,14 @@ test.describe('lesson cards', () => {
     await expect
       .poll(() => computed(card, 'borderTopColor'))
       .not.toBe(restingBorder);
-    // The title picks up the brand, so the thing under the pointer reads as the
-    // link it is — and it is the BRAND, not some one-off colour.
-    await expect
-      .poll(() => computed(title, 'color'))
-      .toBe(await tokenColour(page, '--brand'));
-    expect(await computed(title, 'color')).not.toBe(restingTitle);
+    // The title's hover recolour is GONE, deliberately, and this asserts it
+    // stays gone. It painted `--brand`, which the achromatic palette made equal
+    // to `--text` — so the rule could not change anything it was pointed at.
+    // The card's hover lives entirely on the two channels above, which is one
+    // more than it needs and neither of them is a hue.
+    expect(await computed(title, 'color')).toBe(
+      await tokenColour(page, '--text'),
+    );
   });
 });
 

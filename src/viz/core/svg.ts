@@ -71,6 +71,85 @@ export const text = (content: string | number, a: Attrs): string =>
 export const group = (children: string, a: Attrs = {}): string =>
   `<g${attrs(a)}>${children}</g>`;
 
+// --- viewBox arithmetic (the frame-height policy, RenderOpts.fixedViewBox) ---
+
+/** A parsed `viewBox`, in user units. */
+export interface ViewBoxRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Trims float noise so a unioned box stays as readable as a hand-written one. */
+const round = (n: number): number => Number(n.toFixed(2));
+
+/**
+ * Parses a `viewBox` string (`"minX minY width height"`, space- or
+ * comma-separated per SVG 1.1) into numbers.
+ *
+ * @param viewBox - The attribute value.
+ * @returns The rect, or `null` when it is not four finite numbers with a
+ *   positive extent (a zero/negative width or height disables rendering, so it
+ *   is never a useful union input).
+ */
+export function parseViewBox(viewBox: string): ViewBoxRect | null {
+  const parts = viewBox.trim().split(/[\s,]+/);
+  if (parts.length !== 4) return null;
+  const [x, y, width, height] = parts.map(Number) as [
+    number,
+    number,
+    number,
+    number,
+  ];
+  if (![x, y, width, height].every(Number.isFinite)) return null;
+  if (width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
+}
+
+/**
+ * Reads the `viewBox` out of a rendered `<svg>` string — the measuring half of
+ * the frame-height policy. Deliberately markup-level rather than a new renderer
+ * method: `renderStatic` is the ONE surface every renderer already exposes
+ * (including `ArrayRenderer`, which does not use the shared draw plumbing), so
+ * measuring through it means the frame can be sized without touching, or even
+ * knowing, any individual renderer's geometry.
+ *
+ * @param svg - A `renderStatic()` result.
+ * @returns The raw `viewBox` value, or `null` if the markup carries none.
+ */
+export function readViewBox(svg: string): string | null {
+  const match = /viewBox="([^"]*)"/.exec(svg);
+  return match?.[1] ?? null;
+}
+
+/**
+ * The smallest box that contains every box given — i.e. the frame that fits the
+ * whole trace, so no step needs to resize it (see `RenderOpts.fixedViewBox`).
+ * Unparseable entries are skipped rather than throwing: a measurement helper
+ * that can crash the build over one odd frame is worse than one that falls back
+ * to per-step sizing.
+ *
+ * @param boxes - `viewBox` strings, e.g. one per step of a trace.
+ * @returns The unioned `viewBox` string, or `null` when nothing parsed.
+ */
+export function unionViewBox(boxes: Iterable<string>): string | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const box of boxes) {
+    const rect = parseViewBox(box);
+    if (!rect) continue;
+    minX = Math.min(minX, rect.x);
+    minY = Math.min(minY, rect.y);
+    maxX = Math.max(maxX, rect.x + rect.width);
+    maxY = Math.max(maxY, rect.y + rect.height);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+  return `${round(minX)} ${round(minY)} ${round(maxX - minX)} ${round(maxY - minY)}`;
+}
+
 /** Options for {@link svgRoot}. */
 export interface SvgRootOptions {
   /** `viewBox` string, e.g. `"0 0 960 340"`. */

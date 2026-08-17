@@ -105,8 +105,13 @@ const CORPUS: CorpusEntry[] = [
   {
     algorithm: 'binary-search',
     messages: [
-      // Names both fields in its prose; the array is what is missing.
-      ['Type an array and target, e.g. [1,3,5,7] target=5', 'input'],
+      // The array field is empty or unreadable. This message replaced "Type an
+      // array and target, e.g. [1,3,5,7] target=5", which was the P0: the field
+      // now ACCEPTS the bare comma-separated list its own help text documents,
+      // so the old text both demanded brackets it never mentioned and named two
+      // fields beneath two the reader had already filled in. It names the one
+      // field that is actually wrong, in the format the field actually takes.
+      ['Type the numbers to search, e.g. 1,3,5,7', 'input'],
       ['Add a target, e.g. [1,3,5,7] target=5', 'target'],
       ['Use whole numbers only, e.g. [1,3,5,7]', 'input'],
       ['Keep the array to 30 numbers or fewer.', 'input'],

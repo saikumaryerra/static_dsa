@@ -114,6 +114,41 @@ export interface Algorithm<TInput, TState> {
     i: number,
     input: TInput,
   ): PredictQuestion | null;
+
+  /**
+   * OPTIONAL (redesign §7): the columns this algorithm's ledger shows — the
+   * classroom trace table for its own state, e.g. `lo · mid · hi` for a search.
+   * Additive and optional exactly like `predictStep` above: an algorithm that
+   * declares none still gets a ledger, just the generic one (the authored
+   * sentence plus whatever `metrics` it already emits), which for a structure
+   * with no classroom variables is the honest shape rather than a degraded one.
+   *
+   * Each column reads `step.state` and nothing else. There is deliberately no
+   * way to derive a column from `highlights` — see `core/ledger.ts` for why.
+   */
+  ledger?: LedgerSpec<TState>;
+}
+
+/**
+ * One ledger column. Declared here rather than in `core/ledger.ts` because this
+ * module is the root of the dependency graph and imports nothing — `Algorithm`
+ * above needs the shape, and `ledger.ts` (which imports this file) owns the
+ * behaviour. Contract here, implementation there.
+ */
+export interface LedgerColumn<TState = unknown> {
+  /** Column header. Short — it is a `<th scope="col">`, e.g. `lo`, `top`. */
+  label: string;
+  /** Reads ONE value out of this step's state. `null` means "not applicable". */
+  from(step: Step<TState>): string | number | null;
+  /** Right-aligns with tabular figures. Defaults to true for numbers. */
+  numeric?: boolean;
+}
+
+/** An algorithm's declared ledger: its value columns, and its running cost. */
+export interface LedgerSpec<TState = unknown> {
+  columns: LedgerColumn<TState>[];
+  /** A key of `step.metrics` shown as the trailing cost column, e.g. `comparisons`. */
+  costKey?: string;
 }
 
 /**
@@ -128,6 +163,32 @@ export interface RenderOpts {
    * `renderStatic` defaults it when omitted (unit tests don't need uniqueness).
    */
   idBase?: string;
+  /**
+   * OPTIONAL: pin the `<svg viewBox>` for EVERY step instead of letting each
+   * step size its own frame. Additive — omit it and each renderer keeps its
+   * per-step box, so every existing caller compiles and behaves unchanged.
+   *
+   * WHY THIS EXISTS. The frame is fluid (`width="100%"`, `height:auto`,
+   * `preserveAspectRatio`), so its RENDERED HEIGHT is `containerWidth ×
+   * viewBoxHeight / viewBoxWidth` — a pure function of the viewBox. A renderer
+   * that recomputes its box from the CURRENT step therefore resizes the canvas
+   * while the reader steps: a tree that grows node by node shrinks its own frame
+   * by hundreds of CSS pixels between step 0 and the last step, and every
+   * control below it walks up the page under the reader's finger.
+   *
+   * The fix is available for free because of trace-then-render: the WHOLE trace
+   * is precomputed before the first frame is drawn (§11), so the frame can be
+   * sized ONCE from the union of every step's natural extent — see
+   * `fitViewBox()` in `renderers/shared.ts` — and handed to both paths here.
+   * Nothing about the pipeline forks: the renderers still draw exactly the step
+   * they are given, in a box that simply stopped moving.
+   *
+   * Format is a raw `viewBox` string (`"minX minY width height"`). Honoured by
+   * `renderStatic` (the build-time still) and by the mounted DOM renderer, so
+   * the still and its hydrated replacement are the same size — no jump on
+   * hydrate.
+   */
+  fixedViewBox?: string;
 }
 
 /**

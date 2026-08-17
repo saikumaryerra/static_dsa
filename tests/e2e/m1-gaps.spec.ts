@@ -18,11 +18,12 @@ import { expect, test, type Page } from '@playwright/test';
  *   through — Lighthouse 100 tolerates none).
  */
 
-const DARK_BG = 'rgb(11, 18, 32)'; // --bg dark: #0B1220 (designer handoff)
-// M7.3 VD-3 inverted the light elevation model: the page canvas is now a tinted
-// #F8FAFC and #FFFFFF moved to --surface (cards, the viz frame), so a resting
-// card finally separates from the page. Was #FFFFFF through M7.2.
-const LIGHT_BG = 'rgb(248, 250, 252)'; // --bg light: #F8FAFC
+const DARK_BG = 'rgb(14, 15, 18)'; // --bg dark: #0E0F12
+// The achromatic repalette: every chrome surface gave up its hue so the six
+// --hl-* visualization roles are the only colour left on the site. The canvas
+// moved off the blue-tinted slate (#F8FAFC / #0B1220) onto a neutral paper.
+// Elevation is unchanged in kind — the card is still --surface above the page.
+const LIGHT_BG = 'rgb(252, 252, 251)'; // --bg light: #FCFCFB
 
 /** Computed background of <html>, which global.css paints with var(--bg). */
 function htmlBackground(page: Page): Promise<string> {

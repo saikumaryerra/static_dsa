@@ -15,8 +15,20 @@
  * removes an entire class of patch-vs-rebuild defects. (ArrayRenderer keeps its
  * bespoke persistent-cell patching to preserve M2's cross-step colour tween.)
  */
-import type { Highlight, Renderer, RenderOpts, Step } from '../core/types';
-import { svgRoot, text } from '../core/svg';
+import type {
+  Highlight,
+  Renderer,
+  RendererModule,
+  RenderOpts,
+  Step,
+} from '../core/types';
+import {
+  parseViewBox,
+  readViewBox,
+  svgRoot,
+  text,
+  unionViewBox,
+} from '../core/svg';
 
 // --- Shared marker glyphs (the non-color layer, design §2.4). Pure strings so
 // every renderer emits the SAME paired marker for a given kind (design §3.2). ---
@@ -62,6 +74,51 @@ export interface Canvas {
 /** A renderer's single geometry source: `step` → drawn `Canvas`. */
 export type Draw<TState> = (step: Step<TState>) => Canvas;
 
+// --- The frame-height policy (see `RenderOpts.fixedViewBox`) ---
+
+/**
+ * The box a frame should actually use: the caller's pinned one when it is a
+ * usable `viewBox`, else the one this step drew for itself. A malformed
+ * override falls back rather than blanking the drawing — sizing is a hint from
+ * outside the renderer, and a hint must never be able to erase the picture.
+ */
+function resolveViewBox(drawn: string, opts: RenderOpts): string {
+  const fixed = opts.fixedViewBox;
+  return fixed !== undefined && parseViewBox(fixed) !== null ? fixed : drawn;
+}
+
+/**
+ * Measures a whole trace and returns the ONE box that fits every step of it —
+ * what `RenderOpts.fixedViewBox` wants, and the reason the canvas can stop
+ * resizing mid-run (a fluid `<svg>`'s rendered height is
+ * `containerWidth × vbHeight / vbWidth`, so a per-step box IS a per-step
+ * height).
+ *
+ * Works on ANY `RendererModule`, including ones with bespoke plumbing, because
+ * it measures through `renderStatic` — the single surface they all share —
+ * rather than through a geometry hook each renderer would have to remember to
+ * implement. The cost is one still per step, thrown away; that is nothing in
+ * build-time frontmatter, and on the client it is paid once per run (never per
+ * step), so it stays off the stepping path entirely.
+ *
+ * @param module - The renderer that will draw the trace.
+ * @param trace - Every step that must fit.
+ * @returns The unioned `viewBox`, or `null` for an empty/unmeasurable trace —
+ *   in which case the caller simply omits `fixedViewBox` and per-step sizing
+ *   applies, exactly as before.
+ */
+export function fitViewBox<TState>(
+  module: RendererModule<TState>,
+  trace: readonly Step<TState>[],
+): string | null {
+  const boxes: string[] = [];
+  for (const step of trace) {
+    const box = readViewBox(module.renderStatic(step, {}));
+    if (box !== null) boxes.push(box);
+  }
+  return unionViewBox(boxes);
+}
+
 /** Monotonic id seed so each mounted instance gets unique title/desc ids. */
 let domInstance = 0;
 
@@ -81,7 +138,7 @@ export function renderStaticSvg<TState>(
   const idBase = opts.idBase ?? 'viz';
   return svgRoot(
     {
-      viewBox,
+      viewBox: resolveViewBox(viewBox, opts),
       title: opts.title ?? '',
       desc: step.explanation,
       titleId: `${idBase}-t`,
@@ -96,15 +153,22 @@ export function renderStaticSvg<TState>(
  * scaffold (role=img + title + desc + a drawing group) is created once at
  * `mount`; each `render` replaces the drawing group's `innerHTML` and rewrites
  * `<desc>` — a single atomic redraw that snaps correctly under reduced motion.
+ *
+ * `mount`'s opts are kept for the lifetime of the instance so a pinned
+ * `fixedViewBox` applies to every later `render` too — a frame that is fixed
+ * only on the first step is not fixed.
  */
 export function createRenderer<TState>(draw: Draw<TState>): Renderer<TState> {
   const uid = `r${(domInstance += 1)}`;
   let svg: SVGSVGElement | null = null;
   let content: SVGGElement | null = null;
   let descEl: SVGDescElement | null = null;
+  /** The pinned frame from `mount`, if any (see `RenderOpts.fixedViewBox`). */
+  let mountOpts: RenderOpts = {};
 
   return {
     mount(container: HTMLElement, opts: RenderOpts = {}): void {
+      mountOpts = opts;
       const el = document.createElementNS(SVG_NS, 'svg');
       el.setAttribute('role', 'img');
       el.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -112,6 +176,12 @@ export function createRenderer<TState>(draw: Draw<TState>): Renderer<TState> {
       el.style.maxWidth = '100%';
       el.style.height = 'auto';
       el.setAttribute('aria-labelledby', `${uid}-t ${uid}-d`);
+      // Size the frame BEFORE the first `render`, so a pinned canvas is already
+      // at its final height when it replaces the build-time still — otherwise
+      // hydration itself would be one of the jumps this option exists to stop.
+      if (opts.fixedViewBox !== undefined && parseViewBox(opts.fixedViewBox)) {
+        el.setAttribute('viewBox', opts.fixedViewBox);
+      }
 
       const titleEl = document.createElementNS(SVG_NS, 'title');
       titleEl.setAttribute('id', `${uid}-t`);
@@ -130,7 +200,7 @@ export function createRenderer<TState>(draw: Draw<TState>): Renderer<TState> {
     render(step: Step<TState>): void {
       if (!svg || !content) return;
       const { viewBox, inner } = draw(step);
-      svg.setAttribute('viewBox', viewBox);
+      svg.setAttribute('viewBox', resolveViewBox(viewBox, mountOpts));
       // Single atomic redraw of the drawing group (SVG-namespaced innerHTML).
       content.innerHTML = inner;
       if (descEl) descEl.textContent = step.explanation;
@@ -141,6 +211,7 @@ export function createRenderer<TState>(draw: Draw<TState>): Renderer<TState> {
       svg = null;
       content = null;
       descEl = null;
+      mountOpts = {};
     },
   };
 }

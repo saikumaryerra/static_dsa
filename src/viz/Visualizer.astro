@@ -99,6 +99,10 @@ import {
   probeListCap,
   splitAuthoredInput,
 } from './core/input-hint';
+import { buildLedger } from './core/ledger';
+import { fitViewBox } from './renderers/shared';
+import Ledger from './Ledger.astro';
+import { pinnedInput } from '../lib/challenges';
 import type { Algorithm, RendererModule, Step } from './core/types';
 
 interface Props {
@@ -132,7 +136,21 @@ const {
 } = Astro.props;
 
 // Unique id base so multiple visualizers on one page don't collide.
-const uid = `viz-${Math.random().toString(36).slice(2, 8)}`;
+//
+// DERIVED, NOT RANDOM. This was `Math.random()`, which made every id churn on
+// every build: no anchor into a run survived a rebuild, so a step link, a row
+// citation, a bookmark and the table of contents could none of them point at
+// anything durable. The redesign's step anchors are built on this, so it had to
+// be fixed first. Route + algorithm + renderer is unique per instrument on a
+// page (two instruments on one lesson differ by algorithm — linear vs binary),
+// and the counter below is the tiebreak if that ever stops being true.
+const uidSeed = `${Astro.url.pathname}:${algorithm}:${renderer}`;
+let uidHash = 0;
+for (let i = 0; i < uidSeed.length; i += 1) {
+  // djb2-ish; only needs to be stable and collision-resistant enough for a page.
+  uidHash = (uidHash * 33 + uidSeed.charCodeAt(i)) >>> 0;
+}
+const uid = `viz-${algorithm.replace(/[^a-z0-9]+/gi, '-')}-${uidHash.toString(36).slice(0, 6)}`;
 
 // --- Build-time still (architecture §1): resolve the lazy chunks, run the algo,
 // render step 0 to a DOM-free SVG string. Unknown ids or malformed authored
@@ -159,7 +177,21 @@ if (!step0)
   throw new Error(`Algorithm "${algorithm}" produced an empty trace.`);
 
 const label = algo.label;
-const still = rmod.renderStatic(step0, { title: label, idBase: uid });
+
+// One box for the whole run (redesign §7; `fitViewBox` in renderers/shared.ts).
+// The frame is fluid, so its rendered HEIGHT is a pure function of the viewBox —
+// which means a renderer that re-derives its box from the CURRENT step resizes
+// the canvas while the reader steps. Measured at HEAD: 1,049px of drift on
+// heaps, 825px on trees-bst, 535px on stacks, walking the transport row up the
+// page under the reader's finger, against DESIGN.md's own promise that "nothing
+// ever jumps under the finger". Trace-then-render makes the fix free: the whole
+// trace is known here, so the box is sized once from the union of every step.
+const fixedViewBox = fitViewBox(rmod, trace) ?? undefined;
+const still = rmod.renderStatic(step0, {
+  title: label,
+  idBase: uid,
+  fixedViewBox,
+});
 const step0Text = step0.explanation;
 
 // Step-0 metric pills, rendered at BUILD time. An empty `.viz-metrics` measures
@@ -240,6 +272,27 @@ const routePath = Astro.url.pathname
   .replace(/\/$/, '');
 const lessonSlug = /^\/learn\/([^/]+)$/.exec(routePath)?.[1] ?? '';
 
+// --- The ledger (redesign §7): the run written out, beneath its own drawing.
+//
+// Built here, at build time, from the same precomputed trace the still comes
+// from — so it is a second VIEW of one trace, never a second source of truth,
+// and a JavaScript-off reader gets the complete worked example instead of a
+// still with a dead slider.
+//
+// suppressFinalCost closes a real leak rather than a hypothetical one: this
+// lesson's Final Run is pinned to an input in `challenges.ts`, and where that
+// pin matches the input this instrument is running, the last row's cost cell IS
+// the Final Run's answer — printed above the fold, at build time, before the
+// question is asked. `FinalRun.astro` grants Practiced credit on the basis that
+// the number "came out of the reader's head" because the card had not shown it;
+// the ledger is not the card, so that flag would never trip and the ladder would
+// record an earned pass with the answer on screen.
+const pinned = lessonSlug ? pinnedInput(lessonSlug, algorithm) : null;
+const finalRunUsesThisRun = pinned !== null && pinned === (input ?? null);
+const ledger = buildLedger(trace, algo.ledger, {
+  suppressFinalCost: finalRunUsesThisRun,
+});
+
 // CMP-14: the fields advertised a generic `[1,3,5,7,9,11]` while the canvas
 // showed the AUTHORED example, so "Run" on a half-edited field produced
 // something unrelated to the picture. Derive both placeholders from the authored
@@ -281,6 +334,7 @@ const targetId = `${uid}-target`;
   data-renderer={renderer}
   data-input={input ?? ''}
   data-label={label}
+  {...fixedViewBox ? { 'data-view-box': fixedViewBox } : {}}
   data-show-metrics={showMetrics ? 'true' : 'false'}
   data-target-label={showTarget ? targetLabel : ''}
   data-slug={showPredict && lessonSlug ? lessonSlug : undefined}
@@ -342,7 +396,13 @@ const targetId = `${uid}-target`;
          demand without the live region re-announcing them every step. */
     }
     {
-      showMetrics && (
+      /* The metric pills render only where the ledger is NOT already carrying
+         that number. Saying "Comparisons 0" in a chip above a table whose last
+         column is headed `comparisons` is the same duplication the redesign
+         removed between the narration line and the "what happened" cell — and
+         the chip is the weaker of the two, because it shows one step's value
+         while the column shows the whole run's. */
+      showMetrics && ledger.costIndex === null && (
         <div class="viz-metrics" data-viz-metrics>
           {metricPills.map((pill) => (
             <span class="viz-pill">
@@ -597,6 +657,16 @@ const targetId = `${uid}-target`;
     </p>
 
     {
+      /* DEFERRED, deliberately: the redesign puts this form behind a disclosure
+         at the frame's foot, and doing so here measured a real 162px off the
+         control column (347px → 185px) against a 266px drawing. It is reverted
+         for this slice because it breaks fourteen shipped behavioural tests that
+         drive these fields directly, and one design rule outright — two
+         instruments on a lesson would ship two identical `<summary>` strings,
+         which CNT-8 forbids. Both are fixable (unique summaries; tests that open
+         the disclosure first) and neither is a slice-sized job. */
+    }
+    {
       allowCustomInput && (
         <form class="viz-custom" data-viz-form novalidate>
           <p class="viz-custom__legend">Try your own input</p>
@@ -697,6 +767,16 @@ const targetId = `${uid}-target`;
     }
   </div>
 
+  {
+    /* The ledger closes the instrument. DOM order IS the visual order — drawing,
+       sentence, transport, the run — and it sits inside the one border that
+       `[data-viz]` now draws, so the frame and its controls stop being two
+       objects that happen to be adjacent. Outside `.viz-controls` on purpose:
+       the `<noscript>` kill-switch hides that block, and the table must survive
+       with JavaScript off, because with JavaScript off the table IS the lesson. */
+  }
+  <Ledger ledger={ledger} uid={uid} label={label} />
+
   <p class="viz-nojs-note">
     <svg
       viewBox="0 0 24 24"
@@ -785,9 +865,53 @@ const targetId = `${uid}-target`;
          thumb out of what is behind the slider, which is the canvas; against
          the brand-filled track it reads at 6.01:1 / 6.28:1. */
 
-  /* ---- Region + frame ---- */
+  /* ---- Region + frame ----
+
+     THE INSTRUMENT IS ONE BORDERED OBJECT (redesign §7).
+
+     Before this, the drawing sat inside a bordered `<figure>` and the transport,
+     scrubber, speed, keyboard hints and input form sat BELOW it on the bare
+     canvas — two objects that merely happened to be adjacent. Measured at HEAD:
+     that control block is 286px on desktop and 417px on a phone, against a 123px
+     drawing, so a phone reader got three and a half times more chrome than
+     algorithm and none of it looked like it belonged to the drawing it operated.
+
+     The border therefore moves up to the section, and `.viz-frame` gives its own
+     up: drawing, sentence, controls and the ledger are now regions of one thing.
+     Nothing moved in the DOM, so the `<noscript>` kill-switch, the tab order and
+     every existing selector still mean exactly what they meant. */
   .viz {
     margin-block: var(--space-8);
+    /* RSP-2's full bleed, inherited from `.viz-frame`: the drawing is the widest
+       thing on a lesson page, and the shell's gutter cost it 2rem of a 390px
+       screen. The negative margin is EXACTLY that gutter, so the document still
+       never scrolls sideways. */
+    margin-inline: calc(var(--space-4) * -1);
+    background-color: var(--surface);
+    border-block: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-1);
+    overflow: hidden;
+  }
+
+  @media (min-width: 768px) {
+    .viz {
+      margin-inline: 0;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-card);
+    }
+  }
+
+  /* The controls are now a region inside that border, separated by a rule rather
+     than by a gap. Padding matches the frame's so the two read as one column. */
+  .viz-controls {
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  @media (min-width: 768px) {
+    .viz-controls {
+      padding: var(--space-3) var(--space-6) var(--space-4);
+    }
   }
 
   /* RSP-2: full-bleed below the md breakpoint. The drawing is the widest thing
@@ -795,21 +919,16 @@ const targetId = `${uid}-target`;
      2rem of a 390px screen; the negative margin is EXACTLY that gutter, so the
      document still never scrolls sideways. Side borders and the card radius go
      with it — a rounded card that touches both edges reads as a rendering bug. */
+  /* The frame keeps the padding and gives up the chrome — `.viz` above draws the
+     one border now. Kept as a `<figure>`: it is still the figure the caption
+     (`.viz-explain`) belongs to. */
   .viz-frame {
-    margin: 0 calc(var(--space-4) * -1);
-    background-color: var(--surface);
-    border-block: 1px solid var(--border);
-    border-radius: 0;
-    box-shadow: var(--shadow-1);
+    margin: 0;
     padding: var(--space-4);
-    overflow: hidden;
   }
 
   @media (min-width: 768px) {
     .viz-frame {
-      margin-inline: 0;
-      border-inline: 1px solid var(--border);
-      border-radius: var(--radius-card);
       padding: var(--space-6);
     }
   }
@@ -2131,6 +2250,10 @@ const targetId = `${uid}-target`;
     // on /about and in the dev gallery — where the practice still works and
     // nothing is written, because there is no lesson to credit.
     const lessonSlug = root.dataset['slug'] ?? '';
+    // The one viewBox the build sized this whole run with (see the frontmatter).
+    // Absent only when the renderer emitted no parsable box, in which case the
+    // renderers fall back to their per-step behaviour exactly as before.
+    const fixedViewBox = root.dataset['viewBox'] ?? undefined;
     // How many predictable steps the AUTHORED run holds, counted by the build's
     // own scan of the same trace. Emitted under exactly the same condition as
     // `data-slug`, so it is missing wherever that is; `Number('')` is 0, and a
@@ -2145,6 +2268,12 @@ const targetId = `${uid}-target`;
 
     // Query the pieces we drive.
     const canvas = root.querySelector<HTMLElement>('[data-viz-canvas]');
+    const ledgerWell = root.querySelector<HTMLElement>(
+      '[data-viz-ledger-well]',
+    );
+    const ledgerRows = Array.from(
+      root.querySelectorAll<HTMLTableRowElement>('[data-ledger-row]'),
+    );
     const explain = root.querySelector<HTMLElement>('[data-viz-explain]');
     const metricsBox = root.querySelector<HTMLElement>('[data-viz-metrics]');
     const slider = root.querySelector<HTMLInputElement>('[data-viz-slider]');
@@ -2669,6 +2798,73 @@ const targetId = `${uid}-target`;
       explain!.replaceChildren(tag, ` — ${text}`);
     }
 
+    /**
+     * The ledger, wired.
+     *
+     * The table is server-rendered and complete; the island only ever moves the
+     * "you are here" mark and turns the row numbers into seek controls. It holds
+     * no index of its own — the Player stays the single source of which step is
+     * current, which is what keeps the ledger a second VIEW of one trace rather
+     * than a second copy of its state.
+     *
+     * Roving tabindex: exactly one row button is tabbable, so a 33-row table
+     * costs a keyboard reader one tab stop rather than thirty-three. Arrow keys
+     * inside the table move between rows, matching the grid pattern readers
+     * already expect from a table of controls.
+     */
+    function markLedgerRow(index: number): void {
+      if (ledgerRows.length === 0) return;
+      for (const row of ledgerRows) {
+        const rowIndex = Number(row.dataset['ledgerRow']);
+        const isCurrent = rowIndex === index;
+        if (isCurrent) row.setAttribute('aria-current', 'step');
+        else row.removeAttribute('aria-current');
+        const button =
+          row.querySelector<HTMLButtonElement>('[data-ledger-seek]');
+        if (button) button.tabIndex = isCurrent ? 0 : -1;
+      }
+      // Keep the current row in view without yanking the page: scroll the WELL,
+      // never the document, and only when the row is actually outside it.
+      const current = ledgerRows[index];
+      if (current && ledgerWell) {
+        const rowBox = current.getBoundingClientRect();
+        const wellBox = ledgerWell.getBoundingClientRect();
+        if (rowBox.top < wellBox.top || rowBox.bottom > wellBox.bottom) {
+          ledgerWell.scrollTop +=
+            rowBox.top - wellBox.top - (wellBox.height - rowBox.height) / 2;
+        }
+      }
+    }
+
+    /** Enables the row buttons the build shipped `disabled`, and binds them. */
+    function wireLedger(): void {
+      if (ledgerRows.length === 0) return;
+      for (const row of ledgerRows) {
+        const button =
+          row.querySelector<HTMLButtonElement>('[data-ledger-seek]');
+        if (!button) continue;
+        button.disabled = false;
+        button.tabIndex = -1;
+        button.addEventListener('click', () => {
+          const index = Number(button.dataset['ledgerSeek']);
+          if (Number.isFinite(index)) player?.seek(index);
+        });
+        button.addEventListener('keydown', (event: KeyboardEvent) => {
+          const delta =
+            event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+          if (delta === 0) return;
+          event.preventDefault();
+          const next = Number(button.dataset['ledgerSeek']) + delta;
+          if (next < 0 || next >= ledgerRows.length) return;
+          player?.seek(next);
+          ledgerRows[next]
+            ?.querySelector<HTMLButtonElement>('[data-ledger-seek]')
+            ?.focus();
+        });
+      }
+      markLedgerRow(player?.currentIndex ?? 0);
+    }
+
     /** onStep: sync explanation, slider, counter, metrics, and button states. */
     function onStep(index: number, step: Step<unknown>): void {
       const length = player?.length ?? 1;
@@ -2684,6 +2880,7 @@ const targetId = `${uid}-target`;
       const progress = length > 1 ? (index / (length - 1)) * 100 : 0;
       slider!.style.setProperty('--viz-progress', `${progress.toFixed(2)}%`);
       if (counter) counter.textContent = `${index + 1} / ${length}`;
+      markLedgerRow(index);
       renderMetrics(step);
       updateButtons(index, length, player?.isPlaying ?? false);
       // The question belongs to the index, so it is re-asked wherever the reader
@@ -2917,7 +3114,9 @@ const targetId = `${uid}-target`;
       renderer = rmod.create();
       // Replace the static still, then mount the live renderer in its place.
       canvas!.replaceChildren();
-      renderer.mount(canvas!, { title });
+      // Same box the build sized the still with, so hydration is a swap rather
+      // than a resize — and so the frame stays put for the whole run.
+      renderer.mount(canvas!, { title, fixedViewBox });
 
       player = new Player<unknown>({
         trace,
@@ -2928,6 +3127,7 @@ const targetId = `${uid}-target`;
       player.reset();
       syncTraceBounds();
       wireControls();
+      wireLedger();
       delete root.dataset['vizLoading'];
       root.removeAttribute('aria-busy');
       root.setAttribute('data-viz-ready', 'true');

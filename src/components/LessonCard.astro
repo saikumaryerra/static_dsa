@@ -159,16 +159,15 @@ const Heading = headingLevel;
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
     color: var(--text);
-    transition: color var(--duration-fast) var(--ease-standard);
   }
 
-  /* The title picks up the brand with the card's own hover, so the thing being
-     pointed at reads as the link it is. Decorative: the underlying signal is
-     that the entire card is one <a>, and the "Start lesson →" line below states
-     it in words for anyone who never hovers. */
-  .lesson-card:hover .lesson-card__title {
-    color: var(--brand);
-  }
+  /* The title used to pick up `--brand` on the card's hover. Under the
+     achromatic palette `--brand` IS `--text`, so that rule could no longer
+     change anything — a transition and a hover selector that painted the colour
+     already there. Deleted rather than left as decoration that reads like an
+     intention: the card's hover is carried by its shadow (level 1 → 2) and its
+     keyline, both of which still move, and the "Start lesson →" line states in
+     words that the whole card is one <a> for anyone who never hovers. */
 
   .lesson-card__summary {
     margin-top: var(--space-2);

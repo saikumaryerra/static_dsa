@@ -99,9 +99,28 @@ describe('binarySearch.parseInput', () => {
     });
   });
 
-  it('rejects a string with no array, with a friendly message', () => {
+  it('rejects a string with no array, naming the field that is actually empty', () => {
+    // The message may not say "type an array AND target" — the reader who sees
+    // it has a target on screen (this string is what the island composes from a
+    // filled target field and an empty array field), and being told to supply
+    // what you already supplied is why the old wording sent people in circles.
     expect(binarySearch.parseInput('target=5')).toEqual({
-      error: 'Type an array and target, e.g. [1,3,5,7] target=5',
+      error: 'Type the numbers to search, e.g. 1,3,5,7',
+    });
+    expect(binarySearch.parseInput('')).toEqual({
+      error: 'Type the numbers to search, e.g. 1,3,5,7',
+    });
+    expect(binarySearch.parseInput('   target = -12  ')).toEqual({
+      error: 'Type the numbers to search, e.g. 1,3,5,7',
+    });
+  });
+
+  it('still reads the EMPTY array literal as an empty array, not as "no array"', () => {
+    // `[]` is a value the trace handles ("The array is empty, so 5 cannot be
+    // found"); only a blank field is missing input.
+    expect(binarySearch.parseInput('[] target=5')).toEqual({
+      array: [],
+      target: 5,
     });
   });
 
@@ -129,6 +148,153 @@ describe('binarySearch.parseInput', () => {
     expect(binarySearch.parseInput('[3,1,2] target=2')).toEqual({
       error: 'Binary search needs a sorted array — try [1,3,5,7].',
     });
+  });
+});
+
+/**
+ * THE P0 GUARD: the field's own help text reads "Up to 30 whole numbers,
+ * comma-separated", and the bracketed placeholder that showed the other form
+ * disappears on the first keystroke. A parser that demanded the brackets was
+ * therefore refusing the only format still on screen — the product's central
+ * promise ("run it on your own input") failing on its own instructions. Both
+ * forms are legal now, and everything downstream of reading them is unchanged.
+ */
+describe('binarySearch.parseInput: the bare comma-separated form', () => {
+  /** The two spellings of one input must be indistinguishable afterwards. */
+  const bothForms = (bare: string, bracketed: string): void => {
+    const fromBare = binarySearch.parseInput(bare);
+    expect(fromBare, bare).toEqual(binarySearch.parseInput(bracketed));
+    // Not just the same parse — the same RUN, which is what the reader sees.
+    expect(binarySearch.run(fromBare as BinarySearchInput), bare).toEqual(
+      binarySearch.run(binarySearch.parseInput(bracketed) as BinarySearchInput),
+    );
+  };
+
+  it('accepts a bare list and produces the same trace as the bracketed form', () => {
+    expect(binarySearch.parseInput('1,3,5,7 target=5')).toEqual({
+      array: [1, 3, 5, 7],
+      target: 5,
+    } satisfies BinarySearchInput);
+    bothForms('1,3,5,7 target=5', '[1,3,5,7] target=5');
+  });
+
+  it('accepts every whitespace variant of both forms', () => {
+    bothForms('1, 3, 5, 7 target=5', '[1,3,5,7] target=5');
+    bothForms('  1 , 3 , 5 , 7   target = 5 ', '[ 1, 3, 5, 7 ] target=5');
+    bothForms('-3, 0, 4 target=-3', '[-3,0,4] target = -3');
+    bothForms('5 target=5', '[5] target=5');
+  });
+
+  it('reports the documented repro accurately instead of misdiagnosing it', () => {
+    // The reader types the documented format, `9,2,7,4,1` with target 4. It is
+    // now READ — so the only thing left to say is the real problem, the one the
+    // lesson teaches, on the field that holds it.
+    expect(binarySearch.parseInput('9,2,7,4,1 target=4')).toEqual({
+      error: 'Binary search needs a sorted array — try [1,3,5,7].',
+    });
+  });
+
+  it('keeps the 30-item cap on the bare form', () => {
+    const thirty = Array.from({ length: 30 }, (_, i) => i).join(',');
+    const thirtyOne = Array.from({ length: 31 }, (_, i) => i).join(',');
+    expect(binarySearch.parseInput(`${thirty} target=5`)).toEqual({
+      array: Array.from({ length: 30 }, (_, i) => i),
+      target: 5,
+    });
+    expect(binarySearch.parseInput(`${thirtyOne} target=5`)).toEqual({
+      error: 'Keep the array to 30 numbers or fewer.',
+    });
+  });
+
+  it('keeps every other guarantee on the bare form', () => {
+    // Whole numbers only.
+    expect(binarySearch.parseInput('1,2,x target=5')).toEqual({
+      error: 'Use whole numbers only, e.g. [1,3,5,7]',
+    });
+    expect(binarySearch.parseInput('1,2.5,3 target=5')).toEqual({
+      error: 'Use whole numbers only, e.g. [1,3,5,7]',
+    });
+    // Sorted precondition.
+    expect(binarySearch.parseInput('3,1,2 target=2')).toEqual({
+      error: 'Binary search needs a sorted array — try [1,3,5,7].',
+    });
+    // A missing target is still a target problem, so it still names the target.
+    expect(binarySearch.parseInput('1,3,5,7')).toEqual({
+      error: 'Add a target, e.g. [1,3,5,7] target=5',
+    });
+    expect(binarySearch.parseInput('1,3,5,7 target=')).toEqual({
+      error: 'Add a target, e.g. [1,3,5,7] target=5',
+    });
+  });
+
+  it('blames the target field, not the array, for an unreadable target', () => {
+    // The island composes `${array} target=${target}`, so a junk target would
+    // land inside the array's own tokens if the clause were merely deleted —
+    // and the reader would be sent to fix the field they got right.
+    expect(binarySearch.parseInput('1,3,5,7 target=abc')).toEqual({
+      error: 'Add a target, e.g. [1,3,5,7] target=5',
+    });
+  });
+
+  it('never throws, whatever is typed', () => {
+    const nonsense = [
+      '',
+      '   ',
+      ',',
+      ',,,',
+      '[',
+      '[1,3,5',
+      '1,3,5]',
+      'target=',
+      'target=target=5',
+      '[1,3] [5,7] target=5',
+      '💥 target=5',
+      'target=5 1,3,5,7',
+    ];
+    for (const raw of nonsense) {
+      expect(() => binarySearch.parseInput(raw), raw).not.toThrow();
+      const result = binarySearch.parseInput(raw);
+      // Either typed input or a friendly, non-empty message. Never a throw,
+      // never an empty string the error region would render as a blank alert.
+      if ('error' in result) {
+        expect(result.error.length, raw).toBeGreaterThan(0);
+      } else {
+        expect(Array.isArray(result.array), raw).toBe(true);
+      }
+    }
+  });
+});
+
+describe('binarySearch.ledger (redesign §7)', () => {
+  it('declares lo · mid · hi over comparisons', () => {
+    expect(binarySearch.ledger?.columns.map((c) => c.label)).toEqual([
+      'lo',
+      'mid',
+      'hi',
+    ]);
+    expect(binarySearch.ledger?.costKey).toBe('comparisons');
+  });
+
+  it('reads each column straight off the step state the renderer draws', () => {
+    const trace = binarySearch.run({ array: [1, 3, 5, 7, 9, 11], target: 7 });
+    const read = (i: number): (string | number | null)[] =>
+      binarySearch.ledger!.columns.map((c) => c.from(trace[i]!));
+
+    // Step 0 has no probe yet: `mid` is absent, not zero and not carried over.
+    expect(read(0)).toEqual([0, null, 5]);
+    // Every row's values are the SAME snapshot the picture is drawn from.
+    for (let i = 0; i < trace.length; i += 1) {
+      const { lo, mid, hi } = trace[i]!.state;
+      expect(read(i), `row ${i}`).toEqual([lo, mid, hi]);
+    }
+  });
+
+  it('names a cost key the trace actually emits', () => {
+    const trace = binarySearch.run(binarySearch.defaultInput());
+    const key = binarySearch.ledger!.costKey!;
+    for (const step of trace) {
+      expect(step.metrics?.[key]).toBeTypeOf('number');
+    }
   });
 });
 

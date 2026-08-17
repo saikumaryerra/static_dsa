@@ -370,10 +370,16 @@
     color: var(--text);
   }
 
-  /* Pressed. --text is already the hover colour, so the press has to travel
-     somewhere else to be visible at all: brand, which is 6.01:1 on the canvas. */
+  /* Pressed. `--text` is already the hover colour and, under the achromatic
+     palette, `--brand` IS `--text` — so a colour press has nowhere left to
+     travel and read as anything. The press moves off the colour channel
+     entirely: a 2px underline drawn as an `inset` box-shadow, the same
+     mechanism the current item uses, so nothing reflows when it appears. It is
+     distinguishable from `[aria-current]` because that one persists and this
+     one lasts only while the pointer is down. */
   .nav-link:active {
-    color: var(--brand);
+    color: var(--text);
+    box-shadow: inset 0 -2px 0 0 var(--text);
   }
 
   /* M7.1 VD-9: colour alone made "current" byte-identical to "hover", so the
@@ -448,11 +454,19 @@
     background-color: var(--brand-soft);
   }
 
-  /* Pressed: the outline button sinks into the surface it sits on (level -1)
-     while keeping the brand border, so the press is a fill move, not motion. */
+  /* Pressed: the outline button sinks BELOW the surface it sits on while keeping
+     the brand border, so the press is a fill move, not motion.
+
+     The mix is not decoration. Under the achromatic palette `--brand-soft` and
+     `--surface-sunken` are the same neutral well, so hover and pressed became
+     byte-identical fills behind byte-identical borders — the five-state recipe
+     silently collapsed to four. Pressed therefore goes one step past the well,
+     the same way `.btn-primary:active` mixes ink into its own fill: 8% ink on
+     the surface is visibly darker than the well while staying far above the
+     text-contrast floor (--text is 16.9:1 on it in light, 13.5:1 in dark). */
   .btn-secondary:not(:disabled):active {
     border-color: var(--brand);
-    background-color: var(--surface-sunken);
+    background-color: color-mix(in srgb, var(--text) 8%, var(--surface));
   }
 
   .btn-secondary:disabled {
@@ -547,19 +561,19 @@
   :root,
   :root[data-theme='dark'],
   :root:not([data-theme]) {
-    --bg: #f8fafc;
+    --bg: #fcfcfb;
     --surface: #ffffff;
-    --surface-sunken: #eef2f6;
+    --surface-sunken: #f1f1ef;
     --surface-raised: #ffffff;
-    --text: #0f172a;
-    --text-muted: #475569;
-    --border: #e2e8f0;
-    --border-strong: #64748b;
-    --brand: #4f46e5;
-    --brand-contrast: #ffffff;
-    --brand-soft: #eef2ff;
-    --brand-border: #c7d2fe;
-    --brand-hover: #4338ca;
+    --text: #141519;
+    --text-muted: #5a5c64;
+    --border: #dcdde0;
+    --border-strong: #8b8d95;
+    --brand: #141519;
+    --brand-contrast: #fcfcfb;
+    --brand-soft: #f1f1ef;
+    --brand-border: #dcdde0;
+    --brand-hover: #3a3b42;
     --hl-compare: #b45309;
     --hl-swap: #be185d;
     --hl-active: #0072b2;

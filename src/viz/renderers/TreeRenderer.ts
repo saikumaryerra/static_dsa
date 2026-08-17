@@ -45,6 +45,20 @@ const TOP = 26;
 const XSTEP = 64;
 const YSTEP = 68;
 const R = 20;
+/**
+ * Floor for the drawn box — three rank slots wide, one node row tall.
+ *
+ * The frame is fluid, so its rendered height is `containerWidth × vbHeight /
+ * vbWidth`: a box narrower than it is tall does not draw a small picture, it
+ * draws a TALL one. The natural empty-tree box (40×66) resolved to ~1,300 CSS
+ * pixels of blank frame at desktop width, and a one-node tree (60×86) to ~1,200
+ * — both of them a step 0, which is precisely the frame that ships to the
+ * build-time still, to JS-off readers and to print. The floor makes the resting
+ * frame landscape, so it is close in height to the populated frames that follow
+ * it, and it gives the empty label a box to sit inside.
+ */
+const MIN_W = PAD * 2 + XSTEP * 3;
+const MIN_H = PAD * 2 + TOP + R * 2;
 const idIndex = (id: string): number => Number(id.slice(1));
 
 interface Pos {
@@ -136,10 +150,16 @@ function draw(step: Step<TreeState>): Canvas {
       },
     );
   }
-  if (state.root === null) {
+  // The resting frame. Keyed on "nothing was laid out" rather than on
+  // `root === null`, so a state whose root points at a missing node still says
+  // so instead of drawing a silent void. `x: PAD` puts the label's left edge on
+  // the same rule as the leftmost node's circle, INSIDE the floored box above —
+  // the old `PAD + 40` sat outside the 40-unit-wide box this step computed, so
+  // the frame rendered literally blank.
+  if (pos.size === 0) {
     structure += text('empty tree', {
       class: 'viz-null',
-      x: PAD + 40,
+      x: PAD,
       y: PAD + TOP + R,
       'dominant-baseline': 'central',
     });
@@ -184,7 +204,9 @@ function draw(step: Step<TreeState>): Canvas {
   }
 
   return {
-    viewBox: `0 0 ${maxX + R + PAD} ${maxY + R + PAD}`,
+    viewBox:
+      `0 0 ${Math.max(maxX + R + PAD, MIN_W)}` +
+      ` ${Math.max(maxY + R + PAD, MIN_H)}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),

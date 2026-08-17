@@ -40,6 +40,21 @@ const YSTEP = 62;
 const LEAF_GAP = 60; // horizontal room per bottom-level node
 const CELL = 46;
 const CELL_GAP = 6;
+/**
+ * Floor for the tree band's width, and so (via `contentWidth`) for the whole
+ * drawn box.
+ *
+ * The frame is fluid, so its rendered height is `containerWidth × vbHeight /
+ * vbWidth` — a narrow box is a TALL frame, not a small one. An empty heap
+ * measured 80×184 and a one-item heap 80×184 as well, i.e. ~1,900 CSS pixels of
+ * near-empty frame at desktop width, and "empty heap" (~110 units of 18px mono)
+ * was centred in 80 units, so it clipped to "mpty hea". Both are step 0, the
+ * frame that ships to the still, to JS-off readers and to print. Flooring the
+ * TREE width rather than the content width keeps the two bands concentric — the
+ * array is centred in `contentWidth`, so widening one and not the other would
+ * slant every tether.
+ */
+const MIN_TREE_W = 200;
 
 const depthOf = (i: number): number => Math.floor(Math.log2(i + 1));
 const idIndex = (id: string): number => Number(id.slice(1));
@@ -50,9 +65,10 @@ function draw(step: Step<HeapState>): Canvas {
   const items = heap.slice(0, size);
   const n = items.length;
 
+  const empty = n === 0;
   const maxDepth = n > 0 ? depthOf(n - 1) : 0;
   const bottomCount = 2 ** maxDepth;
-  const treeWidth = Math.max(bottomCount * LEAF_GAP, LEAF_GAP);
+  const treeWidth = Math.max(bottomCount * LEAF_GAP, MIN_TREE_W);
   const arrayWidth = Math.max(n, 1) * (CELL + CELL_GAP) - CELL_GAP;
   const contentWidth = Math.max(treeWidth, arrayWidth);
   const width = PAD * 2 + contentWidth;
@@ -122,14 +138,18 @@ function draw(step: Step<HeapState>): Canvas {
       { id: nodeId(i), class: ['viz-node', cls].filter(Boolean).join(' ') },
     );
   }
-  // Divider between the two bands.
-  structure += line({
-    class: 'viz-divider',
-    x1: PAD,
-    x2: width - PAD,
-    y1: arrayTop - 12,
-    y2: arrayTop - 12,
-  });
+  // Divider between the two bands — an empty heap has no bands to divide, so
+  // the resting frame is one clean rule-free box rather than a line under
+  // nothing.
+  if (!empty) {
+    structure += line({
+      class: 'viz-divider',
+      x1: PAD,
+      x2: width - PAD,
+      y1: arrayTop - 12,
+      y2: arrayTop - 12,
+    });
+  }
   // Backing-array cells.
   for (let i = 0; i < n; i += 1) {
     const cls = classOf(i);
@@ -158,7 +178,9 @@ function draw(step: Step<HeapState>): Canvas {
       { id: cellId(i), class: ['viz-cell', cls].filter(Boolean).join(' ') },
     );
   }
-  if (n === 0) {
+  // The resting frame: the label sits where the root will appear, centred in a
+  // box the floor above guarantees is wide enough to hold all of it.
+  if (empty) {
     structure += text('empty heap', {
       class: 'viz-null',
       x: width / 2,
@@ -206,7 +228,10 @@ function draw(step: Step<HeapState>): Canvas {
     });
   }
 
-  const height = arrayTop + CELL + 24;
+  // An empty heap stops at the tree band: carrying the (drawn-nothing) array
+  // band and its index row would make the resting frame twice as tall as the
+  // picture in it.
+  const height = empty ? PAD + TOP + R * 2 + PAD : arrayTop + CELL + 24;
   return {
     viewBox: `0 0 ${width} ${height}`,
     inner:

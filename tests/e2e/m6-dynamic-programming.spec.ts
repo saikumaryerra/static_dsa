@@ -118,7 +118,9 @@ test('complexity table renders O(n) time and O(n) space', async ({ page }) => {
   const table = page.getByRole('heading', { level: 2, name: 'Complexity' });
   await expect(table).toBeVisible();
   // The ComplexityTable is auto-rendered from frontmatter (time+space all O(n)).
-  const complexitySection = page.locator('table').first();
+  // Named by its own class rather than `table.first()`: the instrument's ledger
+  // is a real <table> too, and it comes first on the page.
+  const complexitySection = page.locator('table.complexity-table').first();
   await expect(complexitySection).toContainText('O(n)');
 });
 

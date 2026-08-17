@@ -60,17 +60,64 @@ const ogImageUrl = new URL(ogImage, Astro.site);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* SELF-HOSTED TYPE ("Show Your Work"). Two variable-weight Latin subsets —
+        Atkinson Hyperlegible Next (34 KB) and Atkinson Hyperlegible Mono (18 KB),
+        both wght 200–800 — served from /fonts and named in tokens.css as
+        --font-sans / --font-mono, with the old system stack kept behind each as
+        the fallback. They are declared HERE, in the single head hub, and first in
+        the head so the preload scanner reaches them before anything else blocks.
+
+        `is:inline`, deliberately: Astro appends its bundled stylesheet link AFTER
+        all authored head content (the same ordering the noscript kill-switch at
+        the foot of this head depends on), so an @font-face living in that bundle
+        would not be parsed until the render-blocking CSS had already arrived —
+        and the two preloads above it would have fetched files nothing had yet
+        asked for, which is the one thing a preload is supposed to prevent.
+
+        LICENCE: public/fonts/OFL.txt ships alongside the binaries because the SIL
+        Open Font License requires its text to travel with the fonts it covers. It
+        is a deployment artefact, not a stray file — do not prune it.
+
+        NO METRIC OVERRIDES (no size-adjust / ascent-override / descent-override),
+        and that is a decision rather than an omission. An override only helps if
+        it is measured against the face the swap is actually coming FROM, and the
+        first fallback here is `system-ui`: Segoe UI on Windows, Roboto on
+        Android, SF on Apple, whatever fontconfig resolves on Linux. Those have
+        different em-relative ascents, so one number tuned to any of them makes
+        the reflow worse on the other three. Both faces are preloaded and small,
+        so the swap window is short; four invented decimal places would be a guess
+        wearing a measurement's clothes. Close this only with per-platform
+        fallback metrics in hand. */}
+    <link rel="preload" href="/fonts/atkinson-next-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/atkinson-mono-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <style is:inline>
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next';
+        src: url('/fonts/atkinson-next-latin.woff2') format('woff2');
+        font-weight: 200 800;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Mono';
+        src: url('/fonts/atkinson-mono-latin.woff2') format('woff2');
+        font-weight: 200 800;
+        font-style: normal;
+        font-display: swap;
+      }
+    </style>
     {/* M7.1 THM-1: browser chrome matches the canvas (--bg per theme). Media-scoped
         so it works with JS off; the first theme-color whose media matches wins, so
         ThemeToggle inserts an un-scoped meta AHEAD of these when the user overrides
-        the OS. M7.3 (elevation inversion) moved the light value from #FFFFFF to
-        #F8FAFC with --bg; ThemeToggle carries the same literal for the override
-        path, so the two must be changed together.
+        the OS. These two literals are hand-copies of --bg and MUST track it: M7.3
+        moved light #FFFFFF → #F8FAFC, and the achromatic repaint now moves the
+        pair to #FCFCFB / #101114. ThemeToggle.astro carries the same two literals
+        for the override path, so the two files change together — every time.
         JSX-form comment, not an HTML one: Astro emits HTML comments verbatim into
         every built page, so maintainer notes would ship in the head of all 21 of
         them, ahead of the render-blocking CSS. This form is stripped at build. */}
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F8FAFC" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B1220" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FCFCFB" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0E0F12" />
     <!-- Pre-paint theme resolution (designer handoff, byte-verbatim — this file is
          listed in .prettierignore to keep it that way): must run before any content
          paints so the page never flashes the wrong theme. Mirrors

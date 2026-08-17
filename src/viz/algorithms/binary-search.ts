@@ -14,6 +14,7 @@ import type {
   Step,
   Trace,
 } from '../core/types';
+import type { LedgerSpec } from '../core/ledger';
 import { snapshot } from '../core/snapshot';
 import { cellId } from '../core/ids';
 
@@ -140,29 +141,52 @@ function run(input: BinarySearchInput): Trace<BinarySearchState> {
 }
 
 /**
- * Parses the custom-input box, e.g. `"[1,3,5,7] target=5"`, into typed input.
+ * Parses the custom-input box into typed input.
+ *
+ * ACCEPTS BOTH FORMS: the bracketed literal the placeholder shows
+ * (`"[1,3,5,7] target=5"`) and the bare comma-separated list the field's own
+ * help text documents — `"1,3,5,7 target=5"` — with or without spaces.
+ *
+ * They were not equally legal before, and that was the product's central
+ * promise failing on its own instructions: the helper line reads "Up to 30
+ * whole numbers, comma-separated", the placeholder that carries the brackets
+ * vanishes on the first keystroke, so a reader who typed exactly the documented
+ * format was refused — and then told to "type an array and target" beneath two
+ * fields they had already filled in, so the recovery misdiagnosed too. The
+ * array is now the `[...]` literal when there is one and everything before the
+ * `target=` clause when there is not.
+ *
  * Returns `{ error }` with a friendly message (never throws) for each failure,
  * enforcing the ≤ 30 cap and the sorted precondition the lesson teaches.
  */
 function parseInput(raw: string): BinarySearchInput | { error: string } {
   const text = raw.trim();
 
-  // Pull the "[...]" array literal and the "target=<int>" tail.
+  // A bracketed literal wins where there is one: it is unambiguous, and it is
+  // the only form that can name the EMPTY array (`"[] target=5"`, which the
+  // trace handles). Otherwise take everything before the `target=` clause the
+  // island appends on submit. Splitting BEFORE that clause rather than deleting
+  // it keeps a malformed target out of the array's tokens, so
+  // `"1,3,5,7 target=abc"` still reports the target field and not the array.
   const arrayMatch = text.match(/\[([^\]]*)\]/);
+  const listText = (
+    arrayMatch ? arrayMatch[1]! : text.split(/target\s*=/i)[0]!
+  ).trim();
   const targetMatch = text.match(/target\s*=\s*(-?\d+)/i);
 
-  if (!arrayMatch) {
-    return { error: 'Type an array and target, e.g. [1,3,5,7] target=5' };
+  // Nothing to read at all — the only failure this branch can still be, now
+  // that a bare list parses, so it names that one thing and nothing else.
+  if (!arrayMatch && listText.length === 0) {
+    return { error: 'Type the numbers to search, e.g. 1,3,5,7' };
   }
   if (!targetMatch) {
     return { error: 'Add a target, e.g. [1,3,5,7] target=5' };
   }
 
-  const inner = arrayMatch[1]!.trim();
   const array: number[] = [];
-  if (inner.length > 0) {
-    for (const raw of inner.split(',')) {
-      const token = raw.trim();
+  if (listText.length > 0) {
+    for (const entry of listText.split(',')) {
+      const token = entry.trim();
       // Whole numbers only — reject decimals, letters, empty cells.
       if (!/^-?\d+$/.test(token)) {
         return { error: 'Use whole numbers only, e.g. [1,3,5,7]' };
@@ -289,6 +313,25 @@ function predictStep(
   };
 }
 
+/**
+ * The ledger's columns (redesign §7): `lo · mid · hi`, the three variables this
+ * lesson's prose already names, plus `comparisons` as the running cost.
+ *
+ * Each column reads `step.state` and nothing else — the same snapshot the
+ * renderer draws — so the table and the picture cannot disagree. `mid` is
+ * legitimately `null` on the two steps that have no probe (the initial state and
+ * the empty-window terminal); the ledger prints its absent placeholder there
+ * rather than carrying a number forward that the algorithm never held.
+ */
+const ledger: LedgerSpec<BinarySearchState> = {
+  columns: [
+    { label: 'lo', from: (step) => step.state.lo },
+    { label: 'mid', from: (step) => step.state.mid },
+    { label: 'hi', from: (step) => step.state.hi },
+  ],
+  costKey: 'comparisons',
+};
+
 /** The registered Binary Search algorithm. */
 export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   id: 'binary-search',
@@ -297,4 +340,5 @@ export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   defaultInput: () => ({ array: [1, 3, 5, 7, 9, 11], target: 7 }),
   parseInput,
   predictStep,
+  ledger,
 };

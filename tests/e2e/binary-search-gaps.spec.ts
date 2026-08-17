@@ -249,25 +249,92 @@ test.describe('Binary Search — keyboard-only operation', () => {
   });
 });
 
-test.describe('Binary Search — metrics readout', () => {
-  test('the comparisons metric increases as the trace advances', async ({
+test.describe('Binary Search — the running cost', () => {
+  /**
+   * The comparison count moved from a metric pill into the ledger's own column,
+   * and the pill is gone wherever the ledger already carries that number — a
+   * chip reading "Comparisons 0" above a table whose last column is headed
+   * `comparisons` said the same thing twice, and the chip was the weaker of the
+   * two because it shows one step while the column shows the whole run.
+   *
+   * So this asserts the stronger property the move bought: the cost is not just
+   * correct for the current step, it is correct for EVERY step, at once, without
+   * stepping — which is the thing a pill structurally could not do.
+   */
+  test('every step’s comparison count is on screen at once, in trace order', async ({
     page,
   }) => {
     await page.goto(LESSON);
     await hydrateViz(page);
 
-    const metrics = page.locator(`${VIZ} [data-viz-metrics]`);
-    await expect(metrics).toContainText('Comparisons');
-    await expect(metrics.locator('b')).toHaveText('0');
+    await expect(page.locator(`${VIZ} [data-viz-metrics]`)).toHaveCount(0);
 
-    await page.locator(`${VIZ} [data-viz-forward]`).click();
-    await expect(metrics.locator('b')).toHaveText('1');
+    const rows = page.locator(`${VIZ} [data-ledger-row]`);
+    await expect(rows).toHaveCount(4);
 
-    await page.locator(`${VIZ} [data-viz-forward]`).click();
-    await expect(metrics.locator('b')).toHaveText('2');
+    // Column order is: lo, mid, hi, what happened, comparisons.
+    const costOf = (i: number) => rows.nth(i).locator('td').nth(4);
+    await expect(costOf(0)).toHaveText('0');
+    await expect(costOf(1)).toHaveText('1');
+    await expect(costOf(2)).toHaveText('2');
+  });
 
-    // Stepping back rewinds the cumulative metric too (historically correct).
-    await page.locator(`${VIZ} [data-viz-back]`).click();
-    await expect(metrics.locator('b')).toHaveText('1');
+  /**
+   * The final row's cost is WITHHELD, and this is the assertion that keeps it
+   * withheld. `challenges.ts` pins this lesson's Final Run to the same input the
+   * visualizer runs, so the last row's comparison count IS the Final Run's
+   * answer. `FinalRun.astro` grants Practiced credit on the basis that the
+   * number "came out of the reader's head" because the card had not shown it —
+   * and the ledger is not the card, so nothing would have caught this.
+   *
+   * Withheld means ABSENT FROM THE DOM, not dimmed: a veil made of opacity or
+   * colour is defeated by forced-colors mode, by a screen reader reading the
+   * accessible name, by select-all, and by print.
+   */
+  test('the final row withholds the answer the Final Run is about to ask for', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    await hydrateViz(page);
+
+    const lastCost = page
+      .locator(`${VIZ} [data-ledger-row]`)
+      .last()
+      .locator('td')
+      .nth(4);
+
+    await expect(lastCost).toHaveAttribute('data-withheld', '');
+    // The count for this pinned run is 3; it must appear nowhere in that cell.
+    expect((await lastCost.textContent())?.trim()).toBe('');
+  });
+
+  test('pressing a ledger row seeks the player to that step', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    await hydrateViz(page);
+
+    await page.locator(`${VIZ} [data-ledger-seek="2"]`).click();
+
+    await expect(page.locator(`${VIZ} [data-viz-counter]`)).toHaveText('3 / 4');
+    await expect(
+      page.locator(`${VIZ} [data-ledger-row][aria-current="step"]`),
+    ).toHaveAttribute('data-ledger-row', '2');
+  });
+
+  /**
+   * One tab stop for a whole table. A 33-row run must not cost a keyboard reader
+   * thirty-three stops to get past the instrument.
+   */
+  test('the ledger costs the keyboard exactly one tab stop', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    await hydrateViz(page);
+
+    const tabbable = page.locator(
+      `${VIZ} [data-ledger-seek]:not([tabindex="-1"])`,
+    );
+    await expect(tabbable).toHaveCount(1);
   });
 });

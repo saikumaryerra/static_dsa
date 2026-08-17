@@ -1,8 +1,17 @@
 /**
  * Token contrast matrix — the automated half of spec §12/§13's AA claim, and the
- * standing guard for M7.1 A11Y-4 (the `--hl-found` / `--hl-swap` light repairs)
- * and M7.3 VD-3 (the elevation inversion, which moved the backdrop under every
- * pairing below).
+ * standing guard for M7.1 A11Y-4 (the `--hl-found` / `--hl-swap` light repairs),
+ * M7.3 VD-3 (the elevation inversion, which moved the backdrop under every
+ * pairing below) and now the "Show Your Work" ACHROMATIC repaint.
+ *
+ * What the repaint changed, and what it must not have: every chrome token went
+ * neutral — the indigo brand ramp is gone and `--brand` is the ink itself — so
+ * the six `--hl-*` roles and `--accent-warn` are the only hue the site has left.
+ * That makes the `--hl-*` half of this file the load-bearing half: light is
+ * BIT-IDENTICAL (its tints still mix over a `#FFFFFF` `--surface`), and dark only
+ * gained headroom as its card darkened. If a `--hl-*` assertion below ever fails
+ * after a chrome edit, the chrome edit reached into the visualization's palette,
+ * which is the one thing the repaint exists to prevent.
  *
  * Why a unit test and not axe: axe never evaluates SVG `<text>`, and it cannot
  * see a `color-mix()` fill at all, so the two places the highlight palette is
@@ -287,8 +296,33 @@ const HIGHLIGHT_FILLS: { name: string; ratio: number }[] = [
  */
 const MARKER_GLYPHS = ['--hl-found', '--hl-swap', '--hl-visited'];
 
-/** Chrome pairings the token table claims, with the level each owes. */
-const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
+/**
+ * Surface levels in ASCENDING luminance, per theme — see the ladder assertion
+ * below for why the two themes differ and why light omits `--surface-raised`.
+ */
+const ELEVATION_ORDER: Record<string, readonly string[]> = {
+  light: ['--surface-sunken', '--bg', '--surface'],
+  dark: ['--bg', '--surface-sunken', '--surface', '--surface-raised'],
+};
+
+/**
+ * Chrome pairings the token table claims, with the level each owes.
+ *
+ * `themes` scopes a row to the themes where the pairing is one a component may
+ * actually paint. It exists for a single, documented reason: the two scales have
+ * mirror-image dead spots where `--border-strong` cannot reach 1.4.11 (light on
+ * `--surface-sunken`, dark on `--surface-raised`), and in BOTH the substitute is
+ * the same — keyline that level with `--text-muted`, which is gated below at the
+ * stricter text floor. Before the achromatic repaint the dark dead spot was
+ * handled by silently omitting its row; naming the exemption is the same
+ * exemption, written down where the next palette edit will see it.
+ */
+const CORE_PAIRS: {
+  fg: string;
+  bg: string;
+  min: number;
+  themes?: readonly string[];
+}[] = [
   { fg: '--text', bg: '--bg', min: AA_TEXT },
   { fg: '--text', bg: '--surface', min: AA_TEXT },
   { fg: '--text-muted', bg: '--bg', min: AA_TEXT },
@@ -320,31 +354,53 @@ const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
   // --text), and `.btn-secondary:active`.
   { fg: '--text', bg: '--surface-sunken', min: AA_TEXT },
   { fg: '--text-muted', bg: '--surface-sunken', min: AA_TEXT },
-  { fg: '--border-strong', bg: '--surface-sunken', min: AA_GRAPHICS },
+  // DARK ONLY (3.19:1), and the exemption is measured, not assumed: after the
+  // achromatic repaint --border-strong on the LIGHT well is 2.9280:1 — short of
+  // 1.4.11 by 0.07, the mirror image of the dark --surface-raised trap two rows
+  // down. Nothing paints it today (the wells carry a --border keyline, and
+  // .btn-secondary:active / .viz-btn:active keep their --brand edge at 16.13:1),
+  // and the substitute is the one dark already uses: --text-muted, 5.90:1 on the
+  // light well, gated at the text floor by the row above. Do NOT widen this row
+  // to light by lowering `min` — the fix is to darken --border-strong ~2 steps,
+  // which is a designer call, and this comment is the record that it is open.
+  {
+    fg: '--border-strong',
+    bg: '--surface-sunken',
+    min: AA_GRAPHICS,
+    themes: ['dark'],
+  },
   // Level 2, `--surface-raised`. NOTE the documented trap in tokens.css: in
-  // dark, --border-strong on this fill is 2.64:1, i.e. BELOW 1.4.11 — so the
-  // keyline for a raised panel is --text-muted, and that is the pairing gated
-  // here. There is deliberately no --border-strong row for this backdrop; add
-  // one only if the dark scale changes enough to earn it.
+  // dark, --border-strong on this fill is 2.998:1 — still BELOW 1.4.11 after the
+  // repaint, by a hair rather than by a mile — so the keyline for a raised panel
+  // is --text-muted, and that is the pairing gated here. There is deliberately
+  // no --border-strong row for this backdrop; add one only if the dark scale
+  // changes enough to earn it.
   { fg: '--text', bg: '--surface-raised', min: AA_TEXT },
   // --text-muted on the raised fill does TWO jobs and is gated by the stricter
   // of them. It is the level-2 KEYLINE (1.4.11, 3:1), but the level-2 surface is
   // reached by hovering a level-1 card, and `.track-card` is a block of copy
   // whose label, summary and meta lines are all --text-muted — so the same
   // pairing is also body TEXT at 1.4.3's 4.5:1 for as long as the pointer rests
-  // there. Measured 7.58:1 light / 4.89:1 dark: the dark side clears the text
-  // floor by 0.39, which is exactly why this row is gated at 4.5 rather than 3 —
-  // at the graphics floor a dark-scale tweak could take the hovered card's own
-  // description below AA without failing anything.
+  // there. Measured 6.67:1 light / 6.29:1 dark: the repaint widened the dark
+  // side's old 0.39 of headroom, but the row stays gated at 4.5 rather than 3
+  // for the reason that headroom used to be thin — at the graphics floor a
+  // dark-scale tweak could take the hovered card's own description below AA
+  // without failing anything.
   { fg: '--text-muted', bg: '--surface-raised', min: AA_TEXT },
 
-  // ---- M7.3 VD-5: the brand tint family ----
+  // ---- M7.3 VD-5: the brand family, now achromatic ----
+  // These rows survive the repaint UNCHANGED even though three of the tokens
+  // they name now collapse onto neutrals (--brand === --text, --brand-soft ===
+  // --surface-sunken, --brand-border === --border). They are role assertions,
+  // not value assertions: the day a future palette pulls the brand family back
+  // apart, each row is already standing where it needs to be.
   // `--brand-soft` is a real reading surface: the home hero's demo panel and the
   // /404 panel are filled with it (caption --text-muted, CTA --brand),
   // `.btn-secondary` hovers into it with --text on top, and the glossary letter
   // strip hovers into it with the LETTER in --brand — 26 targets whose hover
   // state is a fill swap plus a colour swap, so that third row is the one
-  // holding the strip's hover to AA (5.62:1 light / 4.88:1 dark).
+  // holding the strip's hover to AA (16.13:1 light / 13.91:1 dark, now that
+  // --brand is the ink).
   { fg: '--text', bg: '--brand-soft', min: AA_TEXT },
   { fg: '--text-muted', bg: '--brand-soft', min: AA_TEXT },
   { fg: '--brand', bg: '--brand-soft', min: AA_TEXT },
@@ -355,7 +411,8 @@ const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
   // against white rather than the old grey.
   { fg: '--brand', bg: '--surface', min: AA_TEXT },
   // `--brand-border` is absent ON PURPOSE. tokens.css declares it decorative,
-  // exactly like `--border` (1.49:1 light / 1.61:1 dark on --surface): it may
+  // exactly like `--border` (1.36:1 light / 1.26:1 dark on --surface — and after
+  // the repaint it IS `--border`, value for value): it may
   // tint an edge but must never be the only thing defining an interactive
   // control's boundary, so no contrast floor applies to it. Giving it one here
   // would quietly promote it to a keyline token.
@@ -365,7 +422,8 @@ for (const theme of THEME_NAMES) {
   describe(`tokens.css — ${theme} theme contrast`, () => {
     const color = (name: string): Rgb => parseHex(token(theme, name));
 
-    for (const { fg, bg, min } of CORE_PAIRS) {
+    for (const { fg, bg, min, themes } of CORE_PAIRS) {
+      if (themes && !themes.includes(theme)) continue;
       it(`${fg} on ${bg} is at least ${min}:1`, () => {
         expect(contrast(color(fg), color(bg))).toBeGreaterThanOrEqual(min);
       });
@@ -389,17 +447,41 @@ for (const theme of THEME_NAMES) {
     /**
      * The elevation ladder, as ORDER rather than as ratios (M7.3 VD-3).
      *
-     * No contrast floor applies — the levels are deliberately close (1.06:1 to
-     * 1.21:1) and the pre-attentive separation comes from `--shadow-1`, not from
-     * the fill. What must never change is the DIRECTION: a card sits above the
-     * canvas and a well sits below the card, in both themes. Light used to have
-     * exactly one surface level, and this is the assertion that fails if the
-     * inversion is ever undone by a well-meaning "the page should be white" edit.
+     * No contrast floor applies — the levels are deliberately close (1.03:1 to
+     * 1.15:1) and the pre-attentive separation comes from `--shadow-1` and the
+     * keyline, not from the fill. What must never change is the DIRECTION each
+     * theme committed to, and after the achromatic repaint the two themes commit
+     * to DIFFERENT directions, which is why `ELEVATION_ORDER` is per-theme:
+     *
+     *   light  sunken < bg < surface   — M7.3's inversion, intact: the canvas is
+     *          tinted, the card is white, and the well drops below both. This is
+     *          the assertion that fails if the inversion is ever undone by a
+     *          well-meaning "the page should be white" edit.
+     *   dark   bg < sunken < surface < raised — the well sinks below the card it
+     *          sits inside and still sits above the page, which is exactly what
+     *          DESIGN.md means by "a well relative to the CARD, not the canvas".
+     *          An intermediate pass of the achromatic repaint made dark a single
+     *          ascending ramp with the well ABOVE its card; it read as raised
+     *          rather than recessed and it broke m7-brand's assertion that
+     *          inline code sinks below the card. Keeping `--surface` a real step
+     *          above `--bg` is what leaves room for the well underneath it.
+     *
+     * `--surface-raised` is absent from the light list because it ties with
+     * `--surface` by construction (both `#FFFFFF`; `--shadow-2` carries that
+     * step). The tie is asserted separately, below, in the form that holds for
+     * both themes.
      */
-    it('stacks sunken < surface <= raised, with the canvas below the card', () => {
+    it('stacks its surface levels in the order this theme commits to', () => {
       const level = (name: string): number => luminance(color(name));
-      expect(level('--surface-sunken')).toBeLessThan(level('--surface'));
-      expect(level('--bg')).toBeLessThan(level('--surface'));
+      const ascending = ELEVATION_ORDER[theme]!;
+      for (let i = 1; i < ascending.length; i += 1) {
+        expect(
+          level(ascending[i]!),
+          `${ascending[i]} should sit above ${ascending[i - 1]}`,
+        ).toBeGreaterThan(level(ascending[i - 1]!));
+      }
+      // True in both scales, and the one part of the ladder that is a rule
+      // rather than a taste: level 2 never sits below level 1.
       expect(level('--surface-raised')).toBeGreaterThanOrEqual(
         level('--surface'),
       );
@@ -460,7 +542,7 @@ describe('tokens.css — --brand-border carries no meaning', () => {
 
   for (const theme of THEME_NAMES) {
     it(`${theme}: is below the ${AA_GRAPHICS}:1 a meaningful boundary owes`, () => {
-      // Measured 1.33:1–1.49:1 light and 1.38:1–2.06:1 dark. This asserts the
+      // Measured 1.20:1–1.36:1 light and 1.10:1–1.34:1 dark. This asserts the
       // token CANNOT serve as a keyline, which is precisely why it has no row in
       // CORE_PAIRS. If a future palette lifts it past 3:1, this test fails — and
       // the fix is not to widen it here but to decide, deliberately, whether the
@@ -563,6 +645,15 @@ describe('global.css — @media print forces the light palette', () => {
    * the sheet arrives almost blank. The e2e half (tests/e2e/m7-print-hcm.spec.ts)
    * proves the cascade actually wins in a browser; this half proves the VALUES
    * being forced are the real light palette and not a stale hand-copy.
+   *
+   * The achromatic repaint is exactly the event this pair of assertions exists
+   * for: eleven light tokens moved (`--bg`, `--surface-sunken`, `--text`,
+   * `--text-muted`, `--border`, `--border-strong`, and the whole `--brand`
+   * family), and a hand-copy in a second file is where that kind of change goes
+   * to rot. Both halves still hold, which is the claim — not that the values are
+   * pretty, but that paper and screen are the SAME light palette. Note what did
+   * NOT move: the `--hl-*` six and `--accent-warn` are untouched by the repaint
+   * (they are the site's only remaining hue), and so are both shadows.
    */
   it('matches tokens.css :root, value for value', () => {
     const light = new Map(ROOT);
@@ -648,7 +739,7 @@ describe('DifficultyChip — the neutral pill', () => {
   for (const theme of THEME_NAMES) {
     // Two backdrops, because the chip renders in two places: on a lesson CARD
     // (`--surface`) in the /learn grid, and on the page CANVAS (`--bg`) in the
-    // lesson meta row. Measured 7.58:1 / 7.24:1 light and 5.71:1 / 7.30:1 dark.
+    // lesson meta row. Measured 6.67:1 / 6.49:1 light and 7.22:1 / 7.68:1 dark.
     for (const backdrop of ['--surface', '--bg'] as const) {
       it(`${theme} label is at least ${AA_TEXT}:1 on ${backdrop}`, () => {
         expect(
@@ -702,8 +793,8 @@ describe('glossary letter strip — the dimmed letters', () => {
 
       // No AA floor applies and none is asserted: the empty letters are
       // `aria-disabled` <span>s that Tab skips, i.e. inactive user interface
-      // components, which 1.4.3 exempts by name (measured 2.55:1 light /
-      // 3.02:1 dark against the bar). What IS required is that the dimming is a
+      // components, which 1.4.3 exempts by name (measured 2.43:1 light /
+      // 3.12:1 dark against the bar). What IS required is that the dimming is a
       // real second signal beside `aria-disabled` rather than a token gesture,
       // so the gap to a live letter is what gets a floor.
       expect(dim).toBeLessThan(live / 2);
