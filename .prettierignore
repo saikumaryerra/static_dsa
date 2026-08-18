@@ -5,6 +5,11 @@
 src/styles/tokens.css
 src/layouts/BaseLayout.astro
 
+# Agent/tooling scratch space, not project source. `.claude/worktrees/` holds a
+# full nested checkout of this repo; both are git-excluded already.
+.claude/
+.impeccable/
+
 # Build output & generated files
 dist/
 .astro/
