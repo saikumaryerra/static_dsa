@@ -26,8 +26,8 @@ the frames Plan C later mounts a table under.
 The ledger, the palette, fonts, `<StepLink>`, stable instrument ids, the instrument's region
 restructure, and any change to lesson prose. No new component ships in this plan.
 
-**Spec amendments:** item 1 amends §11.2 (`RenderOpts.extent`, `Renderer.setExtent`, `Draw`'s new
-argument) and `docs/m3-design.md:151`; item 3 amends §11.2's marker-meta contract. Items 2, 4 and 5
+**Spec amendments:** item 1 amends §11.2 (`Extent`, `RenderOpts.extent`, `Renderer.setExtent`,
+`RendererModule.measure`) and `docs/m3-design.md:151`; item 3 amends §11.2's marker-meta contract. Items 2, 4 and 5
 are defect fixes needing no amendment — item 4 in particular now *confirms* the shipped RSP-2
 decision rather than changing it (§6). **[corrected]** — an earlier draft claimed item 1 needed no
 amendment and that item 4 did.
@@ -96,25 +96,56 @@ renderer mechanisms** to carry it:
    trace and redraws, so an extent stored at mount can never be updated when custom input produces a
    differently-sized trace. `setExtent` is an additive method, applied on the next `render`. It is a
    contract change, so **item 1 does amend §11.2 after all** (§1 corrected).
-3. **Two mechanisms, because ArrayRenderer is not like the others.** Ten renderer modules ship
-   `create: () => createRenderer(draw)` and take the extent through `Draw<TState>` becoming
-   `(step, extent?) => Canvas`, with `renderStaticSvg` forwarding `opts.extent`. **ArrayRenderer
-   implements neither** — it ships `class ArrayDomRenderer implements Renderer` with its own static
-   path `renderArrayStatic`, and sets its viewBox inside `buildCells` *only when the cell count
-   changes*. It needs its own edit: `viewBoxOf(n)` becomes extent-aware and the viewBox write moves
-   out of the length-change branch. `array` is in the varying set, so this is not optional.
-4. **Build time:** `Visualizer.astro` holds the whole trace, renders each step, and reads
-   `viewBox="0 0 W H"` back out, taking the max. A viewBox not matching `/^0 0 [\d.]+ [\d.]+$/`
-   **fails the build loudly**. The still is then **re-emitted with that extent** —
-   `renderStatic(step0, { title, idBase, extent })` — or the JS-off frame keeps the old per-step box
-   and the fix does not reach the readers who need it most.
-5. **Client:** the island re-measures the same way at mount and on **every `loadTrace()`**, calling
-   `setExtent` before the redraw.
+3. **Applied generically in `shared.ts`, not threaded through every `draw`. [amended]** An earlier
+   draft had `Draw<TState>` become `(step, extent?) => Canvas`. The implementation plan uses a
+   smaller surface that reaches further: a pure post-processor
 
-**Anchoring.** Freezing the box does not freeze the drawing's position. Renderers that lay out from
-the top-left and grow downward are fine; a structure that grows *upward* (the stack) must offset its
-content by `extent.h - naturalH` so the base stays put rather than floating. Each varying renderer
-states its anchor in the commit that gives it an extent.
+   ```ts
+   fitToExtent(canvas: Canvas, extent: Extent | undefined, anchor: Anchor): Canvas
+   ```
+
+   which widens the natural viewBox to the extent and offsets `inner` by the renderer's anchor. It
+   is applied once in `renderStaticSvg` and once in `createRenderer.render`, so **`Draw` is not
+   changed and none of the ten `draw` functions are touched.** Three reasons this is the better
+   mechanism, not merely a smaller one: it is a pure `Canvas → Canvas` function and therefore the
+   only form of this logic the node-only Vitest harness can unit-test directly; it cannot drift
+   between the still and the hydrated path, because both call the same function; and it keeps the
+   anchoring rule declarative (one `ANCHOR` constant per renderer module) instead of arithmetic
+   repeated in six places.
+
+   **ArrayRenderer still needs its own edit**, because it implements neither `Draw` nor
+   `createRenderer` — it ships `class ArrayDomRenderer implements Renderer` with its own static path
+   `renderArrayStatic`, and sets its viewBox inside `buildCells` *only when the cell count changes*.
+   It imports the same `fitToExtent` and moves the viewBox write out of the length-change branch.
+   `array` is in the varying set, so this is not optional.
+4. **`RendererModule` gains `measure(step): Extent` — geometry only, no markup. [amended]** An
+   earlier draft had the extent read back out of `renderStatic`'s emitted string. **Measured, that
+   is unusable on the client:** bubble sort at the permitted n = 30 emits 901 steps, and rendering
+   each to a string costs **247 ms** on a fast desktop — a second or more on a phone, run
+   synchronously in the custom-input submit handler, to compute a number that (for the sorts) never
+   changes. The same reduction over a `measure(step)` that returns only the box costs **0.44 ms**, a
+   560× difference. So each renderer extracts the viewBox computation its `draw` already performs
+   into a `measure` its `draw` then calls — one source, no duplication, no drift, and a unit test
+   asserts `measure(step)` equals the box `draw(step)` emits for every fixture.
+5. **Build time:** `Visualizer.astro` reduces `measure` over the whole trace, taking the max. The
+   still is then **re-emitted with that extent** — `renderStatic(step0, { title, idBase, extent })`
+   — or the JS-off frame keeps the old per-step box and the fix does not reach the readers who need
+   it most.
+6. **Client:** the island runs the same reduction at mount and on **every `loadTrace()`** — the
+   custom-input submit handler and the "Restore example" handler — calling `setExtent` before the
+   redraw.
+
+**Anchoring.** Freezing the box does not freeze the drawing's position, so each renderer declares
+one `ANCHOR` and `fitToExtent` applies it:
+
+| anchor | renderers | why |
+|---|---|---|
+| top-left (default) | `array`, `tree`, `hashTable`, `linkedList`, and the four constant renderers | they lay out from the origin and grow right/down into the reserved space |
+| bottom | `stack`, `callStack` | both draw a ground line under the lowest slot at `slotYTop(0, n) + SLOT_H + 2`; under a top-anchored frozen box that ground would slide down on every push. Offsetting by `extent.h - naturalH` keeps the floor still and the structure grows upward, which is also the physical model the lesson teaches. |
+| centre-x | `heap` | `treeCx` already centres each level within the *natural* content width, so centring the natural box inside the extent keeps the root at the box's centre across a level gain; top-left anchoring would jump the whole tree sideways every time a level is added. |
+
+**Clamp, never shrink:** `fitToExtent` uses `max(extent, natural)` on both axes, so a stale extent
+can only widen the box — it can never clip the drawing.
 
 **What this does to §4's resting frames.** Freezing the box to the trace max means `bst-operations`'
 step 0 is drawn inside `0 0 380 222`, not `0 0 40 66`. Its "empty tree" label at x=50 is then
@@ -304,10 +335,12 @@ the P0 itself.
 
 | area | files |
 |---|---|
-| contract | `src/viz/core/types.ts` — `RenderOpts.extent`, `Renderer.setExtent`, `Draw(step, extent?)` |
-| shared | `src/viz/renderers/shared.ts` — `createRenderer` stores/forwards extent; `renderStaticSvg` forwards it; the client scaffold at `:108-113`; new `metaRangeLabels` |
+| contract | `src/viz/core/types.ts` — `Extent`, `RenderOpts.extent`, `Renderer.setExtent`, `RendererModule.measure` |
+| shared | `src/viz/renderers/shared.ts` — new pure `fitToExtent` + `Anchor`; `createRenderer`/`renderStaticSvg` apply it; new `metaRangeLabels` |
+| extent reducer | `src/viz/core/extent.ts` (new, pure) — `traceExtent(measure, trace)` |
+| every renderer | all 11 modules gain `measure`, extracted from the viewBox their `draw` already computes; `stack`/`callStack`/`heap` also declare an `ANCHOR` |
 | array family | `src/viz/renderers/ArrayRenderer.ts` — its own extent path (`viewBoxOf`, `buildCells`, `renderArrayStatic`, the client scaffold at `:312-318`) and the `range` label branch at `:180`/`:188` |
-| varying renderers | `TreeRenderer`, `HeapRenderer`, `HashTableRenderer`, `CallStackRenderer`, `StackRenderer`, `LinkedListRenderer` — extent + anchor |
+
 | resting frames | `TreeRenderer`, `HeapRenderer` only (§2B) |
 | host | `src/viz/Visualizer.astro` — build-time measure and still re-emission; client re-measure + `setExtent`; `--viz-natural-w` sourced from the extent in `measureCanvas` (`:2807-2830`); the composer gate on `splitAuthoredInput(root.dataset['input']).input` (`:2122`, `:3096`) |
 | algorithms | `binary-search.ts` — range meta labels **and** the rewritten parse message (`:155`); `linear-search.ts:127` — the same message defect |
