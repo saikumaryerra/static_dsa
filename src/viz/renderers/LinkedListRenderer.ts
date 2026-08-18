@@ -10,7 +10,7 @@
  * Honored highlights: `pointer` (named caret), `insert` (+), `delete` (✕ +
  * strikethrough), `active`, `compare` (tie-line), `visited` (✓ badge).
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { nodeId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, line, polygon, rect, text } from '../core/svg';
@@ -52,6 +52,15 @@ const MID_Y = NODE_Y + NODE_H / 2;
 const CAPTION_Y = NODE_Y + NODE_H + 18;
 const HEIGHT = CAPTION_Y + 14;
 const widthOf = (n: number): number => PAD * 2 + Math.max(n, 1) * PITCH;
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup.
+ */
+const measure = (step: Step<LinkedListState>): Extent => ({
+  w: widthOf(step.state.nodes.length),
+  h: HEIGHT,
+});
 
 /** Right-pointing arrowhead triangle ending at (x, y). */
 const arrowRight = (x: number, y: number): string =>
@@ -190,8 +199,9 @@ function draw(step: Step<LinkedListState>): Canvas {
     }
   }
 
+  const box = measure(step);
   return {
-    viewBox: `0 0 ${widthOf(n)} ${HEIGHT}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -202,4 +212,5 @@ function draw(step: Step<LinkedListState>): Canvas {
 export const linkedListRenderer: RendererModule<LinkedListState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

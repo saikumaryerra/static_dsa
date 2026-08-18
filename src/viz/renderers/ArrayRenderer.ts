@@ -21,7 +21,13 @@
  * SAME class + marker logic through `core/svg`, so still == hydrated step 0.
  * Reduced motion is inherited from the token layer — no `matchMedia` here.
  */
-import type { Renderer, RendererModule, RenderOpts, Step } from '../core/types';
+import type {
+  Extent,
+  Renderer,
+  RendererModule,
+  RenderOpts,
+  Step,
+} from '../core/types';
 import { cellId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { esc, group, line, svgRoot, text } from '../core/svg';
@@ -67,6 +73,16 @@ const cellCenterX = (i: number): number => cellX(i) + CELL / 2;
 const viewWidth = (n: number): number =>
   Math.max(PAD_X * 2 + Math.max(n, 1) * (CELL + GAP) - GAP, 1);
 const viewBoxOf = (n: number): string => `0 0 ${viewWidth(n)} ${HEIGHT}`;
+
+/**
+ * The natural box for one step — the same two numbers `viewBoxOf` renders, read
+ * from the same `viewWidth`/`HEIGHT` source so the two cannot drift. Geometry
+ * only: a caller reduces this over a trace to freeze one box for the whole run.
+ */
+const measure = (step: Step<ArrayWindowState>): Extent => ({
+  w: viewWidth(step.state.array.length),
+  h: HEIGHT,
+});
 
 /** Index behind a `cellId` string (`"i3"` → 3). */
 const idIndex = (id: string): number => Number(id.slice(1));
@@ -337,6 +353,15 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
     this.markersGroup = markersGroup;
   }
 
+  /**
+   * Deliberately inert for now, and it takes no argument so nothing reads as
+   * stored-but-ignored: this family draws its own viewBox instead of going
+   * through `fitToExtent`, so honouring an extent means moving where that box is
+   * written. That plumbing lands with the extent lifecycle (Plan A task 4); the
+   * member exists here because the contract requires it of every renderer.
+   */
+  setExtent(): void {}
+
   render(step: Step<ArrayWindowState>): void {
     if (!this.svg || !this.cellsGroup || !this.markersGroup) return;
     const { array } = step.state;
@@ -405,6 +430,7 @@ export const arrayRenderer: RendererModule<ArrayWindowState> = {
   create: () => new ArrayDomRenderer('cells'),
   renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
     renderArrayStatic(step, opts, 'cells'),
+  measure,
 };
 
 /** Value-scaled bars renderer (`renderer="bars"`); same ids/geometry (§4.1). */
@@ -412,4 +438,5 @@ export const barsRenderer: RendererModule<ArrayWindowState> = {
   create: () => new ArrayDomRenderer('bars'),
   renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
     renderArrayStatic(step, opts, 'bars'),
+  measure,
 };
