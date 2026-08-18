@@ -160,7 +160,12 @@ function parseInput(raw: string): BinarySearchInput | { error: string } {
   const targetMatch = text.match(/target\s*=\s*(-?\d+)/i);
 
   if (!arrayMatch) {
-    return { error: 'Type an array and target, e.g. [1,3,5,7] target=5' };
+    // Describes the format the FIELD advertises, not the wire format: the
+    // island wraps a bare comma-separated list before this ever runs, and the
+    // old text told a reader with both fields filled in to fill in both fields.
+    // Keeps the word "array" — `core/error-field` attributes this message to
+    // the first field by finding it.
+    return { error: 'Enter an array of whole numbers, e.g. 1,3,5,7' };
   }
   if (!targetMatch) {
     return { error: 'Add a target, e.g. [1,3,5,7] target=5' };

@@ -2033,7 +2033,7 @@ const targetId = `${uid}-target`;
 <script>
   import { normalizeSpeed, Player } from './core/player';
   import { errorField } from './core/error-field';
-  import { splitAuthoredInput } from './core/input-hint';
+  import { composeCustomInput, splitAuthoredInput } from './core/input-hint';
   import { traceExtent } from './core/extent';
   import { algorithms, renderers } from './registry';
   // The `viz:run` name and its payload shape (M8.3). Imported rather than
@@ -2142,6 +2142,13 @@ const targetId = `${uid}-target`;
     const algoId = root.dataset['algorithm'] ?? '';
     const rendererId = root.dataset['renderer'] ?? '';
     const rawInput = root.dataset['input'] ?? '';
+    // The authored raw string, already split into the two fields the form
+    // renders. Read HERE rather than in the two handlers that need it because
+    // `data-input` never changes after hydration, and because the gate
+    // `composeCustomInput` applies has to be the instrument's own authored
+    // value — the rendered placeholder falls back to a bracketed literal for an
+    // instrument that authored nothing, and never reaches this script anyway.
+    const authoredFields = splitAuthoredInput(rawInput);
     const title = root.dataset['label'] ?? '';
     const showMetrics = root.dataset['showMetrics'] === 'true';
     // The SECOND field's rendered label ("Target", "Index", "Search key",
@@ -3151,7 +3158,18 @@ const targetId = `${uid}-target`;
         (event) => {
           event.preventDefault();
           if (!algo || !player) return;
-          const raw = `${arrayInput?.value ?? ''} target=${targetInput?.value ?? ''}`;
+          // The two fields, joined into the one string parseInput takes. Not a
+          // template literal any more: the help text under these fields
+          // advertises "whole numbers, comma-separated" while every array
+          // parser requires a `[…]` literal, so a reader who typed exactly what
+          // was asked for was told to type an array and a target — with both
+          // fields filled in. composeCustomInput closes that gap, gated on this
+          // instrument's own authored input so a graph or DP field is untouched.
+          const raw = composeCustomInput(
+            arrayInput?.value ?? '',
+            targetInput?.value ?? '',
+            authoredFields.input,
+          );
           const parsed = algo.parseInput(raw);
           if (isParseError(parsed)) {
             showError(parsed.error);
@@ -3183,9 +3201,8 @@ const targetId = `${uid}-target`;
           if (!algo || !player) return;
           const parsed = algo.parseInput(rawInput);
           if (isParseError(parsed)) return;
-          const fields = splitAuthoredInput(rawInput);
-          if (arrayInput) arrayInput.value = fields.input;
-          if (targetInput) targetInput.value = fields.target;
+          if (arrayInput) arrayInput.value = authoredFields.input;
+          if (targetInput) targetInput.value = authoredFields.target;
           clearError();
           input = parsed;
           currentTrace = algo.run(parsed);

@@ -101,7 +101,7 @@ describe('binarySearch.parseInput', () => {
 
   it('rejects a string with no array, with a friendly message', () => {
     expect(binarySearch.parseInput('target=5')).toEqual({
-      error: 'Type an array and target, e.g. [1,3,5,7] target=5',
+      error: 'Enter an array of whole numbers, e.g. 1,3,5,7',
     });
   });
 

@@ -80,12 +80,13 @@ function secondFieldWords(targetLabel: string | undefined): string[] {
  * The rule is "whichever field the sentence names FIRST is its subject", because
  * these messages are short imperatives that lead with what they are about:
  * "Start node 9 is not one of the graph's vertices." names the second field at
- * word one and the first field only in passing, while "Type an array and target,
- * …" leads with the array. A message that names neither field, or that names the
- * first field first — including the tie where one word serves both, as in the
- * hash-table lesson's "Keys" / "Search key" — falls back to `'input'`: that
- * field is also where every non-array structure (edges, keys, `n`) reports, so
- * it is the safe side to be wrong on.
+ * word one and the first field ("vertices") only in passing, while "Enter an
+ * array of whole numbers, …" leads with the array and never mentions the
+ * second. A message that names neither field, or that names the first field
+ * first — including the tie where one word serves both, as in the hash-table
+ * lesson's "Type keys to insert, …" under its "Search key" label — falls back
+ * to `'input'`: that field is also where every non-array structure (edges,
+ * keys, `n`) reports, so it is the safe side to be wrong on.
  *
  * @param message - The message from `parseInput`'s `{ error }` branch.
  * @param targetLabel - The SECOND field's rendered label ("Target", "Index",

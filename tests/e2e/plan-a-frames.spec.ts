@@ -320,3 +320,141 @@ test.describe('the legibility floor under a frozen extent', () => {
     ).toBeLessThanOrEqual(1);
   });
 });
+
+/**
+ * Plan A §8 — the custom-input box accepts the format its own help text
+ * advertises.
+ *
+ * The field said "Up to 30 whole numbers, comma-separated" and every array
+ * `parseInput` required a `[…]` literal, so `9,2,7,4,1` + `4` was answered with
+ * "Type an array and target, e.g. [1,3,5,7] target=5" — an instruction to fill
+ * in the two fields the reader had just filled in. `composeCustomInput` wraps
+ * the bare list, gated on the instrument's own AUTHORED input.
+ *
+ * The gate is the reason these are e2e and not only unit tests: the pure
+ * composition is covered in `tests/unit/input-compose.test.ts`, but that the
+ * ISLAND feeds it `data-input` rather than the build-time placeholder — whose
+ * no-authored-input fallback is bracketed and would wrap a graph field — is a
+ * fact about the running page.
+ *
+ * Every assertion here pairs "no error" with a POSITIVE signal that the run
+ * actually happened. `[data-viz-error]` is hidden on first paint, so a dead
+ * click passes a hidden-only assertion.
+ */
+test.describe('custom input accepts the advertised format', () => {
+  /** The lesson hosts two array visualizers; scope to the binary-search one. */
+  const VIZ = '#viz-binary-search';
+
+  test('a bare comma-separated list runs on binary search', async ({
+    page,
+  }) => {
+    await page.goto('/learn/binary-search');
+    const viz = await hydrateViz(page, VIZ);
+    const svg = viz.locator('[data-viz-canvas] svg');
+    // The authored run is six cells wide (`viewWidth(6)` = 384).
+    await expect(svg).toHaveAttribute('viewBox', '0 0 384 132');
+
+    await viz.locator('[data-viz-array]').fill('1,3,5,7,9');
+    await viz.locator('[data-viz-target]').fill('5');
+    await viz.locator('[data-viz-run]').click();
+
+    // Five cells: the trace was recomputed from the wrapped list, so the run is
+    // the reader's own and not the authored one still sitting on screen.
+    await expect(svg).toHaveAttribute('viewBox', '0 0 322 132');
+    await expect(viz.locator('[data-viz-error]')).toBeHidden();
+  });
+
+  test('an unsorted bare list reaches the sorted-precondition message', async ({
+    page,
+  }) => {
+    await page.goto('/learn/binary-search');
+    const viz = await hydrateViz(page, VIZ);
+
+    // The exact reproduction. Before the fix the bare list never got past the
+    // "no `[…]` literal" branch, so binary search's ONE pedagogical error — the
+    // sorted precondition the lesson is about — was unreachable for anyone who
+    // typed what the help text asked for.
+    await viz.locator('[data-viz-array]').fill('9,2,7,4,1');
+    await viz.locator('[data-viz-target]').fill('4');
+    await viz.locator('[data-viz-run]').click();
+
+    await expect(viz.locator('[data-viz-error]')).toBeVisible();
+    await expect(viz.locator('[data-viz-error-text]')).toHaveText(
+      'Binary search needs a sorted array — try [1,3,5,7].',
+    );
+    // Attribution follows the prose (`core/error-field`): this message names the
+    // array, so the array field is the one marked invalid and focused.
+    await expect(viz.locator('[data-viz-array]')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    await expect(viz.locator('[data-viz-target]')).not.toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  test('the rewritten fallback still blames the array field', async ({
+    page,
+  }) => {
+    await page.goto('/learn/binary-search');
+    const viz = await hydrateViz(page, VIZ);
+
+    // An empty first field is the branch the fallback message survives for: the
+    // composer refuses to wrap `''` into `[]`, so `parseInput` still finds no
+    // list. The message must keep the word "array" or `errorField` sends the
+    // focus move to the TARGET field, which is the field that is fine.
+    await viz.locator('[data-viz-array]').fill('');
+    await viz.locator('[data-viz-target]').fill('4');
+    await viz.locator('[data-viz-run]').click();
+
+    await expect(viz.locator('[data-viz-error-text]')).toHaveText(
+      'Enter an array of whole numbers, e.g. 1,3,5,7',
+    );
+    await expect(viz.locator('[data-viz-array]')).toBeFocused();
+    await expect(viz.locator('[data-viz-array]')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+
+  test('a graph instrument is unaffected by the wrap', async ({ page }) => {
+    await page.goto('/learn/graph-traversal');
+    // Two visualizers on this lesson (BFS then DFS); `.first()` is BFS.
+    const viz = await hydrateViz(page);
+    const canvas = viz.locator('[data-viz-canvas]');
+    // The authored graph has six vertices, 0–5.
+    await expect(canvas.locator('#n5')).toHaveCount(1);
+
+    await viz.locator('[data-viz-array]').fill('0-1,1-2');
+    await viz.locator('[data-viz-target]').fill('1');
+    await viz.locator('[data-viz-run]').click();
+
+    // Three vertices, drawn: the edge list reached `parseInput` verbatim. Had
+    // the wrap fired it would have arrived as `[0-1,1-2]` and been rejected as
+    // a bad edge token.
+    await expect(viz.locator('[data-viz-error]')).toBeHidden();
+    await expect(canvas.locator('#n2')).toHaveCount(1);
+    await expect(canvas.locator('#n3')).toHaveCount(0);
+  });
+
+  test('a DP instrument with no target field is unaffected by the wrap', async ({
+    page,
+  }) => {
+    await page.goto('/learn/dynamic-programming');
+    // Two visualizers (tabulation then memoization); `.first()` is tabulation.
+    // It renders NO target field, so the composer's second argument is `''` —
+    // the case where a wrapped `[8]` would have been read as a list, not an `n`.
+    const viz = await hydrateViz(page);
+    const canvas = viz.locator('[data-viz-canvas]');
+    await expect(viz.locator('[data-viz-target]')).toHaveCount(0);
+    // The authored run is n=6, so the table holds cells i0–i6.
+    await expect(canvas.locator('#i6')).toHaveCount(1);
+
+    await viz.locator('[data-viz-array]').fill('8');
+    await viz.locator('[data-viz-run]').click();
+
+    await expect(viz.locator('[data-viz-error]')).toBeHidden();
+    await expect(canvas.locator('#i8')).toHaveCount(1);
+  });
+});

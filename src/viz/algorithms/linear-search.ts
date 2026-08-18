@@ -124,7 +124,10 @@ function parseInput(raw: string): LinearSearchInput | { error: string } {
   const targetMatch = text.match(/target\s*=\s*(-?\d+)/i);
 
   if (!arrayMatch) {
-    return { error: 'Type an array and target, e.g. [4,1,7,2] target=7' };
+    // Same rewrite as binary search's, for the same reason: the field's help
+    // text promises a bare comma-separated list, so the fallback must describe
+    // that. Keeps the word "array" so `core/error-field` still blames field one.
+    return { error: 'Enter an array of whole numbers, e.g. 4,1,7,2' };
   }
   if (!targetMatch) {
     return { error: 'Add a target, e.g. [4,1,7,2] target=7' };
