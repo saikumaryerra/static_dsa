@@ -75,6 +75,37 @@ export const metaLabel = (h: Highlight, fallback: string): string =>
     ? (h.meta['label'] as string)
     : fallback;
 
+/**
+ * The two END labels for a `range` highlight, read from `meta`.
+ *
+ * {@link metaLabel} reads `meta.label` and returns ONE string, but a range has
+ * two ends. That is the meta contract: `meta.label` names a single-target
+ * marker, `meta.startLabel`/`meta.endLabel` name a range's two ends.
+ *
+ * Deliberately NO fallback, unlike `metaLabel`. A renderer that invents an end
+ * label is inventing vocabulary for a lesson it knows nothing about — which is
+ * how five sorting algorithms, `array-operations` and linear search came to
+ * print a search window none of them has. Only the LABELS are gated: the range
+ * underbar is the non-colour cue for the kind (design §3.2) and every range
+ * still draws it.
+ *
+ * @param h - The `range` highlight the renderer is about to draw.
+ * @returns Each end's authored label, or `null` where the algorithm supplied
+ *   none — meaning "draw the bar, name nothing".
+ */
+export const metaRangeLabels = (
+  h: Highlight,
+): { start: string | null; end: string | null } => ({
+  start:
+    typeof h.meta?.['startLabel'] === 'string'
+      ? (h.meta['startLabel'] as string)
+      : null,
+  end:
+    typeof h.meta?.['endLabel'] === 'string'
+      ? (h.meta['endLabel'] as string)
+      : null,
+});
+
 /** What a renderer's pure draw function returns for one step. */
 export interface Canvas {
   /** `viewBox` string (computed from item count so it never overflows). */

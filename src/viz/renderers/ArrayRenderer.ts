@@ -8,8 +8,10 @@
  * name highlight targets with `cellId` from `core/ids` so the two layers agree
  * without sharing structure.
  *
- * Honored highlights (via `core/highlight`): `range` (live window, lo/hi
- * bracket), `active` (probe, named caret — default "mid"), `found` (✓), plus the
+ * Honored highlights (via `core/highlight`): `range` (underbar bracket, with end
+ * labels only where the algorithm named them via `meta.startLabel`/`endLabel` —
+ * eight algorithms draw a range here and only binary search has a `lo`/`hi`
+ * window), `active` (probe, named caret — default "mid"), `found` (✓), plus the
  * general `compare` (tie-line), `swap` (↔), `insert` (+), `delete` (✕), `pointer`
  * (named caret) so Search + Sorting + plain-array lessons all reuse this family.
  *
@@ -31,6 +33,7 @@ import type {
 import { cellId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { esc, group, line, svgRoot, text } from '../core/svg';
+import { metaLabel, metaRangeLabels } from './shared';
 
 /** SVG namespace for `createElementNS` (client DOM path). */
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -198,11 +201,13 @@ function markersMarkup(step: Step<ArrayWindowState>): string {
   const highlights = step.highlights ?? [];
   let out = '';
 
-  // range → underbar bracket + lo/hi labels across the window span.
-  const rangeIds = highlights
-    .filter((h) => h.kind === 'range')
-    .flatMap((h) => h.ids)
-    .map(idIndex);
+  // range → underbar bracket ALWAYS (it is the non-color cue for the kind,
+  // design §3.2), plus END LABELS only where the algorithm supplied them. Eight
+  // algorithms emit a range through this one renderer and exactly one of them
+  // has a `lo`/`hi` window; naming the other seven's ranges from here printed a
+  // search-window vocabulary their own prose disowns.
+  const ranges = highlights.filter((h) => h.kind === 'range');
+  const rangeIds = ranges.flatMap((h) => h.ids).map(idIndex);
   if (rangeIds.length > 0) {
     const lo = Math.min(...rangeIds);
     const hi = Math.max(...rangeIds);
@@ -213,14 +218,18 @@ function markersMarkup(step: Step<ArrayWindowState>): string {
       y1: BRACKET_Y,
       y2: BRACKET_Y,
     });
-    out += text('lo', {
-      class: 'viz-marker',
-      x: cellCenterX(lo),
-      y: MARKER_Y,
-      'text-anchor': 'middle',
-    });
-    if (hi !== lo) {
-      out += text('hi', {
+    const { start, end } = metaRangeLabels(ranges[0]!);
+    if (start !== null) {
+      out += text(start, {
+        class: 'viz-marker',
+        x: cellCenterX(lo),
+        y: MARKER_Y,
+        'text-anchor': 'middle',
+      });
+    }
+    // A one-cell window is a single position, so its two ends would collide.
+    if (end !== null && hi !== lo) {
+      out += text(end, {
         class: 'viz-marker',
         x: cellCenterX(hi),
         y: MARKER_Y,
@@ -231,13 +240,12 @@ function markersMarkup(step: Step<ArrayWindowState>): string {
 
   for (const h of highlights) {
     if (h.kind === 'active' || h.kind === 'pointer') {
-      // Named caret above each cell (default "mid" keeps M2's binary-search cue).
+      // Named caret above each cell (default "mid" keeps M2's binary-search
+      // cue). Unlike a range end, a single-target marker keeps its fallback:
+      // every kind here draws exactly one caret whose position IS the meaning,
+      // so an unnamed one is still a correct, if generic, cue.
       const label =
-        typeof h.meta?.['label'] === 'string'
-          ? (h.meta['label'] as string)
-          : h.kind === 'active'
-            ? 'mid'
-            : 'p';
+        h.kind === 'active' ? metaLabel(h, 'mid') : metaLabel(h, 'p');
       const cls = h.kind === 'active' ? 'viz-mid-label' : 'viz-caret';
       for (const id of h.ids) {
         out += text(label, {

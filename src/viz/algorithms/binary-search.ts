@@ -39,11 +39,19 @@ export interface BinarySearchState {
 /** Hard cap on custom-array length (CLAUDE.md / site spec §11.4: arrays ≤ 30). */
 const MAX_ARRAY_LENGTH = 30;
 
-/** Builds `range` highlights over the inclusive window `lo..hi` (empty when lo > hi). */
+/**
+ * Builds `range` highlights over the inclusive window `lo..hi` (empty when
+ * lo > hi).
+ *
+ * The end labels travel WITH the highlight rather than living in the renderer:
+ * ArrayRenderer draws the ranges of eight algorithms — linear search, the array
+ * operations and the five sorts as well as this one — and only this one has a
+ * `lo`/`hi` search window to name.
+ */
 function rangeHighlight(lo: number, hi: number): Highlight {
   const ids: string[] = [];
   for (let i = lo; i <= hi; i += 1) ids.push(cellId(i));
-  return { kind: 'range', ids };
+  return { kind: 'range', ids, meta: { startLabel: 'lo', endLabel: 'hi' } };
 }
 
 /**
