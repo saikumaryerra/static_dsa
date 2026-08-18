@@ -191,6 +191,17 @@ resting label must size its viewBox to contain it — i.e. the empty-state viewB
 the label's extent rather than from an empty structure's. Only `TreeRenderer` and `HeapRenderer`
 need the change; the other resting frames already satisfy the rule and are left alone.
 
+**[corrected after implementation] — three renderers needed the change, not two.**
+`LinkedListRenderer` drew `"empty list ⌀"` `start`-anchored at x=50 in a 108-unit box (50→182, 74
+units outside it) and was missed because §2B's instrument reads `trace[0]` only, where
+`linked-list-operations` draws four nodes and no resting label. Unreachable from product input —
+the delete index is clamped, so the list never empties — so it is the rule that was broken, not a
+frame a reader saw. The lesson is in the assertion, not the count: two per-renderer tests shipped
+where this section asked for "the rule itself", and a rule asserted renderer-by-renderer cannot fail
+for a renderer nobody listed. It is now one table-driven test over every registered renderer's empty
+state (`tests/unit/renderers/empty-frames.test.ts`), sharing its span model with the audit script.
+See the plan doc's post-implementation correction 4.
+
 This resolves what an earlier draft left as an open question ("authored per algorithm or derived per
 renderer?"): the defect is uniform and affects two renderers, so it is derived, and the assertion in
 §9 is the rule itself rather than a list of blessed strings.

@@ -4,7 +4,6 @@ import {
   type TreeState,
 } from '../../../src/viz/renderers/TreeRenderer';
 import type { Step } from '../../../src/viz/core/types';
-import { nullLabelWidth } from '../../../src/viz/renderers/shared';
 import { expectShell } from './_shared';
 
 const bst = [
@@ -49,25 +48,5 @@ describe('treeRenderer.renderStatic', () => {
     const svg = treeRenderer.renderStatic(step, { title: 'BST', idBase: 't' });
     expect(svg).toContain('is-compare');
     expect(svg).toContain('viz-tie');
-  });
-
-  it('draws its resting label INSIDE its own viewBox', () => {
-    // The empty tree is `bst-operations` step 0, so this frame is what every
-    // JS-off reader and every printed page gets. Its natural box used to be
-    // 40 units wide with the label drawn `start`-anchored at x = 50 — entirely
-    // outside it, so the still rendered blank.
-    const step: Step<TreeState> = {
-      state: { nodes: [], root: null },
-      explanation: 'Ready. The tree is empty.',
-    };
-    const svg = treeRenderer.renderStatic(step, { title: 'BST', idBase: 't' });
-    const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg);
-    expect(box).not.toBeNull();
-    expect(svg).toContain('empty tree');
-    // Centred, so it fits iff the box is at least as wide as the label.
-    expect(svg).toContain('text-anchor="middle"');
-    expect(Number(box![1])).toBeGreaterThanOrEqual(
-      nullLabelWidth('empty tree'),
-    );
   });
 });

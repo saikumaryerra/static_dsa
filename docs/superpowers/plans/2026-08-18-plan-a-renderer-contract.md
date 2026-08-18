@@ -1980,9 +1980,10 @@ Run `npm run build`, then gzip every chunk in a lesson page's static import clos
 
 ## Post-implementation corrections (Task 9)
 
-The plan shipped in seven commits, `dca2d89 … 6b0ca3b`. Three things it asserted turned out to be
-wrong once measured, and they are recorded here rather than left in the prose above, because a plan
-that reads as if it predicted everything is a plan nobody checks next time.
+The plan shipped in seven commits, `dca2d89 … 6b0ca3b`, plus one follow-up that closed a gap review
+found afterwards. Four things it asserted turned out to be wrong once measured, and they are
+recorded here rather than left in the prose above, because a plan that reads as if it predicted
+everything is a plan nobody checks next time.
 
 1. **Task 5 did not fix the blank `trees-bst` frame — Task 4 did, incidentally.** The decomposition
    doc sold the resting-frame fix as what "stops `trees-bst` shipping a 1,277 px blank box to JS-off
@@ -2007,6 +2008,20 @@ that reads as if it predicted everything is a plan nobody checks next time.
    committed and `.github/workflows/ci.yml` sets `VISUAL_BASELINE: '1'` on the DoD gate step. Like
    the `types.ts` JSDoc above, rewrite it the next time that file is opened for a code change;
    `README.md` now carries the correct statement in the meantime.)
+
+4. **Task 5's "only these two renderers" was scoped by an instrument that cannot see the third.**
+   The step's own words — *"`linked-list-operations` … already fit and **must not be touched**"* —
+   came from `npm run audit:frames`, which inspects `trace[0]` of each LESSON instrument. Linked
+   lists open on four nodes, so their empty state was never measured, and `LinkedListRenderer` drew
+   `"empty list ⌀"` `start`-anchored at x=50 — spanning 50→182 in a 108-unit box, 74 units outside
+   it — through the whole plan. Same defect as the tree (40 vs 130) and the heap (80 vs 130). It is
+   not reachable from product input (the delete index is clamped, so `nodes.length` never reaches
+   0), so this is correctness of the rule, not a user-visible repair. Fixed the same way, and the
+   two per-renderer assertions Task 5 shipped are replaced by one table-driven test over **every**
+   registered renderer's empty state (`tests/unit/renderers/empty-frames.test.ts`), which is what
+   the design asked for — *"the rule itself rather than a list of blessed strings"* (spec §4) —
+   and what would have caught this. The audit keeps its `trace[0]` scope, now stated in its own
+   header: it measures the runs readers see, and the unit test measures the rule.
 
 One handoff is left open rather than closed, and is filed in site spec §19: **twelve** array-family
 instruments still answer a *failed* parse with a bracketed-only example (*"Type an array to sort,

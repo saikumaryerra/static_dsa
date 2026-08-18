@@ -4,7 +4,6 @@ import {
   type HeapState,
 } from '../../../src/viz/renderers/HeapRenderer';
 import type { Step } from '../../../src/viz/core/types';
-import { nullLabelWidth } from '../../../src/viz/renderers/shared';
 import { expectShell } from './_shared';
 
 describe('heapRenderer.renderStatic', () => {
@@ -37,23 +36,6 @@ describe('heapRenderer.renderStatic', () => {
     expect((svg.match(/is-swap/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((svg.match(/viz-swap-mark/g) ?? []).length).toBeGreaterThanOrEqual(
       2,
-    );
-  });
-
-  it('draws its resting label INSIDE its own viewBox', () => {
-    // `heap-operations` step 0. The 80-unit box clipped the centred ~110-unit
-    // label to "mpty hea" on the still.
-    const step: Step<HeapState> = {
-      state: { heap: [], size: 0 },
-      explanation: 'Ready. The heap is empty.',
-    };
-    const svg = heapRenderer.renderStatic(step, { title: 'Heap', idBase: 'h' });
-    const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg);
-    expect(box).not.toBeNull();
-    expect(svg).toContain('empty heap');
-    expect(svg).toContain('text-anchor="middle"');
-    expect(Number(box![1])).toBeGreaterThanOrEqual(
-      nullLabelWidth('empty heap'),
     );
   });
 });

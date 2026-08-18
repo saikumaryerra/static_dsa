@@ -2886,9 +2886,14 @@ const targetId = `${uid}-target`;
     /**
      * RSP-2: gives the drawing a legibility floor and keeps the resulting scroll
      * container operable. The floor itself is CSS (`min-width` from
-     * `--viz-natural-w`); this reads the LIVE `viewBox` — the renderer rewrites
-     * it whenever the item count changes — and then reconciles the canvas's two
-     * competing tabindex needs against reality:
+     * `--viz-natural-w`); this reads the mounted SVG's `viewBox`,
+     * which under the frozen extent (Plan A) holds ONE value for a whole run
+     * and changes only when a new trace brings a new box — mount, a custom run,
+     * or "Restore example". So the floor no longer moves under the reader while
+     * they step, which is the point; what it still owes is a re-measure on every
+     * trace swap, and `applyTrace` pays it through `syncTraceBounds`. Having
+     * read the box, this reconciles the canvas's two competing tabindex needs
+     * against reality:
      *
      * - not overflowing → `tabindex="-1"`: a click target for the Space/←/→
      *   shortcuts, invisible to assistive tech and absent from the tab order;
@@ -2923,14 +2928,26 @@ const targetId = `${uid}-target`;
     }
 
     /**
-     * RSP-2 upkeep. Several renderers GROW mid-trace — a tree gains a level, a
-     * hash bucket gains a chain link, an array insert adds a cell — and both the
-     * legibility floor and the scroll-region reconciliation are computed from the
-     * `viewBox`, so a single mount-time measurement goes stale on exactly the
-     * lessons that need it most. Reading the attribute is a string compare that
-     * touches no layout, so it can run on every step; the full measurement (which
-     * reads `scrollWidth` and therefore forces a synchronous reflow) runs only
-     * when the drawing really changed shape.
+     * RSP-2 upkeep — a smaller job than it was, and still a real one.
+     *
+     * It was written for renderers that GROW mid-trace (a tree gains a level, a
+     * hash bucket gains a chain link, an array insert adds a cell), which made a
+     * single mount-time measurement go stale on exactly the lessons that needed
+     * it most. Freezing one box per trace ended that: within a run the attribute
+     * no longer changes, so on every step after the first this early-returns.
+     *
+     * It is kept because the box is trace-constant only for as long as a caller
+     * keeps it so, and two paths still move it. It changes on the first draw
+     * after a new extent — mount, and every `applyTrace` (custom run, "Restore
+     * example") — where this is what notices first, ahead of the `measureCanvas`
+     * that `syncTraceBounds` runs at the end of the same swap. And `fitToExtent`
+     * CLAMPS to each step's natural box, so a step wider than the frozen extent
+     * (an authored `data-extent` the client's own reduction would not have
+     * produced) still widens the drawing mid-run, with nothing else watching for
+     * it. Reading the attribute is a string compare that touches no layout, so
+     * it can run on every step; the full measurement (which reads `scrollWidth`
+     * and therefore forces a synchronous reflow) runs only when the drawing
+     * really changed shape.
      */
     function remeasureIfResized(): void {
       const svg = canvas!.querySelector('svg');

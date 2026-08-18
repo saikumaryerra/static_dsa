@@ -69,6 +69,88 @@ export const swapMark = (x: number, y: number): string =>
  */
 export const nullLabelWidth = (label: string): number => label.length * 11;
 
+/**
+ * Rendered px size of every `<text>` class the renderers emit, transcribed from
+ * `Visualizer.astro`'s stylesheet (`--text-xs` is 0.75rem = 12px fixed).
+ *
+ * A per-class table rather than one flat advance because the sizes span 12–20px
+ * and a label's own size decides whether it fits: a flat 18px advance falsely
+ * flags `growth-rates`, whose 12px `.viz-curve-label` sits in the 96 units the
+ * chart already reserves for end labels. Unknown classes fall back to the
+ * largest real size — over-flagging is the right failure direction for a check.
+ *
+ * `'viz-null': 18` is the same 18 {@link nullLabelWidth} rounds to 11 units per
+ * character, and {@link textSpans} derives that class's advance from this entry,
+ * so the floor a renderer reserves and the span this measures cannot disagree.
+ */
+const FONT_PX: Record<string, number> = {
+  'viz-axis-label': 12,
+  'viz-badge': 14,
+  'viz-caret': 12,
+  'viz-cell__index': 12,
+  'viz-cell__value': 20,
+  'viz-curve-label': 12,
+  'viz-delete-mark': 16,
+  'viz-found-mark': 18,
+  'viz-frame-label': 14,
+  'viz-frame-meta': 12,
+  'viz-insert-mark': 16,
+  'viz-marker': 12,
+  'viz-mid-label': 12,
+  'viz-node__value': 16,
+  'viz-null': 18,
+  'viz-swap-mark': 16,
+  'viz-weight': 12,
+};
+
+/** One drawn `<text>`, resolved to the horizontal band it actually covers. */
+export interface TextSpan {
+  /** The text drawn. */
+  content: string;
+  /** Its `class` attribute, verbatim (`''` when it carries none). */
+  cls: string;
+  /** Left edge in viewBox user units, after `text-anchor` is applied. */
+  start: number;
+  /** Right edge in viewBox user units. */
+  end: number;
+}
+
+/**
+ * Every `<text>` in an emitted `<svg>` string, as the anchor-aware horizontal
+ * span it occupies — the one model of "does this label fit its box?".
+ *
+ * MEASUREMENT ONLY: nothing in the drawing path calls this. It lives beside
+ * {@link nullLabelWidth} because it is the same font model generalized over the
+ * classes, and because its two callers must share ONE copy of that arithmetic:
+ * `scripts/audit-frames.mjs` (section B, step 0 of every lesson trace) and
+ * `tests/unit/renderers/empty-frames.test.ts` (the empty state of every
+ * registered renderer). Two copies is how a third renderer came to violate the
+ * rule the first two were fixed for — the audit only ever inspects `trace[0]`,
+ * and `linked-list-operations` step 0 draws four nodes, not a resting label.
+ *
+ * A `<text>` with no `x` or no content is skipped: it has no measurable band.
+ *
+ * @param svg - A complete `<svg>` string from a renderer's `renderStatic`.
+ * @returns One span per measurable `<text>`, in document order.
+ */
+export const textSpans = (svg: string): TextSpan[] => {
+  const spans: TextSpan[] = [];
+  for (const m of svg.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)) {
+    const attrs = m[1] ?? '';
+    const content = m[2] ?? '';
+    const x = Number(/\bx="([-\d.]+)"/.exec(attrs)?.[1] ?? NaN);
+    if (Number.isNaN(x) || content.length === 0) continue;
+    const anchor = /text-anchor="(\w+)"/.exec(attrs)?.[1] ?? 'start';
+    const cls = /class="([^"]*)"/.exec(attrs)?.[1] ?? '';
+    // Monospace advance, ~0.6em of the class's own size, rounded up.
+    const width = content.length * Math.ceil((FONT_PX[cls] ?? 18) * 0.6);
+    const start =
+      anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
+    spans.push({ content, cls, start, end: start + width });
+  }
+  return spans;
+};
+
 /** Reads a string `label` from a highlight's `meta`, else a fallback. */
 export const metaLabel = (h: Highlight, fallback: string): string =>
   typeof h.meta?.['label'] === 'string'

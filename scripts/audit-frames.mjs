@@ -8,6 +8,14 @@
  * earlier draft assumed six broken resting frames and there are two. Run it
  * again after any renderer geometry change.
  *
+ * SCOPE, because it is narrower than it reads: section B inspects `trace[0]` of
+ * each LESSON instrument and nothing else. A renderer whose lesson never rests
+ * empty is therefore never asked whether its resting frame fits — which is how
+ * `linkedList` kept a label 74 units outside its own box through the two-
+ * renderer fix this section scoped. The rule over EVERY renderer's empty state,
+ * lesson or not, is `tests/unit/renderers/empty-frames.test.ts`; this script
+ * measures the runs readers actually see, and the two are complements.
+ *
  * Run: `npm run audit:frames`
  *
  * `src/viz` is written for a bundler, so plain Node needs the same two nudges
@@ -41,6 +49,12 @@ registerHooks({
 // Dynamic, so the resolver above is installed before any viz module loads.
 const { algorithms, renderers } = await import(
   pathToFileURL(path.join(ROOT, 'src/viz/registry.ts')).href
+);
+// The anchor-aware span model section B judges "fits" with. Imported rather
+// than re-implemented: the renderers' own resting-label floor (`nullLabelWidth`)
+// and this measurement live in the same module and derive from the same table.
+const { textSpans } = await import(
+  pathToFileURL(path.join(ROOT, 'src/viz/renderers/shared.ts')).href
 );
 
 /**
@@ -97,56 +111,18 @@ function viewBoxOf(svg) {
 }
 
 /**
- * Rendered px size of every `<text>` class the renderers emit, transcribed from
- * `Visualizer.astro`'s stylesheet (`--text-xs` is 0.75rem = 12px fixed).
- *
- * A per-class table rather than one flat advance because the sizes span
- * 12–20px, and a label's own size decides whether it fits. A flat 11u advance
- * (18px, the plan's first draft) falsely flagged `growth-rates`: its
- * `.viz-curve-label` is 12px, and the chart already reserves 96u for those end
- * labels. Unknown classes fall back to the largest real size — over-flagging is
- * the right failure direction for an audit.
- */
-const FONT_PX = {
-  'viz-axis-label': 12,
-  'viz-badge': 14,
-  'viz-caret': 12,
-  'viz-cell__index': 12,
-  'viz-cell__value': 20,
-  'viz-curve-label': 12,
-  'viz-delete-mark': 16,
-  'viz-found-mark': 18,
-  'viz-frame-label': 14,
-  'viz-frame-meta': 12,
-  'viz-insert-mark': 16,
-  'viz-marker': 12,
-  'viz-mid-label': 12,
-  'viz-node__value': 16,
-  'viz-null': 18,
-  'viz-swap-mark': 16,
-  'viz-weight': 12,
-};
-
-/**
  * Every drawn x-coordinate that could sit outside the box: `<text x=…>` plus
  * its rendered run, and `<rect>`/`<line>` extents. Text is the case that
  * actually breaks (a label anchored `start` at x=50 inside a 40-unit box), so
- * it is measured with a monospace advance rather than skipped: ~0.6em of the
- * class's own size (see {@link FONT_PX}), rounded up.
+ * it is measured rather than skipped — by `textSpans`, the ONE anchor-aware
+ * span model, which this script imports from `renderers/shared.ts` instead of
+ * carrying its own copy. `tests/unit/renderers/empty-frames.test.ts` reads the
+ * same function, so the audit and the test cannot drift into disagreeing about
+ * what "fits" means.
  */
 function textOverflow(svg, box) {
   let worst = null;
-  for (const m of svg.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)) {
-    const attrs = m[1];
-    const content = m[2];
-    const x = Number(/\bx="([-\d.]+)"/.exec(attrs)?.[1] ?? NaN);
-    if (Number.isNaN(x) || content.length === 0) continue;
-    const anchor = /text-anchor="(\w+)"/.exec(attrs)?.[1] ?? 'start';
-    const cls = /class="([^"]*)"/.exec(attrs)?.[1] ?? '';
-    const width = content.length * Math.ceil((FONT_PX[cls] ?? 18) * 0.6);
-    const start =
-      anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
-    const end = start + width;
+  for (const { content, cls, start, end } of textSpans(svg)) {
     if (start < 0 || end > box.w) {
       const overflow = Math.max(-start, end - box.w);
       if (!worst || overflow > worst.overflow) {
