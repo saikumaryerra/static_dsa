@@ -699,7 +699,7 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
   progress" (M8). Deferred; revisit only if users ask.
 - **The array family's parse-failure wording understates what is accepted (Plan A).** Since
   `composeCustomInput` wraps a bare list (§11.2), `5,2,9,1,7` is accepted everywhere `[5,2,9,1,7]`
-  is — but eleven instruments still answer a *failed* parse with a bracketed-only example: the five
+  is — but twelve instruments still answer a *failed* parse with a bracketed-only example: the five
   sorts' *"Type an array to sort, e.g. `[5,2,9,1,7]`"*, plus `array-operations`, `bst-operations`,
   `linked-list-operations`, `stack-operations`, `queue-operations`, `heap-operations` and
   `hash-table-operations`. Every one of those strings is still **accurate** — brackets do parse — so
@@ -708,8 +708,11 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
   empty field or a field containing `[`, `]` or `=`. `binary-search` and `linear-search` were
   rewritten in Plan A and are already correct on their first branch, but their *secondary* messages
   (*"Add a target, e.g. `[1,3,5,7] target=5`"*) still quote the composed wire format, which no field
-  ever displays. Any rewrite touches those algorithm files plus `tests/unit/error-field.test.ts` and
-  eleven per-algorithm string assertions, and must keep a `FIRST_FIELD_WORDS` term (§11.2).
+  ever displays. Any rewrite touches twelve algorithm files plus `tests/unit/error-field.test.ts`
+  and their per-algorithm string assertions, and must keep a `FIRST_FIELD_WORDS` term (§11.2).
+  (Counted, not estimated: every one of the twelve parsers accepts the wrapped bare list —
+  `hash-table-operations` included, since its `cap=` companion defaults — so all twelve messages
+  understate the format.)
 
 ### 19.1 Settled by measurement — do not re-propose (Plan A)
 

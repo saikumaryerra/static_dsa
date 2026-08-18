@@ -2001,11 +2001,17 @@ that reads as if it predicted everything is a plan nobody checks next time.
    labels changed 569, inside a single 653×18 band, so **all 14 captures passed unchanged** and were
    re-seeded for fidelity rather than because they failed. The **aria** baseline caught it, in one
    line. Gate text-level changes on aria snapshots or DOM assertions; treat a green pixel run as
-   saying nothing about them.
+   saying nothing about them. (`tests/e2e/baseline-visual.spec.ts`'s own header and its
+   `SKIP_REASON` constant still describe the pre-`dab6108` state — *"STATUS: UNSEEDED"*, *"no PNG
+   has ever been committed"*, *"never on the DoD gate"* — and all three are false: 14 PNGs are
+   committed and `.github/workflows/ci.yml` sets `VISUAL_BASELINE: '1'` on the DoD gate step. Like
+   the `types.ts` JSDoc above, rewrite it the next time that file is opened for a code change;
+   `README.md` now carries the correct statement in the meantime.)
 
-One handoff is left open rather than closed, and is filed in site spec §19: eleven array-family
+One handoff is left open rather than closed, and is filed in site spec §19: **twelve** array-family
 instruments still answer a *failed* parse with a bracketed-only example (*"Type an array to sort,
 e.g. `[5,2,9,1,7]`"*). Those strings are still accurate — brackets parse — but they now understate
-what `composeCustomInput` accepts. Wording debt, not a defect, and out of scope for a
-documentation-only task: the rewrite touches eleven algorithm files, eleven per-algorithm string
-assertions and `tests/unit/error-field.test.ts`.
+what `composeCustomInput` accepts. Counted rather than estimated: all twelve parsers accept the
+wrapped bare list, `hash-table-operations` included (its `cap=` companion defaults). Wording debt,
+not a defect, and out of scope for a documentation-only task: the rewrite touches twelve algorithm
+files, their string assertions and `tests/unit/error-field.test.ts`.
