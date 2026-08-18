@@ -65,20 +65,29 @@ frames that an early draft assumed were broken are in fact fine and must be left
 
 **Depends on:** nothing. **Spec:** `2026-08-18-plan-a-renderer-contract-design.md`.
 
-### Plan B — Achromatic palette, fonts, OG card
+### Plan B — Achromatic palette
 
-Already solved and verified: the palette passes all **74** contrast checks (37 per theme) across
-`CORE_PAIRS`, the six highlight tints and their strokes, the marker glyphs and the elevation
-ordering. Independent of A and C; mergeable on its own at any point.
+The chrome gives up its only hue so the six `--hl-*` roles keep all of them. Independent of A and
+C; mergeable on its own at any point. **[corrected 2026-08-19 by audit]** — the claims below
+replace an earlier summary that was wrong in three ways.
 
-- 13 tokens (10 light, 13 dark) across `tokens.css`'s three theme blocks, the `@media print` mirror
-  in `global.css`, and the hardcoded literals in `BaseLayout.astro:72-73` and
-  `ThemeToggle.astro:147` — 46 declarations plus two literal sites.
-- Atkinson Hyperlegible Next + Mono, 51,748 B, checked in with `OFL.txt`.
-- `npm run og` regenerated in the same commit (the card reads its colours from the light `:root`).
-- The contrast matrix extended; `m7-brand.spec.ts` migrated for the retired chrome shadow.
+- 13 tokens = **46 declarations**, confirmed: 10 light `:root` + 13 `[data-theme="dark"]` + 13
+  `prefers-color-scheme` mirror + 10 `@media print` mirror. The two other `:root` blocks carry no
+  colour.
+- The suite is **88 tests, not 74** — that figure omitted four DifficultyChip checks, two glossary
+  checks and eight structural tests. The palette passes all of them, 0 failures, and dissolves a
+  documented WCAG 1.4.11 defect (dark `--border-strong` on `--surface-raised`, 2.64:1 → 3.15:1).
+- **Two literal sites undercounts.** Add `public/favicon.svg` (indigo, and `npm run og` inlines it
+  *verbatim*, so the card keeps an indigo mark), its two un-scripted PNG derivatives, the shadow
+  hue (built from the retired slate `--text`), and two hardcoded `rgb()` assertions in
+  `m1-gaps.spec.ts` that fail CI.
+- Five distinctions collapse because `--brand` becomes byte-identical to `--text` — the contrast
+  matrix cannot see any of them, since it tests colour against grounds and never state against
+  state.
+- **The typeface is split out and deferred**, not dropped: the shipped Atkinson subset is missing
+  16 codepoints the site renders, including the renderer's own `✓` and `✕` marker glyphs.
 
-**Depends on:** nothing. **Spec:** to be written when its turn comes.
+**Depends on:** nothing. **Spec:** `2026-08-19-plan-b-achromatic-palette-design.md`.
 
 ### Plan C — The ledger and the instrument
 
