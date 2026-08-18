@@ -1975,3 +1975,37 @@ Run `npm run build`, then gzip every chunk in a lesson page's static import clos
 **3. Type consistency.** `Extent` is `{ w, h }` everywhere. `measure(step): Extent` — always a `Step`, never a state. `fitToExtent(canvas, extent, anchor?)` — argument order fixed at Task 2 and used identically in Tasks 3, 4 and 5. `setExtent(extent: Extent | undefined)` — the same nullable signature in `createRenderer` and `ArrayDomRenderer`. `traceExtent(measure, trace)` — measure first, matching its Task 4 definition and both its Task 4 call sites. `metaRangeLabels(h)` returns `{ start, end }` with `string | null`, consumed under exactly those names.
 
 **One risk worth naming:** Tasks 2 and 3 straddle a compile break — `RendererModule.measure` and `Renderer.setExtent` are declared as required before all 11 modules implement them. Task 2's commit therefore does **not** satisfy `npm run build`. Land them as one commit, or run `npm run build` only at the end of Task 3, as Task 2's interface note says.
+
+---
+
+## Post-implementation corrections (Task 9)
+
+The plan shipped in seven commits, `dca2d89 … 6b0ca3b`. Three things it asserted turned out to be
+wrong once measured, and they are recorded here rather than left in the prose above, because a plan
+that reads as if it predicted everything is a plan nobody checks next time.
+
+1. **Task 5 did not fix the blank `trees-bst` frame — Task 4 did, incidentally.** The decomposition
+   doc sold the resting-frame fix as what "stops `trees-bst` shipping a 1,277 px blank box to JS-off
+   readers and to print". That box was real at `dab6108`, but freezing the extent draws step 0
+   inside the trace's `380×222` box, so by the time Task 5 ran both stills were already un-clipped.
+   Task 5's honest scope is the box **on its own terms**: an all-empty trace, a bare `renderStatic`,
+   a unit test — every caller that passes no extent. On the shipped stills it is a *position*
+   change, not a repair.
+2. **`/dev/renderers` is not an extent-less surface.** Both this plan and the design spec named the
+   dev gallery as a caller Task 5 protects. It renders through the real `<Visualizer>`, so it gets a
+   frozen extent like every other page. (The same disproved claim survives in
+   `src/viz/core/types.ts`'s `RenderOpts.extent` JSDoc — *"which is what the unit tests and the dev
+   gallery want"* — and should be corrected the next time that file is opened for a code change.)
+3. **The visual baseline is not the gate Tasks 4–6 leaned on.** `maxDiffPixelRatio: 0.002` on an
+   ~8,626 px full-page screenshot tolerates roughly 30,000 changed pixels; removing two 12px marker
+   labels changed 569, inside a single 653×18 band, so **all 14 captures passed unchanged** and were
+   re-seeded for fidelity rather than because they failed. The **aria** baseline caught it, in one
+   line. Gate text-level changes on aria snapshots or DOM assertions; treat a green pixel run as
+   saying nothing about them.
+
+One handoff is left open rather than closed, and is filed in site spec §19: eleven array-family
+instruments still answer a *failed* parse with a bracketed-only example (*"Type an array to sort,
+e.g. `[5,2,9,1,7]`"*). Those strings are still accurate — brackets parse — but they now understate
+what `composeCustomInput` accepts. Wording debt, not a defect, and out of scope for a
+documentation-only task: the rewrite touches eleven algorithm files, eleven per-algorithm string
+assertions and `tests/unit/error-field.test.ts`.

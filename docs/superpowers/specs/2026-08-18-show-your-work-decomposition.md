@@ -36,21 +36,32 @@ Fixes verified bugs and ships value with no new components and no visual redesig
 later draws on top of is made stable here first.
 
 - One viewBox per trace (the full `extent` lifecycle), so the canvas stops resizing while stepping.
-- Non-empty resting frames, so `trees-bst` stops shipping a 1,277 px blank box to JS-off readers
-  and to print.
-- Marker labels routed correctly, so five sorting algorithms and linear search stop printing a
-  search-window vocabulary their prose disowns.
+- Non-empty resting frames, so no renderer computes a box its own resting label cannot fit.
+  **[corrected after implementation]** — this bullet claimed the fix is what "stops `trees-bst`
+  shipping a 1,277 px blank box to JS-off readers and to print". That was true at `dab6108`, but it
+  is **not what fixed it**: freezing the extent (Task 4) draws step 0 inside the trace's `380×222`
+  box, and by the time the resting-frame fix ran (Task 5) both stills were already un-clipped. Task
+  5 is a real fix only for **extent-less callers** — a unit test, a bare `renderStatic`, an
+  all-empty trace — plus a position change on the shipped stills (the tree's label moves from a
+  `start`-anchored 50→160 to a centred 10→120). The plan named `/dev/renderers` as one such
+  surface and **that is wrong too**: the dev gallery renders through the real `<Visualizer>`, so it
+  gets a frozen extent like every other page.
+- Marker labels routed correctly, so **seven** instruments stop printing a search-window vocabulary
+  their prose disowns. **[corrected]** — this said "five sorting algorithms and linear search";
+  `array-operations` is the seventh, and it prints the bogus labels on all 13 steps of the arrays
+  lesson.
 - The legibility floor kept correct under the frozen extent — and, on measurement, *not* rebuilt:
   the shipped RSP-2 floor is already a two-axis floor and there is no height cap to exceed, so the
   vertical mechanism an earlier draft designed is deleted rather than specified.
 - The custom-input P0.
 
 Its scoping audit has been **run**, so the plan is sized by measurement rather than assumption:
-**seven of eleven renderers** vary their extent across a trace (`array`, `tree`, `heap`,
-`hashTable`, `callStack`, `stack`, `linkedList`), and **exactly two** algorithms render a broken
-resting frame — `bst-operations` (label entirely outside its 40-unit viewBox) and `heap-operations`
-(label overflowing an 80-unit box). Six other resting frames that an early draft assumed were broken
-are in fact fine and must be left alone.
+**seven of twelve registered renderer ids** vary their extent across a trace (`array`, `tree`,
+`heap`, `hashTable`, `callStack`, `stack`, `linkedList`) — **[corrected]** an earlier count said
+"seven of eleven" because it omitted `queue`, which the audit covers and reports constant — and
+**exactly two** algorithms render a broken resting frame — `bst-operations` (label entirely outside
+its 40-unit viewBox) and `heap-operations` (label overflowing an 80-unit box). Six other resting
+frames that an early draft assumed were broken are in fact fine and must be left alone.
 
 **Depends on:** nothing. **Spec:** `2026-08-18-plan-a-renderer-contract-design.md`.
 
@@ -112,6 +123,16 @@ blockers dissolve with it.
 
 If hiding the metric is ever wanted, it is a **product** decision about `showMetrics`, the metric
 pill and the authored final sentence — not a ledger implementation detail.
+
+**A vertical legibility floor is removed from Plan A entirely**, and by the same method. An earlier
+draft designed a whole mechanism — a `--viz-label-min: 11px` token, an explicit pixel height,
+`overflow-y: auto`, a `max-height` tied to the input cap, and scroll-into-view on step change.
+Measurement retired all of it: uniform `meet` scaling makes the shipped RSP-2 `min-width` already a
+two-axis floor; no `max-height` exists anywhere in `Visualizer.astro` to overflow against; and
+adding one would *create* the WCAG 2.1.1 failure it claimed to prevent, because `measureCanvas`
+derives `tabindex`/`role`/name from horizontal overflow alone. Plan A therefore ships **no source
+change** for this item — only a regression test that `--viz-natural-w` holds one value for a whole
+run. Both deletions are recorded in site spec §19.1 so they stay settled.
 
 ---
 

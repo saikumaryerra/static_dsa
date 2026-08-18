@@ -157,8 +157,10 @@ can only widen the box — it can never clip the drawing.
 step 0 is drawn inside `0 0 380 222`, not `0 0 40 66`. Its "empty tree" label at x=50 is then
 *inside* the box — §3 alone removes the blank frame. §4 is still required and still separate: it
 makes the empty-state viewBox correct **on its own terms** (an instrument whose whole trace is empty,
-a renderer used without a trace, the dev gallery), and §3's anchoring rule then centres that label in
-the larger extent rather than parking it in a corner. The visible consequence for a JS-off
+a renderer used bare, a unit test — **[corrected]** an earlier draft also listed the dev gallery, and
+that is wrong: `/dev/renderers` renders through the real `<Visualizer>`, so it gets a frozen extent
+like every other page and is *not* an extent-less caller), and §3's anchoring rule then centres that
+label in the larger extent rather than parking it in a corner. The visible consequence for a JS-off
 `trees-bst` reader is a small label in a large frame — accepted deliberately, because the only
 alternative is a small step-0 box that jumps to full size at step 1, which is the defect §3 exists to
 remove.
@@ -390,6 +392,20 @@ the P0 itself.
 
 **Baselines:** this plan moves drawings, so it re-seeds the visual baselines **inside its own
 commits**, reviewed as part of those diffs.
+
+**[corrected after implementation] — the pixel baseline is not the gate this section leans on it to
+be, and the aria baseline is.** Measured while landing the marker-label fix: `maxDiffPixelRatio:
+0.002` against an ~8,626 px full-page screenshot tolerates roughly **30,000** changed pixels, and
+removing two 12px labels changed **569** — about 0.005% of the page — all of it inside one 653×18
+band. So **all 14 captures passed unchanged** before they were re-seeded; the pixel gate literally
+cannot see a text-level change of this size, and a green visual run is not evidence a label moved or
+vanished. What caught it was `baseline-aria.spec.ts`, whose snapshot carries the marker text
+verbatim: linear search's still lost its trailing `lo hi` and binary search's kept it, one line of
+diff, reviewed in the commit. Two consequences for anyone re-reading this section: the pixel
+baselines here were re-seeded for *fidelity*, not because they failed; and a change that only alters
+text should be gated on the aria snapshot (or a DOM assertion), never on pixels. The frozen-extent
+task moved no committed baseline at all — the four routes under pixel baseline all draw with the
+array renderer, whose authored runs were already constant at 384×132.
 
 **Aria snapshots are also affected. [corrected]** — an earlier draft claimed they were not. Exactly
 one file re-records: `baseline-aria.spec.ts-snapshots/lesson-binary-search.aria.yml`, the only

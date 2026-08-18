@@ -25,25 +25,31 @@ database or network access at runtime.
 
 ## Commands
 
-| Command                                 | What it does                                                                             |
-| --------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `npm run dev`                           | dev server on :4321                                                                      |
-| `npm run build`                         | `astro check` (type gate) then a static build into `dist/`                               |
-| `npm run preview`                       | serves the built `dist/` on :4321                                                        |
-| `npm run lint` / `npm run format:check` | ESLint / Prettier, both must be clean                                                    |
-| `npm run format`                        | rewrite files with Prettier                                                              |
-| `npm test`                              | Vitest unit suite (`environment: 'node'`, no DOM, no `localStorage`)                     |
-| `npm run test:e2e`                      | Playwright + axe; locally it builds and previews first, so it needs :4321 free           |
-| `npm run og`                            | regenerates the Open Graph card from the real renderer — run by hand, never in the build |
+| Command                                 | What it does                                                                                                                                               |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                           | dev server on :4321                                                                                                                                        |
+| `npm run build`                         | `astro check` (type gate) then a static build into `dist/`                                                                                                 |
+| `npm run preview`                       | serves the built `dist/` on :4321                                                                                                                          |
+| `npm run lint` / `npm run format:check` | ESLint / Prettier, both must be clean                                                                                                                      |
+| `npm run format`                        | rewrite files with Prettier                                                                                                                                |
+| `npm test`                              | Vitest unit suite (`environment: 'node'`, no DOM, no `localStorage`)                                                                                       |
+| `npm run test:e2e`                      | Playwright + axe; locally it builds and previews first, so it needs :4321 free                                                                             |
+| `npm run og`                            | regenerates the Open Graph card from the real renderer — run by hand, never in the build                                                                   |
+| `npm run audit:frames`                  | per instrument: how the drawing's viewBox varies across a full trace, and whether step 0 fits its own box — run by hand after any renderer geometry change |
 
 **Definition of Done for any change** (spec §18): `npm run build`, `npm run lint`,
 `npm run format:check`, `npm test` and `npm run test:e2e` all clean. CI (`.github/workflows/ci.yml`)
 runs exactly those five as the `DoD gate`.
 
-Note for the visual baselines: `tests/e2e/baseline-aria.spec.ts` runs everywhere, but
-`tests/e2e/baseline-visual.spec.ts` is **unseeded and skips by default** — a green e2e run says
-nothing about pixels until the baselines are seeded in CI. That file's header explains the two steps
-to turn it on.
+Note for the two regression baselines. `tests/e2e/baseline-aria.spec.ts` runs everywhere.
+`tests/e2e/baseline-visual.spec.ts` is **seeded and armed on CI** — 14 PNGs are committed and the
+DoD gate sets `VISUAL_BASELINE=1` inside the pinned `mcr.microsoft.com/playwright:v1.61.1-noble`
+container, because the site ships a system-font stack and glyph rasterisation follows whatever
+fontconfig resolves. **Locally the flag is unset, so those 14 captures skip and a green local e2e
+run still says nothing about pixels**; re-seed through the workflow job, in the same container.
+Expect the pixel gate to be coarse for text-level changes: `maxDiffPixelRatio: 0.002` on an
+~8,600 px full-page screenshot tolerates ~30,000 px, so removing two 12px labels (569 px changed)
+passed all 14 captures unchanged — the **aria** baseline is what catches that class of change.
 
 ## How it fits together
 

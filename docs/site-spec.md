@@ -328,6 +328,13 @@ export interface Highlight {
 
 export type Trace<TState = unknown> = Step<TState>[];
 
+// The drawing box for a WHOLE trace, in viewBox user units (amended, Plan A):
+// the per-step maximum of every box the renderer would compute for that trace.
+export interface Extent {
+  w: number;                     // viewBox width in user units
+  h: number;                     // viewBox height in user units
+}
+
 // Every instrumented algorithm implements this shape.
 export interface Algorithm<TInput, TState> {
   id: string;                    // e.g. 'binary-search'
@@ -344,9 +351,17 @@ export interface Algorithm<TInput, TState> {
     { prompt: string; choices: string[]; correctIndex: number } | null;
 }
 
+// Options shared by the build-time still and the live mount.
+export interface RenderOpts {
+  title?: string;                // SVG <title> — the per-algorithm label
+  idBase?: string;               // seeds the <title>/<desc> ids so two islands never collide
+  extent?: Extent;               // the frozen box; omit it to draw the natural per-step box
+}
+
 // Renderer contract (one per structure family).
 export interface Renderer<TState> {
   mount(container: HTMLElement, opts?: RenderOpts): void;
+  setExtent(extent: Extent | undefined): void; // REQUIRED — see "the extent lifecycle"
   render(step: Step<TState>): void;   // idempotent: draw exactly this step
   destroy(): void;
 }
@@ -357,8 +372,92 @@ export interface Renderer<TState> {
 export interface RendererModule<TState> {
   create(): Renderer<TState>;
   renderStatic(step: Step<TState>, opts: RenderOpts): string;
+  measure(step: Step<TState>): Extent; // REQUIRED — geometry only, no markup built
 }
 ```
+
+**The extent lifecycle (amended by Plan A).** A renderer sizes its viewBox from the *current* step, so
+a structure that grows mid-trace resized the canvas while the reader stepped — measured in viewBox
+units at `40×66 → 380×222` on the BST, `80×184 → 326×308` on the heap and `104 → 220` in height on
+the stack, which moves the transport row out from under a thumb. **One box is computed per trace and
+every step is drawn inside it.**
+
+- `traceExtent(measure, trace)` (`src/viz/core/extent.ts`, pure) reduces a trace to the per-axis
+  maximum. It throws on an empty trace or a non-positive, non-finite measurement rather than
+  inventing a zero box: a silently wrong box shows up as a clipped drawing on a page nobody is
+  looking at.
+- `fitToExtent(canvas, extent, anchor)` (`src/viz/renderers/shared.ts`, pure) widens one step's
+  natural canvas to that box and offsets the drawing by the renderer's declared `ANCHOR`. It
+  **clamps, never shrinks** — `max(extent, natural)` per axis — so a stale extent can only widen the
+  box and can never clip a drawing. It is applied in exactly two places, `renderStaticSvg` and
+  `createRenderer.render`, so the build-time still and the hydrated drawing cannot drift.
+- **Anchors.** Top-left by default (drawings lay out from the origin and grow right/down into the
+  reserved space). **Bottom** for `stack` and `callStack`: both draw a ground line under their lowest
+  slot, which a top anchor would slide downward on every push, and growing upward is also the
+  physical model those lessons teach. **Centre-x** for `heap`, whose levels are already centred on
+  the natural content width, so centring keeps the root still across a level gain.
+- **Both ends of the pipeline use it.** The build reduces the trace and **re-emits the still with
+  that extent**, so the JS-off and printed frame is the same box the island draws instead of jumping
+  once at hydration. `data-extent` carries the build's measurement to the island so the first
+  hydrated draw reuses the still's exact viewBox — deliberately *not* load-bearing: the island
+  recomputes from the same trace when the attribute is missing or unparseable, because drawing
+  unfrozen is the defect and falling back to it silently would reintroduce the resize.
+
+**Why `setExtent` is separate from `mount`.** `mount` runs exactly **once** per island, while
+`Player.loadTrace` re-traces on **every** custom run and on "Restore example". An extent that could
+only arrive at mount would be frozen at the authored run's size, so the custom run — the case whose
+size varies most — would draw against a stale box. Both `loadTrace` paths must go through
+`setExtent` before the redraw; missing either leaves that path drawing against the old box. It is
+required rather than optional because an optional channel is one a renderer can silently not
+implement.
+
+**Why `measure` exists at all.** Reading the box back out of `renderStatic`'s emitted string costs
+**247 ms** for bubble sort at the permitted n = 30 (901 steps) on a fast desktop — a second or more
+on a phone — run synchronously inside the custom-input submit handler. The geometry-only form costs
+**0.44 ms**, a 560× difference, which is the whole reason it is a second entry point. Each renderer
+**extracts** the viewBox computation its own `draw` already performs and `draw` then calls it, so
+there is one source and no restated formula. Its only failure mode is disagreeing with the drawing,
+so that agreement is a test: `tests/unit/renderers/measure.test.ts` asserts `measure(step)` equals
+the box `draw(step)` emits for every step of the shipped lesson instruments, and separately that the
+seven the frame audit reports as varying really do vary (a fixture that goes constant would make the
+first assertion a tautology). `npm run audit:frames` re-derives which those are.
+
+**Marker meta (amended by Plan A).** `Highlight.meta` is how an algorithm names a marker, and there
+are exactly two shapes:
+
+- **`meta.label` — a single-target marker**, read through `metaLabel(h, fallback)`. Single-target
+  kinds keep their renderer fallbacks deliberately (`GraphRenderer`'s `at`; `array-operations`'
+  authored `read`/`shift` and `insertion-sort`'s `key` override it): a caret's *position* already
+  carries its meaning, so an unnamed one is still correct.
+- **`meta.startLabel` / `meta.endLabel` — the two ends of a `range`**, read through
+  `metaRangeLabels(h)`, which has **no fallback at all**. A range *end* has no meaning without a
+  name, so a renderer that invents one is inventing vocabulary for a lesson it knows nothing about —
+  which is how the five sorts, `array-operations` and linear search came to print binary search's
+  `lo`/`hi` window, linear search two paragraphs after its prose says *"There is no `lo`, `hi`, or
+  `mid`"*. Only the label **text** is gated: the range underbar is the kind's required non-colour
+  cue (design §3.2) and every range still draws it.
+
+**Custom input — the wire format.** The form renders two fields; `parseInput` takes one raw string.
+`composeCustomInput(first, target, authoredFirst)` (`src/viz/core/input-hint.ts`, pure) joins them
+into `` `${first} target=${target}` `` — the exact inverse of `splitAuthoredInput` — and wraps a bare
+comma-separated list in the `[…]` every array parser requires, so `1,3,5,7` and `[1,3,5,7]` are both
+accepted and the field's own "Up to 30 whole numbers, comma-separated" help text stops being a lie.
+
+The wrap is **gated**, because one composer serves all 21 instruments and an unconditional wrap
+corrupts every non-array lesson (a graph reader types `0-1,0-2,1-3`; a DP reader types `7`). Both
+halves must hold:
+
+1. the instrument's **authored** first field starts with `[` — read client-side from `data-input`
+   through `splitAuthoredInput`, never from the build-time placeholder, which the island never
+   receives and whose no-authored-input fallback is itself bracketed; and
+2. the **typed** field contains no `[`, `]` or `=`. Wrapping may only ever rescue an input that fails
+   today: `[` is already a literal, `=` carries the hash-table lesson's `cap=5 [11,24]` companion
+   token (which works today and would not once wrapped), and `9,2],7` wraps to `[9,2],7]`, whose
+   first `[…]` parses — silently dropping the reader's `7` with no error at all.
+
+Nothing else is normalised, so a malformed list still reaches `parseInput` and still produces that
+algorithm's own message. Any such message must contain a first-field word (`core/error-field`'s
+`FIRST_FIELD_WORDS`, e.g. "array") or the error lands on the target field the reader got right.
 
 ### 11.3 The `Visualizer` island (public API used in MDX)
 
@@ -598,6 +697,48 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
   network calls" bars same-origin prefetch. Default: skip.
 - **Progress export/import code** — the only no-backend answer to "cleared browser data = lost
   progress" (M8). Deferred; revisit only if users ask.
+- **The array family's parse-failure wording understates what is accepted (Plan A).** Since
+  `composeCustomInput` wraps a bare list (§11.2), `5,2,9,1,7` is accepted everywhere `[5,2,9,1,7]`
+  is — but eleven instruments still answer a *failed* parse with a bracketed-only example: the five
+  sorts' *"Type an array to sort, e.g. `[5,2,9,1,7]`"*, plus `array-operations`, `bst-operations`,
+  `linked-list-operations`, `stack-operations`, `queue-operations`, `heap-operations` and
+  `hash-table-operations`. Every one of those strings is still **accurate** — brackets do parse — so
+  this is a wording debt, not a defect, and it is low severity because the composer rescues the
+  bare-list case before `parseInput` ever sees it: those branches are now only reachable with an
+  empty field or a field containing `[`, `]` or `=`. `binary-search` and `linear-search` were
+  rewritten in Plan A and are already correct on their first branch, but their *secondary* messages
+  (*"Add a target, e.g. `[1,3,5,7] target=5`"*) still quote the composed wire format, which no field
+  ever displays. Any rewrite touches those algorithm files plus `tests/unit/error-field.test.ts` and
+  eleven per-algorithm string assertions, and must keep a `FIRST_FIELD_WORDS` term (§11.2).
+
+### 19.1 Settled by measurement — do not re-propose (Plan A)
+
+Closed items live here so they stay closed. Each was designed, then deleted by a measurement rather
+than by taste; re-proposing one is a spec amendment that has to beat the evidence.
+
+- **Cost withholding** — a mechanism to hide a visualization's cost column so it would not "publish
+  the Final Run's answer". The premise was false. `FinalRun`'s earned-credit rule is **card-scoped**
+  (`shown` is a local set only when *that card* reveals its own answer; nothing in the path inspects
+  the visualizer), `showMetrics` defaults to `true` so the comparisons pill is live on binary search
+  by design, the final step's authored explanation already reads *"Found 7 at index 3 after 3
+  comparisons"*, and "Watch it happen" sends the reader to that instrument deliberately. It would
+  have guarded a number the product intentionally shows, at the cost of authored props on six
+  lessons, two tests, a JS-off table with an amputated column, and an assertion that cannot pass on
+  the flagship lesson. If hiding the metric is ever wanted it is a **product** decision about
+  `showMetrics` and the authored final sentence, not a ledger detail.
+- **A vertical legibility floor** (a `--viz-label-min` token, an explicit pixel height,
+  `overflow-y: auto`, a `max-height` and scroll-into-view). Three measurements retire all of it:
+  every SVG is emitted `preserveAspectRatio="xMidYMid meet"` with `height: auto`, so scaling is
+  uniform and the shipped RSP-2 `min-width: calc(var(--viz-natural-w, 0px) * 0.75)` is **already a
+  two-axis floor**; no `max-height` exists anywhere in `Visualizer.astro` to overflow against, so a
+  tall drawing makes the page taller and never scrolls; and adding one would *create* an a11y bug —
+  `measureCanvas` decides `tabindex`, `role` and the accessible name from **horizontal** overflow
+  alone, so a vertically-overflowing, horizontally-fitting canvas would be an unreachable keyboard
+  scroll region (WCAG 2.1.1), exactly what the floor's own comment says the design avoids. The 11px
+  variant was also wrong on its own terms: the smallest authored label is 12px, so 11/12 ≈ 0.917
+  against the shipped 0.75 is a 22% tightening that would push the DP table (viewBox 446 wide) to
+  409 px on a 390 px phone where 0.75 gives 334 px and it fits. The floor ships **unchanged**; Plan A
+  added only a regression test that `--viz-natural-w` holds one value for a whole run.
 
 ---
 

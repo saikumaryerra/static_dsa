@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-LearnDSA — a static, no-backend Astro + TypeScript site teaching data structures & algorithms with interactive step-through visualizations. **Every milestone in spec §17 has shipped (M1–M8)**: 15 lessons, 11 renderer modules / 12 registered renderer ids, glossary and SEO (M1–M6); the UX overhaul (M7.1 repair → M7.2 progress/player v2/wayfinding → M7.3 brand/print/forced-colors); and the M8 mastery loop (self-graded practice + pips + track rings, predict mode + spaced review, Trace Trials + Final Run). Two designed M8.3 items were deliberately **not** built — Explain-it-back and the Learning Days line; both are recorded as deferred in `docs/m8-gamification.md`, so treat them as scope, not as bugs to fix.
+LearnDSA — a static, no-backend Astro + TypeScript site teaching data structures & algorithms with interactive step-through visualizations. **Every milestone in spec §17 has shipped (M1–M8)**: 15 lessons, 11 renderer modules / 12 registered renderer ids, glossary and SEO (M1–M6); the UX overhaul (M7.1 repair → M7.2 progress/player v2/wayfinding → M7.3 brand/print/forced-colors); and the M8 mastery loop (self-graded practice + pips + track rings, predict mode + spaced review, Trace Trials + Final Run). The two M8.3 items trimmed under budget pressure — Explain-it-back and the Learning Days line — **shipped afterwards** in `dab6108`, unchanged from their design; `docs/m8-gamification.md` records both as shipped, spec §7 carries the optional `explainPrompt` frontmatter field (11 of 15 lessons set it) and §6's `ld:days:v1` has a real writer in `src/lib/learning-days.ts`. Treat them as product, not as scope.
 
 **`docs/site-spec.md` is the authoritative spec.** Read the relevant sections before implementing anything. If a request conflicts with the spec, flag the conflict instead of guessing; if the spec is silent, choose the simplest option that satisfies the goals and leave a `// SPEC-GAP:` comment explaining the choice. Never invent scope.
 
@@ -75,16 +75,16 @@ end-to-end) before scaling a change across all 15.
 **Know what an area already guarantees before touching it:**
 
 - **Progress & mastery** — `src/lib/progress.ts` is the one reader and the one deleter of every progress key; exactly one writer exists per key (`MarkComplete` → completion, `progress.ts` → `progress:v1:{slug}`, `Challenge`/`FinalRun` → the two `ld:*` keys through `src/lib/enrichment-store.ts`). Lesson lists are injected from the build; storage is never enumerated by prefix.
-- **Visualization** — trace-then-render survived M8 intact: predict mode and trials consume the same precomputed `Step[]`. `predictStep` is optional per algorithm and ships for binary-search, bubble, insertion, BFS and DFS; quick-sort and selection-sort deliberately have none (they defer swaps — see `docs/m8-gamification.md`).
+- **Visualization** — trace-then-render survived M8 intact: predict mode and trials consume the same precomputed `Step[]`. `predictStep` is optional per algorithm and ships for binary-search, bubble, insertion, BFS and DFS; quick-sort and selection-sort deliberately have none (they defer swaps — see `docs/m8-gamification.md`). Plan A added two **required** members to the contract (spec §11.2): every renderer module ships `measure(step): Extent` — geometry only, extracted from the viewBox its own `draw` already computes, because reading the box back out of `renderStatic` costs 247 ms at n = 30 against 0.44 ms — and its agreement with `draw` is a test, not a convention (`tests/unit/renderers/measure.test.ts`). The extent is **frozen per trace** and reaches the client through `setExtent`, never `mount` alone: `mount` runs once per island while `loadTrace` re-traces on every custom run and on "Restore example". `fitToExtent` clamps rather than shrinks, and each renderer declares one `ANCHOR` (bottom for `stack`/`callStack`, centre-x for `heap`). `npm run audit:frames` re-derives which renderers vary. The RSP-2 legibility floor was **measured and deliberately left alone** — a vertical twin is a rejected proposal, not a gap (spec §19.1, and the comment block at the CSS itself).
 - **Tokens & chrome** — light elevation is *inverted* (`--bg` tinted `#F8FAFC`, `--surface` white, plus sunken/raised levels); the six `--hl-*` roles stay viz-only and chrome attention uses `--accent-warn`; every sticky offset and `scroll-margin-top` derives from `--header-h`; durations come only from `--duration-*` tokens. `src/styles/tokens.css` is the source of truth — `docs/design-tokens-m1.md`'s code block is the retired M1 snapshot, not something to paste.
 - **JS-off** — every M8 component carries its own `<noscript>` kill-switch: with JS disabled no pip, ring, milestone, review card, trial or Final Run appears (`/learn`'s pip legend is hidden for the same reason). Newly server-rendered M7 content (prerequisites, "What's next", glossary aliases) *is* expected to appear.
 - **The calm invariants are tests**, not conventions: review strip ≤2 cards and zero DOM when empty, the banned vocabulary, the Predict toggle's absence from storage, the token contrast matrix. Breaking one fails CI rather than review.
 
-**Deliberately not built** (decisions, not gaps): Explain-it-back and its `explainPrompt` frontmatter
-field, the Learning Days counter (`ld:days:v1` is enumerated in §6 with no writer), semantic
-difficulty chips (design sign-off withheld), per-track OG cards, the glossary search island, and
-Astro prefetch. Spec §19 and the two milestone docs carry the reasoning; re-proposing one is a spec
-amendment, not a fix.
+**Deliberately not built** (decisions, not gaps): semantic difficulty chips (design sign-off
+withheld), per-track OG cards, the glossary search island, Astro prefetch, and — deleted by
+measurement rather than taste — cost withholding and a vertical twin for the RSP-2 legibility floor.
+Spec §19 (with §19.1 for the two measured deletions) and the milestone docs carry the reasoning;
+re-proposing one is a spec amendment, not a fix.
 
 **Budget note:** a size claim in a comment is a claim about the *build* — measure it (gzip every
 chunk in a page's static import closure) or don't write it. A wrong one here hid a 1.3 KB gz chunk
