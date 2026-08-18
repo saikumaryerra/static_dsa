@@ -94,6 +94,7 @@
  */
 import { algorithms, renderers } from './registry';
 import { collectLegend } from './core/legend';
+import { traceExtent } from './core/extent';
 import {
   inputHelpText,
   probeListCap,
@@ -159,7 +160,13 @@ if (!step0)
   throw new Error(`Algorithm "${algorithm}" produced an empty trace.`);
 
 const label = algo.label;
-const still = rmod.renderStatic(step0, { title: label, idBase: uid });
+// One box for the whole trace (Plan A §3). Renderers size their viewBox from the
+// CURRENT step, so a growing structure resized the canvas mid-trace and moved
+// the transport row under the reader's thumb. The still is re-emitted with the
+// SAME extent the island will use, or the JS-off frame would keep step 0's small
+// box and the drawing would jump once, at hydration.
+const extent = traceExtent(rmod.measure, trace);
+const still = rmod.renderStatic(step0, { title: label, idBase: uid, extent });
 const step0Text = step0.explanation;
 
 // Step-0 metric pills, rendered at BUILD time. An empty `.viz-metrics` measures
@@ -280,6 +287,7 @@ const targetId = `${uid}-target`;
   data-algorithm={algorithm}
   data-renderer={renderer}
   data-input={input ?? ''}
+  data-extent={`${extent.w} ${extent.h}`}
   data-label={label}
   data-show-metrics={showMetrics ? 'true' : 'false'}
   data-target-label={showTarget ? targetLabel : ''}
@@ -2014,6 +2022,7 @@ const targetId = `${uid}-target`;
   import { normalizeSpeed, Player } from './core/player';
   import { errorField } from './core/error-field';
   import { splitAuthoredInput } from './core/input-hint';
+  import { traceExtent } from './core/extent';
   import { algorithms, renderers } from './registry';
   // The `viz:run` name and its payload shape (M8.3). Imported rather than
   // retyped: `src/lib/challenges.ts` owns the contract because its consumers do,
@@ -2026,6 +2035,7 @@ const targetId = `${uid}-target`;
   import type { VizRunDetail } from '../lib/challenges';
   import type {
     Algorithm,
+    Extent,
     PredictQuestion,
     Renderer,
     RendererModule,
@@ -2126,6 +2136,24 @@ const targetId = `${uid}-target`;
     // "Start node"); empty when that field isn't rendered. errorField reads it
     // so error attribution follows the actual UI instead of a hardcoded word.
     const targetLabel = root.dataset['targetLabel'] ?? '';
+    /**
+     * The authored run's frozen drawing box, measured by the BUILD from the very
+     * trace it rendered the still from — so the first hydrated draw reuses the
+     * still's own viewBox instead of re-deriving one that could differ. Custom
+     * runs measure their own; see `applyTrace`.
+     *
+     * `undefined` for an absent or malformed attribute, which `mount` then
+     * recomputes rather than drawing unfrozen: silently falling back to the
+     * per-step box would reintroduce exactly the resize this exists to stop.
+     */
+    const authoredExtent = ((): Extent | undefined => {
+      const parts = (root.dataset['extent'] ?? '').split(' ');
+      const w = Number(parts[0]);
+      const h = Number(parts[1]);
+      return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
+        ? { w, h }
+        : undefined;
+    })();
     // The lesson a passed predict session credits (M8.2). Emitted by the build
     // only for a `/learn/{slug}` page that also has a predictor, so it is empty
     // on /about and in the dev gallery — where the practice still works and
@@ -2187,6 +2215,13 @@ const targetId = `${uid}-target`;
     let player: Player<unknown> | null = null;
     let algo: Algorithm<unknown, unknown> | null = null;
     let renderer: Renderer<unknown> | null = null;
+    /**
+     * The resolved renderer module, kept beside its `Renderer` because
+     * `applyTrace` needs its `measure` on every custom run — `mount` runs once,
+     * so a module held only in that function's scope would leave every later
+     * trace without a way to compute its own box.
+     */
+    let rendererModule: RendererModule<unknown> | null = null;
     let observer: IntersectionObserver | null = null;
     let destroyed = false;
     /** Pending rAF for the resize-driven overflow measurement; `null` when idle. */
@@ -2248,6 +2283,7 @@ const targetId = `${uid}-target`;
       if (measureFrame !== null) cancelAnimationFrame(measureFrame);
       player?.pause(); // clears any pending auto-play tick
       renderer?.destroy();
+      rendererModule = null;
       root.removeAttribute('data-viz-ready');
       root.removeAttribute('aria-busy');
       delete root.dataset['vizLoading'];
@@ -2755,6 +2791,40 @@ const targetId = `${uid}-target`;
     }
 
     /**
+     * Swaps in a new trace together with its OWN frozen box.
+     *
+     * Every caller that replaces the trace must come through here — the custom
+     * run and "Restore example" alike. `mount` runs exactly once per island, so
+     * `setExtent` is the only channel that can update the box afterwards, and a
+     * path that skipped it would draw the new run against the previous one's
+     * measurements: too small (and clamped back to per-step resizing) or too
+     * large (a permanent band of empty canvas).
+     *
+     * Order matters: the extent has to be in place BEFORE the redraw
+     * `loadTrace` triggers, and the canvas is re-measured after it —
+     * `syncTraceBounds` ends in `measureCanvas`, so RSP-2's legibility floor and
+     * scroll-region state are reconciled against the box this just set.
+     *
+     * KNOWN TRADE, recorded because this is where it first becomes reachable:
+     * both `traceExtent` and the `fitToExtent` inside the redraw throw rather
+     * than draw a box they cannot justify, and `Player.draw` does not guard
+     * `renderer.render`. A throw raised here — from the reader's own input, the
+     * only runtime-only exposure, since every authored run is measured and drawn
+     * at build time — propagates out of the submit handler, and one raised later
+     * from inside `play()`'s self-rescheduling tick would stop the loop with
+     * `playing` still true: the button would read "Pause" over a transport that
+     * no longer advances. Loud-on-impossible-geometry is deliberate (a silently
+     * wrong box is a clipped drawing nobody notices); making the failure legible
+     * belongs to `Player`, not here, so it is named rather than patched around.
+     */
+    function applyTrace(next: Trace<unknown>): void {
+      if (!player || !renderer || !rendererModule) return;
+      renderer.setExtent(traceExtent(rendererModule.measure, next));
+      player.loadTrace(next);
+      syncTraceBounds();
+    }
+
+    /**
      * Announces a finished custom run to the page (`viz:run`; spec §11.3's M8
      * amendment, contract in `src/lib/challenges.ts`).
      *
@@ -2914,10 +2984,19 @@ const targetId = `${uid}-target`;
 
       const trace = algo.run(input);
       currentTrace = trace;
+      rendererModule = rmod;
       renderer = rmod.create();
       // Replace the static still, then mount the live renderer in its place.
       canvas!.replaceChildren();
-      renderer.mount(canvas!, { title });
+      // The extent the BUILD measured from this same run, so the first hydrated
+      // draw reuses the still's exact viewBox and hydration moves nothing. It is
+      // recomputed here when the attribute is missing or unparseable (a partial
+      // View Transition swap, a hand-edited DOM) rather than left undefined,
+      // because drawing unfrozen is the defect, not the fallback.
+      renderer.mount(canvas!, {
+        title,
+        extent: authoredExtent ?? traceExtent(rmod.measure, trace),
+      });
 
       player = new Player<unknown>({
         trace,
@@ -3072,8 +3151,7 @@ const targetId = `${uid}-target`;
           // only indexed into — this is the same object the Player receives.
           input = parsed;
           currentTrace = algo.run(parsed);
-          player.loadTrace(currentTrace);
-          syncTraceBounds();
+          applyTrace(currentTrace);
           // The reader crafted a run and it succeeded: tell the page (M8.3).
           // Last, so anything listening sees a settled island — and only here,
           // because this is the only path where the input is the reader's own.
@@ -3099,8 +3177,7 @@ const targetId = `${uid}-target`;
           clearError();
           input = parsed;
           currentTrace = algo.run(parsed);
-          player.loadTrace(currentTrace);
-          syncTraceBounds();
+          applyTrace(currentTrace);
         },
         { signal },
       );

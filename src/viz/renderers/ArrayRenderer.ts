@@ -72,17 +72,37 @@ const cellX = (i: number): number => PAD_X + i * (CELL + GAP);
 const cellCenterX = (i: number): number => cellX(i) + CELL / 2;
 const viewWidth = (n: number): number =>
   Math.max(PAD_X * 2 + Math.max(n, 1) * (CELL + GAP) - GAP, 1);
-const viewBoxOf = (n: number): string => `0 0 ${viewWidth(n)} ${HEIGHT}`;
-
 /**
- * The natural box for one step — the same two numbers `viewBoxOf` renders, read
- * from the same `viewWidth`/`HEIGHT` source so the two cannot drift. Geometry
- * only: a caller reduces this over a trace to freeze one box for the whole run.
+ * The natural box for one step, and the ONLY place either drawing path reads
+ * its geometry from — both `renderArrayStatic` and `ArrayDomRenderer.render`
+ * build their `viewBox` string from this, so the still and the hydrated drawing
+ * cannot drift. Geometry only: a caller reduces it over a trace to freeze one
+ * box for the whole run (`core/extent`).
  */
 const measure = (step: Step<ArrayWindowState>): Extent => ({
   w: viewWidth(step.state.array.length),
   h: HEIGHT,
 });
+
+/**
+ * The frozen box widened to fit this step's natural one, as a `viewBox` string.
+ *
+ * This family draws its own root `<svg>` rather than going through
+ * `renderers/shared`'s `fitToExtent`, so the clamp rule lives here instead —
+ * same rule, stated once for both of this module's paths: an extent may only
+ * WIDEN the box, so a stale measurement can never clip the drawing. No
+ * transform is ever needed, because the array is top-left anchored and only
+ * ever varies in width — the viewBox alone carries the reservation.
+ */
+const viewBoxFor = (
+  step: Step<ArrayWindowState>,
+  extent: Extent | undefined,
+): string => {
+  const natural = measure(step);
+  const w = Math.max(extent?.w ?? 0, natural.w);
+  const h = Math.max(extent?.h ?? 0, natural.h);
+  return `0 0 ${w} ${h}`;
+};
 
 /** Index behind a `cellId` string (`"i3"` → 3). */
 const idIndex = (id: string): number => Number(id.slice(1));
@@ -293,11 +313,10 @@ function renderArrayStatic(
   opts: RenderOpts,
   variant: Variant,
 ): string {
-  const n = step.state.array.length;
   const idBase = opts.idBase ?? 'viz';
   return svgRoot(
     {
-      viewBox: viewBoxOf(n),
+      viewBox: viewBoxFor(step, opts.extent),
       title: opts.title ?? '',
       desc: step.explanation,
       titleId: `${idBase}-t`,
@@ -321,10 +340,13 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
   private markersGroup: SVGGElement | null = null;
   private descEl: SVGDescElement | null = null;
   private builtLength = -1;
+  /** The whole trace's frozen box; `undefined` draws each step naturally. */
+  private extent: Extent | undefined;
   private readonly uid = `ar${(domInstance += 1)}`;
   constructor(private readonly variant: Variant) {}
 
   mount(container: HTMLElement, opts: RenderOpts = {}): void {
+    this.extent = opts.extent;
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('role', 'img');
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -353,18 +375,19 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
     this.markersGroup = markersGroup;
   }
 
-  /**
-   * Deliberately inert for now, and it takes no argument so nothing reads as
-   * stored-but-ignored: this family draws its own viewBox instead of going
-   * through `fitToExtent`, so honouring an extent means moving where that box is
-   * written. That plumbing lands with the extent lifecycle (Plan A task 4); the
-   * member exists here because the contract requires it of every renderer.
-   */
-  setExtent(): void {}
+  setExtent(next: Extent | undefined): void {
+    this.extent = next;
+  }
 
   render(step: Step<ArrayWindowState>): void {
     if (!this.svg || !this.cellsGroup || !this.markersGroup) return;
     const { array } = step.state;
+
+    // Written EVERY step rather than only when the cell count changes: after a
+    // `setExtent` the box has to change while the array length does not (a
+    // custom run of the same length against a differently-sized trace), and a
+    // length-driven write would leave that run on the previous trace's box.
+    this.svg.setAttribute('viewBox', viewBoxFor(step, this.extent));
 
     if (this.builtLength !== array.length) {
       this.buildCells(array);
@@ -392,12 +415,13 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
     this.markersGroup = null;
     this.descEl = null;
     this.builtLength = -1;
+    this.extent = undefined;
   }
 
   private buildCells(array: number[]): void {
     const groupEl = this.cellsGroup!;
     groupEl.replaceChildren();
-    this.svg!.setAttribute('viewBox', viewBoxOf(array.length));
+    // (the viewBox write lives in render(), which runs on every step.)
     // Reuse the pure string builder for one geometry source, then adopt nodes.
     groupEl.innerHTML = array
       .map((v, i) =>
