@@ -206,3 +206,117 @@ test.describe('a new trace brings its own box', () => {
     await expect(svg).toHaveAttribute('viewBox', '0 0 384 132');
   });
 });
+
+/**
+ * Plan A §7 — the RSP-2 legibility floor, PINNED rather than changed.
+ *
+ * The floor is `Visualizer.astro`'s `min-width: calc(var(--viz-natural-w, 0px)
+ * * 0.75)` on the canvas's `<svg>`. Plan A considered giving it a vertical twin
+ * and measured the idea away — every `<svg>` is `xMidYMid meet` with
+ * `height: auto`, so the scale is uniform and one axis already floors both;
+ * there is no `max-height` anywhere in that file to overflow against; and
+ * adding one would produce a canvas that overflows VERTICALLY while fitting
+ * horizontally, which `measureCanvas` (it reads horizontal overflow alone)
+ * would leave `tabindex="-1"`: an unreachable keyboard scroll region, the exact
+ * WCAG 2.1.1 failure the floor's own comment says the design avoids.
+ *
+ * So there is no source change here, and these three tests are the finding.
+ * What the frozen extent DID change for free is the first one: `measureCanvas`
+ * reads `svg.viewBox.baseVal.width` live, and that value is now trace-constant,
+ * so the floor stops moving mid-run and `remeasureIfResized`'s string compare
+ * stops firing. That is asserted rather than plumbed — separate plumbing for it
+ * would be dead code.
+ */
+test.describe('the legibility floor under a frozen extent', () => {
+  // The 390px phone the 0.75 was chosen against.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  /** The lesson hosts two array visualizers; scope to the binary-search one. */
+  const VIZ = '#viz-binary-search';
+
+  test('--viz-natural-w holds still across a run on the renderer that grows most', async ({
+    page,
+  }) => {
+    await page.goto('/learn/trees-bst');
+    const viz = await hydrateViz(page);
+    const canvas = viz.locator('[data-viz-canvas]');
+    const forward = viz.locator('[data-viz-forward]');
+    const counter = viz.locator('[data-viz-counter]');
+
+    const total = Number(((await counter.textContent()) ?? '').split('/')[1]);
+    expect(
+      total,
+      'the counter should report a multi-step trace',
+    ).toBeGreaterThan(3);
+
+    const seen = new Set<string>();
+    for (let i = 0; i < total; i += 1) {
+      if (i > 0) {
+        await forward.click();
+        await expect(counter).toHaveText(`${i + 1} / ${total}`);
+      }
+      seen.add(
+        await canvas.evaluate((el) =>
+          getComputedStyle(el).getPropertyValue('--viz-natural-w').trim(),
+        ),
+      );
+    }
+
+    // The VALUE, not merely the count: an unwritten custom property reads `''`
+    // on every step, so a one-element set would pass for a floor that never
+    // existed. 380 is the BST's frozen extent width, pinned above.
+    expect([...seen], 'the legibility floor moved mid-run').toEqual(['380px']);
+  });
+
+  test('a horizontally overflowing canvas is still a reachable scroll region', async ({
+    page,
+  }) => {
+    await page.goto('/learn/binary-search');
+    const viz = await hydrateViz(page, VIZ);
+    const canvas = viz.locator('[data-viz-canvas]');
+
+    // Six cells fit, so the canvas is a click target for the Space/←/→
+    // shortcuts and nothing more: out of the tab order, unnamed, no role.
+    await expect(canvas).toHaveAttribute('tabindex', '-1');
+    await expect(canvas).not.toHaveAttribute('role', 'group');
+
+    // Twenty is the case the floor exists for: 0.75 of a 1252-unit drawing
+    // cannot fit 390px, so the box must scroll instead of shrinking the digits.
+    // DRIVEN rather than branched on — a conditional assertion would never take
+    // this side at this viewport, and this side is the whole a11y argument
+    // against a vertical twin.
+    await viz
+      .locator('[data-viz-array]')
+      .fill('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]');
+    await viz.locator('[data-viz-target]').fill('13');
+    await viz.locator('[data-viz-run]').click();
+    await expect(canvas.locator('svg')).toHaveAttribute(
+      'viewBox',
+      '0 0 1252 132',
+    );
+
+    expect(
+      await canvas.evaluate((el) => el.scrollWidth - el.clientWidth),
+      'the floor should have made this drawing wider than its box',
+    ).toBeGreaterThan(1);
+    await expect(canvas).toHaveAttribute('tabindex', '0');
+    await expect(canvas).toHaveAttribute('role', 'group');
+    await expect(canvas).toHaveAttribute('aria-label', /scrollable diagram/);
+  });
+
+  test('the 6-cell default array still fits without scrolling at 390px', async ({
+    page,
+  }) => {
+    await page.goto('/learn/binary-search');
+    const viz = await hydrateViz(page, VIZ);
+    // This is the 0.75's own documented rationale — it was chosen over the
+    // intrinsic 100% because "a 6-cell default would otherwise start scrolling
+    // on a 390px screen it currently fits". If this fails, the floor was
+    // changed and the floor is what needs reverting, not this number.
+    expect(
+      await viz
+        .locator('[data-viz-canvas]')
+        .evaluate((el) => el.scrollWidth - el.clientWidth),
+    ).toBeLessThanOrEqual(1);
+  });
+});

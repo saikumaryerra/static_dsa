@@ -830,7 +830,19 @@ const targetId = `${uid}-target`;
      `--viz-natural-w` is written by the script from the live `viewBox` (never at
      build time): with JS off there is no measurement, no scroll container, and
      therefore no unreachable-scroller keyboard failure — and JS-off only ever
-     shows the small authored input anyway. */
+     shows the small authored input anyway.
+
+     Plan A considered a vertical twin for this floor and MEASURED it away:
+     `meet` + `height:auto` makes the scale uniform, so this min-width is
+     already a two-axis floor; no `max-height` exists anywhere here, so there is
+     no cap to overflow against; and adding one would make a canvas that
+     overflows vertically while fitting horizontally — which `measureCanvas`
+     below would leave `tabindex="-1"`, i.e. exactly the unreachable scroller
+     this comment says the design avoids. The floor is correct as it stands, and
+     `tests/e2e/plan-a-frames.spec.ts` now pins it: `--viz-natural-w` holds one
+     value for a whole run (the frozen extent bought that), an overflowing
+     canvas is a reachable, named scroll region, and the 6-cell default still
+     fits 390px. */
   .viz-canvas {
     margin-block-end: var(--space-4);
     overflow-x: auto;
