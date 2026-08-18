@@ -48,6 +48,21 @@ describe('fitToExtent', () => {
     expect(out.inner).toBe('<g transform="translate(123 0)"><rect/></g>');
   });
 
+  it('clamps per AXIS: a wider-but-shorter extent never lifts a bottom anchor', () => {
+    // The uncovered case: the extent wins on w (300 > 100) while the natural
+    // box wins on h (200 > 120), so the two axes take different branches of the
+    // clamp at once. `dy` must come from the CLAMPED height, not from
+    // `extent.h` — deriving it from the extent gives `translate(100 -80)`,
+    // which lifts a bottom-anchored drawing clean out of its own box.
+    const out = fitToExtent(
+      canvas('0 0 100 200'),
+      { w: 300, h: 120 },
+      { x: 'center', y: 'bottom' },
+    );
+    expect(out.viewBox).toBe('0 0 300 200');
+    expect(out.inner).toBe('<g transform="translate(100 0)"><rect/></g>');
+  });
+
   it('adds no wrapper when the offset is zero', () => {
     const out = fitToExtent(
       canvas('0 0 168 220'),
