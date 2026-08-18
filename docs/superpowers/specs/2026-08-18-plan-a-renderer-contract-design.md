@@ -43,7 +43,9 @@ so the plan is scoped to facts rather than to an expected set. The script is com
 
 ### A. Which renderers vary their extent across a trace?
 
-**Exactly seven of eleven.** Width and/or height range, per algorithm:
+**Exactly seven of twelve registered renderer ids** — measured by
+`scripts/audit-frames.mjs` over all 21 shipped instruments. Width and/or height range, per
+algorithm:
 
 | renderer | evidence | varies |
 |---|---|---|
@@ -58,8 +60,12 @@ so the plan is scoped to facts rather than to an expected set. The script is com
 | `graph` | bfs/dfs/representations constant | no |
 | `table` | both DP lessons constant at 446×118 | no |
 | `chart` | `growth-rates` constant at 496×272 | no |
+| `queue` | `queue-operations` constant at 194×144 — its box is keyed on capacity, which is fixed per run | no |
 
-The four constant renderers are named inline in the test rather than silently omitted.
+The five constant renderers are named inline in the test rather than silently omitted.
+**[corrected]** — an earlier draft of this table listed only eleven ids and omitted `queue`
+entirely; the audit covers all twelve. It also mis-assigned `linear-search` to `bars`: that
+instrument uses the `array` renderer (`binary-search.mdx:158`), and `bars` serves the five sorts.
 
 ### B. Which algorithms render a broken resting frame at step 0?
 

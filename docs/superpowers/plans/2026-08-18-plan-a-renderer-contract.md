@@ -109,7 +109,7 @@ import { algorithms, renderers } from '../src/viz/registry.ts';
  */
 const INSTRUMENTS = [
   ['binary-search', 'array', '[1,3,5,7,9,11] target=7'],
-  ['linear-search', 'bars', '[8,3,5,9,1,7] target=9'],
+  ['linear-search', 'array', '[8,3,5,9,1,7] target=9'],
   ['growth-rates', 'chart', null],
   ['array-operations', 'array', null],
   ['linked-list-operations', 'linkedList', null],
@@ -588,7 +588,8 @@ const run = (algo: unknown, input?: string): Step<unknown>[] => {
 
 const pairs: Pair[] = [
   { name: 'array', trace: run(binarySearch, '[1,3,5,7,9,11] target=7'), renderer: arrayRenderer },
-  { name: 'bars', trace: run(linearSearch, '[8,3,5,9,1,7] target=9'), renderer: barsRenderer },
+  { name: 'array/linear', trace: run(linearSearch, '[8,3,5,9,1,7] target=9'), renderer: arrayRenderer },
+  { name: 'bars', trace: run(bubbleSort), renderer: barsRenderer },
   { name: 'stack', trace: run(demos.demoStack), renderer: stackRenderer },
   { name: 'callStack', trace: run(demos.demoCallStack), renderer: callStackRenderer },
   { name: 'queue', trace: run(demos.demoQueue), renderer: queueRenderer },
@@ -1379,7 +1380,7 @@ describe('range end-labels come from the algorithm, never the renderer', () => {
   });
 
   const silent: [string, unknown, typeof arrayRenderer, string | undefined][] = [
-    ['linear-search', linearSearch, barsRenderer, '[8,3,5,9,1,7] target=9'],
+    ['linear-search', linearSearch, arrayRenderer, '[8,3,5,9,1,7] target=9'],
     ['array-operations', arrayOperations, arrayRenderer, undefined],
     ['bubble-sort', bubbleSort, barsRenderer, undefined],
     ['insertion-sort', insertionSort, barsRenderer, undefined],
