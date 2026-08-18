@@ -19,6 +19,7 @@ import { HIGHLIGHTS, type HighlightKind } from '../core/highlight';
 import { circle, group, line, rect, text } from '../core/svg';
 import {
   createRenderer,
+  nullLabelWidth,
   renderStaticSvg,
   swapMark,
   type Anchor,
@@ -41,6 +42,8 @@ const YSTEP = 62;
 const LEAF_GAP = 60; // horizontal room per bottom-level node
 const CELL = 46;
 const CELL_GAP = 6;
+/** The resting label an empty heap draws. `geometry` sizes the box around it. */
+const EMPTY_LABEL = 'empty heap';
 
 const depthOf = (i: number): number => Math.floor(Math.log2(i + 1));
 const idIndex = (id: string): number => Number(id.slice(1));
@@ -63,7 +66,7 @@ interface HeapGeometry {
   arrayX0: number;
   /** Top edge of the backing-array band, below the whole tree. */
   arrayTop: number;
-  /** viewBox width. */
+  /** viewBox width — the two bands, or the resting label, whichever is wider. */
   width: number;
   /** viewBox height. */
   height: number;
@@ -90,7 +93,13 @@ function geometry(step: Step<HeapState>): HeapGeometry {
   const treeWidth = Math.max(bottomCount * LEAF_GAP, LEAF_GAP);
   const arrayWidth = Math.max(n, 1) * (CELL + CELL_GAP) - CELL_GAP;
   const contentWidth = Math.max(treeWidth, arrayWidth);
-  const width = PAD * 2 + contentWidth;
+  // Floored by the resting label (Plan A §4): an empty heap's band-derived box
+  // is 80 units wide and the centred "empty heap" is ~110, so the still used to
+  // clip it to "mpty hea" for every JS-off reader and every printed page.
+  const width = Math.max(
+    PAD * 2 + contentWidth,
+    n === 0 ? nullLabelWidth(EMPTY_LABEL) + PAD * 2 : 0,
+  );
   const arrayTop = PAD + TOP + (maxDepth + 1) * YSTEP + 16;
   const arrayX0 = PAD + (contentWidth - arrayWidth) / 2;
 
@@ -231,7 +240,8 @@ function draw(step: Step<HeapState>): Canvas {
     );
   }
   if (n === 0) {
-    structure += text('empty heap', {
+    // Centred in the box `geometry` widened for it — same call, no drift.
+    structure += text(EMPTY_LABEL, {
       class: 'viz-null',
       x: width / 2,
       y: PAD + TOP + R,

@@ -51,6 +51,24 @@ export const visitedBadge = (x: number, y: number): string =>
 export const swapMark = (x: number, y: number): string =>
   text('↔', { class: 'viz-swap-mark', x, y, 'text-anchor': 'middle' });
 
+/**
+ * Conservative rendered width of a `.viz-null` resting label, in viewBox units.
+ *
+ * `.viz-null` is 18px `--font-mono`, and inside an SVG that 18 is 18 USER units,
+ * not CSS pixels. Every face in the `--font-mono` stack advances at most ~0.61em
+ * (SF Mono/Menlo/Liberation Mono ~0.60em, Consolas 0.55em), so 0.6 x 18 = 10.8
+ * and 11 units per character rounds up by ~2%.
+ *
+ * Exists because two renderers computed an empty-state viewBox from an empty
+ * STRUCTURE and then drew a label into it: "empty tree" is ~110 units wide
+ * inside a 40-unit box, so the resting frame rendered blank for every JS-off
+ * reader and every printed page (`npm run audit:frames`, section B).
+ *
+ * @param label - The resting label the renderer is about to draw.
+ * @returns The width the box must reserve for it, in viewBox user units.
+ */
+export const nullLabelWidth = (label: string): number => label.length * 11;
+
 /** Reads a string `label` from a highlight's `meta`, else a fallback. */
 export const metaLabel = (h: Highlight, fallback: string): string =>
   typeof h.meta?.['label'] === 'string'

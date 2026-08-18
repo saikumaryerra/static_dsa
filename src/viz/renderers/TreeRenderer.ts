@@ -20,6 +20,7 @@ import {
   foundMark,
   insertMark,
   metaLabel,
+  nullLabelWidth,
   renderStaticSvg,
   visitedBadge,
   type Canvas,
@@ -45,6 +46,8 @@ const TOP = 26;
 const XSTEP = 64;
 const YSTEP = 68;
 const R = 20;
+/** The resting label an empty tree draws. `boxOf` sizes the box around it. */
+const EMPTY_LABEL = 'empty tree';
 const idIndex = (id: string): number => Number(id.slice(1));
 
 interface Pos {
@@ -81,17 +84,29 @@ function layout(state: TreeState): Map<number, Pos> {
 
 /**
  * The box a laid-out tree needs: the furthest node centre plus one radius and
- * the pad. Takes the layout rather than the state so `draw` and `measure` share
- * one formula without laying the tree out twice inside `draw`.
+ * the pad, floored by the resting label when there is one. Takes the layout
+ * rather than the state so `draw` and `measure` share one formula without
+ * laying the tree out twice inside `draw`.
+ *
+ * @param pos - The laid-out node centres from {@link layout}.
+ * @param drawsEmptyLabel - Whether `draw` will emit {@link EMPTY_LABEL} for this
+ *   step. Passed rather than inferred from `pos.size` so the floor applies on
+ *   EXACTLY the steps that draw the label: a malformed tree whose root names a
+ *   missing node also lays out empty but draws nothing, and reserving label
+ *   room there would be a band of blank canvas with no label in it.
  */
-function boxOf(pos: Map<number, Pos>): Extent {
+function boxOf(pos: Map<number, Pos>, drawsEmptyLabel: boolean): Extent {
   let maxX = PAD;
   let maxY = PAD + TOP;
   for (const p of pos.values()) {
     maxX = Math.max(maxX, p.x);
     maxY = Math.max(maxY, p.y);
   }
-  return { w: maxX + R + PAD, h: maxY + R + PAD };
+  // The resting frame must contain its own label (Plan A §4): an empty tree's
+  // node-derived box is 40 units wide and "empty tree" is ~110, so the label was
+  // drawn entirely outside it and the still read as blank.
+  const labelW = drawsEmptyLabel ? nullLabelWidth(EMPTY_LABEL) + PAD * 2 : 0;
+  return { w: Math.max(maxX + R + PAD, labelW), h: maxY + R + PAD };
 }
 
 /**
@@ -100,7 +115,8 @@ function boxOf(pos: Map<number, Pos>): Extent {
  * markup — the BST is the renderer that grows most, 66 → 222 units across its
  * lesson run (`npm run audit:frames`).
  */
-const measure = (step: Step<TreeState>): Extent => boxOf(layout(step.state));
+const measure = (step: Step<TreeState>): Extent =>
+  boxOf(layout(step.state), step.state.root === null);
 
 function draw(step: Step<TreeState>): Canvas {
   const state = step.state;
@@ -109,7 +125,7 @@ function draw(step: Step<TreeState>): Canvas {
   for (const node of state.nodes) byId.set(node.id, node);
   const classes = applyHighlights(step.highlights);
 
-  const box = boxOf(pos);
+  const box = boxOf(pos, state.root === null);
 
   // Edges first (behind nodes).
   let structure = '';
@@ -155,10 +171,12 @@ function draw(step: Step<TreeState>): Canvas {
     );
   }
   if (state.root === null) {
-    structure += text('empty tree', {
+    // Centred in the box `boxOf` widened for it, so the two cannot disagree.
+    structure += text(EMPTY_LABEL, {
       class: 'viz-null',
-      x: PAD + 40,
+      x: box.w / 2,
       y: PAD + TOP + R,
+      'text-anchor': 'middle',
       'dominant-baseline': 'central',
     });
   }

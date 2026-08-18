@@ -73,7 +73,9 @@ const anchored: {
     input: '[5,9,3,12,8,15]',
     // Centre-x: the heap already centres each tree level on its content width,
     // so centring the whole drawing keeps the root still across a level gain.
-    transform: 'translate(123 0)',
+    // 98, not 123: step 0 is the empty heap, whose natural box is floored at
+    // 130 units by its own "empty heap" label (Plan A §4), not 80.
+    transform: 'translate(98 0)',
   },
 ];
 
