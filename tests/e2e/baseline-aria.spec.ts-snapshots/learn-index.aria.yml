@@ -23,10 +23,12 @@
     - /url: /learn/complexity-big-o
   - button "Reset progress" [disabled]
   - status
+  - group: What the three pips mean
   - region "Foundations & Data Structures":
     - heading "Foundations & Data Structures" [level=2]
     - paragraph: The building blocks every algorithm relies on.
     - paragraph: 0 of 9 done on this device
+    - paragraph: Practiced 0 · Mastered 0
     - list:
       - listitem:
         - link "Beginner Complexity & Big-O Measure how an algorithm's work grows with input size, and compare O(1), O(log n), O(n), O(n log n), and O(n²). ~9 min read Start lesson":
@@ -104,6 +106,7 @@
     - heading "Algorithms" [level=2]
     - paragraph: Classic algorithms, watched step by step until they click.
     - paragraph: 0 of 6 done on this device
+    - paragraph: Practiced 0 · Mastered 0
     - list:
       - listitem:
         - link /Beginner Recursion A function that calls itself, breaking a problem into a smaller version of itself until it reaches a base case — with the call stack keeping track\. ~\d+ min read Start lesson/:

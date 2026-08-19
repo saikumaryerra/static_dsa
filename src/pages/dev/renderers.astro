@@ -83,12 +83,15 @@ const samples: {
             <p class="dev-gallery__ids">
               algorithm="{sample.algorithm}" renderer="{sample.renderer}"
             </p>
+            {/* showLedger: a gallery of the CHROME, not a lesson — twelve
+                tables of somebody else's run would bury what is under review. */}
             <Visualizer
               algorithm={sample.algorithm}
               renderer={sample.renderer}
               input={sample.input}
               allowCustomInput={false}
               showMetrics={true}
+              showLedger={false}
             />
           </section>
         ))

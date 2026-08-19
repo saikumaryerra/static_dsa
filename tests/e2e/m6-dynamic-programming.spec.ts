@@ -118,7 +118,10 @@ test('complexity table renders O(n) time and O(n) space', async ({ page }) => {
   const table = page.getByRole('heading', { level: 2, name: 'Complexity' });
   await expect(table).toBeVisible();
   // The ComplexityTable is auto-rendered from frontmatter (time+space all O(n)).
-  const complexitySection = page.locator('table').first();
+  // Addressed by its own class, not `table` — Plan C put a ledger table inside
+  // every visualizer, and this lesson mounts two of them ABOVE the complexity
+  // section, so `locator('table').first()` now resolves to a run, not a cost.
+  const complexitySection = page.locator('table.complexity-table');
   await expect(complexitySection).toContainText('O(n)');
 });
 

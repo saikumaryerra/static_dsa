@@ -8,7 +8,12 @@
  * - `input`            optional initial input, e.g. "[1,3,5,7,9,11] target=7";
  *                      else the algorithm's defaultInput().
  * - `allowCustomInput` show the custom-input form (default true).
- * - `showMetrics`      show the metrics pills (default true).
+ * - `showMetrics`      show the metrics pills (default true). The ledger's cost
+ *                      column inherits this: "no counters on this demo" must not
+ *                      be defeated by the table underneath the drawing.
+ * - `showLedger`       render the trace as a table under the drawing (default
+ *                      true). /about and the dev gallery pass false — both are
+ *                      chrome demonstrations rather than lessons.
  * - `inputLabel`/`inputPlaceholder`  label + placeholder for the FIRST field
  *                      (default "Array"). Non-array lessons override the label
  *                      (e.g. graph "Edges", recursion "n"); the placeholder is
@@ -101,6 +106,8 @@ import {
   probeListCap,
   splitAuthoredInput,
 } from './core/input-hint';
+import { buildLedger, withoutCost } from './core/ledger';
+import Ledger from './Ledger.astro';
 import type { Algorithm, RendererModule, Step } from './core/types';
 
 interface Props {
@@ -109,6 +116,7 @@ interface Props {
   input?: string;
   allowCustomInput?: boolean;
   showMetrics?: boolean;
+  showLedger?: boolean;
   inputLabel?: string;
   inputPlaceholder?: string;
   targetLabel?: string;
@@ -122,6 +130,7 @@ const {
   input,
   allowCustomInput = true,
   showMetrics = true,
+  showLedger = true,
   // Defaults keep every array/search/sort lesson (incl. binary-search) unchanged.
   inputLabel = 'Array',
   // No literal placeholder defaults (M7.2 CMP-14): with an authored `input` the
@@ -281,6 +290,28 @@ const targetHint = authored.target || targetPlaceholder || '7';
 // to vary, or an uncapped parser) simply drops the sentence.
 const itemCap = probeListCap(input ?? '', (raw) => algo.parseInput(raw));
 const helpText = inputHelpText({ example: arrayPlaceholder, cap: itemCap });
+
+// --- The ledger (Plan C §1): the run written out, under its own drawing. ---
+//
+// Built HERE, at build time, from the SAME precomputed trace the still came
+// from, so it is a second VIEW of one run and never a second source of truth —
+// `buildLedger` re-runs nothing. It is server-rendered because it is M7-class
+// content: with JavaScript off the table IS the lesson (spec §8), which is why
+// it renders outside `.viz-controls`, where the `<noscript>` kill-switch cannot
+// reach it, and why its seek buttons ship `disabled` rather than absent.
+//
+// TWO PROPS, TWO QUESTIONS, and they cannot contradict each other. `showLedger`
+// answers "is this a lesson?" — /about and the dev gallery are demonstrations of
+// the chrome, so they opt out entirely. `showMetrics` answers "does this demo
+// show counters?", and the cost column INHERITS it: the abandoned build had no
+// prop at all and printed a `comparisons` column on the one page whose author
+// had already written `showMetrics={false}`.
+const ledger = showLedger
+  ? (() => {
+      const full = buildLedger(trace, algo.ledger);
+      return showMetrics ? full : withoutCost(full);
+    })()
+  : null;
 
 const explainId = `${uid}-explain`;
 const predictNoteId = `${uid}-predict-note`;
@@ -718,6 +749,16 @@ const targetId = `${uid}-target`;
     }
   </div>
 
+  {
+    /* The ledger closes the instrument, and DOM order IS the visual order:
+       drawing, sentence, transport, the run. OUTSIDE `.viz-controls` on purpose
+       — the `<noscript>` kill-switch below hides that block, and this table must
+       survive with JavaScript off, because with JavaScript off it is the lesson.
+       Its seek buttons ship `disabled` and stay that way until the island turns
+       them on, so a JS-off reader is never offered a control that cannot act. */
+  }
+  {ledger && <Ledger ledger={ledger} uid={uid} label={label} />}
+
   <p class="viz-nojs-note">
     <svg
       viewBox="0 0 24 24"
@@ -810,32 +851,69 @@ const targetId = `${uid}-target`;
          the brand-filled track it reads at 17.77:1 / 16.20:1 — the achromatic
          repaint took that from 6.01:1 / 6.28:1, since the track is now --text. */
 
-  /* ---- Region + frame ---- */
+  /* ---- Region + frame ----
+
+     ONE STACKED FRAME (Plan C §6). The drawing used to sit inside a bordered
+     `<figure>` while the transport, scrubber, speed, keyboard hint and input
+     form sat BELOW it on the bare page canvas — two objects that merely happened
+     to be adjacent, and no reader could tell that the second operated the first.
+     The border therefore moves UP to the section and `.viz-frame` gives its own
+     up, so drawing, sentence, controls and the ledger become four regions of one
+     thing, separated by rules rather than by gaps.
+
+     Nothing moved in the DOM, which is what makes this safe: the `<noscript>`
+     kill-switch, the tab order, the aria tree's shape and every existing
+     selector still mean exactly what they meant. */
   .viz {
     margin-block: var(--space-8);
-  }
-
-  /* RSP-2: full-bleed below the md breakpoint. The drawing is the widest thing
-     on a lesson page and the shell's gutters (`main`'s `px-4`) were costing it
-     2rem of a 390px screen; the negative margin is EXACTLY that gutter, so the
-     document still never scrolls sideways. Side borders and the card radius go
-     with it — a rounded card that touches both edges reads as a rendering bug. */
-  .viz-frame {
-    margin: 0 calc(var(--space-4) * -1);
+    /* RSP-2's full bleed, inherited from `.viz-frame`: the drawing is the widest
+       thing on a lesson page and the shell's gutters (`main`'s `px-4`) were
+       costing it 2rem of a 390px screen. The negative margin is EXACTLY that
+       gutter, so the document still never scrolls sideways. Side borders and the
+       card radius go with it — a rounded card that touches both edges reads as a
+       rendering bug. */
+    margin-inline: calc(var(--space-4) * -1);
     background-color: var(--surface);
     border-block: 1px solid var(--border);
-    border-radius: 0;
     box-shadow: var(--shadow-1);
-    padding: var(--space-4);
+    /* Clips the ledger's own corners to the card radius below, and is the same
+       clip `.viz-frame` used to own: the canvas is an inner scroller, so nothing
+       that needs to overflow is trapped by it. */
     overflow: hidden;
   }
 
   @media (min-width: 768px) {
-    .viz-frame {
+    .viz {
       margin-inline: 0;
-      border-inline: 1px solid var(--border);
+      border: 1px solid var(--border);
       border-radius: var(--radius-card);
+    }
+  }
+
+  /* The frame keeps the padding and gives up the chrome — `.viz` above draws the
+     one border now. Still a `<figure>`: it is the figure `.viz-explain` captions. */
+  .viz-frame {
+    margin: 0;
+    padding: var(--space-4);
+  }
+
+  @media (min-width: 768px) {
+    .viz-frame {
       padding: var(--space-6);
+    }
+  }
+
+  /* The controls are a region inside that border now, separated by a rule rather
+     than by a gap, and padded to the frame's own gutter so the two read as one
+     column. */
+  .viz-controls {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  @media (min-width: 768px) {
+    .viz-controls {
+      padding-inline: var(--space-6);
     }
   }
 
@@ -1403,7 +1481,9 @@ const targetId = `${uid}-target`;
       'scrub speed';
     align-items: center;
     gap: var(--space-3);
-    margin-top: var(--space-4);
+    /* No `margin-top`: `.viz-controls` is a padded region of the frame now, so
+       the gap above the transport comes from that padding. Keeping both stacked
+       a 16px margin on 16px of padding. */
   }
 
   @media (min-width: 640px) {
@@ -1420,12 +1500,76 @@ const targetId = `${uid}-target`;
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
+    /* Positioning context for the label's visually-hidden state below. */
+    position: relative;
   }
 
   .viz-scrub__label,
   .viz-speed__label {
     font-size: var(--text-sm);
     color: var(--text-muted);
+  }
+
+  /* ---- The scrubber, REVEALED ON FOCUS (Plan C §6) ----
+
+     The ledger's rows are the pointer scrub affordance now, so the track no
+     longer has to sit in the control bar advertising itself. What it must not do
+     is disappear:
+
+     - it CANNOT be deleted. `setupViz` early-exits on `if (!canvas || !explain ||
+       !slider) return;` before the abort controller, `mount()` and
+       `data-viz-ready`, so removing it means the island never hydrates at all —
+       no play, no step, no predict, no custom input — and eight specs drive it
+       directly as the keyboard scrubber;
+     - and it cannot be PERMANENTLY hidden either. A focusable range input with
+       no visible focus indicator is a 2.4.7 failure: a sighted keyboard user
+       tabs into a control that is simply not there.
+
+     So it takes the pattern this site already ships on `.skip-link` — hidden
+     until focused, visible while focused, instant with no transition, keyed off
+     `:focus` rather than `:focus-visible` so that clicking its own `<label>`
+     reveals it too. The difference is WHERE it hides: the skip link parks itself
+     off-viewport with a transform because it appears in the viewport's corner,
+     while a scrubber has to reveal IN PLACE, so it hides in place instead —
+     `opacity` plus `pointer-events`, and the box it will occupy stays reserved,
+     which means revealing it moves nothing else on the row.
+
+     Never `display: none` or `visibility: hidden`: either would drop the slider
+     out of the accessibility tree — where `aria-valuetext` is its position
+     readout — and out of reach of the specs that fill and focus it. `.viz-counter`
+     stays visible throughout, so the step position is never only in the track. */
+  .viz-slider {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .viz-scrub:focus-within .viz-slider {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* The name arrives with the control it names. Visually hidden the rest of the
+     time — never removed, because the `<label for>` IS the slider's accessible
+     name in every state. */
+  .viz-scrub__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .viz-scrub:focus-within .viz-scrub__label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
   }
 
   /* VD-4: the UA track sits at ~1.3:1 against the card, so both halves are
@@ -1852,11 +1996,18 @@ const targetId = `${uid}-target`;
     display: none;
     align-items: center;
     gap: var(--space-2);
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
+    /* Padded, not margined: it is a region inside the frame's border now (see
+       the frame comment above), so it owes the same gutter as its siblings. */
+    padding: var(--space-3) var(--space-4);
     border-top: 1px solid var(--border);
     font-size: var(--text-sm);
     color: var(--text-muted);
+  }
+
+  @media (min-width: 768px) {
+    .viz-nojs-note {
+      padding-inline: var(--space-6);
+    }
   }
 
   /* Failed state (chunk load failure / unparseable authored input — defense in

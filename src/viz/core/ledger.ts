@@ -197,3 +197,40 @@ export function buildLedger<TState>(
 
   return { headers, rows, costIndex, total: trace.length };
 }
+
+/**
+ * The same ledger with its cost column(s) dropped.
+ *
+ * `<Visualizer showMetrics={false}>` means "no counters on this demo" — /about
+ * says it about the one instrument it hosts. The generic fallback surfaces every
+ * metric key as a column, so without this the table would print `comparisons`
+ * on the exact demo whose prop forbids it, and the prop that says no would be
+ * defeated by the view underneath it. One rule for both paths: the server render
+ * and the island's rebuild after a custom run apply the same function.
+ *
+ * NOT the killed cost withholding (spec §4.1), which was a different shape
+ * reached for a different reason: that blanked ONE cell — a Final Run's answer —
+ * for every reader, permanently, on twelve instruments to guard six, while the
+ * metric pill next to it still printed the number. This drops a WHOLE column
+ * only where a chrome prop already said the counters are not part of the demo,
+ * and it hides nothing that is on screen elsewhere: `showMetrics={false}` has
+ * already taken the pills away.
+ *
+ * @param ledger - A ledger from {@link buildLedger}.
+ * @returns The same ledger without cost columns, or the input when it has none.
+ */
+export function withoutCost(ledger: Ledger): Ledger {
+  // Cost columns are always LAST (see the header order in `buildLedger`), so
+  // `costIndex` is the cut point for the headers and for every row's cells.
+  if (ledger.costIndex === null) return ledger;
+  const cut = ledger.costIndex;
+  return {
+    headers: ledger.headers.slice(0, cut),
+    rows: ledger.rows.map((row) => ({
+      ...row,
+      cells: row.cells.slice(0, cut),
+    })),
+    costIndex: null,
+    total: ledger.total,
+  };
+}

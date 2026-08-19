@@ -23,6 +23,14 @@
     - /url: /learn
   - link "How it works":
     - /url: /about
+  - paragraph:
+    - link /Start with \d+ · Complexity & Big-O/:
+      - /url: /learn/complexity-big-o
+  - link "Binary search, step 3 of 4 — play it in the lesson":
+    - /url: /learn/binary-search#visualizer
+    - figure "Binary search, step 3 of 4 Play it in the lesson":
+      - img "Binary search on a sorted array Search window is indices 3–5; middle index 4 holds 9, which is greater than 7. Discard the right half and search the left.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi mid/
+      - text: ""
   - heading "Interactive by default" [level=2]
   - paragraph: "Every lesson is built around a visualization you control: play, pause, step forward and back, or run the algorithm on your own input."
   - heading "Made for beginners" [level=2]

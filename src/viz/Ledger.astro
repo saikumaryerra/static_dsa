@@ -1,0 +1,392 @@
+---
+/**
+ * The ledger — the run written out, at the foot of the instrument (Plan C §1).
+ *
+ * A `Step` is a row and `Trace = Step[]` is the table; `core/ledger.ts` does the
+ * transcription and this file does nothing but draw it. The split is the point:
+ * the derivation is pure and therefore unit-tested under the harness's
+ * `environment: 'node'`, which nothing inside an `.astro` component can be.
+ *
+ * SERVER-RENDERED ON PURPOSE (spec §8). This is M7-class content, not an M8
+ * component: with JavaScript off it *is* the lesson, so it has no `<noscript>`
+ * kill-switch and it sits OUTSIDE `.viz-controls`, which the island's kill-switch
+ * hides. A reader with JS off gets the complete worked example instead of a
+ * still and a note.
+ *
+ * NATIVE `<details>` FOR THE COLLAPSE, and the default is closed. Zero JS, so it
+ * is correct with JS off and the disclosure is a real control rather than a
+ * button waiting to be brought to life; a JS-toggled `hidden` would leave the
+ * JS-off reader with no way in at all. (`hidden="until-found"` is not an option
+ * either — it does not work on a `<tr>`.)
+ *
+ * TABLE SEMANTICS ARE LOAD-BEARING. A `<tr role="button">` stops being a row and
+ * takes the column-header association down with it, so the seek control is the
+ * step-number cell's own `<button>` inside a `<th scope="row">`.
+ *
+ * THE BUTTONS SHIP `disabled` and stay that way until the island enables them —
+ * the honesty mechanism the transport row already uses. A JS-off reader is never
+ * offered a control that cannot act, and the site's five-state recipe paints
+ * that state (`--disabled-opacity` + `not-allowed`), so it is visibly
+ * unavailable rather than silently dead.
+ */
+import type { Ledger } from './core/ledger';
+
+interface Props {
+  /** The transcribed trace, from `buildLedger` (already capped). */
+  ledger: Ledger;
+  /** The instrument's stable id base, so row ids are unique and durable. */
+  uid: string;
+  /** Algorithm label, e.g. "Binary Search" — names the disclosure and the table. */
+  label: string;
+}
+
+const { ledger, uid, label } = Astro.props;
+const { headers, rows, total } = ledger;
+
+// The authored-sentence column, found ONCE rather than by comparing every cell's
+// header string in the loop below. `buildLedger` always emits it, between the
+// declared value columns and the cost column(s).
+const whatIndex = headers.indexOf('what happened');
+
+/**
+ * Which columns are set in numerals, decided per COLUMN rather than per cell.
+ *
+ * A cell-by-cell test makes alignment flicker down a column whose value is
+ * absent on the first rows — the `LedgerColumn.numeric` doc calls that out — so
+ * a column is numeric only when every one of its cells is.
+ */
+const numericColumns = headers.map((_, column) =>
+  rows.length > 0
+    ? rows.every((row) => row.cells[column]?.numeric === true)
+    : false,
+);
+
+// The cap NEVER binds on an authored run (the longest ships 33 rows against a
+// cap of 200), so on this path the notice is dead code today. It is rendered
+// anyway, from the same `rows.length < total` test the island will use, because
+// one rule beats two behaviours to keep in sync — and because a bounded output
+// that does not admit it is a lie about the run (spec §11).
+const capped = rows.length < total;
+const stepWord = total === 1 ? 'step' : 'steps';
+---
+
+<details class="viz-ledger" data-ledger>
+  <summary class="viz-ledger__summary">
+    {
+      /* Constant phrase first, instrument second — the shape CNT-8 already
+        establishes for the Practice disclosures ("Show answer to question 1"):
+        the reader scans the affordance, and the tail keeps two visualizers on
+        one lesson from shipping identical disclosure labels. Every page that
+        mounts more than one mounts a different ALGORITHM, so the label makes
+        them unique by construction. */
+    }
+    <span class="viz-ledger__title">The run, written out — {label}</span>{' '}
+    <span class="viz-ledger__count">{`(${total} ${stepWord})`}</span>
+  </summary>
+
+  {
+    capped && (
+      <p class="viz-ledger__cap">
+        {`Showing the first ${rows.length} of ${total} steps. Narrow the input to see the whole run.`}
+      </p>
+    )
+  }
+
+  {
+    /* Bounded well. Every row stays in the DOM for find-in-page, screen readers
+      and print; only the viewport onto them is capped.
+
+      A REACHABLE, NAMED SCROLL REGION, the same shape RSP-2 gives the canvas
+      (`tabindex="0"` + `role="group"` + a name) — because a scroll container the
+      keyboard cannot reach is a 2.1.1 failure, and axe calls it `serious`
+      (verified: `scrollable-region-focusable` on all three sorting-basics wells
+      before this attribute existed). Unconditional here, where the canvas
+      measures first: the canvas can only overflow once JS has measured it, while
+      this well is a scroller by construction in BOTH axes, and the reader who
+      needs it most is the one with no JS to measure with. It costs no stray tab
+      stop, because a closed `<details>` takes its whole subtree out of the tab
+      order — the stop appears only once the reader has asked for the table. */
+  }
+  <div
+    class="viz-ledger__well"
+    data-ledger-well
+    tabindex="0"
+    role="group"
+    aria-label={`${label}, scrollable table`}
+  >
+    <table class="viz-ledger__table">
+      {
+        /* The table's accessible name. Visually hidden rather than removed: the
+          disclosure above already says this in the visual layer, and a table
+          announced as just "table" is a table nobody can place. NO
+          `aria-describedby` pointing back at it — the abandoned build did that,
+          which made the name and the description the identical string. */
+      }
+      <caption class="sr-only">
+        {
+          `${label}: ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}, one per step of this run.`
+        }
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" class="viz-ledger__num">#</th>
+          {
+            headers.map((header, column) => (
+              <th
+                scope="col"
+                class:list={[
+                  column === whatIndex && 'viz-ledger__what',
+                  numericColumns[column] && 'viz-ledger__n',
+                ]}
+              >
+                {header}
+              </th>
+            ))
+          }
+        </tr>
+      </thead>
+      <tbody>
+        {
+          rows.map((row) => (
+            <tr id={`${uid}-row-${row.n}`} data-ledger-row={row.index}>
+              {/* `scope="row"` keeps the step number the row's HEADER, so a
+                  screen reader announces "row 3" with every cell in it. The
+                  button lives inside that header rather than replacing it. */}
+              <th scope="row" class="viz-ledger__num">
+                <button
+                  type="button"
+                  class="viz-ledger__seek"
+                  data-ledger-seek={row.index}
+                  aria-label={`Go to step ${row.n}`}
+                  disabled
+                >
+                  {row.n}
+                </button>
+              </th>
+              {row.cells.map((cell, column) => (
+                <td
+                  class:list={[
+                    column === whatIndex && 'viz-ledger__what',
+                    numericColumns[column] && 'viz-ledger__n',
+                  ]}
+                >
+                  {cell.text}
+                </td>
+              ))}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<style is:global>
+  /* `is:global`, like `Visualizer.astro`'s own block and for the same reason:
+     the island rebuilds this table's rows on every custom run, and DOM it
+     creates at runtime carries no `data-astro-cid-…`, so a SCOPED rule would
+     paint the authored run and abandon every run the reader asks for. Every
+     selector below is `.viz-ledger*`-prefixed. */
+
+  /* The ledger closes the instrument, separated from the controls above it by a
+     rule rather than a gap — one bordered object, four regions (see the frame
+     comment in Visualizer.astro). */
+  .viz-ledger {
+    border-top: 1px solid var(--border);
+    background-color: var(--surface-sunken);
+  }
+
+  /* NO `display: flex` here, however much the two spans want it: any display
+     other than the UA's `list-item` deletes the native disclosure triangle, and
+     that marker is the whole affordance — it is free, it rotates on open, and it
+     survives forced-colors mode because it is a system glyph rather than paint. */
+  .viz-ledger__summary {
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    color: var(--text);
+  }
+
+  @media (min-width: 768px) {
+    .viz-ledger__summary {
+      padding-inline: var(--space-6);
+    }
+  }
+
+  .viz-ledger__summary:hover .viz-ledger__title {
+    text-decoration: underline;
+  }
+
+  /* No margin: the literal space between the two spans is load-bearing. Without
+     it the accessible name of the disclosure concatenated to "…sorted array4
+     steps" — accname joins adjacent inline elements with nothing when the DOM
+     holds no whitespace between them, and the aria baseline recorded it. */
+  .viz-ledger__count {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* No silent caps (spec §11): both numbers and the action, in words. Muted
+     like the input helper, not an error — nothing went wrong, the run is just
+     longer than a table is worth reading. */
+  .viz-ledger__cap {
+    margin: 0;
+    padding: 0 var(--space-4) var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  @media (min-width: 768px) {
+    .viz-ledger__cap {
+      padding-inline: var(--space-6);
+    }
+  }
+
+  .viz-ledger__well {
+    max-height: 18rem;
+    /* BOTH axes, explicitly. A wide run (more columns than a 390px screen has
+       room for) must scroll INSIDE the well; the document never scrolls
+       sideways. Setting only `overflow-y` computes `overflow-x: auto` anyway,
+       which is the right behaviour arrived at by accident — so it is written
+       out, and `overscroll-behavior` keeps a flick from escaping to the page. */
+    overflow: auto;
+    overscroll-behavior: contain;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 639px) {
+    .viz-ledger__well {
+      max-height: 12rem;
+    }
+  }
+
+  .viz-ledger__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .viz-ledger__table th,
+  .viz-ledger__table td {
+    text-align: left;
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    color: var(--text);
+    font-weight: var(--weight-normal);
+    vertical-align: baseline;
+  }
+
+  .viz-ledger__table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--surface-sunken);
+    color: var(--text-muted);
+    font-weight: var(--weight-medium);
+    /* Lower case, deliberately: the headings ARE the identifiers the algorithm
+       uses — `lo`, `mid`, `comparisons` — and shouting them in small caps would
+       print a name the code does not have. */
+  }
+
+  .viz-ledger__table tbody tr:last-child th,
+  .viz-ledger__table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .viz-ledger__num {
+    width: 1%;
+    padding-inline-start: var(--space-4);
+    color: var(--text-muted);
+  }
+
+  @media (min-width: 768px) {
+    .viz-ledger__num {
+      padding-inline-start: var(--space-6);
+    }
+  }
+
+  /* The authored sentence wraps and takes the slack; every other column is a
+     value and stays on one line. Set in the prose face, because it IS prose.
+     Qualified by `.viz-ledger__table` for the same specificity reason as the
+     numeral rule below — unqualified, the `white-space: nowrap` above beats it
+     (0,2,1) to (0,1,0) and the sentence runs the table off a phone. */
+  .viz-ledger__table th.viz-ledger__what,
+  .viz-ledger__table td.viz-ledger__what {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    white-space: normal;
+    min-width: 20ch;
+    width: 100%;
+  }
+
+  /* Numerals right-align so magnitudes line up down the column. Decided per
+     column in the frontmatter, so alignment never changes mid-table. Qualified
+     by `.viz-ledger__table`, because the `text-align: left` above it is
+     (0,2,1) and would otherwise win on specificity alone. */
+  .viz-ledger__table th.viz-ledger__n,
+  .viz-ledger__table td.viz-ledger__n {
+    text-align: right;
+  }
+
+  /* The seek control. Its label is the step NUMBER, which is also the row's
+     data, and that is why this family declares its unavailable state on the
+     AFFORDANCE channel instead of the usual `--disabled-opacity`: at 0.5 the
+     number reads 2.15:1 against the well in light and 2.79:1 in dark, so the
+     site's own recipe would have dimmed a legible piece of the lesson below AA
+     on the one page a JS-off reader has nothing else to read. (The recipe
+     already carves out families whose states cannot fire; this is the same
+     judgement, made on measurement.) Full contrast is kept — 5.90:1 / 7.68:1 —
+     and the resting underline is what the disabled state takes away. */
+  .viz-ledger__seek {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 0;
+    min-width: 2ch;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+
+  .viz-ledger__seek:hover:not(:disabled) {
+    color: var(--text);
+    text-decoration-style: solid;
+  }
+
+  /* Disabled until the island enables it — which today is EVERY row, because
+     nothing enables them yet. A JS-off reader is never offered a control that
+     cannot act: the invitation is withdrawn and the cursor says so, while the
+     number itself stays exactly as readable as the sentence beside it. */
+  .viz-ledger__seek:disabled {
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+
+  /* Print: the whole run, as a handout — no scroll, no sticky header, and the
+     number is a number rather than a dimmed control. A CLOSED `<details>` still
+     prints closed, because no stylesheet can open one; a reader who opens it
+     before printing gets the table. */
+  @media print {
+    .viz-ledger__well {
+      max-height: none;
+      overflow: visible;
+    }
+
+    .viz-ledger__table thead th {
+      position: static;
+    }
+
+    .viz-ledger__seek:disabled {
+      /* A button means nothing on paper; the number still does. */
+      cursor: auto;
+    }
+  }
+</style>

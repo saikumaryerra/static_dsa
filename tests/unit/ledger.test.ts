@@ -28,6 +28,7 @@ import { bstOperations } from '../../src/viz/algorithms/bst-operations';
 import {
   buildLedger,
   firstSentence,
+  withoutCost,
   type LedgerSpec,
 } from '../../src/viz/core/ledger';
 import { algorithms } from '../../src/viz/registry';
@@ -332,6 +333,78 @@ describe('buildLedger — the shape of a cell', () => {
     buildLedger([{ state: {}, explanation: 'Ready.' }], undefined, {
       suppressFinalCost: true,
     });
+  });
+});
+
+describe('withoutCost — the cost column inherits showMetrics', () => {
+  it('drops the whole cost column, headers and cells together', () => {
+    // `<Visualizer showMetrics={false}>` is /about's way of saying "no counters
+    // on this demo". The generic fallback surfaces every metric key, so without
+    // this the table printed `comparisons` on the one instrument whose prop
+    // forbids it — the abandoned build's actual behaviour.
+    const trace: Trace<unknown> = [
+      { state: {}, explanation: 'Start.', metrics: { comparisons: 0 } },
+      { state: {}, explanation: 'Probe.', metrics: { comparisons: 1 } },
+    ];
+    const full = buildLedger(trace);
+    expect(full.headers).toEqual(['what happened', 'comparisons']);
+
+    const bare = withoutCost(full);
+    expect(bare.headers).toEqual(['what happened']);
+    expect(bare.costIndex).toBeNull();
+    for (const row of bare.rows) expect(row.cells).toHaveLength(1);
+  });
+
+  it('keeps the declared value columns and the authored sentence', () => {
+    const spec: LedgerSpec<{ lo: number }> = {
+      columns: [{ label: 'lo', from: (step) => step.state.lo, numeric: true }],
+      costKey: 'comparisons',
+    };
+    const bare = withoutCost(
+      buildLedger(
+        [
+          {
+            state: { lo: 3 },
+            explanation: 'Halve it. Again.',
+            metrics: { comparisons: 9 },
+          },
+        ],
+        spec,
+      ),
+    );
+
+    expect(bare.headers).toEqual(['lo', 'what happened']);
+    expect(bare.rows[0]!.cells.map((cell) => cell.text)).toEqual([
+      '3',
+      'Halve it.',
+    ]);
+    // The row still knows its sentence and its seek target.
+    expect(bare.rows[0]!.what).toBe('Halve it.');
+    expect(bare.rows[0]!.index).toBe(0);
+  });
+
+  it('returns a ledger that has no cost column unchanged', () => {
+    const spec: LedgerSpec<{ lo: number }> = {
+      columns: [{ label: 'lo', from: (step) => step.state.lo }],
+    };
+    const ledger = buildLedger(
+      [{ state: { lo: 1 }, explanation: 'Go.' }],
+      spec,
+    );
+    expect(ledger.costIndex).toBeNull();
+    // Same object, not a copy: nothing to do is nothing done.
+    expect(withoutCost(ledger)).toBe(ledger);
+  });
+
+  it('does not touch the true total, so the cap notice still reads correctly', () => {
+    const trace = Array.from({ length: 240 }, (_, i) => ({
+      state: {},
+      explanation: `Step ${i}.`,
+      metrics: { comparisons: i },
+    }));
+    const bare = withoutCost(buildLedger(trace));
+    expect(bare.rows).toHaveLength(200);
+    expect(bare.total).toBe(240);
   });
 });
 
