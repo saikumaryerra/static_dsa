@@ -92,6 +92,47 @@ export interface PredictQuestion {
 }
 
 /**
+ * One value column of a ledger — the table that transcribes a whole trace
+ * (Plan C §1). The contract lives here, at the root of the dependency graph,
+ * because {@link Algorithm.ledger} needs the shape; the BEHAVIOUR is
+ * `core/ledger.ts`.
+ */
+export interface LedgerColumn<TState> {
+  /** Column heading, e.g. `"mid"`. Written like the state field it reads. */
+  label: string;
+  /**
+   * Reads this column's value out of ONE step.
+   *
+   * PROVENANCE RULE 1: it reads `step.state` — the data model — and nothing
+   * else. Deriving a value from `step.highlights` would make the table a second
+   * narration channel, able to disagree with the sentence the author wrote.
+   *
+   * `null` means "no value at this step" and renders as an absent mark, never
+   * as a fabricated zero.
+   */
+  from(step: Step<TState>): string | number | null;
+  /**
+   * Right-align and set in tabular numerals. Defaults to whether the value is
+   * a number, so a column that is numeric only some of the time can say so
+   * once instead of flickering alignment down the table.
+   */
+  numeric?: boolean;
+}
+
+/**
+ * What an algorithm declares about its own ledger: which values are worth a
+ * column, and which `metrics` key is its cost. Both are optional overall — an
+ * algorithm that declares nothing still gets a table, built from its metrics
+ * (see `core/ledger.ts`'s generic fallback).
+ */
+export interface LedgerSpec<TState> {
+  /** Value columns, in display order, before the "what happened" column. */
+  columns: LedgerColumn<TState>[];
+  /** The `step.metrics` key that is this algorithm's cost, e.g. `"comparisons"`. */
+  costKey?: string;
+}
+
+/**
  * An instrumented algorithm: a pure function that turns typed input into a
  * `Trace`, plus the helpers the Visualizer island needs to seed and validate
  * custom input. `run` must never touch the DOM, timers, or drawing.
@@ -131,6 +172,12 @@ export interface Algorithm<TInput, TState> {
     i: number,
     input: TInput,
   ): PredictQuestion | null;
+  /**
+   * OPTIONAL (Plan C §1): the value columns this algorithm's ledger shows, and
+   * its cost key. Additive — an algorithm without it gets the generic table
+   * built from `metrics`, and every existing algorithm compiles unchanged.
+   */
+  ledger?: LedgerSpec<TState>;
 }
 
 /**
