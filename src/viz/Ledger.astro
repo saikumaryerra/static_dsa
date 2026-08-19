@@ -25,10 +25,19 @@
  *
  * THE BUTTONS SHIP `disabled` and stay that way until the island enables them —
  * the honesty mechanism the transport row already uses. A JS-off reader is never
- * offered a control that cannot act, and the site's five-state recipe paints
- * that state (`--disabled-opacity` + `not-allowed`), so it is visibly
- * unavailable rather than silently dead.
+ * offered a control that cannot act, and the state is painted on the AFFORDANCE
+ * channel (the resting underline withdrawn, `not-allowed`) rather than with
+ * `--disabled-opacity`, because the label is the step NUMBER and dimming it
+ * would take a legible piece of the lesson below AA — see the `.viz-ledger__seek`
+ * rules below for the measurement.
+ *
+ * THE ISLAND REBUILDS THE FOUR INNER REGIONS on every custom run (`applyTrace`
+ * in `Visualizer.astro`), which is why the per-column presentation rule lives in
+ * `core/ledger.ts` and why the count and the cap notice carry `data-*` hooks:
+ * two renderers draw this table, and they must not be able to disagree about
+ * the same run.
  */
+import { ledgerLayout } from './core/ledger';
 import type { Ledger } from './core/ledger';
 
 interface Props {
@@ -43,23 +52,11 @@ interface Props {
 const { ledger, uid, label } = Astro.props;
 const { headers, rows, total } = ledger;
 
-// The authored-sentence column, found ONCE rather than by comparing every cell's
-// header string in the loop below. `buildLedger` always emits it, between the
-// declared value columns and the cost column(s).
-const whatIndex = headers.indexOf('what happened');
-
-/**
- * Which columns are set in numerals, decided per COLUMN rather than per cell.
- *
- * A cell-by-cell test makes alignment flicker down a column whose value is
- * absent on the first rows — the `LedgerColumn.numeric` doc calls that out — so
- * a column is numeric only when every one of its cells is.
- */
-const numericColumns = headers.map((_, column) =>
-  rows.length > 0
-    ? rows.every((row) => row.cells[column]?.numeric === true)
-    : false,
-);
+// Which column holds the authored sentence, and which are set in numerals —
+// derived in `core/ledger.ts` rather than here, because the island rebuilds this
+// same table after a custom run and the two renderings must not be able to
+// disagree about a column. One rule, both paths.
+const { whatIndex, numeric: numericColumns } = ledgerLayout(ledger);
 
 // The cap NEVER binds on an authored run (the longest ships 33 rows against a
 // cap of 200), so on this path the notice is dead code today. It is rendered
@@ -81,12 +78,14 @@ const stepWord = total === 1 ? 'step' : 'steps';
         them unique by construction. */
     }
     <span class="viz-ledger__title">The run, written out — {label}</span>{' '}
-    <span class="viz-ledger__count">{`(${total} ${stepWord})`}</span>
+    <span class="viz-ledger__count" data-ledger-count
+      >{`(${total} ${stepWord})`}</span
+    >
   </summary>
 
   {
     capped && (
-      <p class="viz-ledger__cap">
+      <p class="viz-ledger__cap" data-ledger-cap>
         {`Showing the first ${rows.length} of ${total} steps. Narrow the input to see the whole run.`}
       </p>
     )

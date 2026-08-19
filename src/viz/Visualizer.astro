@@ -2211,6 +2211,7 @@ const targetId = `${uid}-target`;
   import { errorField } from './core/error-field';
   import { composeCustomInput, splitAuthoredInput } from './core/input-hint';
   import { traceExtent } from './core/extent';
+  import { buildLedger, ledgerLayout, withoutCost } from './core/ledger';
   import { algorithms, renderers } from './registry';
   // The `viz:run` name and its payload shape (M8.3). Imported rather than
   // retyped: `src/lib/challenges.ts` owns the contract because its consumers do,
@@ -2221,6 +2222,7 @@ const targetId = `${uid}-target`;
   import { VIZ_RUN_EVENT } from '../lib/challenges';
   import { PROGRESS_CHANGED_EVENT } from '../lib/progress-events';
   import type { VizRunDetail } from '../lib/challenges';
+  import type { Ledger } from './core/ledger';
   import type {
     Algorithm,
     Extent,
@@ -2386,6 +2388,22 @@ const targetId = `${uid}-target`;
       root.querySelector<HTMLButtonElement>('[data-viz-restore]');
     const errorBox = root.querySelector<HTMLElement>('[data-viz-error]');
     const errorText = root.querySelector<HTMLElement>('[data-viz-error-text]');
+    // The ledger (Plan C). All of it is `null` on /about and in the dev gallery,
+    // which set `showLedger={false}` — every function below no-ops there. The
+    // four inner nodes are the ONLY ones a rebuild replaces: the `<details>`, its
+    // summary and the well survive, so a reader who has opened the table (or
+    // scrolled it) is not thrown out of it by running a new input.
+    const ledgerRoot = root.querySelector<HTMLElement>('[data-ledger]');
+    const ledgerWell =
+      ledgerRoot?.querySelector<HTMLElement>('[data-ledger-well]') ?? null;
+    const ledgerCaption =
+      ledgerRoot?.querySelector<HTMLElement>('caption') ?? null;
+    const ledgerHead =
+      ledgerRoot?.querySelector<HTMLTableSectionElement>('thead') ?? null;
+    const ledgerBody =
+      ledgerRoot?.querySelector<HTMLTableSectionElement>('tbody') ?? null;
+    const ledgerCount =
+      ledgerRoot?.querySelector<HTMLElement>('[data-ledger-count]') ?? null;
     // Both absent unless the BUILD found real questions in this run's trace.
     const predictBtn =
       root.querySelector<HTMLButtonElement>('[data-viz-predict]');
@@ -2460,6 +2478,14 @@ const targetId = `${uid}-target`;
     let passRecorded = false;
     /** A graded prediction waiting to ride the next explanation into the live region. */
     let pendingVerdict: 'right' | 'wrong' | null = null;
+    /**
+     * The two ledger nodes the mark moves between, held so a step costs two
+     * elements rather than a sweep of up to 200 rows. Both are dropped to `null`
+     * by a rebuild, because the nodes they point at leave the document with the
+     * rows they were on.
+     */
+    let ledgerCurrentRow: HTMLTableRowElement | null = null;
+    let ledgerTabStop: HTMLButtonElement | null = null;
     /** The current step's explanation without any verdict prefix. */
     let lastText = explain.textContent ?? '';
 
@@ -2900,6 +2926,263 @@ const targetId = `${uid}-target`;
       explain!.replaceChildren(tag, ` — ${text}`);
     }
 
+    // --- The ledger (Plan C §3): the table tracks the run, or it lies about it ---
+    //
+    // The abandoned build derived the table once, in frontmatter, and captured
+    // its rows at setup. Neither `loadTrace` call site — a custom run, "Restore
+    // example" — touched it, so a reader who changed the input got the OLD table
+    // beside the NEW drawing: at the §11 input caps a bubble-sort run reaches
+    // 901 steps against a 29-row table, where the "you are here" mark simply
+    // vanishes and every value column describes a different run. The rebuild
+    // below hangs off `applyTrace` — the one seam both call sites already route
+    // through — so a third caller cannot forget it.
+
+    /**
+     * Moves the "you are here" mark to the row the Player is on.
+     *
+     * The ledger holds no index of its own: the Player stays the single source
+     * of which step is current, which is what keeps the table a second VIEW of
+     * one trace rather than a second copy of its state.
+     *
+     * ROVING TABINDEX — exactly one button in the table is tabbable — so a
+     * 200-row run costs a keyboard reader one tab stop rather than 200, and the
+     * arrow keys move between rows from there. When the current step is past the
+     * row cap there is no row to mark, so the tab stop falls back to the last
+     * rendered row: `aria-current` stays OFF, which is honest (the reader is not
+     * on a row this table shows, and the cap notice says why), while the table
+     * never becomes a region the keyboard cannot enter at all.
+     *
+     * @param index - The trace index the Player is on.
+     */
+    function markLedgerRow(index: number): void {
+      if (!ledgerBody) return;
+      ledgerCurrentRow?.removeAttribute('aria-current');
+      ledgerCurrentRow = null;
+      if (ledgerTabStop) ledgerTabStop.tabIndex = -1;
+      ledgerTabStop = null;
+      const rows = ledgerBody.rows;
+      if (rows.length === 0) return;
+      const row = rows.item(index);
+      if (row) {
+        // `step`, not `true`: the token exists for exactly this — one step of a
+        // process — and this site already uses the specific token wherever one
+        // is defined (`page` in the breadcrumb, `location` in the ToC).
+        row.setAttribute('aria-current', 'step');
+        ledgerCurrentRow = row;
+      }
+      ledgerTabStop =
+        (row ?? rows.item(rows.length - 1))?.querySelector<HTMLButtonElement>(
+          '[data-ledger-seek]',
+        ) ?? null;
+      if (ledgerTabStop) ledgerTabStop.tabIndex = 0;
+      if (!row || !ledgerWell) return;
+      // Keep the current row in view without yanking the page: scroll the WELL,
+      // and only when the row is actually outside it. `scrollIntoView` would
+      // walk every scrollable ancestor — the instrument's own overflow wrapper
+      // and then the document — and move the reader away from the drawing the
+      // row is describing.
+      const rowBox = row.getBoundingClientRect();
+      const wellBox = ledgerWell.getBoundingClientRect();
+      if (rowBox.top < wellBox.top || rowBox.bottom > wellBox.bottom) {
+        ledgerWell.scrollTop +=
+          rowBox.top - wellBox.top - (wellBox.height - rowBox.height) / 2;
+      }
+    }
+
+    /**
+     * Redraws the table's caption, head, body, step count and cap notice.
+     *
+     * Those five and nothing else — see the query block above for why the
+     * `<details>` and the well are left standing.
+     *
+     * The buttons this creates are ENABLED, unlike the ones the build ships.
+     * Those are `disabled` so a JS-off reader is never offered a control that
+     * cannot act; this code only ever runs where the island is alive, so the
+     * dotted underline the `:disabled` rule withdraws comes back with them.
+     *
+     * @param next - A ledger from `buildLedger`, already capped.
+     */
+    function renderLedger(next: Ledger): void {
+      if (!ledgerRoot || !ledgerHead || !ledgerBody || !ledgerCaption) return;
+      const { whatIndex, numeric } = ledgerLayout(next);
+
+      /** The classes `Ledger.astro` puts on the same column, server-side. */
+      const columnClass = (column: number): string =>
+        [
+          column === whatIndex ? 'viz-ledger__what' : '',
+          numeric[column] ? 'viz-ledger__n' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+
+      const rowWord = next.rows.length === 1 ? 'row' : 'rows';
+      ledgerCaption.textContent = `${title}: ${next.rows.length} ${rowWord}, one per step of this run.`;
+
+      const head = document.createElement('tr');
+      const hash = document.createElement('th');
+      hash.scope = 'col';
+      hash.className = 'viz-ledger__num';
+      hash.textContent = '#';
+      head.append(hash);
+      // Rebuilt rather than reused: the generic fallback derives its columns
+      // from the metric keys the trace actually emits, so a new run can have a
+      // different set of them (spec §11's first-seen order).
+      next.headers.forEach((header, column) => {
+        const th = document.createElement('th');
+        th.scope = 'col';
+        const cls = columnClass(column);
+        if (cls) th.className = cls;
+        th.textContent = header;
+        head.append(th);
+      });
+      ledgerHead.replaceChildren(head);
+
+      const body = document.createDocumentFragment();
+      for (const row of next.rows) {
+        const tr = document.createElement('tr');
+        // The same durable anchor the build writes, so a `<StepLink>` into this
+        // instrument still resolves after the reader has run their own input.
+        tr.id = `${root.id}-row-${row.n}`;
+        tr.dataset['ledgerRow'] = String(row.index);
+        const th = document.createElement('th');
+        th.scope = 'row';
+        th.className = 'viz-ledger__num';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'viz-ledger__seek';
+        button.dataset['ledgerSeek'] = String(row.index);
+        button.setAttribute('aria-label', `Go to step ${row.n}`);
+        button.tabIndex = -1; // markLedgerRow below promotes exactly one
+        button.textContent = String(row.n);
+        th.append(button);
+        tr.append(th);
+        row.cells.forEach((cell, column) => {
+          const td = document.createElement('td');
+          const cls = columnClass(column);
+          if (cls) td.className = cls;
+          td.textContent = cell.text;
+          tr.append(td);
+        });
+        body.append(tr);
+      }
+      ledgerBody.replaceChildren(body);
+
+      if (ledgerCount) {
+        const stepWord = next.total === 1 ? 'step' : 'steps';
+        ledgerCount.textContent = `(${next.total} ${stepWord})`;
+      }
+      // NO SILENT CAPS (spec §11), on this path too: the same
+      // `rows.length < total` test the server render applies, with both numbers
+      // and an action. One rule rather than a server/client branch — a cap only
+      // one path admitted to would be two behaviours to keep in sync, and this
+      // is the path where it can actually bind.
+      const capped = next.rows.length < next.total;
+      const cap =
+        ledgerRoot.querySelector<HTMLElement>('[data-ledger-cap]') ??
+        (capped ? document.createElement('p') : null);
+      if (cap && capped) {
+        cap.className = 'viz-ledger__cap';
+        cap.dataset['ledgerCap'] = '';
+        cap.textContent = `Showing the first ${next.rows.length} of ${next.total} steps. Narrow the input to see the whole run.`;
+        if (!cap.isConnected) ledgerWell?.before(cap);
+      } else if (cap) {
+        cap.remove();
+      }
+
+      // Both marked nodes have just left the document with the rows they were
+      // on — the exact staleness this whole function exists to end.
+      ledgerCurrentRow = null;
+      ledgerTabStop = null;
+      markLedgerRow(player?.currentIndex ?? 0);
+    }
+
+    /**
+     * Transcribes a trace into the table, applying the same two rules the build
+     * applies: `buildLedger`'s 200-row cap, and `showMetrics` on the cost column.
+     *
+     * @param next - The trace the Player has just been given.
+     */
+    function rebuildLedger(next: Trace<unknown>): void {
+      if (!ledgerRoot || !algo) return;
+      const full = buildLedger(next, algo.ledger);
+      renderLedger(showMetrics ? full : withoutCost(full));
+    }
+
+    /**
+     * Brings the table to life: enables the seek controls the build shipped
+     * `disabled`, and binds the two listeners that drive them.
+     *
+     * DELEGATED on the ledger root, once, rather than one listener per button.
+     * The rows are replaced wholesale on every custom run, so per-button
+     * listeners would have to be rebound on each rebuild — and the abandoned
+     * build's were bound without `{signal}`, outliving the island's teardown
+     * contract (TD-4). One pair here survives every rebuild for free.
+     */
+    function wireLedger(): void {
+      if (!ledgerRoot) return;
+      for (const button of ledgerRoot.querySelectorAll<HTMLButtonElement>(
+        '[data-ledger-seek]',
+      )) {
+        button.disabled = false;
+        button.tabIndex = -1;
+      }
+      ledgerRoot.addEventListener(
+        'click',
+        (event) => {
+          const button = (
+            event.target as HTMLElement | null
+          )?.closest<HTMLButtonElement>('[data-ledger-seek]');
+          if (!button) return;
+          // The same decline the slider's handler makes, on the same condition:
+          // scrubbing past a question is the one thing predict mode exists to
+          // prevent. While predicting the table is `hidden`, so no reader can
+          // reach this — the guard is what still holds if that ever regresses.
+          if (predictOn) return;
+          const index = Number(button.dataset['ledgerSeek']);
+          if (Number.isFinite(index)) player?.seek(index);
+        },
+        { signal },
+      );
+      ledgerRoot.addEventListener(
+        'keydown',
+        (event) => {
+          const button = (
+            event.target as HTMLElement | null
+          )?.closest<HTMLButtonElement>('[data-ledger-seek]');
+          if (!button || predictOn || !ledgerBody) return;
+          const rows = ledgerBody.rows;
+          const from = Number(button.dataset['ledgerSeek']);
+          if (!Number.isFinite(from) || rows.length === 0) return;
+          // ←/→ are deliberately absent: they belong to the well, which is a
+          // scroll container in BOTH axes (see the root keydown handler).
+          const next =
+            event.key === 'ArrowDown'
+              ? from + 1
+              : event.key === 'ArrowUp'
+                ? from - 1
+                : event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? rows.length - 1
+                    : null;
+          if (next === null) return;
+          // Swallowed at a bound too: the well must not scroll as a consolation
+          // for a move that didn't happen.
+          event.preventDefault();
+          if (next < 0 || next >= rows.length) return;
+          player?.seek(next);
+          // `markLedgerRow` has already put this row in view and moved the tab
+          // stop onto it, so focus must not scroll anything a second time.
+          rows
+            .item(next)
+            ?.querySelector<HTMLButtonElement>('[data-ledger-seek]')
+            ?.focus({ preventScroll: true });
+        },
+        { signal },
+      );
+      markLedgerRow(player?.currentIndex ?? 0);
+    }
+
     /** onStep: sync explanation, slider, counter, metrics, and button states. */
     function onStep(index: number, step: Step<unknown>): void {
       const length = player?.length ?? 1;
@@ -2915,6 +3198,7 @@ const targetId = `${uid}-target`;
       const progress = length > 1 ? (index / (length - 1)) * 100 : 0;
       slider!.style.setProperty('--viz-progress', `${progress.toFixed(2)}%`);
       if (counter) counter.textContent = `${index + 1} / ${length}`;
+      markLedgerRow(index);
       renderMetrics(step);
       updateButtons(index, length, player?.isPlaying ?? false);
       // The question belongs to the index, so it is re-asked wherever the reader
@@ -3000,6 +3284,13 @@ const targetId = `${uid}-target`;
      * `syncTraceBounds` ends in `measureCanvas`, so RSP-2's legibility floor and
      * scroll-region state are reconciled against the box this just set.
      *
+     * THE LEDGER REBUILDS HERE for the same reason the extent does (Plan C §3):
+     * this is the one seam every trace swap comes through, and a table that did
+     * not follow the trace would be the OLD run's numbers printed beside the NEW
+     * run's drawing — on the one product whose promise is that nothing is faked.
+     * It runs after `loadTrace`, which resets the Player to step 0, so the
+     * "you are here" mark lands on a row that exists.
+     *
      * KNOWN TRADE, recorded because this is where it first becomes reachable:
      * both `traceExtent` and the `fitToExtent` inside the redraw throw rather
      * than draw a box they cannot justify, and `Player.draw` does not guard
@@ -3016,6 +3307,7 @@ const targetId = `${uid}-target`;
       if (!player || !renderer || !rendererModule) return;
       renderer.setExtent(traceExtent(rendererModule.measure, next));
       player.loadTrace(next);
+      rebuildLedger(next);
       syncTraceBounds();
     }
 
@@ -3322,6 +3614,9 @@ const targetId = `${uid}-target`;
       ].forEach((el) => {
         if (el) el.disabled = false;
       });
+      // The ledger's own seek buttons, on the same principle and for the same
+      // reason — they ship `disabled` because with JS off they cannot act.
+      wireLedger();
       updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);
 
       // The review queue's deep link (M8.2): `?review=1` opens predict mode for
@@ -3443,12 +3738,16 @@ const targetId = `${uid}-target`;
           } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             // While the canvas is a real scroll region (RSP-2), ←/→ belong to
             // the scroll container: stealing them would leave its content
-            // unreachable by keyboard (2.1.1). Everywhere else they step —
+            // unreachable by keyboard (2.1.1). The ledger's well is the same
+            // case and needs no measurement to prove it — it is a scroller in
+            // BOTH axes by construction, and on a narrow screen the cost column
+            // is only reachable by scrolling it sideways. Everywhere else they step —
             // through the SAME availability gate as the buttons they mirror, so
             // a key can never do what the matching control declines to do. The
             // key is still swallowed at a bound: the page must not scroll
             // sideways as a consolation for a step that didn't happen.
             if (canvas!.tabIndex === 0 && canvas!.contains(target)) return;
+            if (ledgerWell?.contains(target)) return;
             event.preventDefault();
             if (event.key === 'ArrowLeft')
               activate(backBtn, () => player?.stepBackward());

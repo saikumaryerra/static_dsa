@@ -9,7 +9,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { hydrateViz } from './utils/predict';
+import { counter, hydrateViz } from './utils/predict';
 
 /** Every instrument root on the page, in document order, with its `id`. */
 async function instrumentIds(page: Page): Promise<string[]> {
@@ -367,4 +367,311 @@ test.describe('axe, with every ledger opened', () => {
       expect(offenders).toEqual([]);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Task 4 — the island: the table follows the run, and its rows seek
+// ---------------------------------------------------------------------------
+
+/** The bubble-sort instrument on `sorting-basics`, and its authored run. */
+const SORTING = '/learn/sorting-basics';
+const BUBBLE = {
+  authored: 29,
+  custom: '[9,8,7,6,5,4,3,2,1]',
+  steps: 82,
+} as const;
+
+/**
+ * A 30-element descending array — the §11 input cap, and the worst case the row
+ * cap was sized against. 901 steps, the exact number the design measured.
+ */
+const CAPPING = {
+  input:
+    '[30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1]',
+  steps: 901,
+} as const;
+
+/** The one row the Player is on, if the table is showing it. */
+function currentRow(ledger: Locator): Locator {
+  return ledger.locator('[data-ledger-row][aria-current="step"]');
+}
+
+/** Every seek button that is a tab stop — the roving tabindex, read back. */
+function tabStops(ledger: Locator): Locator {
+  return ledger.locator('[data-ledger-seek][tabindex="0"]');
+}
+
+/**
+ * A structural projection of one rendered ledger.
+ *
+ * Two renderers draw this table — `Ledger.astro` at build time and the island's
+ * rebuild — so the only thing pinning them together is a comparison of what they
+ * produce. Deliberately NOT `outerHTML`: Astro's template whitespace differs
+ * from `createElement`'s by construction, and a test that failed on indentation
+ * would be deleted rather than fixed.
+ */
+async function ledgerShape(ledger: Locator): Promise<unknown> {
+  return ledger.evaluate((root) => ({
+    count: root.querySelector('[data-ledger-count]')?.textContent ?? null,
+    cap: root.querySelector('[data-ledger-cap]')?.textContent ?? null,
+    caption: root.querySelector('caption')?.textContent?.trim() ?? null,
+    headers: [...root.querySelectorAll('thead th')].map((th) => [
+      th.tagName,
+      th.className,
+      th.getAttribute('scope'),
+      th.textContent,
+    ]),
+    rows: [...root.querySelectorAll('tbody tr')].map((tr) => ({
+      id: tr.id,
+      index: tr.getAttribute('data-ledger-row'),
+      current: tr.getAttribute('aria-current'),
+      cells: [...tr.children].map((cell) => [
+        cell.tagName,
+        cell.className,
+        cell.getAttribute('scope'),
+        cell.textContent,
+      ]),
+      seek: [
+        ...tr.querySelectorAll<HTMLButtonElement>('[data-ledger-seek]'),
+      ].map((button) => [
+        button.getAttribute('aria-label'),
+        button.dataset['ledgerSeek'],
+        button.tabIndex,
+        button.disabled,
+        button.type,
+      ]),
+    })),
+  }));
+}
+
+test.describe('the ledger follows the run', () => {
+  /**
+   * THE DEFECT THIS TASK EXISTS TO FIX. The abandoned build derived the table
+   * once, in frontmatter, and captured its rows at setup; neither `loadTrace`
+   * call site touched it. A reader who ran their own input got the OLD table
+   * beside the NEW drawing — at the input caps, a 29-row table against a
+   * 901-step run, where the "you are here" mark simply vanishes.
+   */
+  test('a custom run replaces the table, and the mark still resolves', async ({
+    page,
+  }) => {
+    await page.goto(SORTING);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    const rows = ledger.locator('[data-ledger-row]');
+    await ledger.locator('summary').click();
+
+    await expect(rows).toHaveCount(BUBBLE.authored);
+    await expect(ledger.locator('[data-ledger-count]')).toHaveText(
+      `(${BUBBLE.authored} steps)`,
+    );
+    await expect(currentRow(ledger)).toHaveAttribute('data-ledger-row', '0');
+
+    await viz.locator('[data-viz-array]').fill(BUBBLE.custom);
+    await viz.locator('[data-viz-run]').click();
+    await expect(counter(viz)).toHaveText(`1 / ${BUBBLE.steps}`);
+
+    // The table is the new run's, in every part of itself: its rows, its
+    // disclosure count, and the caption a screen reader hears.
+    await expect(rows).toHaveCount(BUBBLE.steps);
+    await expect(ledger.locator('[data-ledger-count]')).toHaveText(
+      `(${BUBBLE.steps} steps)`,
+    );
+    await expect(ledger.getByRole('table')).toHaveAccessibleName(
+      new RegExp(`${BUBBLE.steps} rows`),
+    );
+    // And the cells describe THIS run, not the previous one — the failure the
+    // whole task is about is the old numbers printed beside the new drawing.
+    // Row 2 is the first comparison, so it names the reader's own values.
+    await expect(rows.nth(1)).toContainText(
+      'Compare index 0 (9) and index 1 (8).',
+    );
+
+    // The reader's own disclosure state survives the swap: the rebuild replaces
+    // the table's inner regions and never the `<details>` around them.
+    await expect(ledger).toHaveAttribute('open', /.*/);
+
+    // The "you are here" mark survives the swap and keeps tracking.
+    await expect(currentRow(ledger)).toHaveAttribute('data-ledger-row', '0');
+    await viz.locator('[data-viz-forward]').click();
+    await expect(currentRow(ledger)).toHaveCount(1);
+    await expect(currentRow(ledger)).toHaveAttribute('data-ledger-row', '1');
+  });
+
+  /**
+   * The only thing pinning the island's DOM builder to the Astro template is a
+   * comparison of the two, and "Restore example" is the one input where they
+   * must agree exactly: it re-runs the AUTHORED trace, so the rebuilt table has
+   * to come out identical to the one the build shipped — same ids, same classes,
+   * same scopes, same cells, same roving tab stop.
+   */
+  test('rebuilding the authored run reproduces the server render exactly', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    // Read AFTER hydration, so the comparison includes what `wireLedger` does to
+    // the server's markup (buttons enabled, one roving tab stop, the mark on
+    // row 0) rather than treating those as a difference.
+    const server = await ledgerShape(ledger);
+
+    // A run of a DIFFERENT length, so "the table came back" cannot pass by
+    // never having changed: [1..20] target=0 collapses to the empty window in
+    // six steps.
+    await viz
+      .locator('[data-viz-array]')
+      .fill('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]');
+    await viz.locator('[data-viz-target]').fill('0');
+    await viz.locator('[data-viz-run]').click();
+    await expect(counter(viz)).toHaveText('1 / 6');
+
+    await viz.locator('[data-viz-restore]').click();
+    await expect(counter(viz)).toHaveText('1 / 4');
+    expect(await ledgerShape(ledger)).toEqual(server);
+  });
+});
+
+test.describe('the rows are the pointer scrub', () => {
+  test('clicking a row seeks the player, and the mark follows', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+
+    // Enabled — and the affordance is back with them. Task 3 shipped the
+    // unavailable state on the AFFORDANCE channel rather than on opacity
+    // (the label is the step NUMBER, which is data), so this is its inverse.
+    const seek = ledger.getByRole('button', { name: 'Go to step 3' });
+    await expect(seek).toBeEnabled();
+    expect(await seek.evaluate((el) => getComputedStyle(el).cursor)).toBe(
+      'pointer',
+    );
+    expect(
+      await seek.evaluate((el) => getComputedStyle(el).textDecorationLine),
+    ).toBe('underline');
+
+    await seek.click();
+    await expect(counter(viz)).toHaveText('3 / 4');
+    await expect(currentRow(ledger)).toHaveAttribute('data-ledger-row', '2');
+    // The drawing moved with it — the table seeks the one Player, and never
+    // holds an index of its own.
+    await expect(viz.locator('[data-viz-slider]')).toHaveValue('2');
+  });
+
+  /**
+   * ONE tab stop for the whole table. A 200-row run would otherwise cost a
+   * keyboard reader 200 stops to get past the instrument; the arrow keys move
+   * between rows from the one stop, the way a grid of controls already behaves.
+   */
+  test('the table is one tab stop, and the arrow keys walk it', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+
+    await expect(ledger.locator('[data-ledger-seek]')).toHaveCount(4);
+    await expect(tabStops(ledger)).toHaveCount(1);
+    await expect(tabStops(ledger)).toHaveAccessibleName('Go to step 1');
+
+    await tabStops(ledger).focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(counter(viz)).toHaveText('2 / 4');
+    await expect(
+      ledger.getByRole('button', { name: 'Go to step 2' }),
+    ).toBeFocused();
+    // The stop roves with the mark: still exactly one, and now on row 2.
+    await expect(tabStops(ledger)).toHaveCount(1);
+    await expect(tabStops(ledger)).toHaveAccessibleName('Go to step 2');
+
+    await page.keyboard.press('End');
+    await expect(counter(viz)).toHaveText('4 / 4');
+    await page.keyboard.press('Home');
+    await expect(counter(viz)).toHaveText('1 / 4');
+    // Swallowed at the bound rather than wrapping or scrolling the page.
+    await page.keyboard.press('ArrowUp');
+    await expect(counter(viz)).toHaveText('1 / 4');
+    await expect(tabStops(ledger)).toHaveCount(1);
+  });
+
+  /**
+   * ←/→ belong to the well, not to the transport. The well is a scroll container
+   * in BOTH axes by construction, and on a narrow screen the cost column is only
+   * reachable by scrolling it sideways — stealing its keys for the step buttons
+   * would leave that content unreachable by keyboard (2.1.1), which is the same
+   * carve-out the canvas already has.
+   */
+  test('left and right inside the table do not step the player', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+
+    await tabStops(ledger).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(counter(viz)).toHaveText('1 / 4');
+    await page.keyboard.press('ArrowLeft');
+    await expect(counter(viz)).toHaveText('1 / 4');
+    // The transport still owns them everywhere else on the instrument.
+    await viz.locator('[data-viz-play]').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(counter(viz)).toHaveText('2 / 4');
+  });
+});
+
+test.describe('the row cap, on the path where it can actually bind', () => {
+  /**
+   * The server-rendered path can never reach the cap — the longest authored run
+   * ships 33 rows against a cap of 200 — so this is the only place the rule is
+   * observable at all. One rule, both paths: the same `buildLedger` call, the
+   * same 200, and the same notice naming both numbers.
+   */
+  test('a 901-step custom run shows 200 rows and says so', async ({ page }) => {
+    await page.goto(SORTING);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+    await expect(ledger.locator('[data-ledger-cap]')).toHaveCount(0);
+
+    await viz.locator('[data-viz-array]').fill(CAPPING.input);
+    await viz.locator('[data-viz-run]').click();
+    await expect(counter(viz)).toHaveText(`1 / ${CAPPING.steps}`);
+
+    await expect(ledger.locator('[data-ledger-row]')).toHaveCount(200);
+    // NO SILENT CAPS: both numbers, in words, with an action.
+    await expect(ledger.locator('[data-ledger-cap]')).toHaveText(
+      `Showing the first 200 of ${CAPPING.steps} steps. Narrow the input to see the whole run.`,
+    );
+    // The disclosure still reports the TRUE length of the run, because that is
+    // what the reader asked for and what the transport is indexing into.
+    await expect(ledger.locator('[data-ledger-count]')).toHaveText(
+      `(${CAPPING.steps} steps)`,
+    );
+    await expect(ledger.getByRole('table')).toHaveAccessibleName(/200 rows/);
+
+    // Past the cap there is no row to mark — `aria-current` stays off, which is
+    // honest — but the table must not stop being reachable by keyboard, so the
+    // one tab stop falls to the last rendered row.
+    await viz.locator('[data-viz-slider]').fill('500');
+    await expect(counter(viz)).toHaveText(`501 / ${CAPPING.steps}`);
+    await expect(currentRow(ledger)).toHaveCount(0);
+    await expect(tabStops(ledger)).toHaveCount(1);
+    await expect(tabStops(ledger)).toHaveAccessibleName('Go to step 200');
+
+    // And back inside it, the mark returns.
+    await viz.locator('[data-viz-slider]').fill('12');
+    await expect(currentRow(ledger)).toHaveAttribute('data-ledger-row', '12');
+
+    // The notice goes when it stops being true — a cap that announced itself on
+    // a run it did not bind would be the same lie in the other direction.
+    await viz.locator('[data-viz-restore]').click();
+    await expect(counter(viz)).toHaveText(`1 / ${BUBBLE.authored}`);
+    await expect(ledger.locator('[data-ledger-cap]')).toHaveCount(0);
+  });
 });

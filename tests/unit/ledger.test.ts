@@ -28,6 +28,7 @@ import { bstOperations } from '../../src/viz/algorithms/bst-operations';
 import {
   buildLedger,
   firstSentence,
+  ledgerLayout,
   withoutCost,
   type LedgerSpec,
 } from '../../src/viz/core/ledger';
@@ -405,6 +406,59 @@ describe('withoutCost — the cost column inherits showMetrics', () => {
     const bare = withoutCost(buildLedger(trace));
     expect(bare.rows).toHaveLength(200);
     expect(bare.total).toBe(240);
+  });
+});
+
+describe('ledgerLayout — one presentation rule, two renderers', () => {
+  /**
+   * `Ledger.astro` draws this table at build time and the island redraws it
+   * after every custom run. The rule lives here so those two cannot disagree
+   * about the same run — a column that changed alignment between the authored
+   * table and the reader's own would be the product contradicting itself.
+   */
+  it('marks a column numeric only when EVERY cell in it is', () => {
+    // `count` is absent on the first step and a number afterwards: per-CELL the
+    // column would start left-aligned and jump right, which is exactly the
+    // flicker `LedgerColumn.numeric` warns about.
+    const trace: Trace<{ count: number | null; note: string }> = [
+      { state: { count: null, note: 'a' }, explanation: 'One.' },
+      { state: { count: 2, note: 'b' }, explanation: 'Two.' },
+    ];
+    const spec: LedgerSpec<{ count: number | null; note: string }> = {
+      columns: [
+        { label: 'count', from: (step) => step.state.count },
+        { label: 'note', from: (step) => step.state.note },
+      ],
+    };
+    const layout = ledgerLayout(buildLedger(trace, spec));
+
+    // count (absent on row 1), note (never numeric), what happened (prose).
+    expect(layout.numeric).toEqual([false, false, false]);
+  });
+
+  it('finds the authored-sentence column wherever the spec puts it', () => {
+    const trace: Trace<{ lo: number }> = [
+      { state: { lo: 0 }, explanation: 'Start.', metrics: { comparisons: 1 } },
+    ];
+    const spec: LedgerSpec<{ lo: number }> = {
+      columns: [{ label: 'lo', from: (step) => step.state.lo, numeric: true }],
+      costKey: 'comparisons',
+    };
+    const ledger = buildLedger(trace, spec);
+    const layout = ledgerLayout(ledger);
+
+    expect(ledger.headers).toEqual(['lo', 'what happened', 'comparisons']);
+    expect(layout.whatIndex).toBe(1);
+    // Declared numeric, prose, and a cost counter.
+    expect(layout.numeric).toEqual([true, false, true]);
+  });
+
+  it('claims nothing about an empty table', () => {
+    // No rows means no evidence either way, and a header that right-aligned on
+    // a guess would move the moment the first row arrived.
+    const layout = ledgerLayout(buildLedger([]));
+    expect(layout.numeric).toEqual([false]);
+    expect(layout.whatIndex).toBe(0);
   });
 });
 

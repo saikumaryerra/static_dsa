@@ -87,6 +87,15 @@ export const LEDGER_ROW_CAP = 200;
 const ABSENT = '·';
 
 /**
+ * The authored-sentence column's header, named once.
+ *
+ * Both renderers find that column by matching this string, and one of them is
+ * the island's rebuild — so a literal typed twice is a column that silently
+ * stops wrapping after a custom run.
+ */
+export const WHAT_HEADER = 'what happened';
+
+/**
  * The authored sentence, truncated deterministically to its first sentence.
  *
  * Terminators are `.` `?` `!` — NOT `;`. An earlier draft included the
@@ -175,7 +184,7 @@ export function buildLedger<TState>(
 
   const headers = [
     ...declared.map((column) => column.label),
-    'what happened',
+    WHAT_HEADER,
     ...costKeys,
   ];
   const costIndex =
@@ -232,5 +241,38 @@ export function withoutCost(ledger: Ledger): Ledger {
     })),
     costIndex: null,
     total: ledger.total,
+  };
+}
+
+/** How a renderer sets a ledger's columns: which one is prose, which are numerals. */
+export interface LedgerLayout {
+  /** Index into `headers`/`cells` of the authored-sentence column. */
+  whatIndex: number;
+  /** Per column, whether it is set in numerals and right-aligned. */
+  numeric: boolean[];
+}
+
+/**
+ * The per-COLUMN presentation facts both renderers need.
+ *
+ * Two of them draw this table — `Ledger.astro` at build time and the island's
+ * rebuild after a custom run — and they have to agree, so the rule lives here
+ * once rather than in each of them. A column is numeric only when EVERY one of
+ * its cells is: deciding it per cell makes alignment flicker down a column whose
+ * value is absent on the first rows (see {@link LedgerColumn.numeric}), and a
+ * column that changed alignment mid-table would be the drawing and the table
+ * disagreeing about the same run.
+ *
+ * @param ledger - A ledger from {@link buildLedger} (or {@link withoutCost}).
+ * @returns The sentence column's index, and one numeric flag per column.
+ */
+export function ledgerLayout(ledger: Ledger): LedgerLayout {
+  return {
+    whatIndex: ledger.headers.indexOf(WHAT_HEADER),
+    numeric: ledger.headers.map((_, column) =>
+      ledger.rows.length > 0
+        ? ledger.rows.every((row) => row.cells[column]?.numeric === true)
+        : false,
+    ),
   };
 }
