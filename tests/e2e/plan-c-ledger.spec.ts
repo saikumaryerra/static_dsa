@@ -675,3 +675,198 @@ test.describe('the row cap, on the path where it can actually bind', () => {
     await expect(ledger.locator('[data-ledger-cap]')).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 5 (P0) — the ledger is Predict mode's answer key
+// ---------------------------------------------------------------------------
+
+/**
+ * Binary search's FOURTH row, verbatim.
+ *
+ * At step 3 the predictor asks what happens next and grades against
+ * `trace[i + 1]`; this sentence is that step. The `mid` value in it answers the
+ * other two questions the run asks. It is the sharpest available probe for "is
+ * the answer on screen", because nothing else on the page prints `i + 1`.
+ */
+const ANSWER_KEY = 'Middle index 3 holds 7, which equals the target.';
+
+/** The stated reason — the "with a reason" half of hiding the table. */
+const PREDICT_NOTE =
+  'Auto-play and scrubbing are off while Predict is on, and the run table is hidden — it would give the next step away. Step forward moves on without answering.';
+
+/** The Predict toggle on the binary-search instrument. */
+function predictToggleOf(viz: Locator): Locator {
+  return viz.locator('[data-viz-predict]');
+}
+
+test.describe('Predict hides the ledger, because the ledger is the answer key', () => {
+  /**
+   * Predict grades ONE STEP AHEAD precisely so the answer is not on screen —
+   * `binary-search.ts` says so — and every predictor grades against
+   * `trace[i + 1]`. The ledger renders every step including that one, with its
+   * state columns and its authored sentence. For bubble and insertion sort the
+   * `swaps` column IS the grading expression (`nextSwaps > swaps ? 0 : 1`).
+   *
+   * HIDDEN, not blanked: blanking the rows past the current one still leaks
+   * through the row count.
+   */
+  test('the whole table goes, and the note says why', async ({ page }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+
+    // The leak, before the gate: the answer is right there, four rows down.
+    await expect(ledger).toContainText(ANSWER_KEY);
+
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeHidden();
+    // Not one row, not one cell, not the count of them.
+    await expect(ledger.locator('[data-ledger-row]:visible')).toHaveCount(0);
+    await expect(page.locator('[data-viz-predict-note]')).toHaveText(
+      PREDICT_NOTE,
+    );
+
+    // And it comes back, in the state the reader left it in.
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeVisible();
+    await expect(ledger).toHaveAttribute('open', /.*/);
+    await expect(ledger).toContainText(ANSWER_KEY);
+  });
+
+  /**
+   * "Styling a leak is not hiding it" is a rule this codebase already wrote
+   * down, and these are the four channels that defeat opacity and colour. All
+   * four are closed by one `hidden`, which is why the gate is an attribute
+   * rather than a stylesheet.
+   */
+  test('hidden survives the four channels that defeat dimming', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeHidden();
+
+    // 1. The accessibility tree: no table, no rowheaders, no seek buttons.
+    await expect(ledger.getByRole('table')).toHaveCount(0);
+    await expect(ledger.getByRole('rowheader')).toHaveCount(0);
+    await expect(ledger.getByRole('button')).toHaveCount(0);
+    // 2. Select-all / find-in-page: `innerText` is the rendered text, so a
+    //    display:none subtree contributes nothing to either.
+    expect(await page.locator('body').innerText()).not.toContain(ANSWER_KEY);
+    // 3. Print.
+    await page.emulateMedia({ media: 'print' });
+    await expect(ledger).toBeHidden();
+    await page.emulateMedia({ media: 'screen' });
+    // 4. Forced colors, which flattens every paint-level signal there is.
+    await page.emulateMedia({ forcedColors: 'active' });
+    await expect(ledger).toBeHidden();
+    await page.emulateMedia({ forcedColors: 'none' });
+  });
+
+  /**
+   * `?review=1` opens Predict automatically, so `/learn`'s spaced-review card is
+   * precisely the deep link that would have landed a reader on the answer key —
+   * and a passing session writes a REAL mastery state (`passFloor` is 3 here,
+   * and a pass calls `recordPass` -> Practiced). This is the path the gate
+   * exists for.
+   */
+  test('the review deep link cannot land on the answer key', async ({
+    page,
+  }) => {
+    await page.goto(`${LESSON}?review=1`);
+    const viz = await hydrateViz(page.locator('body'));
+
+    // Predict really is on — otherwise "hidden" below would prove nothing.
+    await expect(predictToggleOf(viz)).toHaveAttribute('aria-pressed', 'true');
+    await expect(ledgerOf(viz)).toBeHidden();
+    expect(await page.locator('body').innerText()).not.toContain(ANSWER_KEY);
+
+    // The instrument beside it has no predictor, so nothing was taken from it:
+    // the gate follows the mode, not the page.
+    const linear = page.locator('[data-viz][data-algorithm="linear-search"]');
+    await expect(ledgerOf(linear)).toBeVisible();
+  });
+
+  /**
+   * The one in-mode action that rebuilds the hidden table.
+   *
+   * A predict session deliberately survives a custom run — it is how a reader
+   * reaches the five-answer session bar on a lesson whose authored run is
+   * shorter (`utils/predict.ts` says so) — and that path goes through
+   * `applyTrace`, which redraws every row of the ledger. The gate has to hold
+   * across it: `hidden` lives on the `<details>` and `setPredict` is its only
+   * writer, so the rebuild must reconstruct the new run's rows UNDER a table
+   * that is still gone.
+   */
+  test('a custom run mid-session rebuilds the table without revealing it', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeHidden();
+
+    await viz
+      .locator('[data-viz-array]')
+      .fill('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]');
+    await viz.locator('[data-viz-target]').fill('0');
+    await viz.locator('[data-viz-run]').click();
+    await expect(counter(viz)).toHaveText('1 / 6');
+
+    // The rebuild happened — a locator counts nodes whether or not they are
+    // painted, so this is the new run's six rows — and it is still hidden.
+    await expect(ledger.locator('[data-ledger-row]')).toHaveCount(6);
+    await expect(ledger).toBeHidden();
+    expect(await page.locator('body').innerText()).not.toContain(
+      'Search window is indices',
+    );
+
+    // And what comes back is THIS run, not the one the build shipped.
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeVisible();
+    await expect(ledger.getByRole('table')).toHaveAccessibleName(/6 rows/);
+  });
+
+  /**
+   * The second breach §4 found: the row buttons are a scrub channel, and the
+   * slider's handler already declines while predicting — "scrubbing past a
+   * question is the one thing predict mode exists to prevent".
+   *
+   * Forced through `evaluate` on purpose. A reader cannot reach these while the
+   * table is hidden, so a normal click would only be re-proving the hiding; the
+   * guard is what still holds if the hiding ever regresses, and only a
+   * synthetic activation can see it.
+   */
+  test('row seeks are declined while predicting, like the slider', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    const ledger = ledgerOf(viz);
+    await ledger.locator('summary').click();
+    await predictToggleOf(viz).click();
+    await expect(counter(viz)).toHaveText('1 / 4');
+
+    const seek = ledger.locator('[data-ledger-seek]').nth(3);
+    await seek.evaluate((el: HTMLElement) => el.click());
+    await expect(counter(viz)).toHaveText('1 / 4');
+    // The keyboard route through the same rows is guarded on the same flag.
+    await seek.evaluate((el: HTMLElement) =>
+      el.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      ),
+    );
+    await expect(counter(viz)).toHaveText('1 / 4');
+
+    // Turning it off restores both, so nothing about the decline is sticky.
+    await predictToggleOf(viz).click();
+    await ledger.locator('[data-ledger-seek]').nth(3).click();
+    await expect(counter(viz)).toHaveText('4 / 4');
+  });
+});

@@ -195,6 +195,17 @@ const stepWord = total === 1 ? 'step' : 'steps';
     background-color: var(--surface-sunken);
   }
 
+  /* Predict mode hides the whole table, because it is that mode's answer key
+     (Plan C §4). Written out rather than left to the UA sheet: `[hidden]` beats
+     `details { display: block }` on specificity today, but this file also sets
+     `display` on nothing else, and the ONE property that makes this a real
+     removal — out of the a11y tree, out of find-in-page, out of select-all, out
+     of print — is not something to leave implicit. `.viz-predict[hidden]` above
+     is written out for the same reason. */
+  .viz-ledger[hidden] {
+    display: none;
+  }
+
   /* NO `display: flex` here, however much the two spans want it: any display
      other than the UA's `list-item` deletes the native disclosure triangle, and
      that marker is the whole affordance — it is free, it rotates on open, and it

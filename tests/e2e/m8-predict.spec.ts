@@ -284,6 +284,12 @@ test.describe('while predicting, watching is unavailable — and nothing is disa
     await expect(note).toContainText(
       'Step forward moves on without answering.',
     );
+    // The note also carries the reason the RUN TABLE is gone (Plan C §4): the
+    // ledger renders `trace[i + 1]`, which is the step every predictor grades
+    // against, so predicting hides it. It names the table rather than "the step
+    // slider", which Plan C made a focus-revealed control the reader cannot see
+    // at rest.
+    await expect(note).toContainText('the run table is hidden');
 
     // Focus survives the mode change and the control still takes focus…
     await play.focus();
@@ -731,7 +737,7 @@ test.describe('degraded — with no JS and with no store', () => {
 
       const text = await page.locator('body').innerText();
       expect(text).not.toContain('answered ·');
-      expect(text).not.toContain('Auto-play and the step slider are off');
+      expect(text).not.toContain('Auto-play and scrubbing are off');
 
       // DISCRIMINATOR: the page is the M7 page, not a broken one. The
       // build-time still frame is drawn and the prose is all there.
