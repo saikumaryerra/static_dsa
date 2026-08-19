@@ -9,7 +9,9 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { curriculum } from './utils/mastery';
 import { counter, hydrateViz } from './utils/predict';
+import { scrollToInstant, waitForAnchorScroll } from './utils/scroll';
 
 /** Every instrument root on the page, in document order, with its `id`. */
 async function instrumentIds(page: Page): Promise<string[]> {
@@ -868,5 +870,321 @@ test.describe('Predict hides the ledger, because the ledger is the answer key', 
     await predictToggleOf(viz).click();
     await ledger.locator('[data-ledger-seek]').nth(3).click();
     await expect(counter(viz)).toHaveText('4 / 4');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 6 — <StepLink>, and the three things sitting on top of a table row
+// ---------------------------------------------------------------------------
+
+/** The lesson's own link to step 4 — the row where the target is found. */
+function stepLink(page: Page, step: number): Locator {
+  return page.locator(`a[data-step-link][href$="-row-${step}"]`);
+}
+
+/**
+ * Where the sticky chrome ends, measured rather than assumed.
+ *
+ * The site header is sticky at every width; the mini-ToC bar is sticky only
+ * below 1024px, where it collapses from a rail into a bar. Taking the max of
+ * whatever is actually sticky keeps one assertion honest at both widths.
+ */
+async function chromeBottom(page: Page): Promise<number> {
+  return page.evaluate(() =>
+    Math.max(
+      0,
+      ...[...document.querySelectorAll('header, .toc--inline')]
+        .filter((el) => getComputedStyle(el).position === 'sticky')
+        .map((el) => el.getBoundingClientRect().bottom),
+    ),
+  );
+}
+
+/** Everything about where the row ended up, in one round trip. */
+async function landing(
+  page: Page,
+  step: number,
+): Promise<{
+  rowTop: number;
+  rowBottom: number;
+  wellTop: number;
+  wellBottom: number;
+  stickyHeadBottom: number;
+  wellScrollTop: number;
+  vizScrollTop: number;
+  vizScrollLeft: number;
+  vizOverflows: boolean;
+}> {
+  return page.evaluate((step) => {
+    const link = document.querySelector<HTMLAnchorElement>(
+      `a[data-step-link][href$="-row-${step}"]`,
+    );
+    const row = document.getElementById(
+      link?.getAttribute('href')?.slice(1) ?? '',
+    );
+    const well = row?.closest<HTMLElement>('[data-ledger-well]');
+    const viz = row?.closest<HTMLElement>('.viz');
+    const head = well?.querySelector('thead th');
+    const rowBox = row?.getBoundingClientRect();
+    const wellBox = well?.getBoundingClientRect();
+    return {
+      rowTop: rowBox?.top ?? Number.NaN,
+      rowBottom: rowBox?.bottom ?? Number.NaN,
+      wellTop: wellBox?.top ?? Number.NaN,
+      wellBottom: wellBox?.bottom ?? Number.NaN,
+      stickyHeadBottom: head?.getBoundingClientRect().bottom ?? Number.NaN,
+      wellScrollTop: well?.scrollTop ?? Number.NaN,
+      vizScrollTop: viz?.scrollTop ?? Number.NaN,
+      vizScrollLeft: viz?.scrollLeft ?? Number.NaN,
+      vizOverflows:
+        !!viz &&
+        (viz.scrollHeight > viz.clientHeight ||
+          viz.scrollWidth > viz.clientWidth),
+    };
+  }, step);
+}
+
+/**
+ * `prefers-reduced-motion: reduce` throughout, and not for tidiness: the site
+ * sets `scroll-behavior: smooth` under `no-preference` (M7.1 MOT-1), so every
+ * assertion below would otherwise be racing an animation. Under `reduce` the
+ * jump is instantaneous and what is measured is where the reader ends up.
+ */
+test.describe('<StepLink> — a sentence that points at a row', () => {
+  // Per page rather than `test.use`: `reducedMotion` is a browser-context
+  // option in this Playwright, not a test option, and `emulateMedia` is how the
+  // rest of this suite already reaches the same media query.
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
+
+  /**
+   * The defect this whole task exists for. A `<tr>` inherits no
+   * `scroll-margin-top` — the only rule covering lesson-body content is scoped
+   * to `h2`/`h3` — and every anchor target on a lesson page until now was a
+   * heading, which is why nothing caught it. Measured before the fix, at
+   * 900x800: the row landed at y=18.7 with the header ending at 64 and the
+   * sticky ToC bar at 109. It was entirely behind the chrome.
+   *
+   * Deliberately WITHOUT `hydrateViz`: scrolling the instrument into view is
+   * what mounts the island, so hydrating first would test the one state the
+   * reader who clicks a link from the prose above is never in.
+   */
+  test('lands the row below the sticky header and the ToC bar', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await page.goto(LESSON);
+
+    await stepLink(page, 4).click();
+    await waitForAnchorScroll(page);
+
+    const chrome = await chromeBottom(page);
+    expect(chrome).toBeGreaterThan(100); // the ToC bar really is sticky here
+    const at = await landing(page, 4);
+    expect(at.rowTop).toBeGreaterThanOrEqual(chrome);
+    // …and not so far down that the reader has to hunt for it.
+    expect(at.rowTop).toBeLessThan(chrome + 32);
+    // The disclosure opened, and the address bar kept the anchor so the reader
+    // can share exactly the step they are reading.
+    await expect(ledgerOf(page.locator('[data-viz]').first())).toHaveAttribute(
+      'open',
+      /.*/,
+    );
+    expect(page.url()).toContain('-row-4');
+  });
+
+  /**
+   * Occluder two: the well's column headers are `position: sticky`, so the top
+   * ~35px of the scroll region is not a place a row can be seen. "Inside the
+   * well" and "visible" are different tests, and the well correction is what
+   * separates them.
+   */
+  test('lands it clear of the well and of its sticky header row', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(LESSON);
+
+    await stepLink(page, 4).click();
+    await waitForAnchorScroll(page);
+
+    const at = await landing(page, 4);
+    // Inside the well's viewport…
+    expect(at.rowTop).toBeGreaterThanOrEqual(at.wellTop - 1);
+    expect(at.rowBottom).toBeLessThanOrEqual(at.wellBottom + 1);
+    // …and below the header row that floats over the top of it.
+    expect(at.rowTop).toBeGreaterThanOrEqual(at.stickyHeadBottom - 1);
+    // The narrow well (12rem) cannot show four wrapped rows at once, so this is
+    // a real correction rather than a no-op that happened to pass.
+    expect(at.wellScrollTop).toBeGreaterThan(0);
+  });
+
+  /**
+   * Occluder three, which the design flagged as UNVERIFIED: `.viz` is
+   * `overflow: hidden`, which makes it a scroll container, and fragment
+   * navigation scrolls every scrollable ancestor of its target — which would
+   * move a row out from under the reader with no scrollbar to put it back.
+   *
+   * It cannot happen: the canvas and the well are both inner scrollers, so they
+   * absorb the overflow before it reaches that box, which measures
+   * `scrollHeight === clientHeight` and `scrollWidth === clientWidth`. This is
+   * the regression test for the day something is added that can outgrow it.
+   */
+  test('never scrolls the instrument’s own overflow:hidden wrapper', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(LESSON);
+    await stepLink(page, 4).click();
+    await waitForAnchorScroll(page);
+
+    const at = await landing(page, 4);
+    expect(at.vizOverflows).toBe(false);
+    expect(at.vizScrollTop).toBe(0);
+    expect(at.vizScrollLeft).toBe(0);
+  });
+
+  /**
+   * The island mounts from an `IntersectionObserver`, so this jump is what
+   * STARTS the instrument it lands in — and the first thing the island does is
+   * mark step 0's row. Marking used to scroll the well to whatever row it
+   * marked, which yanked the reader from the row they had just asked for back
+   * to row 1, a beat after they arrived. A mark that has not moved has nothing
+   * to follow.
+   */
+  test('hydrating afterwards does not undo the jump', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(LESSON);
+    await stepLink(page, 4).click();
+    await waitForAnchorScroll(page);
+    const before = await landing(page, 4);
+
+    // The click scrolled the instrument into view, which is what mounts it.
+    await expect(page.locator('[data-viz]').first()).toHaveAttribute(
+      'data-viz-ready',
+      'true',
+      { timeout: 15_000 },
+    );
+    const after = await landing(page, 4);
+
+    expect(after.wellScrollTop).toBe(before.wellScrollTop);
+    expect(after.rowTop).toBeCloseTo(before.rowTop, 0);
+    // The mark is still on step 1, where the Player is: the jump moved the
+    // reader, not the run.
+    await expect(
+      currentRow(ledgerOf(page.locator('[data-viz]').first())),
+    ).toHaveAttribute('data-ledger-row', '0');
+  });
+
+  /**
+   * With no JavaScript the CSS is the whole mechanism, and it has to be — this
+   * table IS the lesson for that reader. The two paths are asserted to land in
+   * the same place, which is what makes the duplicated offset (CSS rule +
+   * `getComputedStyle` read) a single source of truth rather than two.
+   *
+   * The `<details>` opens here without a line of site code: Chromium expands a
+   * closed disclosure when a fragment navigation targets something inside it
+   * (verified in the pinned container). Engine behaviour, relied on for the
+   * no-JS path only — the script opens it explicitly everywhere else.
+   */
+  test.describe('with JavaScript disabled', () => {
+    test.use({ javaScriptEnabled: false });
+
+    test('the anchor alone lands in the same place', async ({ page }) => {
+      await page.setViewportSize({ width: 900, height: 800 });
+      await page.goto(LESSON);
+
+      await stepLink(page, 4).click();
+      await waitForAnchorScroll(page);
+
+      const chrome = await chromeBottom(page);
+      const at = await landing(page, 4);
+      expect(at.rowTop).toBeGreaterThanOrEqual(chrome);
+      expect(at.rowTop).toBeLessThan(chrome + 32);
+      expect(at.rowTop).toBeGreaterThanOrEqual(at.stickyHeadBottom - 1);
+    });
+  });
+
+  /**
+   * The link cannot be a hole in the predict gate, and it cannot be a dead
+   * click either — "a link that silently does nothing is worse than one that
+   * isn't there". The table is the answer key while Predict is on, so the
+   * reader is taken to the instrument's own note, which is visible only in that
+   * mode and says why the table is gone.
+   */
+  test('while Predict is on it lands on the note, not on the answer', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await page.goto(LESSON);
+    const viz = await hydrateViz(page.locator('body'));
+    await predictToggleOf(viz).click();
+    await expect(ledgerOf(viz)).toBeHidden();
+    await scrollToInstant(page, 0);
+
+    await stepLink(page, 4).click();
+    await waitForAnchorScroll(page);
+
+    // Nothing was revealed: the disclosure did not open and the answer is not
+    // on the page in any channel.
+    await expect(ledgerOf(viz)).toBeHidden();
+    await expect(ledgerOf(viz)).not.toHaveAttribute('open', /.*/);
+    expect(await page.locator('body').innerText()).not.toContain(ANSWER_KEY);
+
+    // And the reader is somewhere that answers their question.
+    const note = page.locator('[data-viz-predict-note]');
+    await expect(note).toBeVisible();
+    const chrome = await chromeBottom(page);
+    const noteTop = await note.evaluate((el) => el.getBoundingClientRect().top);
+    expect(noteTop).toBeGreaterThanOrEqual(chrome);
+    expect(noteTop).toBeLessThan(chrome + 32);
+  });
+
+  /**
+   * The half a build-time check cannot see. `<StepLink>` validates its algorithm
+   * and renderer against the registry at build time, but it cannot know how long
+   * the run is — that depends on the input the `<Visualizer>` was authored with
+   * — nor that the instrument it names is the one on this page. So the site is
+   * walked instead: every link, on every published lesson, must resolve.
+   */
+  test('every StepLink the site ships points at a row that exists', async ({
+    page,
+  }) => {
+    const lessons = await curriculum(page);
+    let found = 0;
+
+    for (const lesson of lessons) {
+      await page.goto(`/learn/${lesson.slug}`);
+      const targets = await page
+        .locator('a[data-step-link]')
+        .evaluateAll((links) =>
+          links.map((link) => ({
+            href: link.getAttribute('href') ?? '',
+            instrument: (link as HTMLElement).dataset['stepLink'] ?? '',
+            resolves: !!document.getElementById(
+              link.getAttribute('href')?.slice(1) ?? '',
+            ),
+            instrumentResolves: !!document.getElementById(
+              (link as HTMLElement).dataset['stepLink'] ?? '',
+            ),
+          })),
+        );
+
+      for (const target of targets) {
+        found += 1;
+        expect(
+          target.resolves,
+          `${lesson.slug}: <StepLink> ${target.href} points at no row. The step number is past the end of that instrument's authored run, or the algorithm/renderer pair names a different instrument.`,
+        ).toBe(true);
+        expect(
+          target.instrumentResolves,
+          `${lesson.slug}: <StepLink> ${target.href} names instrument #${target.instrument}, which is not on this page.`,
+        ).toBe(true);
+      }
+    }
+
+    // The walk must not be able to pass by finding nothing.
+    expect(found).toBeGreaterThan(0);
   });
 });

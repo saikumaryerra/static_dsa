@@ -56,6 +56,37 @@ function slug(value: string): string {
 }
 
 /**
+ * The id an instrument gets, WITHOUT claiming it (Plan C §7).
+ *
+ * `claimInstrumentId` mints: calling it a second time with the same tuple hands
+ * back `…-2`, because that is what a genuine second instrument must get. So a
+ * component that wants to POINT at an instrument — `<StepLink>` — cannot ask for
+ * the id by claiming it again; it would receive an id that belongs to nobody.
+ * This is the read-only half, and `claimInstrumentId` is written in terms of it
+ * so the two can never derive differently.
+ *
+ * Pointing by derivation rather than by an authored literal is deliberate: the
+ * id follows a lesson's pathname, algorithm and renderer automatically, where a
+ * pasted `viz-binary-search-3f0k1p` would silently rot the first time any of the
+ * three changed — and it is an opaque hash, so nobody would notice it had.
+ *
+ * @param pathname - The page's path, so two pages never mint the same id.
+ * @param algorithm - Registry id of the algorithm, e.g. `'binary-search'`.
+ * @param renderer - Registry id of the renderer, e.g. `'array'`.
+ * @param nth - Which instrument of that tuple on that page, 1-based.
+ * @returns The id `claimInstrumentId` gives the `nth` instrument of this tuple.
+ */
+export function instrumentIdFor(
+  pathname: string,
+  algorithm: string,
+  renderer: string,
+  nth = 1,
+): string {
+  const base = `viz-${slug(algorithm)}-${hash(`${pathname}:${algorithm}:${renderer}`)}`;
+  return nth <= 1 ? base : `${base}-${nth}`;
+}
+
+/**
  * Claims this render's id for one instrument, e.g. `"viz-binary-search-3f0k1p"`.
  *
  * Deterministic: the same page rendered again yields the same ids, in the same
@@ -79,7 +110,6 @@ export function claimInstrumentId(
   renderer: string,
 ): string {
   const seed = `${pathname}:${algorithm}:${renderer}`;
-  const base = `viz-${slug(algorithm)}-${hash(seed)}`;
 
   let tally = issued.get(scope);
   if (!tally) {
@@ -89,5 +119,5 @@ export function claimInstrumentId(
   const nth = (tally.get(seed) ?? 0) + 1;
   tally.set(seed, nth);
 
-  return nth === 1 ? base : `${base}-${nth}`;
+  return instrumentIdFor(pathname, algorithm, renderer, nth);
 }

@@ -13,7 +13,10 @@
  * other half — that real pages stay clean and never grow a suffix.
  */
 import { describe, expect, it } from 'vitest';
-import { claimInstrumentId } from '../../src/viz/core/instrument-id';
+import {
+  claimInstrumentId,
+  instrumentIdFor,
+} from '../../src/viz/core/instrument-id';
 
 /** A fresh page render. Production passes `Astro.request`; the identity is all that matters. */
 const render = (): object => ({});
@@ -122,5 +125,67 @@ describe('claimInstrumentId', () => {
     expect(claimInstrumentId(render(), '/', '', 'array')).toMatch(
       /^viz-viz-[a-z0-9]{6}$/,
     );
+  });
+});
+
+describe('instrumentIdFor', () => {
+  /**
+   * The contract `<StepLink>` is built on. `claimInstrumentId` MINTS — asking it
+   * for binary-search's id a second time returns `…-2`, an id no instrument on
+   * the page has — so a component that points at an instrument has to derive the
+   * id without taking a number. These two must agree, or every anchor in the
+   * lesson prose points one instrument to the right of the one it names.
+   */
+  it('returns the id the first claim of the same tuple hands out', () => {
+    const claimed = claimInstrumentId(
+      render(),
+      '/learn/binary-search',
+      'binary-search',
+      'array',
+    );
+    expect(
+      instrumentIdFor('/learn/binary-search', 'binary-search', 'array'),
+    ).toBe(claimed);
+  });
+
+  it('agrees with the tiebreak on the 2nd and 3rd of a repeated tuple', () => {
+    const scope = render();
+    const claimed = [
+      claimInstrumentId(scope, '/dev/renderers', 'demo-stack', 'stack'),
+      claimInstrumentId(scope, '/dev/renderers', 'demo-stack', 'stack'),
+      claimInstrumentId(scope, '/dev/renderers', 'demo-stack', 'stack'),
+    ];
+    expect(
+      [1, 2, 3].map((nth) =>
+        instrumentIdFor('/dev/renderers', 'demo-stack', 'stack', nth),
+      ),
+    ).toEqual(claimed);
+  });
+
+  it('claims nothing, so asking twice never advances the tally', () => {
+    // The bug this closes: `<StepLink>` resolving its target by calling the
+    // claiming function, which would hand it `…-2` AND push the next real
+    // instrument to `…-3`.
+    const scope = render();
+    instrumentIdFor('/learn/binary-search', 'binary-search', 'array');
+    instrumentIdFor('/learn/binary-search', 'binary-search', 'array');
+    expect(
+      claimInstrumentId(
+        scope,
+        '/learn/binary-search',
+        'binary-search',
+        'array',
+      ),
+    ).toMatch(/^viz-binary-search-[a-z0-9]{6}$/);
+  });
+
+  it('treats nth 0 and 1 alike — a bare base is the first instrument', () => {
+    const base = instrumentIdFor('/learn/arrays', 'array-operations', 'array');
+    expect(
+      instrumentIdFor('/learn/arrays', 'array-operations', 'array', 1),
+    ).toBe(base);
+    expect(
+      instrumentIdFor('/learn/arrays', 'array-operations', 'array', 0),
+    ).toBe(base);
   });
 });

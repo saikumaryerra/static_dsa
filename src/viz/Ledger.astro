@@ -308,6 +308,38 @@ const stepWord = total === 1 ? 'step' : 'steps';
     border-bottom: 0;
   }
 
+  /* Where a jump to `#${uid}-row-N` parks the row (Plan C §7). Every anchor
+     target on a lesson page used to be a HEADING, and the only rule that clears
+     the sticky chrome is scoped to `h2`/`h3` in `LessonLayout.astro` — a `<tr>`
+     inherited nothing, so `<StepLink>`'s target landed at y=18.7 on the built
+     site at 900x800, with the header ending at 64 and the sticky mini-ToC bar at
+     109. The row was entirely behind the chrome. Both offsets are the heading
+     rule's, to the character, because two anchor targets on one page landing on
+     two different lines is a defect nobody would think to look for.
+
+     `--toc-bar-h` is declared on `.lesson` (global.css) rather than `:root`, so
+     it does NOT resolve on `/about` or the dev gallery — and one unresolvable
+     var invalidates the whole `calc()`, which fails silently as
+     `scroll-margin-top: 0`. Hence the fallback, which is also the honest value
+     there: neither page has a ToC bar. (Both set `showLedger={false}` today, so
+     this is a guard against the day one does not.)
+
+     It applies to the WELL's scroll as well as the document's — scroll-margin
+     is honoured by every scroll container in the chain — which is a second small
+     win: the well's own sticky header row is 35px tall, and a row aligned to the
+     top of the well would land underneath it. */
+  .viz-ledger__table tbody tr {
+    scroll-margin-top: calc(
+      var(--header-h) + var(--toc-bar-h, 0rem) + var(--space-2)
+    );
+  }
+
+  @media (min-width: 1024px) {
+    .viz-ledger__table tbody tr {
+      scroll-margin-top: calc(var(--header-h) + var(--space-6));
+    }
+  }
+
   .viz-ledger__num {
     width: 1%;
     padding-inline-start: var(--space-4);

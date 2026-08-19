@@ -886,8 +886,35 @@ const targetId = `${uid}-target`;
     box-shadow: var(--shadow-1);
     /* Clips the ledger's own corners to the card radius below, and is the same
        clip `.viz-frame` used to own: the canvas is an inner scroller, so nothing
-       that needs to overflow is trapped by it. */
+       that needs to overflow is trapped by it.
+
+       PROBED, because `overflow: hidden` makes this a scroll CONTAINER, and a
+       fragment jump scrolls every scrollable ancestor of its target — which
+       would move a row out from under the reader with no scrollbar to put it
+       back (Plan C §7 flagged it unverified). It cannot happen here: across
+       eight measurements on the built site — two lessons, three widths, JS on
+       and off, jumping to rows 1 and 20 — this box read
+       `scrollHeight === clientHeight` and `scrollWidth === clientWidth` every
+       time, and its scroll offsets never left 0. The canvas and the ledger's
+       well are both inner scrollers, so they absorb the overflow before it
+       reaches this element. Anything added here that can outgrow the box would
+       reopen it. */
     overflow: hidden;
+    /* The instrument is an anchor target in its own right now that its id is
+       stable (`#viz-binary-search-…`), and `<StepLink>` lands here whenever the
+       row it names cannot be shown — while Predict is on, or on an instrument
+       with no ledger. Same two offsets as the lesson's headings and the ledger's
+       rows; see the row rule in `Ledger.astro` for why `--toc-bar-h` carries a
+       fallback. */
+    scroll-margin-top: calc(
+      var(--header-h) + var(--toc-bar-h, 0rem) + var(--space-2)
+    );
+  }
+
+  @media (min-width: 1024px) {
+    .viz {
+      scroll-margin-top: calc(var(--header-h) + var(--space-6));
+    }
   }
 
   @media (min-width: 768px) {
@@ -2494,6 +2521,13 @@ const targetId = `${uid}-target`;
      */
     let ledgerCurrentRow: HTMLTableRowElement | null = null;
     let ledgerTabStop: HTMLButtonElement | null = null;
+    /**
+     * The index the mark is on, or `null` before the first mark. It exists only
+     * to answer "did the mark MOVE?" — the Player is still the single source of
+     * the current step — because scrolling the well is a response to movement,
+     * not to being asked the same question twice (see `markLedgerRow`).
+     */
+    let ledgerMarked: number | null = null;
     /** The current step's explanation without any verdict prefix. */
     let lastText = explain.textContent ?? '';
 
@@ -2994,10 +3028,20 @@ const targetId = `${uid}-target`;
      * on a row this table shows, and the cap notice says why), while the table
      * never becomes a region the keyboard cannot enter at all.
      *
+     * IT ONLY SCROLLS WHEN THE MARK MOVES. Mounting marks step 0 twice (the
+     * Player's `reset` and `wireLedger`), and a reader can arrive at this
+     * instrument from a `<StepLink>`, which scrolls the well to the row it names
+     * and THEN brings the instrument into view — which is what mounts the island
+     * (`IntersectionObserver`). A first mark that revealed would scroll that
+     * reader straight back to row 1, undoing the jump they just made. A mark
+     * that has not moved has nothing to follow.
+     *
      * @param index - The trace index the Player is on.
      */
     function markLedgerRow(index: number): void {
       if (!ledgerBody) return;
+      const moved = ledgerMarked !== null && ledgerMarked !== index;
+      ledgerMarked = index;
       ledgerCurrentRow?.removeAttribute('aria-current');
       ledgerCurrentRow = null;
       if (ledgerTabStop) ledgerTabStop.tabIndex = -1;
@@ -3017,7 +3061,7 @@ const targetId = `${uid}-target`;
           '[data-ledger-seek]',
         ) ?? null;
       if (ledgerTabStop) ledgerTabStop.tabIndex = 0;
-      if (!row || !ledgerWell) return;
+      if (!row || !ledgerWell || !moved) return;
       // Keep the current row in view without yanking the page: scroll the WELL,
       // and only when the row is actually outside it. `scrollIntoView` would
       // walk every scrollable ancestor — the instrument's own overflow wrapper
@@ -3025,7 +3069,15 @@ const targetId = `${uid}-target`;
       // row is describing.
       const rowBox = row.getBoundingClientRect();
       const wellBox = ledgerWell.getBoundingClientRect();
-      if (rowBox.top < wellBox.top || rowBox.bottom > wellBox.bottom) {
+      // The column headers are STICKY at the top of the well, so the first
+      // ~35px of it is not somewhere a row can be seen: "inside the well" and
+      // "visible" are not the same test. Without this, stepping backwards left
+      // the current row sitting under the header row — it is `top < wellBox.top`
+      // that is false there, which is why it read as correct.
+      const usableTop =
+        wellBox.top +
+        (ledgerHead?.querySelector('th')?.getBoundingClientRect().height ?? 0);
+      if (rowBox.top < usableTop || rowBox.bottom > wellBox.bottom) {
         ledgerWell.scrollTop +=
           rowBox.top - wellBox.top - (wellBox.height - rowBox.height) / 2;
       }
