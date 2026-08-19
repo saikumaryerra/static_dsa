@@ -95,6 +95,17 @@ describe('firstSentence', () => {
       const sentence = firstSentence(step.explanation);
       expect(step.explanation.startsWith(sentence)).toBe(true);
       expect(sentence).not.toBe('');
+      // The two assertions the name actually promises. Without them a cell
+      // reading "Done." passed as an intact sentence, which is how
+      // heap-operations and stack-operations shipped one-word rows.
+      expect(sentence.length).toBeLessThanOrEqual(160);
+      expect(sentence).toMatch(/[.?!]$/);
+      // NOT a minimum word count, though the obvious next assertion. Measured
+      // across all 20 algorithms it flags 25 rows and ~22 are correct: "Add
+      // vertex 0." IS the whole explanation, and "Call factorial(4)." is a good
+      // row. The five sorts' "Sorted!" and BFS/DFS's "… complete." are terse by
+      // authorial choice and their totals live in the cost columns beside them.
+      // A one-word cell is a COPY smell, not a rule a test can carry.
     }
   });
 });

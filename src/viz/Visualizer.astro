@@ -1562,8 +1562,11 @@ const targetId = `${uid}-target`;
 
      So it takes the pattern this site already ships on `.skip-link` — hidden
      until focused, visible while focused, instant with no transition, keyed off
-     `:focus` rather than `:focus-visible` so that clicking its own `<label>`
-     reveals it too. The difference is WHERE it hides: the skip link parks itself
+     `:focus-within` on the wrapper so the label returns with the control it
+     names. Reveal is KEYBOARD-ONLY by construction, and deliberately so: the
+     label is clipped to 1x1 at rest and the slider itself is `pointer-events:
+     none` while hidden, so no pointer route into it exists. The rows of the
+     ledger below are the pointer scrubber; this is the keyboard and AT one. The difference is WHERE it hides: the skip link parks itself
      off-viewport with a transform because it appears in the viewport's corner,
      while a scrubber has to reveal IN PLACE, so it hides in place instead —
      `opacity` plus `pointer-events`, and the box it will occupy stays reserved,
