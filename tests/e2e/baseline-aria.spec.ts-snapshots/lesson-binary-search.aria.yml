@@ -195,7 +195,7 @@
       - text: is the comparison that throws away half the array, and
       - link "the last row — step 4 in the run written out below":
         - /url: "#viz-binary-search-8phqkb-row-4"
-      - text: is where 7 turns up at index 3. Try your own sorted array and target to see how few steps it really takes.
+      - text: is where the search ends. Try your own sorted array and target to see how few steps it really takes.
     - heading "Linear search, step by step" [level=3]
     - paragraph:
       - text: Here is linear search on an
