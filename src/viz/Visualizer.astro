@@ -1625,9 +1625,14 @@ const targetId = `${uid}-target`;
      a DOT — a shape, so it survives forced colours and every form of colour
      blindness — while the border turns brand and an inset ring thickens it
      WITHOUT reflowing the row. It is PracticeCheck's chosen-grade recipe on
-     purpose: the same 12% brand tint over the same `--surface` control fill, so
-     "this is on" looks identical in both places and its measured `--text`
-     contrast (14.21:1 light / 10.92:1 dark) carries over unchanged. The state
+     purpose: the same 12% brand tint over the same backdrop, so "this is on"
+     looks identical in both places and its measured `--text` contrast (13.85:1
+     light / 12.21:1 dark) carries over unchanged. That backdrop is the page
+     canvas, NOT this control's own `--surface` fill: the tint is translucent and
+     REPLACES that fill, and neither this toggle nor PracticeCheck's buttons have
+     a painted ancestor before `<html>` — `.viz-frame` does not contain the
+     transport bar. Confirmed by sampling both rendered controls, which composite
+     to the same #DFE0DF light / #292A2B dark. The state
      itself is carried to assistive tech by `aria-pressed`, and the visible label
      stays the constant "Predict". */
   .viz-predict-toggle__dot {

@@ -419,10 +419,10 @@ const tracks = trackDefs.map((def) => {
      reward, the exact defect VD-3 exists to end.
 
      The keyline is `--border`, NOT `--brand-border`: tokens.css declares that
-     token decorative (1.49:1 on `--surface` and 1.43:1 on the canvas, both
+     token decorative (1.36:1 on `--surface` and 1.32:1 on the canvas, both
      light) and bars it from being the only thing defining an interactive
      boundary — which is what it was doing here. `--border` is decorative too
-     (1.18:1 light / 1.81:1 dark against the canvas) and that is fine, because
+     (1.32:1 light / 1.36:1 dark against the canvas) and that is fine, because
      it is not what identifies the link: the tinted fill, the shadow and the
      brand "Play it in the lesson →" line are. Same division of labour as
      `.track-card`, the reference level-1 card. */
@@ -439,16 +439,18 @@ const tracks = trackDefs.map((def) => {
   }
 
   /* Hover promotes to level 2: `--shadow-2` plus the model's `--text-muted`
-     keyline, 6.78:1 light / 5.68:1 dark on this fill. (`--border-strong` would
-     be 3.06:1 dark here — right on the 1.4.11 floor, which is why the model
-     names `--text-muted` as the level-2 keyline in the first place.)
+     keyline, 5.43:1 light / 6.21:1 dark on this fill. (`--border-strong` would
+     be 2.96:1 dark here — now UNDER the 1.4.11 floor rather than on it, which is
+     why the model names `--text-muted` as the level-2 keyline in the first
+     place, and the same measurement that sent the glossary chip's new hover edge
+     to `--brand`.)
 
      The FILL stays `--brand-soft`. global.css's level-2 note exempts a branded
      surface from the fill/keyline pair — a brand fill already lifts a panel off
      the page, which is why `.skip-link` keeps its own and takes the shadow
      alone. This panel takes the KEYLINE anyway, because in dark a shadow tops
-     out at 1.12:1 on the canvas and cannot carry a state change by itself: the
-     keyline moving from 1.41:1 to 5.68:1 against the fill is what a dark-theme
+     out at 1.10:1 on the canvas and cannot carry a state change by itself: the
+     keyline moving from 1.08:1 to 6.21:1 against the fill is what a dark-theme
      reader actually sees happen. */
   .hero-demo:hover {
     border-color: var(--text-muted);
@@ -532,7 +534,7 @@ const tracks = trackDefs.map((def) => {
   /* The lesson's own 0.42, and DIFFERENTIAL here: this frame keeps a live
      window and a probe, so the dim is exactly what makes the narrowing visible
      — the three ruled-out cells recede while every cell that still carries
-     information stays at full strength (`--text` is 14.45:1 light / 9.12:1 dark
+     information stays at full strength (`--text` is 14.76:1 light / 11.73:1 dark
      on the live `is-range` tint). The /404 still deliberately scopes the same
      0.42 instead: there the search has collapsed and EVERY cell is eliminated,
      so a whole-cell wash would fade the drawing without saying anything — see

@@ -256,13 +256,16 @@ const gateLine = `Mastery needs a return visit at least ${MASTERY_GATE_DAYS} day
 
   /* FORCED COLOURS. The colour half of the two rules above is author colour on
      an SVG, and that is the half this mode does NOT take back. Measured in
-     Chromium with forced colours active: `color: #4F46E5` on an HTML element
-     computes to CanvasText, but the same declaration on an `<svg>` computes to
-     #4F46E5 — as does `stroke`, from CSS or from a presentation attribute. So
-     without this block the pips kept --brand and --border-strong on a Canvas
-     they were never picked against, and the EARNED pip was the fainter of the
-     two: light tokens on a black Canvas put --brand at 3.34:1 and
-     --border-strong at 4.41:1. Said explicitly in system colours instead, which
+     Chromium with forced colours active: an author `color` on an HTML element
+     computes to CanvasText, but the same declaration on an `<svg>` keeps the
+     author's value — as does `stroke`, from CSS or from a presentation
+     attribute. So without this block the pips kept --brand and --border-strong
+     on a Canvas they were never picked against, and the EARNED pip was the
+     fainter of the two: light tokens on a black Canvas put --brand at 1.15:1
+     and --border-strong at 5.19:1. The achromatic repaint did not fix that, it
+     widened it — --brand was 3.34:1 against --border-strong's 4.41:1 while the
+     brand was indigo, and a near-black earned pip on a black Canvas is now
+     effectively invisible. Said explicitly in system colours instead, which
      are the one kind of author colour this mode does not override — the pips
      draw from `currentColor`, so setting `color` carries the ring, the check and
      the inner dot together.

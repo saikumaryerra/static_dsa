@@ -97,9 +97,14 @@ if it looks like an improvement.
   durations come only from the `--duration-*` tokens (reduced motion collapses them in one place);
   sticky offsets come only from `--header-h`; the six `--hl-*` roles are reserved for the
   visualization, so chrome uses `--accent-warn`.
-- **The design decisions in the docs are decisions.** The left-aligned reading measure and the
-  neutral difficulty chips look like bugs and are not; changing one is a spec amendment with
-  designer sign-off. Check the docs before "fixing" something that looks off.
+- **The chrome is achromatic on purpose.** `--brand` is byte-identical to `--text`, so the only
+  colours on a lesson page are the `--hl-*` roles explaining the algorithm and `--accent-warn` on a
+  warning callout. Distinctions that used to ride on the brand hue carry a second signal instead
+  (underlines on prose links, fill **and** border on control hovers); `tests/unit/palette-states.test.ts`
+  pins the ones the contrast matrix cannot see. Re-introducing a brand hue is a spec amendment.
+- **The design decisions in the docs are decisions.** The left-aligned reading measure, the neutral
+  difficulty chips and the achromatic chrome look like bugs and are not; changing one is a spec
+  amendment with designer sign-off. Check the docs before "fixing" something that looks off.
 
 ## Where the documentation lives
 

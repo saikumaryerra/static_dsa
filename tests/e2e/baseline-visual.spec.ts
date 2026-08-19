@@ -1,66 +1,71 @@
 /**
- * M7.1 Task 0 — pixel half of the regression baseline. OPT-IN, and deliberately
- * skipped by default.
+ * M7.1 Task 0 — pixel half of the regression baseline. OPT-IN locally, ARMED on
+ * CI.
  *
- * STATUS: UNSEEDED — this file is a gate waiting for its baselines, not
- * coverage. No PNG has ever been committed under
- * `tests/e2e/baseline-visual.spec.ts-snapshots/` (the directory does not exist),
- * and the only place `VISUAL_BASELINE` is set is the manual seeding job in
- * `.github/workflows/ci.yml` — never on the DoD gate. So the 14 captures below
- * skip on every push, every PR, and every local run, and a green
- * `npm run test:e2e` says nothing whatsoever about pixels. M7.3 repainted every
- * surface on the site and went through review with this half of Task 0 inert;
- * the two steps that fix that are below, and the first of them is a one-click
- * workflow dispatch.
+ * STATUS: SEEDED AND GATED, since `dab6108`. All 14 PNGs are committed under
+ * `tests/e2e/baseline-visual.spec.ts-snapshots/`, and `.github/workflows/ci.yml`
+ * sets `VISUAL_BASELINE: '1'` on the DoD gate's `npm run test:e2e` step, so the
+ * captures below COMPARE on every push and every PR. They still skip on a bare
+ * local run, which is deliberate and explained under WHY SKIPPED LOCALLY.
  *
- * SO THE SKIP SAYS SO OUT LOUD. Fourteen silently-skipped tests read as coverage
- * in a green run; that is how three repaint phases passed over an inert gate.
- * Three things make the state legible instead:
+ * (This header said the opposite — unseeded, directory absent, flag never set on
+ * the gate — for as long as all three were false. Both halves of the two-step
+ * flow have been done; what follows describes RE-seeding, not turning it on.)
+ *
+ * THE SKIP STILL SAYS SO OUT LOUD, because a local run does skip. Fourteen
+ * silently-skipped tests read as coverage in a green run; that is how three
+ * repaint phases passed over an inert gate. Three things keep the state legible:
  *   - every capture DECLARES an annotation naming the gate it sits behind, and
  *     `test.skip`'s own reason rides along as a second one when it skips (both
  *     verified present in the reporter's output, skipped and not);
  *   - the always-running test below PRINTS the state on every run — how many
  *     baselines exist for this platform, how many captures were skipped, and the
  *     next action;
- *   - and that test FAILS if the two-step flow was left half-done, i.e. if
- *     baselines exist for this platform and nothing compares them. That is the
- *     guard the flow actually needs: step 1 ends in a reviewable artifact, so
- *     nobody forgets it, while step 2 is one line in a workflow file.
+ *   - and that test FAILS if the flow is ever left half-done, i.e. if baselines
+ *     exist for this platform and nothing compares them.
  *
- * WHY SKIPPED: the site ships a pure system font stack with no self-hosted
- * webfonts (tokens.css `--font-sans`), so the fonts that resolve — and their
- * hinting and subpixel rasterization — differ between a developer machine and
- * CI's ubuntu-latest runner. A PNG generated locally and committed would fail
- * every CI run forever, which trains everyone to ignore the visual gate. So the
- * baselines live only where they can be compared like-for-like.
+ * WHY SKIPPED LOCALLY: the site ships a pure system font stack with no
+ * self-hosted webfonts (tokens.css `--font-sans`), so the fonts that resolve —
+ * and their hinting and subpixel rasterization — differ between a developer
+ * machine and the CI container. A PNG generated on a workstation and committed
+ * would fail every CI run forever, which trains everyone to ignore the visual
+ * gate. So the baselines live only where they can be compared like-for-like, and
+ * a bare `npx playwright test` here skips rather than lying.
  *
- * TURNING IT ON — two steps, in this order, both in the CI environment:
+ * RE-SEEDING, after a deliberate visual change (a repaint, a layout move):
  *
- *   1. SEED. Run the `Seed visual baselines` job (Actions → CI → Run workflow)
- *      in `.github/workflows/ci.yml`, which does exactly:
- *        VISUAL_BASELINE=1 npx playwright test tests/e2e/baseline-visual.spec.ts \
- *          --update-snapshots
- *      on the same `ubuntu-latest` image the e2e job uses, and uploads the PNGs
- *      as the `visual-baselines` artifact. Review them, then commit them to
- *      `tests/e2e/baseline-visual.spec.ts-snapshots/`.
- *      That command works despite `updateSnapshots: 'none'` in the config, and
- *      the job ends GREEN — both verified against the installed Playwright
- *      (1.61.1): the CLI option wins over the config value, a bare
- *      `--update-snapshots` means `changed`, and in that mode a MISSING snapshot
- *      is written and the assertion passes. So a red seeding run means something
- *      actually broke, not "it wrote the files".
- *      Equivalent locally — the official image pinned to the installed
- *      Playwright version, which is what the runner uses:
- *        docker run --rm -v "$PWD":/w -w /w -e VISUAL_BASELINE=1 \
+ *   1. REGENERATE, in the CI environment — never on the host. Either run the
+ *      `Seed visual baselines` job (Actions → CI → Run workflow) in
+ *      `.github/workflows/ci.yml`, which uploads the PNGs as the
+ *      `visual-baselines` artifact for review; or do the same thing locally in
+ *      the image the gate pins:
+ *        docker run --rm -u 1000:1000 -v "$PWD":/w -w /w \
+ *          -e CI=1 -e VISUAL_BASELINE=1 \
  *          mcr.microsoft.com/playwright:v1.61.1-noble \
- *          npx playwright test tests/e2e/baseline-visual.spec.ts --update-snapshots
- *   2. GATE. Only once those PNGs are committed, set `VISUAL_BASELINE: '1'` on
- *      the e2e step of the `DoD gate` job so the comparison actually runs there.
- *      `updateSnapshots: 'none'` on CI (playwright.config.ts) then makes a
- *      missing or stale baseline a failure rather than a silent regeneration,
- *      and `maxDiffPixelRatio` absorbs antialiasing noise only. Flipping the
- *      gate BEFORE step 1 red-lines every run, which is why the flag is not set
- *      on that job today.
+ *          npx playwright test tests/e2e/baseline-visual.spec.ts \
+ *            --update-snapshots=all
+ *      `-u 1000:1000` is not optional in practice: without it the container
+ *      writes `test-results/` as root and the working tree needs a root `rm` to
+ *      clean up. NEITHER IS `=all`: a bare `--update-snapshots` means `changed`,
+ *      which rewrites only the captures whose diff EXCEEDED
+ *      `maxDiffPixelRatio` and silently leaves every under-threshold one
+ *      asserting the OLD design. Measured on the achromatic repaint, which moved
+ *      every route: the bare flag rewrote 8 of the 14 and left glossary (x2) and
+ *      lesson-binary-search (x4) stale-but-passing. The flag works at all
+ *      despite `updateSnapshots: 'none'` in the config, and the run ends GREEN —
+ *      both verified against the installed Playwright (1.61.1): the CLI option
+ *      wins over the config value, and a MISSING snapshot is written with the
+ *      assertion passing. So a red seeding run means something actually broke,
+ *      not "it wrote the files".
+ *   2. LOOK AT THEM, then commit. A whole-site repaint is exactly where a real
+ *      regression hides inside expected churn; `--update-snapshots` will happily
+ *      bake one in. Re-seed ALL of them, not only the ones that failed: a
+ *      capture that changed but stayed under `maxDiffPixelRatio` is a baseline
+ *      still asserting the old design, and silently.
+ *
+ * The gate itself needs nothing done to it: `updateSnapshots: 'none'` on CI
+ * (playwright.config.ts) makes a missing or stale baseline a failure rather than
+ * a silent regeneration, and `maxDiffPixelRatio` absorbs antialiasing noise only.
  *
  * THEME FORCING: every other spec forces the theme with
  * `page.addInitScript(localStorage.setItem('theme', …))`. That is unusable here,
@@ -86,7 +91,7 @@ const BASELINE_ON = !!process.env['VISUAL_BASELINE'];
  * as this constant's two call sites.
  */
 const SKIP_REASON =
-  'Visual baselines are generated and compared in the CI environment only — no PNG is committed yet, and VISUAL_BASELINE is unset. Seed them with the "Seed visual baselines" workflow job, then set VISUAL_BASELINE on the DoD gate (see the file header).';
+  "Visual baselines are compared in the CI environment only, where the gate sets VISUAL_BASELINE — the committed PNGs are rasterised by the pinned container's fonts and would not match this machine. Re-seed them in that container after a deliberate visual change (see the file header).";
 
 /**
  * The annotation every capture declares, skipped or not.
