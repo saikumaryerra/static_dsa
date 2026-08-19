@@ -92,6 +92,13 @@ function ledgerOf(viz: Locator): Locator {
   return viz.locator('[data-ledger]');
 }
 
+/** One ledger's column headers, in order, `#` first. */
+async function headersOf(ledger: Locator): Promise<string[]> {
+  return ledger
+    .locator('thead th')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''));
+}
+
 test.describe('the ledger, server-rendered', () => {
   /**
    * The whole point of the component: the table is BUILD-TIME output of the same
@@ -161,9 +168,10 @@ test.describe('the ledger, server-rendered', () => {
     // `<th scope="row">` — a `<tr role="button">` would destroy the
     // column-header association, which is the whole reason to build a table.
     await expect(ledger.getByRole('rowheader')).toHaveCount(4);
-    // `#` plus the two the generic fallback derives (`what happened`,
-    // `comparisons`) — the row NUMBER is not one of `Ledger.headers`.
-    await expect(ledger.getByRole('columnheader')).toHaveCount(3);
+    // `#` plus the five this algorithm's declared spec produces (`lo`, `mid`,
+    // `hi`, `what happened`, `comparisons`) — the row NUMBER is not one of
+    // `Ledger.headers`, it is the row's own `n`.
+    await expect(ledger.getByRole('columnheader')).toHaveCount(6);
     await expect(
       ledger.getByRole('rowheader').first().getByRole('button', {
         name: 'Go to step 1',
@@ -273,16 +281,53 @@ test.describe('showLedger, and the prop it must not contradict', () => {
    * `tests/unit/ledger.test.ts`; what is asserted here is the other half of the
    * pair — that a lesson, which says nothing about either prop, still gets the
    * counter column.
+   *
+   * It is also where binary-search's DECLARED columns are asserted end to end:
+   * `lo`, `mid`, `hi` are the three names the lesson's prose introduces, its
+   * renderer labels the range with, and all three code samples declare — the
+   * table is the fourth view of one run, in the run's own vocabulary — and the
+   * cost column stays last, after the sentence.
    */
-  test('a lesson keeps its cost column', async ({ page }) => {
+  test('a lesson shows its declared columns, and keeps its cost column', async ({
+    page,
+  }) => {
     await page.goto(LESSON);
-    const headers = await page
-      .locator('[data-ledger]')
-      .first()
-      .locator('thead th')
-      .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''));
+    const headers = await headersOf(page.locator('[data-ledger]').first());
 
-    expect(headers).toEqual(['#', 'what happened', 'comparisons']);
+    expect(headers).toEqual([
+      '#',
+      'lo',
+      'mid',
+      'hi',
+      'what happened',
+      'comparisons',
+    ]);
+  });
+
+  /**
+   * The other half of `Algorithm.ledger` being OPTIONAL: an algorithm that
+   * declares nothing still gets a table with something in it, built from the
+   * counters it already emits. Both instruments below take that path, and one of
+   * them shares a page with the declared table above — so the two behaviours are
+   * observable side by side rather than in theory.
+   */
+  test('an algorithm that declares nothing gets the generic table', async ({
+    page,
+  }) => {
+    await page.goto(LESSON);
+    const linear = page.locator('[data-viz][data-algorithm="linear-search"]');
+    expect(await headersOf(ledgerOf(linear))).toEqual([
+      '#',
+      'what happened',
+      'comparisons',
+    ]);
+
+    await page.goto('/learn/trees-bst');
+    expect(await headersOf(page.locator('[data-ledger]').first())).toEqual([
+      '#',
+      'what happened',
+      'comparisons',
+    ]);
   });
 });
 

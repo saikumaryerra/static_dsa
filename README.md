@@ -2,8 +2,9 @@
 
 A static, no-backend site that teaches data structures and algorithms to beginners. Every lesson
 pairs plain-language prose and three-language code with an **interactive visualization** you can
-play, pause, step through one operation at a time, and drive with your own input — and a quiet
-mastery loop (self-graded practice, three progress pips, spaced review, input-crafting trials, your
+play, pause, step through one operation at a time, drive with your own input, and read as a table —
+the whole run written out under the drawing, one row per step, which the prose can link straight
+into — and a quiet mastery loop (self-graded practice, three progress pips, spaced review, input-crafting trials, your
 own one-sentence "why does this work?" note, and a count of days you learned something) that never
 leaves your device.
 
@@ -67,7 +68,11 @@ The visualization architecture is **trace-then-render** and is not negotiable: a
 algorithm emits an ordered `Step[]` trace, a generic Player indexes into it, and a dumb per-structure
 renderer draws SVG for whatever step it is handed. Stepping backwards is just decrementing an index.
 Nothing hand-animates an algorithm with its own timers, and the gamification layer (predict mode,
-trials, Final Run) _consumes_ the same precomputed trace rather than forking the pipeline.
+trials, Final Run) _consumes_ the same precomputed trace rather than forking the pipeline. The
+ledger under each drawing is a second _view_ of that same trace — one row per `Step`, value columns
+read from `step.state` and the "what happened" cell taken verbatim from the authored explanation, so
+the table and the drawing can never tell different stories. It is server-rendered, so with
+JavaScript off it _is_ the lesson.
 
 Adding an algorithm is one file in `src/viz/algorithms/` plus one line in `src/viz/registry.ts`.
 

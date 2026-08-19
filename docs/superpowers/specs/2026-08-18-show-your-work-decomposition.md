@@ -1,8 +1,8 @@
 # Show Your Work — decomposition
 
-**Status:** approved design, decomposed into three sub-projects
+**Status:** **SHIPPED — all three plans complete** (A, B and C), 2026-08-20
 **Branch:** `feat/show-your-work-slice`
-**Date:** 2026-08-18
+**Date:** 2026-08-18 (decomposed) / 2026-08-20 (completed)
 
 ---
 
@@ -97,8 +97,15 @@ The redesign proper, and where nearly all the churn lived.
   from one `samples.map()` call site).
 - `core/ledger.ts` (pure) + `Ledger.astro`; the collapsed default; the DOM row cap.
 - The instrument restructured into one stacked frame; the scrub slider retained but visually hidden.
-- `<StepLink>` anchors; the seven-spec test migration.
-- binary-search declares columns; trees-bst proves the generic fallback.
+  **[corrected]** — retained and **revealed on focus**, not permanently hidden: a permanently
+  invisible focusable range input fails WCAG 2.4.7, and the island early-exits without the slider, so
+  deleting it would stop every instrument hydrating. No test migration was needed as a result; the
+  eight specs that drive it still pass unchanged.
+- `<StepLink>` anchors; the seven-spec test migration. **[corrected]** — see above: the migration
+  does not exist. What `<StepLink>` did need was a `scroll-margin-top` no `<tr>` inherits, a manual
+  correction inside the ledger's well, and the non-claiming half of the id derivation.
+- binary-search declares columns; trees-bst proves the generic fallback (`linear-search`, on the same
+  page as the declared table, proves it a second time).
 
 **Depends on:** Plan A (stable frames). **Spec:** `2026-08-19-plan-c-ledger-design.md`.
 
@@ -122,6 +129,25 @@ entirely, all found against the code:
 
 **A → B → C.** A first because it fixes the verified P0s and stabilises the drawings that C builds
 on. B may merge at any time, before or after A, since it shares no files with either. C last.
+
+Shipped in that order, from `dab6108`:
+
+| plan | commits | what landed |
+|---|---|---|
+| **A** — renderer contract | `dca2d89`, `931766c`, `2608374`, `74967ed`, `65e9ca0`, `598e039`, `6b0ca3b`, `b67ed78`, `3d6cb5d`, `9a52da2` | `Extent` + `measure` in the contract, one frozen box per trace, resting frames, marker labels routed by kind, the custom-input P0 |
+| **B** — achromatic palette | `6bf1ba9`, `1abdb62`, `dd03ef4`, `e5272f8`, `ca57342` | 13 tokens / 46 declarations, the collapsed hover states given a second signal, the brand mark, re-seeded baselines, `--update-snapshots=all` in CI |
+| **C** — the ledger | `7e0b583`, `8a6bc46`, `76584b9`, `a539661`, `2c5bae0`, `d8e3c2f`, + this record | stable instrument ids, `core/ledger.ts`, `Ledger.astro` + the stacked frame, the rebuild on every run, the predict gate, `<StepLink>`, declared columns |
+
+Three things the plans did not predict, all found against the running code and all now tests:
+
+- **Plan A's resting-frame fix was not what un-clipped `trees-bst`** — freezing the extent already
+  had, two tasks earlier. Corrected in place above rather than left to read as history.
+- **The ledger goes stale on every custom run** if it is derived once in frontmatter, which the
+  abandoned worktree did: a capped run reaches 901 steps against a 29-row table. The rebuild hangs
+  off `applyTrace`.
+- **The island mounts from an `IntersectionObserver`**, so a `<StepLink>` is what *starts* the
+  instrument it lands in — and the island's first mark scrolled the well back to row 1 a beat after
+  the reader arrived. The mark now scrolls only when it moves.
 
 ---
 

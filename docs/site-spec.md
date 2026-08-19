@@ -335,6 +335,20 @@ export interface Extent {
   h: number;                     // viewBox height in user units
 }
 
+// One value column of the ledger — the trace written out as a table (Plan C).
+// `from` reads the STEP, and the only thing it may read on it is `state`.
+export interface LedgerColumn<TState> {
+  label: string;                 // the column head, e.g. 'lo' — the algorithm's own name for it
+  from(step: Step<TState>): string | number | null; // null renders '·', never 0
+  numeric?: boolean;             // set in numerals (right-aligned); inferred from the value otherwise
+}
+
+// What an algorithm declares about its own table. Optional in every part.
+export interface LedgerSpec<TState> {
+  columns: LedgerColumn<TState>[];
+  costKey?: string;              // which metric closes the table, e.g. 'comparisons'
+}
+
 // Every instrumented algorithm implements this shape.
 export interface Algorithm<TInput, TState> {
   id: string;                    // e.g. 'binary-search'
@@ -349,6 +363,11 @@ export interface Algorithm<TInput, TState> {
   // Algorithms without it simply don't offer predict mode (the toggle hides).
   predictStep?(trace: Trace<TState>, i: number, input: TInput):
     { prompt: string; choices: string[]; correctIndex: number } | null;
+
+  // Plan C, optional: the value columns this algorithm's ledger shows. An
+  // algorithm that declares nothing gets the generic table built from the
+  // counters it already emits (`# · what happened · comparisons`).
+  ledger?: LedgerSpec<TState>;
 }
 
 // Options shared by the build-time still and the live mount.
@@ -459,6 +478,53 @@ Nothing else is normalised, so a malformed list still reaches `parseInput` and s
 algorithm's own message. Any such message must contain a first-field word (`core/error-field`'s
 `FIRST_FIELD_WORDS`, e.g. "array") or the error lands on the target field the reader got right.
 
+**The ledger — the trace, written out (added by Plan C).** A `Step` is one **row** and
+`Trace = Step[]` is the **table**, so `core/ledger.ts` (pure) transcribes one into the other and
+`Ledger.astro` draws it at the foot of the instrument, inside a native `<details>`. It is a second
+**view** of the same precomputed trace, never a second copy of its state: it re-runs nothing, holds
+no index of its own, and the Player stays the single source of which step is current. The
+`showLedger` prop (default `true`) opts a chrome demonstration out — `/about` and `/dev/renderers`
+set it `false` — and the cost column independently inherits `showMetrics`, so the two props cannot
+contradict each other.
+
+**Two provenance rules, enforced by tests rather than by review**, because they are exactly the kind
+of thing that rots silently:
+
+1. **A value cell reads `step.state` and nothing else.** `LedgerColumn.from` is handed the step and
+   may take only the snapshot the algorithm emitted.
+2. **"What happened" is authored text** — `firstSentence(step.explanation)`, deterministic, with the
+   terminator kept. Terminators are `.` `?` `!` and **not** `;`, because the flagship lesson's own
+   sentence is *"Search window is indices 0–5; middle index 2 holds 5…"* and splitting on the
+   semicolon truncated it before the probe.
+
+**There is deliberately no code path from `highlights` into a cell.** A view that reconstructs
+meaning out of highlight ids is a second narration channel able to disagree with the sentence the
+author wrote, on the one product whose promise is that nothing is faked. Two drafts of this design
+broke one of the two rules; both are now unit tests.
+
+**The row cap is 200, on every path** — the server render and the island's rebuild call the same
+function — and **whenever it binds the reader is told, in words, with both numbers**: *"Showing the
+first 200 of 901 steps. Narrow the input to see the whole run."* It can never bind on authored
+content (the longest shipped run is 33 rows); it binds only on a custom run near the §11.4 input
+caps, where a trace reaches 901 steps and a table stops being something a person reads.
+
+**Predict mode hides the whole table** (`setPredict`, the single writer of every piece of predict
+state), because the ledger renders `trace[i + 1]` — the step every predictor grades against — and
+for bubble and insertion sort the `swaps` column *is* the grading expression. Hidden, not blanked:
+blanking the rows past the current one still leaks the answer through the row count, and styling a
+leak is not hiding it. Row seeks are declined on the same condition the slider's handler already
+uses. This is **not** the killed cost withholding — see §19.1, which carries the distinction so it
+is not re-litigated.
+
+**Instrument ids are derived, not random** (`core/instrument-id.ts`): `viz-${algorithm}-${hash}` over
+`pathname:algorithm:renderer`, with a per-render tally appending `-2` only on an actual repeat. Rows
+are `${uid}-row-${n}`, 1-based, which is what makes a run addressable at all —
+`<StepLink algorithm renderer step>` is a prose link to one of them. It resolves its target through
+`instrumentIdFor`, the **non-claiming** half of that module: `claimInstrumentId` mints, so asking it
+again for an existing instrument's id returns the id of one that does not exist. A `<tr>` inherits no
+`scroll-margin-top` from the lesson layout (that rule is scoped to `h2`/`h3`), so the ledger declares
+the same offset for its rows and the instrument declares it too.
+
 ### 11.3 The `Visualizer` island (public API used in MDX)
 
 ```mdx
@@ -468,6 +534,7 @@ algorithm's own message. Any such message must contain a first-field word (`core
   input="[1,3,5,7,9,11] target=7" // optional initial input; else algorithm.defaultInput()
   allowCustomInput={true}
   showMetrics={true}
+  showLedger={true}             // Plan C: the run written out under the drawing
 />
 ```
 
@@ -683,6 +750,22 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
       page exceeds 60 KB gz of eager JS — and Lighthouse targets (§14), which stay a manual check.
 - [ ] No `console.log`, no dead code, no unexplained `SPEC-GAP` left unreviewed.
 
+**Two blind spots in that gate, found by Plan C. Neither is a bug; both are things the checklist
+cannot see, so anyone adding surface of the same shape has to know about them.**
+
+- **axe cannot see a closed `<details>`.** Its content is `display: none`, so every shipped scan
+  walked straight past the ledger. Anything put behind a disclosure — or behind any collapsed
+  container — needs a scan that OPENS it first. Doing that for the ledger immediately found a real
+  `serious` failure (`scrollable-region-focusable` on three wells), which had been invisible not
+  because the scan was weak but because the scan never reached it. The same applies to any state a
+  scan cannot enter on its own: a mode toggle, a revealed panel, an error state.
+- **The aria baselines were stale by a whole milestone and passed anyway.** They predated M8
+  entirely, and `toMatchAriaSnapshot` matches a SUBSET: everything M8 added was an *addition*, so
+  every missing item was invisible to the comparison. A green aria run therefore means "nothing that
+  was recorded has changed", not "the tree is what the file says". Re-seed them whenever a
+  milestone adds structure — and read the diff, because that is the only moment the drift is
+  visible.
+
 ---
 
 ## 19. Open questions (flag with `SPEC-GAP`, don't block on them)
@@ -714,7 +797,7 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
   `hash-table-operations` included, since its `cap=` companion defaults — so all twelve messages
   understate the format.)
 
-### 19.1 Settled by measurement — do not re-propose (Plan A)
+### 19.1 Settled by measurement — do not re-propose (Plans A and C)
 
 Closed items live here so they stay closed. Each was designed, then deleted by a measurement rather
 than by taste; re-proposing one is a spec amendment that has to beat the evidence.
@@ -729,6 +812,26 @@ than by taste; re-proposing one is a spec amendment that has to beat the evidenc
   lessons, two tests, a JS-off table with an amputated column, and an assertion that cannot pass on
   the flagship lesson. If hiding the metric is ever wanted it is a **product** decision about
   `showMetrics` and the authored final sentence, not a ledger detail.
+- **The ledger's predict gate is NOT that decision reversed (Plan C).** Anyone who finds
+  `setPredict`'s `ledgerRoot.hidden = on` will find the bullet above a paragraph later and conclude
+  cost withholding came back. It did not, and the three differences are the whole distinction. Cost
+  withholding was **permanent** — no reader could ever see the cell — for **every reader**, on
+  twelve instruments to guard six, and it hid a number *the product already puts on screen by
+  design*: `showMetrics` defaults to `true`, the final step's own authored sentence reads "…after 3
+  comparisons", and `FinalRun`'s "Watch it happen" link sends the reader to that instrument
+  deliberately. The predict gate is **opt-in** (nothing is hidden until a reader presses Predict, or
+  follows `?review=1`, which is the same act), **mode-scoped** (turning it off restores the table in
+  the state it was left in, and teardown does the same), and what it hides is *the one thing the
+  mode is defined by hiding*: predict grades against `trace[i + 1]`, so the mode exists precisely
+  because the next step is not on screen. Auto-play and the scrubber were already withdrawn for that
+  reason before the ledger existed — the gate **follows** that precedent rather than setting one,
+  and the table is simply the third control that would otherwise show the answer. It is also
+  **hidden, not blanked**: blanking the rows past the current one leaks through the row count, and
+  styling a leak is not hiding it. **Trace Trials were checked separately and are not a conflict** —
+  a trial drives its own instrument at a fixed step and never consults the mode. Finally the shape
+  stays closed: `buildLedger` has **no options parameter** (a `@ts-expect-error`ed three-argument
+  call is what keeps it that way), so a table with one column withheld cannot be built at all —
+  hiding the WHOLE table, in the island, for the duration of a mode, is the only mechanism there is.
 - **A vertical legibility floor** (a `--viz-label-min` token, an explicit pixel height,
   `overflow-y: auto`, a `max-height` and scroll-into-view). Three measurements retire all of it:
   every SVG is emitted `preserveAspectRatio="xMidYMid meet"` with `height: auto`, so scaling is

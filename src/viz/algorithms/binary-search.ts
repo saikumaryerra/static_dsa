@@ -10,6 +10,7 @@
 import type {
   Algorithm,
   Highlight,
+  LedgerSpec,
   PredictQuestion,
   Step,
   Trace,
@@ -303,6 +304,36 @@ function predictStep(
 }
 
 /** The registered Binary Search algorithm. */
+/**
+ * The ledger's value columns (Plan C §1): the search window and the probe.
+ *
+ * These are `lo`, `mid` and `hi` because the LESSON is: its prose introduces
+ * exactly those three names, the renderer labels the range ends `lo` and `hi`,
+ * and the code samples in all three languages declare the same three variables.
+ * The table is the fourth view of one run, and it uses the run's own vocabulary.
+ *
+ * PROVENANCE RULE 1, in the one place it is actually shipped: every cell reads
+ * `step.state` — the snapshot the algorithm emitted — and nothing else. Not the
+ * highlights, which say the same thing in the renderer's language and could
+ * disagree with it; not a re-derivation from the array and the target, which
+ * would be this algorithm implemented a second time in a view.
+ *
+ * `mid` is `null` before the first compare, so step 1 renders `·` rather than a
+ * number that would read as index 0. That is the whole reason `LedgerColumn.from`
+ * may return `null`.
+ */
+const ledger: LedgerSpec<BinarySearchState> = {
+  columns: [
+    { label: 'lo', from: (step) => step.state.lo, numeric: true },
+    { label: 'mid', from: (step) => step.state.mid, numeric: true },
+    { label: 'hi', from: (step) => step.state.hi, numeric: true },
+  ],
+  // Named rather than left to the generic fallback, which surfaces every metric
+  // key an algorithm emits: this one emits exactly `comparisons`, and saying so
+  // keeps the column order fixed if it ever emits a second.
+  costKey: 'comparisons',
+};
+
 export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   id: 'binary-search',
   label: 'Binary search on a sorted array',
@@ -310,4 +341,5 @@ export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   defaultInput: () => ({ array: [1, 3, 5, 7, 9, 11], target: 7 }),
   parseInput,
   predictStep,
+  ledger,
 };
