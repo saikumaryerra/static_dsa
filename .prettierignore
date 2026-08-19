@@ -9,6 +9,9 @@ src/layouts/BaseLayout.astro
 # full nested checkout of this repo; both are git-excluded already.
 .claude/
 .impeccable/
+# A root-owned leftover from a container e2e run; cannot be removed without a
+# root `rm`, and Prettier walks it because only `test-results/` is gitignored.
+.test-results-root-owned/
 
 # Build output & generated files
 dist/
