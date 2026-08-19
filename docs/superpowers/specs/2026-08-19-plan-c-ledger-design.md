@@ -275,9 +275,25 @@ Verified negatives, so they are not re-litigated:
 
 ---
 
-## 11. Open questions
+## 11. The DOM row cap — settled
 
-**One, and it is a design call rather than a fact:** the DOM row cap's value and its affordance.
-A 901-row table is reachable once §3 is fixed. The cap must state a number, what the reader sees
-when it binds ("showing the first N of M steps"), and whether the cap applies to the server-rendered
-authored run as well as to custom runs. Everything else in this spec is settled by measurement.
+**200 rows, one rule, applied to every run.** The reader is told, in words, whenever it binds:
+
+> Showing the first 200 of 901 steps. Narrow the input to see the whole run.
+
+Sized against measurement rather than taste. The largest run any lesson actually ships is
+**33 rows** (selection-sort; bubble 29, insertion 31, BST 19, binary-search 4), so **the cap can
+never bind on an authored run** — no lesson's table is ever truncated, and the server-rendered
+path is untouched in practice. It binds only on a custom run near the input caps, where a trace
+reaches 901 steps and a table stops being something a person reads.
+
+One rule rather than a server/client branch, because a cap that applied to only one path would be
+a second behaviour to keep in sync, and the spec's own standing rule is that a bounded output must
+say so — **no silent caps**. The message names both numbers and gives an action, because "narrow
+the input" is the honest advice: a 901-step run is a thing to step through, not to read.
+
+---
+
+## 12. Open questions
+
+None. The row cap above was the last one, and it is settled by measurement.
