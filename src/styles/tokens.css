@@ -240,14 +240,19 @@
   --brand: #ECECEA;
   --brand-contrast: #0E0F12;
 
-  /* Mirror of the light tint family: --brand-soft carries --text at 12.84:1 and
-     --brand at the same 12.84:1 (one value, two names now); --brand-hover
-     LIGHTENS here (dark's brand-filled controls brighten on hover) and is
-     19.17:1 against --brand-contrast; --brand-border is decorative only, same
-     rule as light. Unlike light, --brand-soft here is BRIGHTER than --surface
-     and --surface-sunken alike, so a hovered control lifts and a pressed one
-     sinks. */
-  --brand-soft: #242530;
+  /* Mirror of the light tint family: --brand-soft carries --text at 12.90:1 and
+     --brand at the same 12.90:1 (one value, two names now), --text-muted at
+     6.21:1; --brand-hover LIGHTENS here (dark's brand-filled controls brighten
+     on hover) and is 19.17:1 against --brand-contrast; --brand-border is
+     decorative only, same rule as light (1.08:1 on --brand-soft). Unlike light,
+     --brand-soft here is BRIGHTER than --surface and --surface-sunken alike
+     (1.16:1 and 1.24:1), so a hovered control lifts and a pressed one sinks.
+     The blue channel is +8 on red rather than the +12 an earlier #242530 draft
+     carried: this token FILLS large panels (.hero-demo, .notfound__demo, the
+     ToC's current entry), and at +12 it was visibly the bluest step in a ramp
+     whose other members sit at +5 to +7 — a tint the eye reads as colour in the
+     one place this repaint promised none. */
+  --brand-soft: #24252C;
   --brand-border: #2A2B31;
   --brand-hover: #FFFFFF;
 
@@ -283,7 +288,7 @@
     --border-strong: #6B6D75;
     --brand: #ECECEA;
     --brand-contrast: #0E0F12;
-    --brand-soft: #242530;
+    --brand-soft: #24252C;
     --brand-border: #2A2B31;
     --brand-hover: #FFFFFF;
     --hl-compare:  #F59E0B;

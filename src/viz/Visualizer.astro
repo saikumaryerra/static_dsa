@@ -757,41 +757,45 @@ const targetId = `${uid}-target`;
          and frame have always shared this token (they were #F6F7F9 on #F6F7F9
          before), so the inversion changed nothing about their relationship: the
          boundary is, and always was, the 1.5px `--border-strong` stroke —
-         4.76:1 / 3.07:1, both >= the 3:1 that WCAG 1.4.11 asks of it, and the
-         light figure IMPROVED with the inversion (4.55:1 before). `--surface-
-         sunken` was measured as the alternative (stroke 4.23:1 / 3.72:1, plus a
-         1.12:1 / 1.21:1 fill delta against the frame) and rejected: three other
+         4.05:1 / 3.44:1, both >= the 3:1 that WCAG 1.4.11 asks of it (the light
+         figure was 4.55:1 before the inversion and 4.76:1 before the achromatic
+         repaint; both moves stayed clear of the floor). `--surface-sunken` was
+         measured as the alternative (stroke 3.58:1 / 3.66:1, plus a 1.13:1 /
+         1.06:1 fill delta against the frame) and rejected: three other
          places restate this exact recipe against `--surface` — the guard test
          `tests/unit/tokens-contrast.test.ts`, the home hero's `renderStatic()`
          still and the 404 still — and the two stills exist to show readers the
          real product, so the lesson must not paint its cells differently.
        highlight `color-mix()` fills . unchanged, and for the same reason: the
          tints mix over `--surface`. Each `--hl-*` stroke on its own tint is
-         >= 3.92:1 / 4.20:1 (1.4.11 wants 3:1), `--text` on those tints is
-         >= 13.87:1 / 7.95:1, and the marker glyphs — text, so they owe 4.5:1 —
-         are >= 5.02:1 / 5.38:1 on the frame they are drawn over.
+         >= 3.92:1 / 5.15:1 (1.4.11 wants 3:1), `--text` on those tints is
+         >= 14.17:1 / 10.20:1, and the marker glyphs — text, so they owe 4.5:1 —
+         are >= 5.02:1 / 6.52:1 on the frame they are drawn over. The dark column
+         gained across the board when the repaint darkened `--surface`; light is
+         unchanged, because light `--surface` never moved.
        .viz-weight-pill .......... level 1, kept. It MASKS the frame behind an
          edge weight, so being the frame's own colour is its whole job.
        .viz-pill ................. `--bg` -> `--surface-sunken`. Metric and
          legend chips are the only consumers here that sit INSIDE the frame, so
          the plan's blanket "move to --surface" would have painted them white on
-         white; their `--border` keyline is just 1.22:1 there, so the fill has to
-         carry the shape. A sunken chip on a level-1 card is 1.12:1 / 1.21:1 —
-         faint by design, and the readable part clears AA either way
-         (`--text-muted` 6.74:1 / 6.91:1, the `<b>` value 15.87:1 / 14.36:1).
+         white; their `--border` keyline is just 1.20:1 / 1.34:1 there, so the
+         fill has to carry the shape. A sunken chip on a level-1 card is 1.13:1 /
+         1.06:1 — faint by design, and the readable part clears AA either way
+         (`--text-muted` 5.90:1 / 7.68:1, the `<b>` value 16.13:1 / 15.96:1).
        .viz-btn, .viz-select,
        .viz-field input,
        .viz-keys kbd ............. `--bg` -> `--surface`. These sit OUTSIDE the
          frame, on the page canvas, where level 1 is the raised reading — the
-         move `.btn-secondary` already made. `--border-strong` is 4.55:1 on the
-         canvas and 4.76:1 on their own fill; a sunken fill would have been
-         1.06:1 against the canvas, i.e. gone.
+         move `.btn-secondary` already made. `--border-strong` is 3.94:1 / 3.71:1
+         on the canvas and 4.05:1 / 3.44:1 on their own fill; a sunken fill would
+         have been 1.10:1 / 1.02:1 against the canvas, i.e. gone.
        .viz-btn[aria-disabled] ... `--surface` -> `--bg`. The bound state works
          by flattening into the background, so it has to follow the background.
-         `--text-muted` on it is 7.24:1 / 7.30:1 before the shared 0.5 opacity.
+         `--text-muted` on it is 6.49:1 / 7.80:1 before the shared 0.5 opacity.
        .viz-slider thumb ring .... `--surface` -> `--bg`. The ring punches the
          thumb out of what is behind the slider, which is the canvas; against
-         the brand-filled track it reads at 6.01:1 / 6.28:1. */
+         the brand-filled track it reads at 17.77:1 / 16.20:1 — the achromatic
+         repaint took that from 6.01:1 / 6.28:1, since the track is now --text. */
 
   /* ---- Region + frame ---- */
   .viz {
@@ -1256,7 +1260,7 @@ const targetId = `${uid}-target`;
      drawing rather than a decorative dot. --legend-hl is set inline from
      HIGHLIGHTS[kind].token, which keeps the token mapping in ONE place. It
      survives the pill's move to a sunken fill (M7.3): the tint still samples the
-     cell, and the 2px --hl-* border is >= 4.46:1 / 6.51:1 against the chip. */
+     cell, and the 2px --hl-* border is >= 4.43:1 / 6.94:1 against the chip. */
   .viz-legend__swatch {
     flex-shrink: 0;
     width: 0.875rem;
@@ -1557,8 +1561,11 @@ const targetId = `${uid}-target`;
      colour change on its own reads as a rendering artefact; :active sinks to the
      well level — a fill move, never a transform, since motion in this component
      belongs to the drawing. :focus-visible is deliberately absent: the global
-     ring owns it. --text is 15.97:1 / 11.82:1 on --brand-soft and 15.87:1 /
-     14.36:1 on --surface-sunken. */
+     ring owns it. --text is 14.86:1 / 12.90:1 on --brand-soft and 16.13:1 /
+     15.96:1 on --surface-sunken. Those two fills are the WHOLE difference
+     between hover and pressed now that both states share a --brand border and
+     --brand has no hue left (1.09:1 apart light, 1.24:1 dark) —
+     tests/unit/palette-states.test.ts fails if a palette edit collapses them. */
   .viz-btn:not(:disabled):not([aria-disabled='true']):hover {
     border-color: var(--brand);
     background-color: var(--brand-soft);
@@ -1579,7 +1586,7 @@ const targetId = `${uid}-target`;
 
   /* The brand family's own shades, like `.btn-primary`: --brand-hover darkens in
      light and lightens in dark, and :active takes one more step in whichever
-     direction the theme travels. --brand-contrast stays >= 7.90:1 on both. */
+     direction the theme travels. --brand-contrast stays >= 13.76:1 on both. */
   .viz-btn--play:not(:disabled):not([aria-disabled='true']):hover {
     color: var(--brand-contrast);
     background-color: var(--brand-hover);
@@ -1620,7 +1627,7 @@ const targetId = `${uid}-target`;
      WITHOUT reflowing the row. It is PracticeCheck's chosen-grade recipe on
      purpose: the same 12% brand tint over the same `--surface` control fill, so
      "this is on" looks identical in both places and its measured `--text`
-     contrast (14.25:1 light / 12.91:1 dark) carries over unchanged. The state
+     contrast (14.21:1 light / 10.92:1 dark) carries over unchanged. The state
      itself is carried to assistive tech by `aria-pressed`, and the visible label
      stays the constant "Predict". */
   .viz-predict-toggle__dot {
@@ -1733,7 +1740,7 @@ const targetId = `${uid}-target`;
      Post-inversion (M7.3) that backdrop is the page canvas, so this follows
      `--bg` — pointing it at `--surface` would now paint the bound state in the
      RESTING colour and erase the delta entirely. `--text-muted` on `--bg` is
-     7.24:1 / 7.30:1 before the shared 0.5 opacity. */
+     6.49:1 / 7.80:1 before the shared 0.5 opacity. */
   .viz-btn[aria-disabled='true'] {
     border-color: var(--border);
     background-color: var(--bg);
@@ -1765,7 +1772,7 @@ const targetId = `${uid}-target`;
 
   /* The stated reason behind predict's two unavailable controls. Shipped hidden
      in SSR and revealed by the toggle; `--text-muted` on the page canvas is
-     7.24:1 / 7.30:1. Sized like `.viz-keys`, because it is the same kind of
+     6.49:1 / 7.80:1. Sized like `.viz-keys`, because it is the same kind of
      thing: a quiet note about how the transport behaves right now. */
   .viz-predict-note {
     margin: var(--space-3) 0 0;

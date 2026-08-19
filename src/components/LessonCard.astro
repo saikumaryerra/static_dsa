@@ -115,13 +115,20 @@ const Heading = headingLevel;
   /* Fill, border, radius and the whole elevation ladder (resting --shadow-1;
      hover --surface-raised + --shadow-2 + a --text-muted keyline; pressed back
      to level 1) come from `.track-card` in global.css — deliberately NOT
-     restated here. The hover keyline is --text-muted, NOT --border-strong:
-     --border-strong on --surface-raised measures 2.64:1 in dark, below the 3:1
-     a meaningful boundary owes (M7.3 review). Only the
-     column layout and the denser padding a 15-card grid wants are local, and
-     both are state-independent: component styles are unlayered and would
-     otherwise beat `@layer components`' hover/active rules from the resting
-     state. Never declare border-color or box-shadow in this block. */
+     restated here. Only the column layout and the denser padding a 15-card grid
+     wants are local, and both are state-independent: component styles are
+     unlayered and would otherwise beat `@layer components`' hover/active rules
+     from the resting state. Never declare border-color or box-shadow in this block.
+
+     WHY THE KEYLINE IS STILL --text-muted, now that its original reason is gone:
+     it was chosen because --border-strong on --surface-raised measured 2.64:1 in
+     dark, below the 3:1 a meaningful boundary owes (M7.3 review). The achromatic
+     repaint takes that pairing to 3.15:1, so the trap dissolved — but 0.15 of
+     headroom is not a reason to move a keyline that has 6.61:1, and in dark this
+     keyline now carries the hover almost alone: the level-2 FILL move it used to
+     share the work with fell from 1.17:1 to 1.09:1 when --surface and
+     --surface-raised were repainted. The full arithmetic is in tokens.css's
+     dark --surface-raised note. */
   .lesson-card {
     display: flex;
     flex-direction: column;
@@ -154,20 +161,23 @@ const Heading = headingLevel;
     margin-left: auto;
   }
 
+  /* No hover rule here, and no `transition: color` — deliberately, since both
+     were deleted rather than lost. The title used to take `--brand` with the
+     card's hover; the achromatic repaint made `--brand` byte-identical to
+     `--text`, so the rule painted nothing and the transition animated a value
+     that could not change. The card carries the hover on its own, in the two
+     places that are not colour-dependent: the keyline moves 1.36:1 → 6.67:1 in
+     light and 1.26:1 → 6.61:1 in dark against the fill it sits on (`--border` on
+     the resting card, `--text-muted` on the raised one), and --shadow-1 becomes
+     --shadow-2. The "Start lesson →" line states the affordance in words for
+     anyone who never hovers at all.
+     Re-adding a colour hover means reintroducing a brand hue;
+     tests/unit/palette-states.test.ts is where that conversation starts. */
   .lesson-card__title {
     margin-top: var(--space-3);
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
     color: var(--text);
-    transition: color var(--duration-fast) var(--ease-standard);
-  }
-
-  /* The title picks up the brand with the card's own hover, so the thing being
-     pointed at reads as the link it is. Decorative: the underlying signal is
-     that the entire card is one <a>, and the "Start lesson →" line below states
-     it in words for anyone who never hovers. */
-  .lesson-card:hover .lesson-card__title {
-    color: var(--brand);
   }
 
   .lesson-card__summary {

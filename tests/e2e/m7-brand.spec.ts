@@ -272,12 +272,18 @@ test.describe('lesson cards', () => {
     await expect
       .poll(() => computed(card, 'borderTopColor'))
       .not.toBe(restingBorder);
-    // The title picks up the brand, so the thing under the pointer reads as the
-    // link it is — and it is the BRAND, not some one-off colour.
-    await expect
-      .poll(() => computed(title, 'color'))
-      .toBe(await tokenColour(page, '--brand'));
-    expect(await computed(title, 'color')).not.toBe(restingTitle);
+    // The title does NOT move, and that is the assertion. It used to take
+    // `--brand` on hover; the achromatic repaint made `--brand` byte-identical
+    // to `--text`, so the rule painted nothing and LessonCard deleted it along
+    // with its `transition: color`. Pinned here so a future palette that
+    // reintroduces a brand hue cannot silently resurrect a colour-only hover
+    // that this card's border and shadow already carry — the two polls above
+    // are what prove the hover applied at all, so no poll is needed for a value
+    // that must not change.
+    expect(await computed(title, 'color')).toBe(
+      await tokenColour(page, '--text'),
+    );
+    expect(await computed(title, 'color')).toBe(restingTitle);
   });
 });
 
@@ -395,8 +401,8 @@ async function expectLevelOne(
     await tokenStyle(page, 'box-shadow', '--shadow-1'),
   );
   // A fill this close to its backdrop cannot draw its own edge, so the keyline
-  // is not optional decoration here: in light, --surface is 1.05:1 against --bg
-  // and --brand-soft 1.07:1 (1.28:1 / 1.29:1 dark).
+  // is not optional decoration here: --surface is 1.03:1 against --bg in light
+  // (1.08:1 dark) and --brand-soft is 1.20:1 (1.26:1 dark).
   expect(parseFloat(await computed(panel, 'borderTopWidth'))).toBeGreaterThan(
     0,
   );
@@ -408,9 +414,9 @@ async function expectLevelOne(
 for (const theme of ['light', 'dark'] as const) {
   test.describe(`elevation, ${theme} theme`, () => {
     // Both themes, because the two halves of level 1 trade places between them:
-    // in light the fill does almost nothing (--surface is white on a #F8FAFC
+    // in light the fill does almost nothing (--surface is white on a #FCFCFB
     // canvas) and --shadow-1 carries the separation, while in dark a shadow tops
-    // out at 1.12:1 against the canvas and the fill and keyline carry it. A
+    // out at 1.10:1 against the canvas and the fill and keyline carry it. A
     // one-theme test would pass on a build where the other theme lost its half.
     test.use({ viewport: DESKTOP, colorScheme: theme });
 
