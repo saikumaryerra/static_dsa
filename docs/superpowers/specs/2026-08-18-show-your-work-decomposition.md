@@ -100,7 +100,21 @@ The redesign proper, and where nearly all the churn lived.
 - `<StepLink>` anchors; the seven-spec test migration.
 - binary-search declares columns; trees-bst proves the generic fallback.
 
-**Depends on:** Plan A (stable frames). **Spec:** to be written when its turn comes.
+**Depends on:** Plan A (stable frames). **Spec:** `2026-08-19-plan-c-ledger-design.md`.
+
+**[corrected 2026-08-19 by audit]** — three additions the carried-forward list below missed
+entirely, all found against the code:
+
+- **The ledger is Predict mode's answer key.** Every predictor grades on `trace[i+1]`; the table
+  renders it. For bubble and insertion sort the `swaps` column *is* the grading expression. Three
+  answers read off a four-row table would earn a Practiced mastery state, and `?review=1` opens
+  predict automatically. Gated in `setPredict`, with the row seeks declined the way the slider's
+  handler already declines. **Not** the killed cost withholding — see the spec's §4.1 evidence
+  table. Trace Trials are separately verified as *not* a conflict.
+- **The worktree's ledger goes stale on every custom run** — built in frontmatter, captured once,
+  never rebuilt. A capped run reaches 901 rows against a 29-row table.
+- **`suppressFinalCost` was wrong on its own terms** as well as by premise: it blanked 12
+  instruments to guard the 6 that host a Final Run.
 
 ---
 
@@ -163,10 +177,13 @@ no-authored-input fallback lies.
 **Plan B** — 13 tokens / 46 declarations / two literal sites, not "a one-line diff";
 `m7-brand.spec.ts` pins the chrome shadow.
 
-**Plan C** — the collapsed default must decide SSR-vs-hydrate (a server-collapsed table plus a
-JS-off disclosure button is a dead control); `hidden="until-found"` does not work on `<tr>`;
-`<StepLink>` needs row ids to anchor to; `firstSentence` must not break on `;`; the slider cannot be
-deleted (`Visualizer.astro:2173` early-exits without it) and seven e2e specs assert on it.
+**Plan C** — all carried into its spec: the collapsed default is a native `<details>`, which
+settles SSR-vs-hydrate (`hidden="until-found"` does not work on `<tr>` and is not used);
+`<StepLink>` needs row ids **and** a `scroll-margin-top` that no rule currently gives a `<tr>`;
+`firstSentence` must not break on `;` and must retain the terminator; the slider cannot be deleted
+(the island early-exits without it — now `Visualizer.astro:2232`, moved by Plans A and B) and
+**eight** specs depend on it, not seven. It is revealed-on-focus rather than permanently hidden,
+because a permanently invisible focusable range input fails WCAG 2.4.7.
 
 ---
 
