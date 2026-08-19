@@ -95,6 +95,7 @@
 import { algorithms, renderers } from './registry';
 import { collectLegend } from './core/legend';
 import { traceExtent } from './core/extent';
+import { claimInstrumentId } from './core/instrument-id';
 import {
   inputHelpText,
   probeListCap,
@@ -132,8 +133,19 @@ const {
   showTarget = true,
 } = Astro.props;
 
-// Unique id base so multiple visualizers on one page don't collide.
-const uid = `viz-${Math.random().toString(36).slice(2, 8)}`;
+// Unique id base so multiple visualizers on one page don't collide — DERIVED,
+// not random (Plan C §5). This was the last `Math.random()` in `src/`, which
+// made every instrument's id churn on every build: nothing could point INTO a
+// run and still resolve after a rebuild. The derivation, the per-render
+// collision tiebreak and the reasons for both live in `core/instrument-id.ts`;
+// `Astro.request` is that module's per-render key (never its `.headers`, which
+// warns on a prerendered page). The eight derived ids below ride on this.
+const uid = claimInstrumentId(
+  Astro.request,
+  Astro.url.pathname,
+  algorithm,
+  renderer,
+);
 
 // --- Build-time still (architecture §1): resolve the lazy chunks, run the algo,
 // render step 0 to a DOM-free SVG string. Unknown ids or malformed authored
@@ -282,6 +294,7 @@ const targetId = `${uid}-target`;
 
 <section
   class="viz"
+  id={uid}
   aria-label={`${label} visualization`}
   data-viz
   data-algorithm={algorithm}
