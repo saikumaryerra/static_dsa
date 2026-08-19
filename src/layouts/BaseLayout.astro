@@ -94,8 +94,17 @@ const ogImageUrl = new URL(ogImage, Astro.site);
         can read; SVG-capable browsers still prefer the vector below it. The
         apple-touch-icon is opaque and full-bleed on purpose — iOS composites home
         screen icons on their own squircle mask, so transparent corners would show
-        through. Both PNGs are rasterized from public/favicon.svg — regenerate them
-        from it, never redraw the mark by hand. */}
+        through. Both PNGs are rasterized from public/favicon.svg — regenerate
+        them with `npm run icons` (scripts/build-icons.mjs), never redraw the mark
+        by hand. That script is new with the achromatic repaint; until then this
+        comment gave the instruction with no tool behind it, and it asserts both
+        properties above on the way out — the 32 keeps its transparent corners,
+        the 180 ships no alpha channel at all.
+
+        The vector was ALSO undecodable until that same change: its comment
+        spelled a CSS custom property, and a double hyphen inside an XML comment
+        is a parse error, so every browser fell through to the 32px raster above.
+        Keep custom-property names out of favicon.svg's comment. */}
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

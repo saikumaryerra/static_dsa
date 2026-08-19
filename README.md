@@ -35,6 +35,7 @@ database or network access at runtime.
 | `npm test`                              | Vitest unit suite (`environment: 'node'`, no DOM, no `localStorage`)                                                                                       |
 | `npm run test:e2e`                      | Playwright + axe; locally it builds and previews first, so it needs :4321 free                                                                             |
 | `npm run og`                            | regenerates the Open Graph card from the real renderer — run by hand, never in the build                                                                   |
+| `npm run icons`                         | re-rasterizes `public/favicon-32.png` and `public/apple-touch-icon.png` from `public/favicon.svg` — run by hand after any edit to the mark                 |
 | `npm run audit:frames`                  | per instrument: how the drawing's viewBox varies across a full trace, and whether step 0 fits its own box — run by hand after any renderer geometry change |
 
 **Definition of Done for any change** (spec §18): `npm run build`, `npm run lint`,
