@@ -149,13 +149,13 @@
     - heading "Visualizer" [level=2]
     - region "Binary search on a sorted array visualization":
       - figure:
-        - img "Binary search on a sorted array Ready. Searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
+        - img "Binary search on a sorted array Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
         - list "What the highlights mean":
           - listitem: Current
           - listitem: Range
           - listitem: Found
         - text: Comparisons 0
-        - paragraph: Ready. Searching for 7 in a sorted array of 6 items. The whole array is the search window.
+        - paragraph: Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.
       - button "Reset to start" [disabled]
       - button "Step back" [disabled]
       - button "Play"
@@ -205,13 +205,13 @@
       - text: is the one being checked; cells to its left are already rejected. Notice there is no window to halve — it simply advances one index at a time until it finds the target or reaches the end.
     - region "Linear search through an array visualization":
       - figure:
-        - img "Linear search through an array Ready. Scanning left to right for 9 in an array of 6 items.": 8 0 3 1 5 2 9 3 1 4 7 5
+        - img "Linear search through an array Ready — scanning left to right for 9 in an array of 6 items.": 8 0 3 1 5 2 9 3 1 4 7 5
         - list "What the highlights mean":
           - listitem: Current
           - listitem: Range
           - listitem: Found
         - text: Comparisons 0
-        - paragraph: Ready. Scanning left to right for 9 in an array of 6 items.
+        - paragraph: Ready — scanning left to right for 9 in an array of 6 items.
       - button "Reset to start" [disabled]
       - button "Step back" [disabled]
       - button "Play"

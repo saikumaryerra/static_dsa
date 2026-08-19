@@ -99,7 +99,7 @@ function run(input: BinarySearchInput): Trace<BinarySearchState> {
     { array, lo, mid: null, hi, foundIndex: null },
     array.length === 0
       ? `The array is empty, so ${target} cannot be found.`
-      : `Ready. Searching for ${target} in a sorted array of ${array.length} ${
+      : `Ready — searching for ${target} in a sorted array of ${array.length} ${
           array.length === 1 ? 'item' : 'items'
         }. The whole array is the search window.`,
     array.length === 0 ? [] : [rangeHighlight(lo, hi)],

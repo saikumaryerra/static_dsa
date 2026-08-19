@@ -75,7 +75,7 @@ function run(input: LinearSearchInput): Trace<LinearSearchState> {
     { array, index: null, foundIndex: null },
     array.length === 0
       ? `The array is empty, so ${target} cannot be found.`
-      : `Ready. Scanning left to right for ${target} in an array of ${array.length} ${
+      : `Ready — scanning left to right for ${target} in an array of ${array.length} ${
           array.length === 1 ? 'item' : 'items'
         }.`,
     array.length === 0 ? [] : [windowHighlight(0, last)],
