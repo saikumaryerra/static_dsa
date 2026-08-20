@@ -16,6 +16,8 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
+import Band from '../../components/Band.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -132,15 +134,16 @@ There are two ways to fill that table, and they are the two faces of DP:
 1. **Bottom-up ([tabulation](/glossary#tabulation)).** Start at the base cases and fill left to right. By the time you reach `dp[i]`, both `dp[i-1]` and `dp[i-2]` are already sitting in the table, so each cell costs a single addition.
 2. **Top-down ([memoization](/glossary#memoization)).** Keep the natural recursion, but before recomputing any `dp[k]`, check the table first. If it is already filled, return the stored value immediately — a **cache hit**. If not, compute it once and record it so the next request is instant.
 
-Either way, each of the `n + 1` cells is computed exactly once. The visualizers below show the same table filling in both orders — watch which cells light up, and when a value gets reused instead of recomputed.
-
-## Visualizer
+Either way, each of the `n + 1` cells is computed exactly once. The visualizers show the same table filling in both orders — watch which cells light up, and when a value gets reused instead of recomputed.
 
 Watch the same Fibonacci table fill in two different ways. Each `dp[i]` lights up its two dependency cells (dashed tie-lines) so you can see `dp[i] = dp[i-1] + dp[i-2]` happen.
 
 ### Bottom-up (tabulation)
 
+<Bench id="visualizer">
+
 <Visualizer
+  slot="stage"
   algorithm="dp-fib-tabulation"
   renderer="table"
   input="6"
@@ -149,6 +152,8 @@ Watch the same Fibonacci table fill in two different ways. Each `dp[i]` lights u
 />
 
 Tabulation fills left → right; every value is ready before it is needed. There is nothing to look up because nothing is ever missing.
+
+</Bench>
 
 <Callout variant="tip">
   **Same table, two directions.** Tabulation fills bottom-up, left to right —
@@ -160,7 +165,10 @@ Tabulation fills left → right; every value is ready before it is needed. There
 
 ### Top-down (memoization)
 
+<Bench>
+
 <Visualizer
+  slot="stage"
   algorithm="dp-fib-memoization"
   renderer="table"
   input="6"
@@ -170,14 +178,22 @@ Tabulation fills left → right; every value is ready before it is needed. There
 
 Memoization recurses down from `dp[n]`, then backfills on the way up. A ✓ marks a value reused from the cache — the same subproblem the naive recursion would have recomputed. Memoization is simply the recursion lesson's `fib` call structure plus a lookup table.
 
-<Challenge id="dynamic-programming/cache-earns-its-keep" />
-<Challenge id="dynamic-programming/nothing-to-add" />
+</Bench>
+
+<Band>
+  <Challenge id="dynamic-programming/cache-earns-its-keep" />
+  <Challenge id="dynamic-programming/nothing-to-add" />
+</Band>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Each of the `n + 1` table cells is computed exactly once, and each costs a single addition, so the total work is `O(n)` — a dramatic improvement over the naive recursion's `O(2ⁿ)`. Because both variants store the whole table, the space is `O(n)`. (Fibonacci specifically can drop to `O(1)` space by keeping only the last two values, but the general DP shape keeps the full table.) Tabulation and memoization have identical `O(n)` time and `O(n)` space — they differ only in fill order, not in cost.
+
+</Bench>
 
 ## Code
 
@@ -222,6 +238,15 @@ The recursion lesson's `fib`, now remembering its answers. The `if n in memo` gu
 
 ## Practice
 
+<Bench>
+
+<FinalRun
+  slot="stage"
+  slug="dynamic-programming"
+  algorithm="dp-fib-memoization"
+  metric="cacheHits"
+/>
+
 Work each one out before opening the answer.
 
 **1. Naively, `fib(5)` recomputes `fib(2)` five times. How many times does the memoized version compute `fib(2)`?**
@@ -250,8 +275,4 @@ Work each one out before opening the answer.
   computes the subproblems actually needed to answer the query.
 </PracticeCheck>
 
-<FinalRun
-  slug="dynamic-programming"
-  algorithm="dp-fib-memoization"
-  metric="cacheHits"
-/>
+</Bench>

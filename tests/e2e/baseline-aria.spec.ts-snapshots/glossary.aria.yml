@@ -19,6 +19,10 @@
 - main:
   - heading "Glossary" [level=1]
   - paragraph: Every term the lessons introduce, defined in one or two sentences and linked back to where you first meet it.
+  - search:
+    - text: Filter terms
+    - searchbox "Filter terms"
+    - status
   - navigation "Jump to letter":
     - list:
       - listitem:

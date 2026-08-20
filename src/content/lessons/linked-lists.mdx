@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -116,28 +117,35 @@ A **pointer** is simply a reference that says "the next node is over there." Whe
 
 The visualization draws each node as a box with an arrow (`next`) to the following node; the final node points at `⌀` (null), meaning "end of list." Named carets under the boxes track our pointers.
 
-1. **Traverse** — to reach node `k`, start `curr` at the head and follow `next` `k` times. Each hop is one step, so reaching a deep node is **O(n)**. A `✓` badge marks nodes we have already passed.
-2. **Insert after** a node — create a new node, point its `next` at the current node's old `next`, then point the current node's `next` at the new node. Two arrows change; nothing shifts. That is **O(1)**.
-3. **Delete** a node — route the _previous_ node's `next` around the doomed node, so the chain skips it. The unlinked node is then freed. Again just one pointer changes: **O(1)**.
-
-Step through it and watch the arrows — not the boxes — do the work.
-
-## Visualizer
+<Bench id="visualizer">
 
 <Visualizer
+  slot="stage"
   algorithm="linked-list-operations"
   renderer="linkedList"
   input="[12,34,56,78] target=1"
   targetLabel="Index"
 />
 
+1. **Traverse** — to reach node `k`, start `curr` at the head and follow `next` `k` times. Each hop is one step, so reaching a deep node is **O(n)**. A `✓` badge marks nodes we have already passed.
+2. **Insert after** a node — create a new node, point its `next` at the current node's old `next`, then point the current node's `next` at the new node. Two arrows change; nothing shifts. That is **O(1)**.
+3. **Delete** a node — route the _previous_ node's `next` around the doomed node, so the chain skips it. The unlinked node is then freed. Again just one pointer changes: **O(1)**.
+
+Step through it and watch the arrows — not the boxes — do the work.
+
 Press **Play**, or **Step forward** to move one hop or pointer change at a time. Watch `curr` walk the list, the `+` splice a node in, and the `✕` unlink one. The number in the second box sets how far `curr` traverses before the insert.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Insert and delete are the best case at **O(1)** — _once you already hold the right node_, only a pointer or two change. But reaching that node is the worst case at **O(n)**, because there is no random access; you walk the chain. Each operation itself needs only **O(1)** extra space (a temporary pointer).
+
+</Bench>
 
 ## Code
 

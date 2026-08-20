@@ -113,6 +113,7 @@ const explainPrompt = entry.data.explainPrompt;
   description={summary}
   canonicalPath={`/learn/${slug}`}
   ogType="article"
+  wide
 >
   <script type="application/ld+json" slot="head" set:html={jsonLd} is:inline />
   <div class="lesson">
@@ -223,10 +224,6 @@ const explainPrompt = entry.data.explainPrompt;
           explainPrompt && <ExplainBack slug={slug} prompt={explainPrompt} />
         }
       </article>
-
-      <aside class="lesson__rail">
-        <TableOfContents headings={headings} variant="rail" />
-      </aside>
     </div>
   </div>
 </BaseLayout>
@@ -242,20 +239,23 @@ const explainPrompt = entry.data.explainPrompt;
     }
   }
 
-  @media (min-width: 1024px) {
-    .lesson__grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 15rem;
-      column-gap: var(--space-10);
-      /* No `align-items: start` here (M7.1 RSP-1): the rail must keep the grid
-         default `stretch` so it spans the article's full height. Collapsed to
-         its own content height, the `position: sticky` .toc--rail inside it has
-         zero travel and scrolls out of view after the first screenful. */
-    }
-  }
+  /* The 15rem ToC rail that used to take the right-hand column is retired
+     (redesign 2026-08, amendment L-3) — the sticky "On this page" bar now runs
+     at every width, and the column it freed is where the instrument pane lives.
+     `.lesson__grid` survives as the article's own wrapper rather than as a grid;
+     the two-column composition is per-bench now, because only a bench knows
+     whether it has prose worth scrolling past a pinned drawing. */
 
   .lesson__article {
     min-width: 0;
+  }
+
+  /* Everything that is not a bench keeps the lesson's original reading shell:
+     the page is wider now, but that width was bought for the instrument, and
+     spending it on the header or the practice questions would just move the
+     empty band rather than fill it. */
+  .lesson__grid > .lesson__article > :not(.lesson-body) {
+    max-width: var(--container-max);
   }
 
   .lesson__header {
@@ -358,24 +358,31 @@ const explainPrompt = entry.data.explainPrompt;
     margin-block: var(--space-8);
   }
 
-  .lesson__rail {
-    display: none;
-  }
-
-  @media (min-width: 1024px) {
-    .lesson__rail {
-      display: block;
-    }
-  }
-
-  /* ---- Lesson body: prose capped at --measure; viz/code/table break out ---- */
+  /* ---- Lesson body: prose capped at --measure; artifacts break out ---- */
   .lesson-body :global(> *) {
     max-width: var(--measure);
   }
 
+  /* Code and complexity tables break out of the measure but NOT to the full
+     shell: a 1376px-wide code block is a worse read than a 1152px one, and the
+     extra width was bought for the drawing. A bench takes all of it. */
   .lesson-body :global(> .viz),
   .lesson-body :global(> .codetabs),
   .lesson-body :global(> .complexity-table) {
+    max-width: var(--container-max);
+  }
+
+  .lesson-body :global(> .bench) {
+    max-width: 100%;
+  }
+
+  /* Inside a bench the same two rules apply one level down: the narration is
+     prose and keeps the measure, the instrument is not and takes its column. */
+  .lesson-body :global(.bench__read > *) {
+    max-width: var(--measure);
+  }
+
+  .lesson-body :global(.bench__stage > *) {
     max-width: 100%;
   }
 
@@ -398,24 +405,21 @@ const explainPrompt = entry.data.explainPrompt;
     margin-bottom: var(--space-3);
   }
 
-  /* Where an in-page jump parks a heading: clear of the sticky header always,
-     and of the sticky mini-ToC bar too below 1024px (M7.2 — the same reason
-     /glossary offsets for its sticky jump bar). Both offsets derive from
-     --header-h, replacing the hardcoded 5.5rem that was wrong at <768px where
-     the header is 56px. The scroll-spy READS this computed value as its band,
-     so the highlighted entry and the jump target can never disagree. */
+  /* Where an in-page jump parks a heading: clear of the sticky header and of
+     the sticky "On this page" bar (M7.2 — the same reason /glossary offsets for
+     its sticky jump bar). Both offsets derive from --header-h, replacing the
+     hardcoded 5.5rem that was wrong at <768px where the header is 56px. The
+     scroll-spy READS this computed value as its band, so the highlighted entry
+     and the jump target can never disagree.
+
+     The ≥1024px variant that dropped --toc-bar-h from this sum is gone with the
+     rail (amendment L-3): the bar is now the wayfinding at every width, so it
+     occupies the same band at every width and the offset is one rule again. */
   .lesson-body :global(h2),
   .lesson-body :global(h3) {
     scroll-margin-top: calc(
       var(--header-h) + var(--toc-bar-h) + var(--space-2)
     );
-  }
-
-  @media (min-width: 1024px) {
-    .lesson-body :global(h2),
-    .lesson-body :global(h3) {
-      scroll-margin-top: calc(var(--header-h) + var(--space-6));
-    }
   }
 
   .lesson-body :global(p) {

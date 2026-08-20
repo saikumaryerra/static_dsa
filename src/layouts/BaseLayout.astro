@@ -29,6 +29,14 @@ interface Props {
   canonicalPath?: string;
   ogType?: 'website' | 'article';
   ogImage?: string;
+  /**
+   * Widen the shell from `--container-max` to `--shell` (redesign 2026-08,
+   * amendment L-1). Only pages with a genuine third column ask for it: a lesson,
+   * whose instrument pane lives to the right of the reading column, and the
+   * curriculum. A measure-led page (`/about`, `/404`) must NOT — widening a
+   * shell that only ever holds one column of prose just moves the empty space.
+   */
+  wide?: boolean;
 }
 
 const {
@@ -36,6 +44,7 @@ const {
   description,
   canonicalPath,
   ogType = 'website',
+  wide = false,
   // SPEC-GAP (arch §5): §14 "OG images" is satisfied dependency-free by one static
   // 1200×630 default; per-page/per-lesson OG generation is deferred (would need a
   // heavy build dep). M7.3 SEO-2 replaced the flat indigo placeholder with a
@@ -72,6 +81,28 @@ const ogImageUrl = new URL(ogImage, Astro.site);
         them, ahead of the render-blocking CSS. This form is stripped at build. */}
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FCFCFB" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0E0F12" />
+    {/* Both self-hosted subsets, ahead of the render-blocking stylesheet, so the
+        fetch starts on the first byte of the document rather than after the CSS
+        parses and discovers the @font-face. `crossorigin` is mandatory even
+        same-origin — font requests are CORS-mode, and without it the browser
+        makes a SECOND request and the preload is wasted. Two files only, both
+        cut from this site's own characters and both immediately used on every
+        page, which is what makes preloading them honest rather than greedy:
+        60,020 + 17,684 bytes, measured (src/styles/font-charset.ts). */}
+    <link
+      rel="preload"
+      href="/fonts/plex-sans.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/plex-mono.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <!-- Pre-paint theme resolution (designer handoff, byte-verbatim — this file is
          listed in .prettierignore to keep it that way): must run before any content
          paints so the page never flashes the wrong theme. Mirrors
@@ -140,7 +171,14 @@ const ogImageUrl = new URL(ogImage, Astro.site);
     <a href="#main" class="skip-link">Skip to content</a>
     <SiteHeader />
     <!-- tabindex=-1: skip-link focus lands IN main, not just scrolls (WCAG 2.4.1). -->
-    <main id="main" tabindex="-1" class="mx-auto w-full max-w-container px-4 md:px-6">
+    <main
+      id="main"
+      tabindex="-1"
+      class:list={[
+        'mx-auto w-full px-4 md:px-6',
+        wide ? 'max-w-shell' : 'max-w-container',
+      ]}
+    >
       <slot />
     </main>
     <SiteFooter />

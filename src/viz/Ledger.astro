@@ -13,7 +13,21 @@
  * hides. A reader with JS off gets the complete worked example instead of a
  * still and a note.
  *
- * NATIVE `<details>` FOR THE COLLAPSE, and the default is closed. Zero JS, so it
+ * OPEN BY DEFAULT (redesign 2026-08). It shipped closed, which meant the single
+ * best explanatory artifact this product has — the run written out, one row per
+ * step, provably the same trace the drawing is showing — was a line of grey text
+ * a reader had to guess was worth clicking. "Show your work" cannot be the
+ * thesis and also be folded shut by default. The well is bounded (18rem, 12rem
+ * on a phone) and every row stays in the DOM, so a 200-row run costs the page a
+ * fixed 288px and scrolls inside itself; and it is still a real disclosure, so a
+ * reader who wants only the drawing closes it once.
+ *
+ * Two side effects worth naming, both good: it now PRINTS open (no stylesheet
+ * can open a closed `<details>`, which is why the print rules below could never
+ * reach it), and axe now scans it on every run rather than skipping it as
+ * `display: none` — the blind spot spec §18 records.
+ *
+ * NATIVE `<details>` FOR THE COLLAPSE. Zero JS, so it
  * is correct with JS off and the disclosure is a real control rather than a
  * button waiting to be brought to life; a JS-toggled `hidden` would leave the
  * JS-off reader with no way in at all. (`hidden="until-found"` is not an option
@@ -67,7 +81,7 @@ const capped = rows.length < total;
 const stepWord = total === 1 ? 'step' : 'steps';
 ---
 
-<details class="viz-ledger" data-ledger>
+<details class="viz-ledger" data-ledger open>
   <summary class="viz-ledger__summary">
     {
       /* Constant phrase first, instrument second — the shape CNT-8 already
@@ -269,6 +283,21 @@ const stepWord = total === 1 ? 'step' : 'steps';
   @media (max-width: 639px) {
     .viz-ledger__well {
       max-height: 12rem;
+    }
+  }
+
+  /* In a bench's pinned stage column the whole instrument has to fit one
+     viewport, and the well is the one part that can give: `26vh` keeps the
+     drawing, the sentence and the transport on screen together on a 900px-tall
+     laptop, where a flat 18rem pushed the transport under the fold. It is a
+     `min()`, so the well never grows beyond the 18rem it always had. Keyed to
+     the INSTRUMENT's width (`@container viz`), not the window's — the same box
+     the control bar measures itself against since the redesign. Declared after
+     the two rules above because a container query carries no extra specificity:
+     source order is what makes it win. */
+  @container viz (max-width: 34rem) {
+    .viz-ledger__well {
+      max-height: min(18rem, 26vh);
     }
   }
 

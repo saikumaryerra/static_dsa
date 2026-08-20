@@ -1,0 +1,50 @@
+---
+/**
+ * `<Band>` — a run of sibling cards laid out across the full lesson width
+ * (redesign 2026-08).
+ *
+ * The lesson body is a reading column: everything in it is capped at `--measure`
+ * so a paragraph never runs past a comfortable line. That is right for prose and
+ * wrong for a set of cards — two Trace Trials stacked at 68ch in a 1328px body
+ * leave half the page empty and make a pair of small, equal things look like a
+ * list of one-and-then-another.
+ *
+ * A band says "these belong together and they are peers": one column on a phone,
+ * two side by side once there is room. It is a `<Bench>`'s opposite number —
+ * bench pairs words with an artifact, band arranges peers — and between them the
+ * lesson has no section that has to sit in a half-empty page.
+ *
+ * `align-items: start` so a taller card does not stretch its neighbour into
+ * matching whitespace; the cards keep their own heights.
+ *
+ * No props, no script, no `<noscript>`: it is layout over content that already
+ * works, and with JavaScript off — or below the breakpoint — it is exactly the
+ * stack it always was.
+ */
+---
+
+<div class="band"><slot /></div>
+
+<style>
+  .band {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  /* The same 1200px the bench uses to earn its second column, for the same
+     reason: below it, one column of cards beats two cramped ones. */
+  @media (min-width: 1200px) {
+    .band {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
+    }
+  }
+
+  /* Paper has one column, always: two 60mm cards side by side is a layout for a
+     screen, not for a page a reader annotates. */
+  @media print {
+    .band {
+      display: block;
+    }
+  }
+</style>

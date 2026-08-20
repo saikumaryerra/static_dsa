@@ -4,9 +4,12 @@ A static, no-backend site that teaches data structures and algorithms to beginne
 pairs plain-language prose and three-language code with an **interactive visualization** you can
 play, pause, step through one operation at a time, drive with your own input, and read as a table —
 the whole run written out under the drawing, one row per step, which the prose can link straight
-into — and a quiet mastery loop (self-graded practice, three progress pips, spaced review, input-crafting trials, your
-own one-sentence "why does this work?" note, and a count of days you learned something) that never
-leaves your device.
+into. On a wide screen that instrument stays **pinned beside the prose** as you read, so a sentence
+and the thing it describes are never on different screens.
+
+Around it runs a quiet mastery loop — self-graded practice, three progress pips, spaced review,
+input-crafting trials, your own one-sentence "why does this work?" note, and a count of days you
+learned something — that never leaves your device.
 
 Built with Astro + TypeScript, prerendered to plain HTML/CSS with small islands of JS. No server, no
 database, no accounts, no analytics, no tracking. 15 lessons across two tracks; **all planned
@@ -37,6 +40,7 @@ database or network access at runtime.
 | `npm run test:e2e`                      | Playwright + axe; locally it builds and previews first, so it needs :4321 free                                                                             |
 | `npm run og`                            | regenerates the Open Graph card from the real renderer — run by hand, never in the build                                                                   |
 | `npm run icons`                         | re-rasterizes `public/favicon-32.png` and `public/apple-touch-icon.png` from `public/favicon.svg` — run by hand after any edit to the mark                 |
+| `npm run fonts`                         | re-cuts `public/fonts/*.woff2` to the characters `src/` actually contains, verifies every one renders, and rewrites `src/styles/font-charset.ts`           |
 | `npm run audit:frames`                  | per instrument: how the drawing's viewBox varies across a full trace, and whether step 0 fits its own box — run by hand after any renderer geometry change |
 
 **Definition of Done for any change** (spec §18): `npm run build`, `npm run lint`,
@@ -46,9 +50,31 @@ runs exactly those five as the `DoD gate`.
 Note for the two regression baselines. `tests/e2e/baseline-aria.spec.ts` runs everywhere.
 `tests/e2e/baseline-visual.spec.ts` is **seeded and armed on CI** — 14 PNGs are committed and the
 DoD gate sets `VISUAL_BASELINE=1` inside the pinned `mcr.microsoft.com/playwright:v1.61.1-noble`
-container, because the site ships a system-font stack and glyph rasterisation follows whatever
-fontconfig resolves. **Locally the flag is unset, so those 14 captures skip and a green local e2e
-run still says nothing about pixels**; re-seed through the workflow job, in the same container.
+container. It stays CI-only for hinting and sub-pixel reasons, but the biggest source of drift is
+gone: the site now self-hosts its two typefaces, so glyph shapes no longer follow whatever fontconfig
+resolves on the machine. **Locally the flag is unset, so those 14 captures skip and a green local
+e2e run still says nothing about pixels**; re-seed through the workflow job, in the same container.
+
+The same seeding run works locally if Docker is available, which is worth knowing when a change
+repaints the site and you would rather not round-trip through CI:
+
+```bash
+docker run --rm -v "$PWD:/w" -w /w -e CI=1 -e VISUAL_BASELINE=1 --ipc=host \
+  mcr.microsoft.com/playwright:v1.61.1-noble \
+  bash -c 'npm run build && npx playwright test tests/e2e/baseline-visual.spec.ts --update-snapshots=all'
+```
+
+`--update-snapshots=all`, never the bare flag — the bare flag means `changed`, which rewrites only
+the captures that FAIL and leaves any whose diff lands under `maxDiffPixelRatio` stale-but-passing.
+**Afterwards, hand the container's leftovers back**: it runs as root, so `dist/`, `node_modules/.vite`,
+`test-results/` and `playwright-report/` come back root-owned and the next local run cannot write
+them —
+
+```bash
+docker run --rm -v "$PWD:/w" -w /w mcr.microsoft.com/playwright:v1.61.1-noble \
+  bash -c 'rm -rf /w/dist /w/node_modules/.vite /w/test-results /w/playwright-report'
+```
+
 Expect the pixel gate to be coarse for text-level changes: `maxDiffPixelRatio: 0.002` on an
 ~8,600 px full-page screenshot tolerates ~30,000 px, so removing two 12px labels (569 px changed)
 passed all 14 captures unchanged — the **aria** baseline is what catches that class of change.
@@ -61,6 +87,7 @@ src/viz/                    the visualization pipeline (see below) + the id → 
 src/components/, layouts/   Astro components; a few carry small client scripts ("islands")
 src/lib/                    shared logic: progress/mastery store, challenges data, theme, glossary…
 src/styles/tokens.css       the design tokens — the single source of truth for colour/type/space
+public/fonts/               the two self-hosted IBM Plex subsets, generated by `npm run fonts`
 tests/unit/, tests/e2e/     Vitest (pure functions) and Playwright (DOM, storage, a11y)
 ```
 

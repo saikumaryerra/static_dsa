@@ -37,6 +37,7 @@
       - listitem:
         - link "Arrays":
           - /url: /learn/arrays
+    - group: On this page How it works
     - separator
     - heading "Intuition" [level=2]
     - paragraph: "Think about looking up a word in a paper dictionary. You do not start at page one and read every entry. You flip to the middle, glance at the word there, and decide: is my word before this page or after it? That one glance lets you throw away half the dictionary. Flip to the middle of what is left, decide again, and throw away half of that. In a few flips you have gone from thousands of pages to the single one you need."
@@ -122,11 +123,96 @@
       - code: hi
       - text: — there is nowhere left to look, so the target is not in the array.
     - paragraph:
-      - text: "The visualization below makes the shrinking window concrete: watch"
+      - text: "The run alongside makes the shrinking window concrete: watch"
       - code: lo
       - text: and
       - code: hi
       - text: close in on the answer, and see which half gets discarded after every comparison.
+    - paragraph:
+      - text: Press
+      - strong: Play
+      - text: to run it automatically, or
+      - strong: Step forward
+      - text: to move one comparison at a time. The highlighted band is the current search window; the lifted cell marked
+      - strong: mid
+      - text: "is the value being checked. The same run is written out under the drawing, one row per step:"
+      - link "step 2 in the run written out below":
+        - /url: "#viz-binary-search-8phqkb-row-2"
+      - text: is the comparison that throws away half the array, and
+      - link "the last row — step 4 in the run written out below":
+        - /url: "#viz-binary-search-8phqkb-row-4"
+      - text: is where the search ends. Try your own sorted array and target to see how few steps it really takes.
+    - region "Binary search on a sorted array visualization":
+      - figure:
+        - img "Binary search on a sorted array Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
+        - paragraph: Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.
+      - button "Reset to start" [disabled]
+      - button "Step back" [disabled]
+      - button "Play"
+      - button "Step forward"
+      - button "Predict"
+      - text: Step
+      - slider "Step": "0"
+      - text: Speed
+      - combobox "Speed":
+        - option "0.5×"
+        - option "1×" [selected]
+        - option "1.5×"
+        - option "2×"
+        - option "3×"
+      - paragraph: Space play/pause ← / → step
+      - group: Run it on your own input — Binary search on a sorted array
+      - list "What the highlights mean":
+        - listitem: Current
+        - listitem: Range
+        - listitem: Found
+      - text: Comparisons 0
+      - group:
+        - text: The run, written out — Binary search on a sorted array (4 steps)
+        - group "Binary search on a sorted array, scrollable table":
+          - 'table "Binary search on a sorted array: 4 rows, one per step of this run."':
+            - caption: "Binary search on a sorted array: 4 rows, one per step of this run."
+            - rowgroup:
+              - row "# lo mid hi what happened comparisons":
+                - columnheader "#"
+                - columnheader "lo"
+                - columnheader "mid"
+                - columnheader "hi"
+                - columnheader "what happened"
+                - columnheader "comparisons"
+            - rowgroup:
+              - row "Go to step 1 0 · 5 Ready — searching for 7 in a sorted array of 6 items. 0":
+                - rowheader "Go to step 1":
+                  - button "Go to step 1"
+                - cell "0"
+                - cell "·"
+                - cell "5"
+                - cell "Ready — searching for 7 in a sorted array of 6 items."
+                - cell "0"
+              - row "Go to step 2 0 2 5 Search window is indices 0–5; middle index 2 holds 5, which is less than 7. 1":
+                - rowheader "Go to step 2":
+                  - button "Go to step 2"
+                - cell "0"
+                - cell "2"
+                - cell "5"
+                - cell "Search window is indices 0–5; middle index 2 holds 5, which is less than 7."
+                - cell "1"
+              - row "Go to step 3 3 4 5 Search window is indices 3–5; middle index 4 holds 9, which is greater than 7. 2":
+                - rowheader "Go to step 3":
+                  - button "Go to step 3"
+                - cell "3"
+                - cell "4"
+                - cell "5"
+                - cell "Search window is indices 3–5; middle index 4 holds 9, which is greater than 7."
+                - cell "2"
+              - row "Go to step 4 3 3 3 Middle index 3 holds 7, which equals the target. 3":
+                - rowheader "Go to step 4":
+                  - button "Go to step 4"
+                - cell "3"
+                - cell "3"
+                - cell "3"
+                - cell "Middle index 3 holds 7, which equals the target."
+                - cell "3"
     - heading "How linear search compares" [level=3]
     - paragraph:
       - text: Linear search needs none of this bookkeeping. There is no
@@ -146,59 +232,8 @@
       - text: ", finding"
       - code: /\d+/
       - text: takes linear search six comparisons but binary search only three.
-    - heading "Visualizer" [level=2]
-    - region "Binary search on a sorted array visualization":
-      - figure:
-        - img "Binary search on a sorted array Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
-        - list "What the highlights mean":
-          - listitem: Current
-          - listitem: Range
-          - listitem: Found
-        - text: Comparisons 0
-        - paragraph: Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.
-      - button "Reset to start" [disabled]
-      - button "Step back" [disabled]
-      - button "Play"
-      - button "Step forward"
-      - button "Predict"
-      - text: Step
-      - slider "Step": "0"
-      - text: Speed
-      - combobox "Speed":
-        - option "0.5×"
-        - option "1×" [selected]
-        - option "1.5×"
-        - option "2×"
-        - option "3×"
-      - paragraph: Space play/pause ← / → step
-      - paragraph: Try your own input
-      - text: Array
-      - textbox "Array":
-        - /placeholder: "[1,3,5,7,9,11]"
-      - text: Target
-      - textbox "Target":
-        - /placeholder: "7"
-      - button "Run"
-      - button "Restore example"
-      - paragraph: "/Up to \\d+ whole numbers, comma-separated\\. Example: \\[\\d+,\\d+,\\d+,\\d+,\\d+,\\d+\\]/"
-      - group: The run, written out — Binary search on a sorted array (4 steps)
     - paragraph:
-      - text: Press
-      - strong: Play
-      - text: to run it automatically, or
-      - strong: Step forward
-      - text: to move one comparison at a time. The highlighted band is the current search window; the lifted cell marked
-      - strong: mid
-      - text: "is the value being checked. The same run is written out under the drawing, one row per step:"
-      - link "step 2 in the run written out below":
-        - /url: "#viz-binary-search-8phqkb-row-2"
-      - text: is the comparison that throws away half the array, and
-      - link "the last row — step 4 in the run written out below":
-        - /url: "#viz-binary-search-8phqkb-row-4"
-      - text: is where the search ends. Try your own sorted array and target to see how few steps it really takes.
-    - heading "Linear search, step by step" [level=3]
-    - paragraph:
-      - text: Here is linear search on an
+      - text: Here it is on an
       - strong: unsorted
       - text: array, so you can see it march through every cell in turn. The lifted cell marked
       - strong: curr
@@ -206,11 +241,6 @@
     - region "Linear search through an array visualization":
       - figure:
         - img "Linear search through an array Ready — scanning left to right for 9 in an array of 6 items.": 8 0 3 1 5 2 9 3 1 4 7 5
-        - list "What the highlights mean":
-          - listitem: Current
-          - listitem: Range
-          - listitem: Found
-        - text: Comparisons 0
         - paragraph: Ready — scanning left to right for 9 in an array of 6 items.
       - button "Reset to start" [disabled]
       - button "Step back" [disabled]
@@ -226,17 +256,48 @@
         - option "2×"
         - option "3×"
       - paragraph: Space play/pause ← / → step
-      - paragraph: Try your own input
-      - text: Array
-      - textbox "Array":
-        - /placeholder: "[8,3,5,9,1,7]"
-      - text: Target
-      - textbox "Target":
-        - /placeholder: "9"
-      - button "Run"
-      - button "Restore example"
-      - paragraph: "/Up to \\d+ whole numbers, comma-separated\\. Example: \\[\\d+,\\d+,\\d+,\\d+,\\d+,\\d+\\]/"
-      - group: The run, written out — Linear search through an array (5 steps)
+      - group: Run it on your own input — Linear search through an array
+      - list "What the highlights mean":
+        - listitem: Current
+        - listitem: Range
+        - listitem: Found
+      - text: Comparisons 0
+      - group:
+        - text: The run, written out — Linear search through an array (5 steps)
+        - group "Linear search through an array, scrollable table":
+          - 'table "Linear search through an array: 5 rows, one per step of this run."':
+            - caption: "Linear search through an array: 5 rows, one per step of this run."
+            - rowgroup:
+              - row "# what happened comparisons":
+                - columnheader "#"
+                - columnheader "what happened"
+                - columnheader "comparisons"
+            - rowgroup:
+              - row "Go to step 1 Ready — scanning left to right for 9 in an array of 6 items. 0":
+                - rowheader "Go to step 1":
+                  - button "Go to step 1"
+                - cell "Ready — scanning left to right for 9 in an array of 6 items."
+                - cell "0"
+              - row "Go to step 2 Index 0 holds 8, which is not 9. 1":
+                - rowheader "Go to step 2":
+                  - button "Go to step 2"
+                - cell "Index 0 holds 8, which is not 9."
+                - cell "1"
+              - row "Go to step 3 Index 1 holds 3, which is not 9. 2":
+                - rowheader "Go to step 3":
+                  - button "Go to step 3"
+                - cell "Index 1 holds 3, which is not 9."
+                - cell "2"
+              - row "Go to step 4 Index 2 holds 5, which is not 9. 3":
+                - rowheader "Go to step 4":
+                  - button "Go to step 4"
+                - cell "Index 2 holds 5, which is not 9."
+                - cell "3"
+              - row "Go to step 5 Index 3 holds 9, which equals the target. 4":
+                - rowheader "Go to step 5":
+                  - button "Go to step 5"
+                - cell "Index 3 holds 9, which equals the target."
+                - cell "4"
     - group "Two Probes, Fifteen Doors":
       - paragraph: Trace trial
       - paragraph: Two Probes, Fifteen Doors
@@ -255,27 +316,8 @@
       - paragraph: Craft an input in Try your own input on the visualization, then press Run.
       - status
     - heading "Complexity" [level=2]
-    - table "Time and space complexity":
-      - caption: Time and space complexity
-      - rowgroup:
-        - row "Measure Best Average Worst":
-          - columnheader "Measure"
-          - columnheader "Best"
-          - columnheader "Average"
-          - columnheader "Worst"
-      - rowgroup:
-        - row "Time O(1) O(log n) O(log n)":
-          - rowheader "Time"
-          - cell "O(1)"
-          - cell "O(log n)"
-          - cell "O(log n)"
-        - row "Space — — O(1)":
-          - rowheader "Space"
-          - cell "—"
-          - cell "—"
-          - cell "O(1)"
     - paragraph:
-      - text: The table above is for
+      - text: The table alongside is for
       - strong: binary search
       - text: . Every comparison throws away half of the remaining items, so the number of checks grows with the
       - strong: logarithm
@@ -297,6 +339,25 @@
       - text: space. Sorting an array first costs
       - code: O(n log n)
       - text: ", so a single search is not worth sorting for — but if you will search the same array many times, sorting once and using binary search repeatedly wins big."
+    - table "Time and space complexity":
+      - caption: Time and space complexity
+      - rowgroup:
+        - row "Measure Best Average Worst":
+          - columnheader "Measure"
+          - columnheader "Best"
+          - columnheader "Average"
+          - columnheader "Worst"
+      - rowgroup:
+        - row "Time O(1) O(log n) O(log n)":
+          - rowheader "Time"
+          - cell "O(1)"
+          - cell "O(log n)"
+          - cell "O(log n)"
+        - row "Space — — O(1)":
+          - rowheader "Space"
+          - cell "—"
+          - cell "—"
+          - cell "O(1)"
     - heading "Code" [level=2]
     - heading "Binary search" [level=3]
     - paragraph: The same algorithm in three languages. Notice how closely each mirrors the steps above — and how the structure matches the trace you stepped through in the visualizer.
@@ -369,31 +430,6 @@
           - /url: /learn/sorting-basics
         - link "Previous Recursion":
           - /url: /learn/recursion
-  - complementary:
-    - navigation "On this page":
-      - paragraph: On this page
-      - list:
-        - listitem:
-          - link "Intuition":
-            - /url: "#intuition"
-        - listitem:
-          - link "How it works":
-            - /url: "#how-it-works"
-        - listitem:
-          - link "Visualizer":
-            - /url: "#visualizer"
-        - listitem:
-          - link "Complexity":
-            - /url: "#complexity"
-        - listitem:
-          - link "Code":
-            - /url: "#code"
-        - listitem:
-          - link "Common pitfalls":
-            - /url: "#common-pitfalls"
-        - listitem:
-          - link "Practice":
-            - /url: "#practice"
 - contentinfo:
   - paragraph: LearnDSA — see data structures and algorithms in motion.
   - navigation "Footer":

@@ -21,8 +21,15 @@
  * binary-search visualizer via the `#viz-binary-search` wrapper (added in the
  * .mdx) so the second viz's duplicate controls/cells can't satisfy or break a
  * binary-search assertion. The assertions themselves are unchanged.
+ *
+ * Redesign 2026-08, amendment C-2: the custom-input form now sits behind a
+ * "Run it on your own input — …" disclosure, so `runCustom` opens it before it
+ * types. That is the only change here — every assertion below still exercises
+ * the same run, through the same real form.
  */
 import { expect, test, type Page } from '@playwright/test';
+
+import { openCustomInput } from './utils/disclosure';
 
 const LESSON = '/learn/binary-search';
 const VIZ = '#viz-binary-search';
@@ -37,8 +44,13 @@ async function hydrateViz(page: Page) {
   return viz;
 }
 
-/** Loads a custom array + target through the real custom-input form. */
+/**
+ * Loads a custom array + target through the real custom-input form, opening the
+ * disclosure that holds it (amendment C-2) first — idempotent, so this is
+ * correct whichever way the `<details>` ships.
+ */
 async function runCustom(page: Page, array: string, target: string) {
+  await openCustomInput(page.locator(VIZ));
   await page.locator(`${VIZ} [data-viz-array]`).fill(array);
   await page.locator(`${VIZ} [data-viz-target]`).fill(target);
   await page.locator(`${VIZ} [data-viz-run]`).click();

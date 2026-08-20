@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -167,6 +168,21 @@ Both traversals follow the same loop:
 
 The only difference is step 2's "remove": BFS removes from the **front** of a queue, DFS removes from the **top** of a stack.
 
+Step through both. **Violet ✓** marks visited nodes, the **dashed ring** marks the frontier (the queue or stack), and the lifted blue node is the one being processed. Each step's caption shows the frontier's exact contents.
+
+### Breadth-first search
+
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="bfs"
+  renderer="graph"
+  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
+  inputLabel="Edges"
+  targetLabel="Start node"
+/>
+
 Take this graph with edges `0-1, 0-2, 1-3, 2-3, 3-4, 4-5`, starting at node `0`. Following neighbors in ascending order, the frontier evolves like this:
 
 **BFS (queue, FIFO)** — dequeue front, enqueue neighbors at the back:
@@ -178,6 +194,21 @@ Take this graph with edges `0-1, 0-2, 1-3, 2-3, 3-4, 4-5`, starting at node `0`.
 - visit `3` → enqueue 4 → queue `[4]` … and so on
 - **visit order: 0, 1, 2, 3, 4, 5** — nearest-first.
 
+</Bench>
+
+### Depth-first search
+
+<Bench>
+
+<Visualizer
+  slot="stage"
+  algorithm="dfs"
+  renderer="graph"
+  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
+  inputLabel="Edges"
+  targetLabel="Start node"
+/>
+
 **DFS (stack, LIFO)** — pop top, push neighbors on top:
 
 - start: stack `[0]`
@@ -186,33 +217,17 @@ Take this graph with edges `0-1, 0-2, 1-3, 2-3, 3-4, 4-5`, starting at node `0`.
 - visit `3` → push 4 (and 2) → dives deeper before returning to 2
 - **visit order: 0, 1, 3, 2, 4, 5** — deep-first, then backtrack.
 
-Step through both below. **Violet ✓** marks visited nodes, the **dashed ring** marks the frontier (the queue or stack), and the lifted blue node is the one being processed. Each step's caption shows the frontier's exact contents.
-
-### Breadth-first search
-
-<Visualizer
-  algorithm="bfs"
-  renderer="graph"
-  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
-  inputLabel="Edges"
-  targetLabel="Start node"
-/>
-
-### Depth-first search
-
-<Visualizer
-  algorithm="dfs"
-  renderer="graph"
-  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
-  inputLabel="Edges"
-  targetLabel="Start node"
-/>
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Both traversals visit each node once and examine each edge once (twice, in an undirected graph — once from each end), so the running time is **O(V + E)**, where `V` is the number of vertices and `E` the number of edges. That is optimal: you cannot visit a graph without at least looking at every node and edge. For space, the visited set holds up to `V` nodes and the frontier can hold up to `V` nodes as well, so both use **O(V)** extra memory.
+
+</Bench>
 
 ## Code
 
@@ -258,6 +273,15 @@ BFS and DFS in Python, JavaScript, and Java, taking a graph as an adjacency map 
 
 ## Practice
 
+<Bench>
+
+<FinalRun
+  slot="stage"
+  slug="graph-traversal"
+  algorithm="bfs"
+  metric="visited"
+/>
+
 Work each one out before opening the answer.
 
 **1. Which frontier structure does each traversal use, and how does that decide the visit order?**
@@ -286,4 +310,4 @@ Work each one out before opening the answer.
   shortest-path guarantee.
 </PracticeCheck>
 
-<FinalRun slug="graph-traversal" algorithm="bfs" metric="visited" />
+</Bench>

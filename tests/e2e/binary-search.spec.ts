@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { openCustomInput } from './utils/disclosure';
+
 const LESSON = '/learn/binary-search';
 
 // M4 lesson-11 expansion: the page now hosts TWO array visualizers (binary
@@ -21,12 +23,17 @@ async function hydrateViz(page: import('@playwright/test').Page) {
 }
 
 test.describe('Binary Search lesson', () => {
-  test('renders all seven lesson sections', async ({ page }) => {
+  // Amendment S-1: the body is SIX h2 sections now, not seven. `## Visualizer`
+  // is gone and the visualization lives inside `## How it works`, beside the
+  // prose that narrates it (`<Bench>`, amendment L-2) — so the reader no longer
+  // scrolls past the drawing to reach the sentence describing it. The six that
+  // remain are still required, and the `#visualizer` anchor survives as an id on
+  // the first bench because the home hero (and any external link) points at it.
+  test('renders all six lesson sections', async ({ page }) => {
     await page.goto(LESSON);
     for (const heading of [
       'Intuition',
       'How it works',
-      'Visualizer',
       'Complexity',
       'Code',
       'Common pitfalls',
@@ -36,6 +43,16 @@ test.describe('Binary Search lesson', () => {
         page.getByRole('heading', { level: 2, name: heading }),
       ).toBeVisible();
     }
+    // The deletion, pinned: a lesson that quietly grew its `## Visualizer`
+    // heading back would be a second, competing home for the instrument.
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Visualizer' }),
+    ).toHaveCount(0);
+    // …and the anchor the heading used to own still resolves, onto the bench
+    // that holds the real instrument.
+    await expect(
+      page.locator('#visualizer #viz-binary-search [data-viz]'),
+    ).toBeVisible();
     // Exactly one h1 (the lesson title).
     await expect(page.locator('h1')).toHaveCount(1);
   });
@@ -113,6 +130,10 @@ test.describe('Binary Search lesson', () => {
   }) => {
     await page.goto(LESSON);
     await hydrateViz(page);
+    // Amendment C-2: the form is behind "Run it on your own input — …" now, so
+    // reaching the fields is one disclosure click. What the reader can run is
+    // unchanged (§10), which is what the rest of this test still asserts.
+    await openCustomInput(page.locator(VIZ));
 
     await page.locator(`${VIZ} [data-viz-array]`).fill('[1,3,5,7]');
     await page.locator(`${VIZ} [data-viz-target]`).fill('5');
@@ -135,6 +156,8 @@ test.describe('Binary Search lesson', () => {
   }) => {
     await page.goto(LESSON);
     await hydrateViz(page);
+    // Amendment C-2: the fields live behind the disclosure.
+    await openCustomInput(page.locator(VIZ));
 
     await page.locator(`${VIZ} [data-viz-array]`).fill('[3,1,2]');
     await page.locator(`${VIZ} [data-viz-target]`).fill('2');
@@ -189,6 +212,13 @@ for (const theme of ['light', 'dark'] as const) {
     }, theme);
     await page.goto(LESSON);
     await hydrateViz(page);
+    // Every custom-input form on the page, open — amendment C-2 put them behind
+    // a `<details>`, and spec §18 records that axe CANNOT SEE a closed one
+    // (`display: none`), so leaving them shut would silently drop this scan's
+    // surface rather than change its result. Both islands, because both were in
+    // it before. The pre-hydration scan in `m7-player-v2.spec.ts` deliberately
+    // does NOT do this: that one asserts the state the page ships in.
+    await openCustomInput(page);
 
     const results = await new AxeBuilder({ page }).analyze();
     const critical = results.violations.filter((v) => v.impact === 'critical');

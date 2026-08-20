@@ -275,6 +275,22 @@ const authored = Astro.slots.has('default');
     const seek = shown
       ? row!.querySelector<HTMLButtonElement>('[data-ledger-seek]')
       : null;
+
+    // AND DRIVE THE DRAWING (redesign 2026-08). The link has always been able to
+    // put the reader in front of the row; with the instrument pinned beside the
+    // prose at ≥1200px, the drawing that row describes is now ON SCREEN while
+    // they read the sentence — so landing on the row and leaving the picture at
+    // whatever step it happened to be showing is a half-kept promise.
+    //
+    // This clicks the row's own seek button rather than calling the player,
+    // because that button is the one path the island already owns: it declines
+    // while Predict is on (scrubbing past a question is what the mode exists to
+    // prevent), it marks the row, and it keeps the current row inside the well.
+    // Re-implementing any of that here would be a second definition of "go to
+    // step n". It is `disabled` until the island enables it, which is exactly
+    // the condition under which there is no player to drive yet.
+    if (seek && !seek.disabled) seek.click();
+
     const focusTarget =
       seek && !seek.disabled
         ? seek

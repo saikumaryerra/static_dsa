@@ -16,6 +16,8 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
+import Band from '../../components/Band.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -176,35 +178,70 @@ They are not fast on large inputs, and no one reaches for them to sort a million
 
 ## How it works
 
-Each sort grows a **sorted region** and shrinks an **unsorted region**, just by a different route:
+Each sort grows a **sorted region** and shrinks an **unsorted region**, just by a different route. All three run on the same numbers below, so the difference is the route and nothing else.
 
-- **Bubble sort** makes repeated passes over the unsorted part. On each pass it compares every adjacent pair and swaps the ones out of order, so the largest remaining value "bubbles" to the end. After each pass the tail is locked. If a whole pass makes no swaps, the array is already sorted and it stops early.
-- **Selection sort** scans the entire unsorted region to find its **minimum**, then swaps that minimum into the first unsorted slot. One swap per pass — the fewest of the three — but it always scans the whole remainder even if the data is already sorted.
-- **Insertion sort** takes the next unsorted value and swaps it **leftward** until the value to its left is no longer larger. The sorted region is a prefix that grows one item at a time. On nearly-sorted data it barely moves anything, which makes it the fastest of the three in practice.
-
-Watch all three below on the same numbers. Notice the dimmed cells: they are the part already locked in final position. The lifted cell is the value currently in play, and the dashed tie-line joins the two cells being compared. The bracket under the bars, labelled **`lo`** and **`hi`**, marks the current **active (unsorted) window** — the stretch the pass is still working over, which shrinks as the sorted region grows.
+Read the drawings the same way in all three: the dimmed cells are the part already locked in final position, the lifted cell is the value currently in play, and the dashed tie-line joins the two cells being compared. The bracket under the bars, labelled **`lo`** and **`hi`**, marks the current **active (unsorted) window** — the stretch the pass is still working over, which shrinks as the sorted region grows.
 
 ### Bubble sort
 
-<Visualizer algorithm="bubble-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="bubble-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
+**Bubble sort** makes repeated passes over the unsorted part. On each pass it compares every adjacent pair and swaps the ones out of order, so the largest remaining value "bubbles" to the end. After each pass the tail is locked. If a whole pass makes no swaps, the array is already sorted and it stops early.
+
+</Bench>
 
 ### Selection sort
 
-<Visualizer algorithm="selection-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+<Bench>
+
+<Visualizer
+  slot="stage"
+  algorithm="selection-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
+**Selection sort** scans the entire unsorted region to find its **minimum**, then swaps that minimum into the first unsorted slot. One swap per pass — the fewest of the three — but it always scans the whole remainder even if the data is already sorted.
+
+</Bench>
 
 ### Insertion sort
 
-<Visualizer algorithm="insertion-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+<Bench>
 
-<Challenge id="sorting-basics/one-clean-pass" />
-<Challenge id="sorting-basics/no-shortcuts" />
-<Challenge id="sorting-basics/insertions-edge" />
+<Visualizer
+  slot="stage"
+  algorithm="insertion-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
+**Insertion sort** takes the next unsorted value and swaps it **leftward** until the value to its left is no longer larger. The sorted region is a prefix that grows one item at a time. On nearly-sorted data it barely moves anything, which makes it the fastest of the three in practice.
+
+</Bench>
+
+<Band>
+  <Challenge id="sorting-basics/one-clean-pass" />
+  <Challenge id="sorting-basics/no-shortcuts" />
+  <Challenge id="sorting-basics/insertions-edge" />
+</Band>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 All three do roughly `n` passes, and each pass looks at up to `n` items — so the work grows with `n × n`, giving **O(n²)** in the average and worst cases. That is why doubling the input roughly quadruples the time. The **best case** is **O(n)**, but only for bubble and insertion sort on already-sorted data: bubble sort's early-exit catches it in a single clean pass, and insertion sort never has to swap. Selection sort has no such shortcut — it always scans the full remainder, so it is **O(n²)** even on sorted input. Every one of them sorts **in place**, reusing the original array, so the extra space is **O(1)**.
+
+</Bench>
 
 ## Code
 
@@ -255,6 +292,15 @@ Each sort in Python, JavaScript, and Java. The code mirrors the visualizations e
 
 ## Practice
 
+<Bench>
+
+<FinalRun
+  slot="stage"
+  slug="sorting-basics"
+  algorithm="bubble-sort"
+  metric="comparisons"
+/>
+
 Work each one out before opening the answer.
 
 **1. On the already-sorted array `[1, 2, 3, 4]`, which of these three sorts finishes fastest, and why?**
@@ -280,4 +326,4 @@ Work each one out before opening the answer.
   items. Plain selection sort is not stable, so it could reorder equal keys.
 </PracticeCheck>
 
-<FinalRun slug="sorting-basics" algorithm="bubble-sort" metric="comparisons" />
+</Bench>

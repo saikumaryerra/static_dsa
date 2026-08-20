@@ -79,7 +79,24 @@ const Heading = headingLevel;
     <span class="lesson-card__order" aria-hidden="true">
       {String(order).padStart(2, '0')}
     </span>
-    <DifficultyChip difficulty={difficulty} />
+    {
+      /* BADGE THE EXCEPTION (redesign 2026-08). Thirteen of the fifteen lessons
+         are `beginner`, so a chip on every card spent a row of chrome saying the
+         same word thirteen times and made the two that differ no easier to spot.
+         This is the same reasoning that made the chips NEUTRAL in the first place
+         (design-tokens-m1.md, Decision: "colouring thirteen beginner lessons as
+         loudly as two intermediate ones would invert the exception they exist to
+         signal") — carried one step further, from "do not shout it" to "do not
+         say it when it is the default".
+
+         Spec §19 lists this as needing designer sign-off; it has it, and the
+         amendment is recorded in docs/redesign-2026-08/03-amendments.md.
+
+         The LESSON PAGE keeps its chip unconditionally: a reader landing there
+         from a search result has no comparison set in front of them, so the word
+         is metadata rather than noise. The rule is about the grid, not the chip. */
+    }
+    {difficulty !== 'beginner' && <DifficultyChip difficulty={difficulty} />}
     {
       /* The wrapper is always in the DOM and always empty-width until the pips
          appear, so `margin-left: auto` right-aligns the stage from first paint

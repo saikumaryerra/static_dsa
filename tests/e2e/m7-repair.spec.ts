@@ -130,10 +130,19 @@ test('every disclosure summary on the lesson page is unique (CNT-8)', async ({
   // Practice answers used to ship three identical "Show answer" summaries, which
   // are indistinguishable in a screen reader's list of controls. Assert page-wide
   // uniqueness rather than Practice-only: the same ambiguity would be a defect in
-  // Common pitfalls or the mobile ToC too.
-  // textContent, not innerText: the inline mobile ToC is a <details> too and is
-  // display:none at the desktop viewport, where innerText would report '' for it
-  // and manufacture a duplicate.
+  // Common pitfalls, the "On this page" bar or an instrument's own disclosures —
+  // and the 2026-08 redesign proved that by putting a SECOND `<details>` inside
+  // every instrument (amendment C-2 folded custom input behind one), so a lesson
+  // with two visualizers offered two identical "Run it on your own input"
+  // controls until each was made to name its own algorithm, exactly as the
+  // ledger's summary already did.
+  // textContent, not innerText: innerText reports '' for anything the layout is
+  // not currently rendering, so a summary hidden at this viewport would be read
+  // as an empty string and two of them would look like a duplicate. That once
+  // bit here for real (the ToC was display:none at desktop widths before
+  // amendment L-3 retired the rail); textContent never depended on it, and
+  // still does not now that these summaries sit inside a sticky bar and inside
+  // instrument panes whose CSS is free to move again.
   const summaries = (
     await page.locator('details > summary').allTextContents()
   ).map((text) => text.trim().replace(/\s+/g, ' '));

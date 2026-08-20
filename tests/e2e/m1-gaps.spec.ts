@@ -46,8 +46,16 @@ test.describe('no-JS degradation (spec §4)', () => {
 
     // All prose content must be fully readable without JS.
     await expect(page.locator('h1')).toBeVisible();
-    await expect(page.getByText('LearnDSA teaches the core')).toBeVisible();
-    await expect(page.locator('.track-card')).toHaveCount(2);
+    await expect(
+      page.getByText('teach the core of computer science'),
+    ).toBeVisible();
+    // The curriculum is the home page's other server-rendered block (redesign
+    // amendment H-1: the two `.track-card` summaries were replaced by the two
+    // tracks with every lesson named). It is the stricter check of the same
+    // thing — a scriptless reader must be able to SEE and reach the whole
+    // fifteen-lesson curriculum, not just read a paragraph about it.
+    await expect(page.locator('.curriculum .track')).toHaveCount(2);
+    await expect(page.locator('.curriculum .track__lesson')).toHaveCount(15);
 
     // The inline pre-paint script never ran: no data-theme attribute, so the
     // CSS `:root:not([data-theme])` fallback is in charge…
@@ -194,13 +202,22 @@ test('prefers-reduced-motion collapses all duration tokens to near-zero', async 
   }
 });
 
-test('keyboard tab path: skip link → logo → nav links → toggle → hero CTA', async ({
+test('keyboard tab path: skip link → logo → nav links → toggle → hero actions', async ({
   page,
 }) => {
   await page.goto('/');
   const banner = page.getByRole('banner');
 
   // Designer a11y checklist #2: tab order matches visual order.
+  //
+  // The hero's actions row is now two stops, not one (redesign amendments H-1
+  // and H-2): the primary CTA names its destination outright — "Start with
+  // lesson 01" — and a secondary text link offers the index. Both are asserted,
+  // in that order, because "tab order matches visual order" is only meaningful
+  // once the row holds more than one control. The continue line that used to
+  // sit under them is NOT a stop for this reader: it ships `hidden` and the
+  // island reveals it only for a device with a completed lesson (H-2), so a
+  // first-time visitor must not find focus landing on it.
   const stops = [
     page.locator('.skip-link'),
     banner.getByRole('link', { name: 'LearnDSA', exact: true }),
@@ -208,7 +225,8 @@ test('keyboard tab path: skip link → logo → nav links → toggle → hero CT
     banner.getByRole('link', { name: 'Glossary', exact: true }),
     banner.getByRole('link', { name: 'About', exact: true }),
     page.locator('[data-theme-toggle]'),
-    page.getByRole('link', { name: 'Start learning', exact: true }),
+    page.getByRole('link', { name: 'Start with lesson 01', exact: true }),
+    page.getByRole('link', { name: 'See all 15 lessons', exact: true }),
   ];
 
   for (const stop of stops) {

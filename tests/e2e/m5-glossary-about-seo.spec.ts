@@ -18,7 +18,7 @@ import { waitForAnchorScroll } from './utils/scroll';
  *   - glossary jump-bar behavior (present links vs non-focusable empty letters, the
  *     scroll-margin offset that lands headings below the sticky chrome, xref links
  *     resolving, full JS-off operation);
- *   - the home track cards being DATA-DRIVEN (design §3.5), never hardcoded;
+ *   - the home curriculum block being DATA-DRIVEN (design §3.5), never hardcoded;
  *   - the About live demo hydrating and degrading gracefully with JS off;
  *   - SEO artifacts served by the build (sitemap.xml reachable from robots.txt).
  */
@@ -181,32 +181,65 @@ test.describe('glossary with JavaScript disabled', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Home — track cards are data-driven (design §3.5), never hardcoded.
+// 3. Home — the curriculum block is data-driven (design §3.5), never hardcoded.
 // ---------------------------------------------------------------------------
-test('home track cards + heading reflect the real 15-lesson curriculum', async ({
+test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
   page,
 }) => {
   await page.goto('/');
 
-  // Data-driven heading: two tracks, 15 published lessons (M6 adds DP → 15).
+  // Data-driven heading: 15 published lessons (M6 adds DP → 15), two tracks.
+  // Reworded by redesign amendment H-1, which also replaced the pair of
+  // `.track-card` summaries with the curriculum itself: two `.track` blocks,
+  // every lesson named and linked. The claim under test is unchanged — nothing
+  // on this page is hand-typed — but it is now checkable against the lessons
+  // rather than against two numbers in a blurb.
   await expect(
-    page.getByRole('heading', { name: 'Two tracks, 15 lessons' }),
+    page.getByRole('heading', { name: '15 lessons, two tracks' }),
   ).toBeVisible();
 
-  const cardText = await page.locator('.track-card').allInnerTexts();
-  const joined = cardText.join(' | ');
+  const metaText = await page
+    .locator('.curriculum .track__meta')
+    .allInnerTexts();
+  expect(metaText).toHaveLength(2);
+  const joined = metaText.join(' | ');
   // Foundations 9 (all beginner) + Algorithms 6 (mixed difficulty) — spread as text.
   expect(joined).toMatch(/9 lessons/);
   expect(joined).toMatch(/6 lessons/);
   expect(joined).toMatch(/All beginner/);
   expect(joined).toMatch(/beginner · \d+ intermediate|intermediate/);
-  // Both cards link into the /learn track anchors.
+  // Both track headings link into the /learn track anchors.
   await expect(
-    page.locator('a.track-card[href="/learn#track-foundations"]'),
+    page.locator(
+      '.curriculum .track__title a[href="/learn#track-foundations"]',
+    ),
   ).toHaveCount(1);
   await expect(
-    page.locator('a.track-card[href="/learn#track-algorithms"]'),
+    page.locator('.curriculum .track__title a[href="/learn#track-algorithms"]'),
   ).toHaveCount(1);
+
+  // The strongest form of "never hardcoded" the old shape could not express:
+  // the fifteen rows are the SAME fifteen lessons /learn renders, in the same
+  // order, because both derive from the published collection sorted by `order`
+  // within TRACK_ORDER. A hand-typed list here would have to be edited twice to
+  // keep this passing, which is the drift the derivation exists to prevent.
+  const homeHrefs = await page
+    .locator('.curriculum .track__lesson')
+    .evaluateAll((links) =>
+      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+    );
+  expect(homeHrefs).toHaveLength(15);
+  expect(homeHrefs.every((href) => /^\/learn\/[a-z0-9-]+$/.test(href))).toBe(
+    true,
+  );
+
+  await page.goto('/learn');
+  const learnHrefs = await page
+    .locator('[data-lesson-card]')
+    .evaluateAll((links) =>
+      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+    );
+  expect(homeHrefs).toEqual(learnHrefs);
 });
 
 // ---------------------------------------------------------------------------

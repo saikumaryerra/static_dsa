@@ -16,6 +16,8 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
+import Band from '../../components/Band.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -105,6 +107,16 @@ export const linearTabs = [
   },
 ];
 
+<Bench id="visualizer">
+
+<div id="viz-binary-search" slot="stage">
+  <Visualizer
+    algorithm="binary-search"
+    renderer="array"
+    input="[1,3,5,7,9,11] target=7"
+  />
+</div>
+
 ## Intuition
 
 Think about looking up a word in a paper dictionary. You do not start at page one and read every entry. You flip to the middle, glance at the word there, and decide: is my word before this page or after it? That one glance lets you throw away half the dictionary. Flip to the middle of what is left, decide again, and throw away half of that. In a few flips you have gone from thousands of pages to the single one you need.
@@ -132,44 +144,45 @@ Each round does three things:
 
 If the slice ever becomes empty — `lo` passes `hi` — there is nowhere left to look, so the target is not in the array.
 
-The visualization below makes the shrinking window concrete: watch `lo` and `hi` close in on the answer, and see which half gets discarded after every comparison.
-
-### How linear search compares
-
-Linear search needs none of this bookkeeping. There is no `lo`, `hi`, or `mid`, and no sorted precondition — just a single index walking from `0` to the end, comparing each value with the target and stopping at the first match. The contrast is the whole point: where binary search **discards half** the remaining items per comparison, linear search **eliminates one**. On the sorted array `[1, 3, 5, 7, 9, 11]`, finding `11` takes linear search six comparisons but binary search only three.
-
-## Visualizer
-
-<div id="viz-binary-search">
-  <Visualizer
-    algorithm="binary-search"
-    renderer="array"
-    input="[1,3,5,7,9,11] target=7"
-  />
-</div>
+The run alongside makes the shrinking window concrete: watch `lo` and `hi` close in on the answer, and see which half gets discarded after every comparison.
 
 Press **Play** to run it automatically, or **Step forward** to move one comparison at a time. The highlighted band is the current search window; the lifted cell marked **mid** is the value being checked. The same run is written out under the drawing, one row per step: <StepLink algorithm="binary-search" renderer="array" step={2} /> is the comparison that throws away half the array, and <StepLink algorithm="binary-search" renderer="array" step={4}>the last row</StepLink> is where the search ends. Try your own sorted array and target to see how few steps it really takes.
 
-### Linear search, step by step
+</Bench>
 
-Here is linear search on an **unsorted** array, so you can see it march through every cell in turn. The lifted cell marked **curr** is the one being checked; cells to its left are already rejected. Notice there is no window to halve — it simply advances one index at a time until it finds the target or reaches the end.
+### How linear search compares
+
+<Bench>
 
 <Visualizer
+  slot="stage"
   algorithm="linear-search"
   renderer="array"
   input="[8,3,5,9,1,7] target=9"
 />
 
-<Challenge id="binary-search/two-probes" />
-<Challenge id="binary-search/every-door" />
+Linear search needs none of this bookkeeping. There is no `lo`, `hi`, or `mid`, and no sorted precondition — just a single index walking from `0` to the end, comparing each value with the target and stopping at the first match. The contrast is the whole point: where binary search **discards half** the remaining items per comparison, linear search **eliminates one**. On the sorted array `[1, 3, 5, 7, 9, 11]`, finding `11` takes linear search six comparisons but binary search only three.
+
+Here it is on an **unsorted** array, so you can see it march through every cell in turn. The lifted cell marked **curr** is the one being checked; cells to its left are already rejected. Notice there is no window to halve — it simply advances one index at a time until it finds the target or reaches the end.
+
+</Bench>
+
+<Band>
+  <Challenge id="binary-search/two-probes" />
+  <Challenge id="binary-search/every-door" />
+</Band>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
 
-The table above is for **binary search**. Every comparison throws away half of the remaining items, so the number of checks grows with the **logarithm** of the array size — doubling the input adds just one more step. That is the `O(log n)` worst and average case. The best case is `O(1)`: the very first middle you check happens to be the target. Only a couple of index variables are needed, so the extra space is `O(1)`.
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
+
+The table alongside is for **binary search**. Every comparison throws away half of the remaining items, so the number of checks grows with the **logarithm** of the array size — doubling the input adds just one more step. That is the `O(log n)` worst and average case. The best case is `O(1)`: the very first middle you check happens to be the target. Only a couple of index variables are needed, so the extra space is `O(1)`.
 
 **Linear search** is the opposite trade: `O(n)` time in the average and worst cases (it may inspect every element), `O(1)` best case (the target is first), and `O(1)` space. Sorting an array first costs `O(n log n)`, so a single search is not worth sorting for — but if you will search the same array many times, sorting once and using binary search repeatedly wins big.
+
+</Bench>
 
 ## Code
 
@@ -215,6 +228,15 @@ For comparison, the naive scan — a single loop with no sorted precondition and
 
 ## Practice
 
+<Bench>
+
+<FinalRun
+  slot="stage"
+  slug="binary-search"
+  algorithm="binary-search"
+  metric="comparisons"
+/>
+
 Work each one out before opening the answer.
 
 **1. How many comparisons does binary search need, at most, to search a sorted array of 1,000 items?**
@@ -242,4 +264,4 @@ Work each one out before opening the answer.
   you are looking for.
 </PracticeCheck>
 
-<FinalRun slug="binary-search" algorithm="binary-search" metric="comparisons" />
+</Bench>

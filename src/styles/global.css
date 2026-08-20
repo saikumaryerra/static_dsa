@@ -76,9 +76,10 @@
   --shadow-1: var(--shadow-1);
   --shadow-2: var(--shadow-2);
 
-  /* Layout widths → max-w-container / max-w-measure */
+  /* Layout widths → max-w-container / max-w-measure / max-w-shell */
   --container-container: var(--container-max);
   --container-measure: var(--measure);
+  --container-shell: var(--shell);
 }
 
 /* ---------- Base element styles (overridable by utilities) ---------- */

@@ -167,13 +167,18 @@ published: true
 
 Lesson body sections (authors follow this order; enforce with a lint/checklist, not hard code):
 1. **Intuition** — plain-language "what & why," a real-world analogy.
-2. **How it works** — step-by-step, referencing the visualization.
-3. **`<Visualizer />`** — the interactive island (see §11 for the component API).
-4. **Complexity** — auto-rendered from frontmatter + a sentence of explanation.
-5. **Code** — `<CodeTabs>` with the same algorithm in **Python, JavaScript, and Java** (pick these three; each tab is a fenced code block).
-6. **Common pitfalls / edge cases** — collapsible.
-7. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
-8. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson, and authored as a card at the **end of the Practice section**, not under a heading of its own (it is one prompt, and a heading would promise a section).
+2. **How it works** — step-by-step, **with the visualization beside it**.
+   *(Amended by the redesign 2026-08, amendment S-1: `<Visualizer />` is no longer a section of its
+   own. It sits inside a `<Bench>` in "How it works" — the artifact in the bench's `stage` slot, the
+   prose that narrates it in the reading column — because the explanation and the thing it explains
+   belong on the same screen. The `## Visualizer` heading is gone from every lesson; the
+   `#visualizer` anchor survives as an id on the lesson's first bench, so existing deep links still
+   land on the instrument. `tests/e2e/m4-lessons.spec.ts` already treated that heading as optional.)*
+3. **Complexity** — auto-rendered from frontmatter + a sentence of explanation.
+4. **Code** — `<CodeTabs>` with the same algorithm in **Python, JavaScript, and Java** (pick these three; each tab is a fenced code block).
+5. **Common pitfalls / edge cases** — collapsible.
+6. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
+7. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson, and authored as a card at the **end of the Practice section**, not under a heading of its own (it is one prompt, and a heading would promise a section).
 
 **Authoring the M8 components (amended M8.1/M8.3).** Three components are dropped into the body like
 `<Visualizer>`; each is optional, each ships its own `<noscript>` kill-switch, and none of them
@@ -769,13 +774,26 @@ cannot see, so anyone adding surface of the same shape has to know about them.**
 ---
 
 ## 19. Open questions (flag with `SPEC-GAP`, don't block on them)
-- Final font + exact brand color: pick tasteful defaults; easy to swap in tokens.
+
+> **Four of these were settled by the 2026-08 redesign.** Its interpretation contract, the direction
+> as built, the design-system decisions and the full list of constraints it reopened live in
+> `docs/redesign-2026-08/` — `03-amendments.md` is the one to read before re-opening any of them.
+
+- ~~Final font~~ **settled (redesign 2026-08, amendment T-1):** IBM Plex Sans + IBM Plex Mono,
+  self-hosted, subset from the repo's own characters by `npm run fonts`, 77,704 bytes measured, with
+  metric-matched fallbacks for CLS. The **brand colour stays achromatic** — `--brand` is
+  byte-identical to `--text`, and re-introducing a hue is still a spec amendment.
 - Do we want a lightweight "was this helpful?" thumbs (no backend, localStorage only)? Default: skip for v1.
 - Exact three code languages: spec says Python / JavaScript / Java — confirm before M4 if there's a preference.
-- **M7.3 difficulty chips** — semantic soft-fill vs badge-the-exception reverses a documented
-  neutral-chip decision; needs designer sign-off before implementation (§8).
-- **Glossary search island** (~1 KB) — beyond the §8 glossary definition; the zero-JS
-  "Also called:" aliases ship regardless. Owner decision.
+- ~~**M7.3 difficulty chips**~~ **settled (redesign 2026-08, amendment D-1):** badge-the-exception,
+  on the `/learn` grid only — the chip renders on a curriculum card when the lesson is *not*
+  `beginner` (2 of 15). The lesson page keeps its chip unconditionally, because a reader arriving
+  there has no comparison set in front of them. This carries the original neutral-chip reasoning
+  forward rather than reversing it.
+- ~~**Glossary search island**~~ **settled (redesign 2026-08, amendment G-1):** shipped. It filters
+  markup already on the page — no index, no fetch, no store — matching the term, its aliases and its
+  definition; it ships `hidden` and the island reveals it. The zero-JS A–Z list and jump nav are
+  untouched.
 - **Astro prefetch** for lesson links — needs an architect ruling on whether §4's "no runtime
   network calls" bars same-origin prefetch. Default: skip.
 - **Progress export/import code** — the only no-backend answer to "cleared browser data = lost

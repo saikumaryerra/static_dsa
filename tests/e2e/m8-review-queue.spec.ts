@@ -20,6 +20,7 @@
  * mocking the clock would test a fake schedule.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   cardPips,
@@ -383,7 +384,12 @@ test.describe('following an invitation', () => {
     const viz = await hydrateViz(page.locator('#viz-binary-search'));
     await expect(predictToggle(viz)).toHaveAttribute('aria-pressed', 'true');
     // A run long enough to answer five predictions: the authored example is
-    // four steps, so a real reader reaching the bar uses their own input.
+    // four steps, so a real reader reaching the bar uses their own input — which
+    // since the 2026-08 redesign means opening the "Run it on your own input"
+    // disclosure the form sits behind (amendment C-2). One extra click on a real
+    // control; the deep-linked review visit is otherwise unchanged, and so is
+    // everything this test asserts about it.
+    await openCustomInput(viz);
     await runCustomInput(
       viz,
       '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]',

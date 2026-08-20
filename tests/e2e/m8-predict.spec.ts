@@ -27,6 +27,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   curriculum,
@@ -109,6 +110,26 @@ async function openBinary(page: Page, url = BINARY): Promise<Locator> {
 /** Answers the whole authored run correctly (three questions). */
 async function answerAuthored(viz: Locator): Promise<void> {
   for (const label of AUTHORED.answers) await answer(viz, label);
+}
+
+/**
+ * Loads {@link LONG} through the instrument's own custom-input form — the run
+ * every "five answers" test below needs, since the authored example is four
+ * steps and can never reach the bar.
+ *
+ * Opens the disclosure first. The 2026-08 redesign put the form behind a
+ * `<details>` labelled "Run it on your own input — {algorithm}" (amendment C-2),
+ * so its fields are `display: none` until a reader opens it; `openCustomInput`
+ * sets `open` instead of clicking the summary, which keeps it idempotent and
+ * stops it scrolling the instrument under a test that is about to read it. The
+ * reader's act is unchanged apart from that one click, and so is what these
+ * tests assert about it.
+ *
+ * @param viz - A hydrated viz root offering the custom-input form.
+ */
+async function runLongInput(viz: Locator): Promise<void> {
+  await openCustomInput(viz);
+  await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
 }
 
 test.describe('the toggle exists exactly where a predictor does', () => {
@@ -579,7 +600,7 @@ test.describe('activity, never accuracy — the session is not scored', () => {
     page,
   }) => {
     const viz = await openBinary(page);
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
 
     // Sampled after EVERY answer, including the one that crosses the bar: a
@@ -611,7 +632,7 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     const viz = await openBinary(page);
     expect(await readKey(page, masteryKey(BINARY_SLUG))).toBeNull();
 
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
     for (const label of LONG.answers) await answer(viz, label);
 
@@ -693,7 +714,7 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     page,
   }) => {
     const viz = await openBinary(page);
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
 
     // Five answers, three of them right (60%) — over the answer floor, under the
@@ -773,7 +794,7 @@ test.describe('degraded — with no JS and with no store', () => {
     // the store throwing underneath it — "degraded", not "died".
     await expect(predictToggle(viz)).toBeEnabled();
 
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
     for (const label of LONG.answers) await answer(viz, label);
 

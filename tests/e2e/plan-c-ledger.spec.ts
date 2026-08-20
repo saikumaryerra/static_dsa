@@ -9,6 +9,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { closeDetails, openCustomInput, openLedger } from './utils/disclosure';
 import { curriculum } from './utils/mastery';
 import { counter, hydrateViz } from './utils/predict';
 import { scrollToInstant, waitForAnchorScroll } from './utils/scroll';
@@ -122,13 +123,12 @@ test.describe('the ledger, server-rendered', () => {
       const ledger = ledgerOf(viz);
       await expect(ledger).toBeVisible();
 
-      // A native <details>: closed by default, and openable with no JS at all.
-      // A JS-toggled `hidden` would have left this reader no way in.
-      await expect(ledger).not.toHaveAttribute('open', /.*/);
+      // OPEN BY DEFAULT (amendment C-1): the worked example is the whole lesson
+      // for this reader, so it is on the page before any interaction — not a
+      // line of grey text they have to guess is worth clicking.
+      await expect(ledger).toHaveAttribute('open', /.*/);
       const rows = ledger.locator('[data-ledger-row]');
       await expect(rows).toHaveCount(4);
-      await ledger.locator('summary').click();
-      await expect(ledger).toHaveAttribute('open', /.*/);
       await expect(rows.first()).toBeVisible();
 
       // Every seek button is a real, DISABLED button — never an enabled control
@@ -154,6 +154,19 @@ test.describe('the ledger, server-rendered', () => {
       expect(seek.opacity).toBe('1');
       expect(seek.cursor).toBe('not-allowed');
       expect(seek.underline).toBe('none');
+
+      // STILL A REAL DISCLOSURE, which is the half of C-1 that could have been
+      // lost when the default flipped: a reader who wants only the drawing
+      // closes it once, and gets it back, with no JS on the page. The summary is
+      // driven directly rather than through `openDetails` — the native toggle is
+      // what is under test, and a helper that sets the property would pass over
+      // a `<details>` that had stopped responding to its own summary.
+      await ledger.locator('summary').click();
+      await expect(ledger).not.toHaveAttribute('open', /.*/);
+      await expect(rows.first()).toBeHidden();
+      await ledger.locator('summary').click();
+      await expect(ledger).toHaveAttribute('open', /.*/);
+      await expect(rows.first()).toBeVisible();
     });
   });
 
@@ -163,7 +176,10 @@ test.describe('the ledger, server-rendered', () => {
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    // Idempotent, not a toggle: the table ships open (amendment C-1), so the
+    // `summary.click()` this used to be would now CLOSE it. What the test needs
+    // stated is "the table is open", which is what the helper says.
+    await openLedger(viz);
 
     // `<th scope="row">` — a `<tr role="button">` would destroy the
     // column-header association, which is the whole reason to build a table.
@@ -192,7 +208,7 @@ test.describe('the ledger, server-rendered', () => {
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: open is the default; the helper is idempotent.
 
     const table = ledger.getByRole('table');
     await expect(table).toHaveAccessibleName(/Binary search.*4 rows/);
@@ -366,13 +382,19 @@ test.describe('the scrubber is revealed on focus, not deleted', () => {
 });
 
 /**
- * The existing axe gate (`m4-lessons.spec.ts`) cannot see this table: a closed
- * `<details>` renders `display: none`, so every colour, name and region inside
- * it is invisible to a scan of the page as loaded. Opening them all first is the
- * only way the ledger is audited at all — and it immediately earned its keep:
- * the well is a scroll container in both axes, and before it was given
- * `tabindex="0"` axe reported `scrollable-region-focusable` (serious) on all
- * three sorting-basics wells, in both themes.
+ * A closed `<details>` renders `display: none`, so every colour, name and region
+ * inside it is invisible to a scan of the page as loaded — the blind spot spec
+ * §18 records, and the reason the existing axe gate (`m4-lessons.spec.ts`) could
+ * not see this table at all. It earned its keep on its first run: the well is a
+ * scroll container in both axes, and before it was given `tabindex="0"` axe
+ * reported `scrollable-region-focusable` (serious) on all three sorting-basics
+ * wells, in both themes.
+ *
+ * C-1 closed the blind spot for the ledger by shipping it open, so `m4-lessons`
+ * now scans these rows too. The opening below stays, unchanged and idempotent,
+ * because the guarantee this file is making is "the ledger is audited", not "the
+ * ledger happens to be open today" — and the day a default moves again is
+ * exactly the day the scan must not quietly stop covering it.
  */
 test.describe('axe, with every ledger opened', () => {
   for (const theme of ['light', 'dark'] as const) {
@@ -506,7 +528,10 @@ test.describe('the ledger follows the run', () => {
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
     const rows = ledger.locator('[data-ledger-row]');
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: the table ships open; state it, don't toggle.
+    // C-2: the custom-input form is behind "Run it on your own input — …" now,
+    // so the fields below are not reachable until the disclosure is open.
+    await openCustomInput(viz);
 
     await expect(rows).toHaveCount(BUBBLE.authored);
     await expect(ledger.locator('[data-ledger-count]')).toHaveText(
@@ -535,7 +560,12 @@ test.describe('the ledger follows the run', () => {
     );
 
     // The reader's own disclosure state survives the swap: the rebuild replaces
-    // the table's inner regions and never the `<details>` around them.
+    // the table's inner regions and never the `<details>` around them. Open is
+    // the shipped default now (C-1), so this reads as "still open" rather than
+    // "still as the reader left it" — but it keeps its teeth, because a rebuild
+    // that replaced the whole element, or dropped the attribute with it, fails
+    // here. The direction the reader can move it in is pinned where a writer
+    // could actually appear: `hidden` under Predict, below.
     await expect(ledger).toHaveAttribute('open', /.*/);
 
     // The "you are here" mark survives the swap and keeps tracking.
@@ -560,8 +590,15 @@ test.describe('the ledger follows the run', () => {
     const ledger = ledgerOf(viz);
     // Read AFTER hydration, so the comparison includes what `wireLedger` does to
     // the server's markup (buttons enabled, one roving tab stop, the mark on
-    // row 0) rather than treating those as a difference.
+    // row 0) rather than treating those as a difference. The ledger's own
+    // disclosure state is not part of the comparison — `ledgerShape` projects
+    // the table out of the DOM, which it does whether or not the well is
+    // painted — so this reads the shipped default (open, C-1) untouched.
     const server = await ledgerShape(ledger);
+
+    // C-2: both the fields and "Restore example" live behind the
+    // "Run it on your own input — …" disclosure now.
+    await openCustomInput(viz);
 
     // A run of a DIFFERENT length, so "the table came back" cannot pass by
     // never having changed: [1..20] target=0 collapses to the empty window in
@@ -586,7 +623,7 @@ test.describe('the rows are the pointer scrub', () => {
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: open is the default; the helper is idempotent.
 
     // Enabled — and the affordance is back with them. Task 3 shipped the
     // unavailable state on the AFFORDANCE channel rather than on opacity
@@ -619,7 +656,7 @@ test.describe('the rows are the pointer scrub', () => {
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: open is the default; the helper is idempotent.
 
     await expect(ledger.locator('[data-ledger-seek]')).toHaveCount(4);
     await expect(tabStops(ledger)).toHaveCount(1);
@@ -658,7 +695,7 @@ test.describe('the rows are the pointer scrub', () => {
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: open is the default; the helper is idempotent.
 
     await tabStops(ledger).focus();
     await page.keyboard.press('ArrowRight');
@@ -683,7 +720,10 @@ test.describe('the row cap, on the path where it can actually bind', () => {
     await page.goto(SORTING);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: open is the default; the helper is idempotent.
+    // C-2: the array field and "Restore example" are both behind the
+    // "Run it on your own input — …" disclosure now.
+    await openCustomInput(viz);
     await expect(ledger.locator('[data-ledger-cap]')).toHaveCount(0);
 
     await viz.locator('[data-viz-array]').fill(CAPPING.input);
@@ -761,7 +801,7 @@ test.describe('Predict hides the ledger, because the ledger is the answer key', 
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    await openLedger(viz); // C-1: open is the default; the helper is idempotent.
 
     // The leak, before the gate: the answer is right there, four rows down.
     await expect(ledger).toContainText(ANSWER_KEY);
@@ -779,6 +819,20 @@ test.describe('Predict hides the ledger, because the ledger is the answer key', 
     await expect(ledger).toBeVisible();
     await expect(ledger).toHaveAttribute('open', /.*/);
     await expect(ledger).toContainText(ANSWER_KEY);
+
+    // "The state the reader left it in", in the direction that can actually
+    // fail now. The table ships OPEN (amendment C-1), so a gate that reopened
+    // what the reader had closed would have been invisible to the round trip
+    // above — it would have put back exactly the default. `setPredict` is the
+    // single writer of the gate and it writes `hidden`, never `open`, so a
+    // reader who wants only the drawing keeps it folded across the whole
+    // session: their choice is not a thing the mode gets to overrule.
+    await closeDetails(ledger);
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeHidden();
+    await predictToggleOf(viz).click();
+    await expect(ledger).toBeVisible();
+    await expect(ledger).not.toHaveAttribute('open', /.*/);
   });
 
   /**
@@ -793,7 +847,14 @@ test.describe('Predict hides the ledger, because the ledger is the answer key', 
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    // OPEN, and it matters more here than anywhere else in this file. The four
+    // assertions below are all "the table is in no channel", and a CLOSED
+    // `<details>` satisfies every one of them on its own — so the
+    // `summary.click()` this used to be (which opened the table while C-1's
+    // default was closed, and would close it now) would leave the test passing
+    // with the gate removed entirely. It has to be open when Predict hides it.
+    await openLedger(viz);
+    await expect(ledger.getByRole('table')).toHaveCount(1);
     await predictToggleOf(viz).click();
     await expect(ledger).toBeHidden();
 
@@ -855,7 +916,12 @@ test.describe('Predict hides the ledger, because the ledger is the answer key', 
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    // Open before the gate closes it, so "still hidden" below is the gate
+    // holding rather than a closed disclosure standing in for it (C-1), and
+    // C-2's disclosure opened while the fields are still reachable — Predict
+    // takes the scrubber and auto-play, never the custom-input form.
+    await openLedger(viz);
+    await openCustomInput(viz);
     await predictToggleOf(viz).click();
     await expect(ledger).toBeHidden();
 
@@ -896,7 +962,9 @@ test.describe('Predict hides the ledger, because the ledger is the answer key', 
     await page.goto(LESSON);
     const viz = await hydrateViz(page.locator('body'));
     const ledger = ledgerOf(viz);
-    await ledger.locator('summary').click();
+    // C-1: open is the default, and the last leg of this test — a real click on
+    // a real row, once Predict is off — needs the rows painted to reach them.
+    await openLedger(viz);
     await predictToggleOf(viz).click();
     await expect(counter(viz)).toHaveText('1 / 4');
 
@@ -930,9 +998,12 @@ function stepLink(page: Page, step: number): Locator {
 /**
  * Where the sticky chrome ends, measured rather than assumed.
  *
- * The site header is sticky at every width; the mini-ToC bar is sticky only
- * below 1024px, where it collapses from a rail into a bar. Taking the max of
- * whatever is actually sticky keeps one assertion honest at both widths.
+ * The site header is sticky at every width, and so is the "On this page" bar —
+ * amendment L-3 retired the 15rem rail, so the bar (which names the section you
+ * are IN, which the rail never could) is the one implementation at every width
+ * rather than the narrow-screen half of a pair. Taking the max of whatever is
+ * actually sticky keeps one assertion honest wherever it is measured, and keeps
+ * this helper true if the chrome moves again.
  */
 async function chromeBottom(page: Page): Promise<number> {
   return page.evaluate(() =>
@@ -1030,13 +1101,24 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
     expect(at.rowTop).toBeGreaterThanOrEqual(chrome);
     // …and not so far down that the reader has to hunt for it.
     expect(at.rowTop).toBeLessThan(chrome + 32);
-    // The disclosure opened, and the address bar kept the anchor so the reader
-    // can share exactly the step they are reading.
-    await expect(ledgerOf(page.locator('[data-viz]').first())).toHaveAttribute(
-      'open',
-      /.*/,
-    );
+    // The disclosure is open — the shipped default since C-1 — and the address
+    // bar kept the anchor so the reader can share exactly the step they are
+    // reading.
+    const ledger = ledgerOf(page.locator('[data-viz]').first());
+    await expect(ledger).toHaveAttribute('open', /.*/);
     expect(page.url()).toContain('-row-4');
+
+    // …and `openAncestors` still earns its place, which the assertion above no
+    // longer proves now that the table ships open. The reader who folded the
+    // table away is the only one it was ever for: a link into a closed
+    // disclosure that scrolled to a row nobody could see would be the "silently
+    // does nothing" failure the component was written to avoid. Geometry is not
+    // re-measured here — that is the assertion above, in the state a reader
+    // actually arrives in.
+    await closeDetails(ledger);
+    await stepLink(page, 4).click();
+    await waitForAnchorScroll(page);
+    await expect(ledger).toHaveAttribute('open', /.*/);
   });
 
   /**
@@ -1128,10 +1210,13 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
    * the same place, which is what makes the duplicated offset (CSS rule +
    * `getComputedStyle` read) a single source of truth rather than two.
    *
-   * The `<details>` opens here without a line of site code: Chromium expands a
-   * closed disclosure when a fragment navigation targets something inside it
-   * (verified in the pinned container). Engine behaviour, relied on for the
-   * no-JS path only — the script opens it explicitly everywhere else.
+   * Nothing has to open the `<details>` any more: it ships open (C-1), so the
+   * row this reader is sent to is already in the layout and the CSS offset is
+   * the entire mechanism. The engine behaviour this used to lean on — Chromium
+   * expands a closed disclosure when a fragment navigation targets something
+   * inside it, verified in the pinned container — is now only the fallback for
+   * the JS-off reader who folded the table away, and it is not what is measured
+   * below.
    */
   test.describe('with JavaScript disabled', () => {
     test.use({ javaScriptEnabled: false });
@@ -1171,10 +1256,19 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
     await stepLink(page, 4).click();
     await waitForAnchorScroll(page);
 
-    // Nothing was revealed: the disclosure did not open and the answer is not
-    // on the page in any channel.
+    // Nothing was revealed, and the answer is not on the page in any channel.
+    //
+    // "The disclosure did not open" was the old probe for this, and C-1 retired
+    // it: `open` ships true, so its absence can no longer be evidence of
+    // anything. The gate is `hidden` — the attribute `setPredict` writes and
+    // `openAncestors` cannot clear, since the click handler declines the whole
+    // reveal branch when the ledger is hidden — so that is what has to survive
+    // the navigation, along with the table's absence from the accessibility
+    // tree, which is the channel a marked-up-but-unpainted table would leak
+    // through.
     await expect(ledgerOf(viz)).toBeHidden();
-    await expect(ledgerOf(viz)).not.toHaveAttribute('open', /.*/);
+    await expect(ledgerOf(viz)).toHaveAttribute('hidden', /.*/);
+    await expect(ledgerOf(viz).getByRole('table')).toHaveCount(0);
     expect(await page.locator('body').innerText()).not.toContain(ANSWER_KEY);
 
     // And the reader is somewhere that answers their question.

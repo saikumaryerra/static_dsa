@@ -22,10 +22,14 @@
  *
  * Trials consume the run the reader just watched — the `viz:run` event carries
  * the trace's final step — so nothing here re-runs an algorithm to grade it, and
- * every clearing input below is crafted in the visualizer's OWN "Try your own
- * input" form, exactly as a reader would.
+ * every clearing input below is crafted in the visualizer's OWN custom-input
+ * form, exactly as a reader would. Since the 2026-08 redesign that form is a
+ * `<details>` labelled "Run it on your own input — {algorithm}" rather than an
+ * always-open panel (amendment C-2), so the reader's act now begins with one
+ * click on a real control — which is what `runInput` opens with below.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   curriculum,
@@ -76,8 +80,18 @@ const BANNED =
 const TIMED =
   /\b(seconds? left|time left|timer|countdown|beat the clock|\d+:\d\d)\b/i;
 
-/** Runs a custom input through a visualizer's own form and waits for the run. */
+/**
+ * Runs a custom input through a visualizer's own form and waits for the run.
+ *
+ * Opens the disclosure the form now sits behind first (amendment C-2): it is a
+ * real `<details>`, so the fields are `display: none` — and therefore not
+ * fillable — until it is open. `openCustomInput` sets `open` rather than
+ * clicking the summary, so it is idempotent: the tests below that run a second
+ * input through the same instrument (miss-then-clear) do not toggle the form
+ * shut on the way in.
+ */
 async function runInput(viz: Locator, array: string): Promise<void> {
+  await openCustomInput(viz);
   await viz.locator('[data-viz-array]').fill(array);
   const target = viz.locator('[data-viz-target]');
   // The second field is opt-out (`showTarget`, default true), so a sort
@@ -366,13 +380,19 @@ test.describe('the Final Run: unlimited attempts, no first-try anything', () => 
     await expect(status).toContainText(
       (await card.getAttribute('data-answer-text'))!,
     );
-    // …beside the route into the visualization, which is a real link to a real
-    // heading on this page.
+    // …beside the route into the visualization, which is a real link to the
+    // INSTRUMENT itself. Amendment F-1 moved this anchor off the heading a
+    // <Visualizer> sat under and onto the instrument's own derived id
+    // (`instrumentIdFor`), because the drawing no longer lives a screenful below
+    // its own `##` — and on binary search there is no `## Visualizer` heading
+    // left to fall back to (amendment S-1). So the target is asserted to BE the
+    // instrument rather than merely to be some element that exists: a link that
+    // resolved to the heading again would still pass a bare count-of-1.
     const watch = card.locator('[data-final-run-watch]');
     await expect(watch).toBeVisible();
     const href = await watch.locator('a').getAttribute('href');
     expect(href).toMatch(/^#/);
-    await expect(page.locator(href!)).toHaveCount(1);
+    await expect(page.locator(`${href!}[data-viz]`)).toHaveCount(1);
 
     // A miss is not a mark: nothing is recorded and nothing is counted.
     expect(await readKey(page, FINAL_RUN_KEY)).toBeNull();

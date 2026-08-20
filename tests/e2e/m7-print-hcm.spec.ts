@@ -25,9 +25,11 @@
  * The forced-colors half is written against the MAPPING TABLE in
  * `Visualizer.astro` — all ten states, not a sample — because that table is the
  * design: it is the thing that has to stay collision-free as states are added,
- * and it is declared in three places (the visualizer's `is:global` block plus
- * the two build-time stills, which ship outside it and so carry their own
- * smaller copies).
+ * and it is declared in two places (the visualizer's `is:global` block plus the
+ * 404 page's build-time still, which ships outside it and so carries its own
+ * smaller copy). It used to be three: the home hero was a second such still, and
+ * amendment H-1 deleted that copy by mounting the real island there — so the
+ * hero's test below now drives a live run instead of reading a frozen frame.
  *
  * Both are invisible to every other suite: the visual baseline captures screen
  * media in one colour mode, and axe evaluates neither.
@@ -36,7 +38,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { computed, contrast, luminance, PAPER, parseRgb } from './utils/color';
 
 const LESSON = '/learn/binary-search';
-/** Wide enough that the rail and the one-row control bar are on screen first. */
+/** Wide enough for the two-column lesson and the one-row control bar. */
 const DESKTOP = { width: 1280, height: 1000 };
 
 /** Layout-only height, readable even for a box the UA is not painting. */
@@ -79,9 +81,15 @@ test.describe('print stylesheet', () => {
 
     // Every assertion here is a DELTA: asserting only the printed state would
     // pass just as well against a rule that hid these things on screen too.
+    //
+    // `.toc--inline` stands where `.lesson__rail` used to (amendment L-3): the
+    // 15rem rail is retired and the sticky "On this page" bar is the lesson's
+    // one table of contents at every width, so it is the navigation that has to
+    // come off paper now. `.toc--rail` is deliberately NOT in this list — it
+    // renders nowhere, so the on-screen half of the delta could never pass.
     const chrome = [
       '.site-header',
-      '.lesson__rail',
+      '.toc--inline',
       '.viz-controls',
       '.whats-next',
       '.codetabs__copy',
@@ -112,7 +120,15 @@ test.describe('print stylesheet', () => {
     const answer = practiceAnswer(page).locator('.collapsible__content');
     // Closed on screen: `::details-content` is `content-visibility: hidden`, so
     // the answer is not laid out.
-    expect(await rectHeight(answer)).toBe(0);
+    //
+    // POLLED, like the printed half below, and for the same reason. The zero is
+    // produced by the UA *skipping* a subtree, not by a style that is true the
+    // moment the document parses — Chromium reports the child's natural height
+    // until the skip lands, and under a loaded worker that can be a frame or two
+    // after `networkidle`. It passed in isolation and failed once inside a full
+    // suite run, which is the signature of a race rather than of a regression.
+    // The assertion is unchanged; only the wait matches the one it is paired with.
+    await expect.poll(() => rectHeight(answer)).toBe(0);
 
     await page.emulateMedia({ media: 'print' });
 
@@ -399,6 +415,35 @@ async function settledFill(locator: Locator): Promise<string> {
   return (await pen(locator)).fill;
 }
 
+/**
+ * A rect's WHOLE pen once both of its colour transitions have landed.
+ *
+ * `settledFill`'s sibling, one property further: `.viz-cell__rect` transitions
+ * `fill` AND `stroke`, so switching the media repaints two channels over
+ * `--duration-base` and a read taken mid-flight reports Chromium's `oklab(…)`
+ * interpolation for either of them. The build-time stills this file was first
+ * written against declared no transitions at all, which is why one settled read
+ * was enough; the live island the hero now mounts (amendment H-1) does declare
+ * them. `strokeWidth` and `strokeDasharray` are not transitioned, so they are
+ * already correct on the first read — this only waits for the two colours.
+ *
+ * @param locator - A single rect, under `forcedColors: 'active'` (the same
+ *   soundness condition as `settledFill`: on screen the `color-mix()` tints
+ *   settle on `color(srgb …)`, not on `rgb()`).
+ * @returns Its settled pen.
+ */
+async function settledPen(locator: Locator): Promise<Pen> {
+  await expect
+    .poll(() =>
+      locator.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return `${style.fill} ${style.stroke}`;
+      }),
+    )
+    .toMatch(/^rgb\([^)]*\) rgb\(/);
+  return pen(locator);
+}
+
 test.describe('forced colors', () => {
   test.use({ viewport: DESKTOP });
 
@@ -537,30 +582,53 @@ test.describe('forced colors', () => {
     expect(await marks.allTextContents()).toContain('✓');
   });
 
-  test('the home hero still re-encodes its two states', async ({ page }) => {
-    // The stills ship OUTSIDE the visualizer island, so the island's
-    // `is:global` hardening never reaches them and each carries its own smaller
-    // copy. A copy is exactly the thing that rots quietly, which is why both
-    // are checked here against the same table.
+  test('the home hero re-encodes its two states, on a live run', async ({
+    page,
+  }) => {
+    // This used to read a build-time still: the hero shipped OUTSIDE the
+    // visualizer island, so the island's `is:global` hardening never reached it
+    // and it carried its own smaller copy of the table — and a copy is exactly
+    // the thing that rots quietly. Amendment H-1 deleted that copy by mounting
+    // the real island here, so the claim moves with it rather than disappearing:
+    // the hardening has to reach the FIRST page a stranger sees, on a frame the
+    // reader produced, on a page that carries none of a lesson's own chrome. The
+    // 404 still is the one remaining outside copy, and the test below guards it.
     await page.goto('/');
-    const range = page.locator('.hero-demo .viz-cell.is-range .viz-cell__rect');
-    const active = page.locator(
-      '.hero-demo .viz-cell.is-active .viz-cell__rect',
-    );
+    const viz = page.locator('.hero__stage [data-viz]');
+    await viz.scrollIntoViewIfNeeded();
+    await expect(viz).toHaveAttribute('data-viz-ready', 'true', {
+      timeout: 15_000,
+    });
+
+    // Step to the one frame of this four-step run that paints both states at
+    // once: by step 3 the window has narrowed and a single cell is being probed.
+    // Step 1 is all range and no probe, so it could not make the comparison at
+    // all — which is why the still had to be a mid-run frame too.
+    const forward = viz.locator('[data-viz-forward]');
+    await forward.click();
+    await forward.click();
+    await expect(viz.locator('[data-viz-counter]')).toHaveText('3 / 4');
+
+    const range = viz.locator('.viz-cell.is-range .viz-cell__rect');
+    const active = viz.locator('.viz-cell.is-active .viz-cell__rect');
     await expect(range.first()).toBeVisible();
     await expect(active.first()).toBeVisible();
 
     // On screen the two are told apart by stroke colour (`--border-strong` vs
     // `--hl-active`). That is the channel forced colours takes away, so it is
-    // also what makes the assertions below non-vacuous.
-    expect((await pen(range.first())).stroke).not.toBe(
-      (await pen(active.first())).stroke,
-    );
+    // also what makes the assertions below non-vacuous. Polled rather than read
+    // once: the probe's stroke is transitioning out of the resting colour at the
+    // instant the step lands, and at t=0 of that transition it still IS the
+    // resting colour — a straight read would be a coin flip on a correct build.
+    const resting = (await pen(range.first())).stroke;
+    await expect
+      .poll(async () => (await pen(active.first())).stroke)
+      .not.toBe(resting);
 
     await page.emulateMedia({ forcedColors: 'active' });
 
-    const dotted = await pen(range.first());
-    const probed = await pen(active.first());
+    const dotted = await settledPen(range.first());
+    const probed = await settledPen(active.first());
     const expected = (state: string) =>
       MAPPING.find((entry) => entry.state === state)!;
     expect(channel(dotted)).toBe(channel(expected('is-range')));
@@ -572,17 +640,14 @@ test.describe('forced colors', () => {
     // The numerals are repainted too — an unrepainted `--text` fill would be
     // whatever the reader's palette is not.
     expect(
-      await computed(
-        page.locator('.hero-demo .viz-cell__value').first(),
-        'fill',
-      ),
+      await computed(viz.locator('.viz-cell__value').first(), 'fill'),
     ).toBe(dotted.stroke);
     // …and the eliminated cells still recede, because `opacity` is an alpha
     // rather than a colour and survives untouched.
     expect(
       Number(
         await computed(
-          page.locator('.hero-demo .viz-cell.is-eliminated').first(),
+          viz.locator('.viz-cell.is-eliminated').first(),
           'opacity',
         ),
       ),

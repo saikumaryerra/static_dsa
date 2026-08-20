@@ -352,60 +352,6 @@ const targetId = `${uid}-target`;
     }
     <div class="viz-canvas" data-viz-canvas tabindex="-1" set:html={still} />
 
-    {
-      /* Auto-legend (build time): one pill per highlight kind this trace really
-         uses. The swatch repeats the renderer's own token + tint, the glyph is
-         the character the renderer draws, and the word is the plain-language
-         name — so colour is never the only signal here either. `active` and
-         `frontier` have no character marker; frontier's dashed swatch border
-         carries its non-colour cue. */
-    }
-    {
-      legend.length > 0 && (
-        <ul
-          class="viz-legend"
-          role="list"
-          aria-label="What the highlights mean"
-          data-viz-legend
-        >
-          {legend.map((item) => (
-            <li class="viz-pill viz-legend__item">
-              <span
-                class="viz-legend__swatch"
-                data-kind={item.kind}
-                style={`--legend-hl: var(${item.token})`}
-                aria-hidden="true"
-              />
-              {item.glyph && (
-                <span class="viz-legend__glyph" aria-hidden="true">
-                  {item.glyph}
-                </span>
-              )}
-              <span>{item.word}</span>
-            </li>
-          ))}
-        </ul>
-      )
-    }
-
-    {
-      /* A11Y-2: exposed, not aria-hidden — the pills are a SIBLING of the
-         aria-live explanation, so screen-reader users can read the counts on
-         demand without the live region re-announcing them every step. */
-    }
-    {
-      showMetrics && (
-        <div class="viz-metrics" data-viz-metrics>
-          {metricPills.map((pill) => (
-            <span class="viz-pill">
-              {pill.label}
-              <b>{pill.value}</b>
-            </span>
-          ))}
-        </div>
-      )
-    }
-
     <p
       class="viz-explain"
       id={explainId}
@@ -657,88 +603,28 @@ const targetId = `${uid}-target`;
     </p>
 
     {
+      /* The custom-input form is a DISCLOSURE now (redesign 2026-08).
+         Two measurements pushed it behind a summary. On a phone the controls
+         region measured 550px tall, of which this form was 300 — so a reader who
+         stepped the algorithm and wanted the next sentence scrolled past a form
+         they had not asked for. And in a bench's pinned stage column the whole
+         instrument has to fit one viewport, which it does not with the form
+         permanently open.
+
+         It is a `<details>`, not a hidden panel: the summary is a real control,
+         it is directly under the transport where the eye already is, and its
+         label promises the thing the product is proud of. The `<p>` legend it
+         replaces said the same words with no way to act on them. */
+    }
+    {
       allowCustomInput && (
-        <form class="viz-custom" data-viz-form novalidate>
-          <p class="viz-custom__legend">Try your own input</p>
-          <div class="viz-custom__fields">
-            <div class="viz-field">
-              <label for={arrayId}>{inputLabel}</label>
-              {/* INP-1: these fields take code-shaped literals, so every
-                  "helpful" mobile keyboard behaviour (autocorrect, leading
-                  capital, spell squiggles) is noise here.
-                  SPACE-SEPARATED describedby: the field owes BOTH descriptions
-                  and the error one has to survive — overwriting the list with
-                  just the error id (or the reverse) is how one of the two
-                  silently stops being announced. Format first, then what went
-                  wrong with it. */}
-              <input
-                type="text"
-                id={arrayId}
-                data-viz-array
-                placeholder={arrayPlaceholder}
-                aria-describedby={helpText ? `${helpId} ${errId}` : errId}
-                spellcheck="false"
-                autocapitalize="none"
-                autocorrect="off"
-                disabled
-              />
-            </div>
-            {showTarget && (
-              <div class="viz-field viz-field--target">
-                <label for={targetId}>{targetLabel}</label>
-                <input
-                  type="text"
-                  id={targetId}
-                  data-viz-target
-                  inputmode="numeric"
-                  placeholder={targetHint}
-                  aria-describedby={errId}
-                  spellcheck="false"
-                  autocapitalize="none"
-                  autocorrect="off"
-                  disabled
-                />
-              </div>
-            )}
-            <button type="submit" class="btn-secondary" data-viz-run disabled>
-              Run
-            </button>
-            {/* Recovery (CMP-14): puts the lesson's own example back — the exact
-                authored string, which the build already proved parses — and
-                refills both fields with its REAL values, so an experiment is
-                never a one-way door. Only offered when there IS an authored
-                input; a viz seeded from defaultInput() has no string to restore
-                and the control would lie about what it does. */}
-            {input && (
-              <button
-                type="button"
-                class="btn-secondary"
-                data-viz-restore
-                disabled
-              >
-                Restore example
-              </button>
-            )}
-          </div>
-          {/* Persistent format + cap disclosure (INP-*). Muted, not an error:
-              it is the same text before and after a mistake, so the reader can
-              act on it instead of guessing from a rejection. */}
-          {helpText && (
-            <p class="viz-custom__help" id={helpId}>
-              {helpText}
-            </p>
-          )}
-          {/* role="status" carries an implicit aria-live="polite"; the choice
-              over role="alert" (A11Y-8) is therefore about politeness, not about
-              announcing once: this error is the direct result of the reader's own
-              submit, so it should queue behind whatever the AT is saying instead
-              of interrupting it. showError also moves focus to the offending
-              field, which re-announces the text via aria-describedby. */}
-          <p class="viz-error" id={errId} role="status" data-viz-error hidden>
+        <details class="viz-custom-open">
+          <summary>
             <svg
-              viewBox="0 0 24 24"
+              class="viz-custom-open__chevron"
               width="16"
               height="16"
+              viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
@@ -746,20 +632,192 @@ const targetId = `${uid}-target`;
               stroke-linejoin="round"
               aria-hidden="true"
             >
-              <path d="M12 3 2 20h20z" />
-              <path d="M12 10v4" />
-              <path d="M12 17h.01" />
+              <path d="M9 6l6 6-6 6" />
             </svg>
-            <span data-viz-error-text />
-          </p>
-        </form>
+            {/* NAMED, because a lesson can host three instruments and three
+                identical "Run it on your own input" summaries are three
+                indistinguishable controls in a screen reader's list — the exact
+                defect CNT-8 was raised for, and the exact shape the ledger's own
+                summary already avoids ("The run, written out — Binary search on
+                a sorted array"). Same em-dash idiom, same source of truth. */}
+            <span>Run it on your own input — {label}</span>
+          </summary>
+          <form class="viz-custom" data-viz-form novalidate>
+            <div class="viz-custom__fields">
+              <div class="viz-field">
+                <label for={arrayId}>{inputLabel}</label>
+                {/* INP-1: these fields take code-shaped literals, so every
+                  "helpful" mobile keyboard behaviour (autocorrect, leading
+                  capital, spell squiggles) is noise here.
+                  SPACE-SEPARATED describedby: the field owes BOTH descriptions
+                  and the error one has to survive — overwriting the list with
+                  just the error id (or the reverse) is how one of the two
+                  silently stops being announced. Format first, then what went
+                  wrong with it. */}
+                <input
+                  type="text"
+                  id={arrayId}
+                  data-viz-array
+                  placeholder={arrayPlaceholder}
+                  aria-describedby={helpText ? `${helpId} ${errId}` : errId}
+                  spellcheck="false"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  disabled
+                />
+              </div>
+              {showTarget && (
+                <div class="viz-field viz-field--target">
+                  <label for={targetId}>{targetLabel}</label>
+                  <input
+                    type="text"
+                    id={targetId}
+                    data-viz-target
+                    inputmode="numeric"
+                    placeholder={targetHint}
+                    aria-describedby={errId}
+                    spellcheck="false"
+                    autocapitalize="none"
+                    autocorrect="off"
+                    disabled
+                  />
+                </div>
+              )}
+              <button type="submit" class="btn-secondary" data-viz-run disabled>
+                Run
+              </button>
+              {/* Recovery (CMP-14): puts the lesson's own example back — the exact
+                authored string, which the build already proved parses — and
+                refills both fields with its REAL values, so an experiment is
+                never a one-way door. Only offered when there IS an authored
+                input; a viz seeded from defaultInput() has no string to restore
+                and the control would lie about what it does. */}
+              {input && (
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  data-viz-restore
+                  disabled
+                >
+                  Restore example
+                </button>
+              )}
+            </div>
+            {/* Persistent format + cap disclosure (INP-*). Muted, not an error:
+              it is the same text before and after a mistake, so the reader can
+              act on it instead of guessing from a rejection. */}
+            {helpText && (
+              <p class="viz-custom__help" id={helpId}>
+                {helpText}
+              </p>
+            )}
+            {/* role="status" carries an implicit aria-live="polite"; the choice
+              over role="alert" (A11Y-8) is therefore about politeness, not about
+              announcing once: this error is the direct result of the reader's own
+              submit, so it should queue behind whatever the AT is saying instead
+              of interrupting it. showError also moves focus to the offending
+              field, which re-announces the text via aria-describedby. */}
+            <p class="viz-error" id={errId} role="status" data-viz-error hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 3 2 20h20z" />
+                <path d="M12 10v4" />
+                <path d="M12 17h.01" />
+              </svg>
+              <span data-viz-error-text />
+            </p>
+          </form>
+        </details>
+      )
+    }
+  </div>
+
+  {
+    /* THE KEY — the legend and the counters — sits BELOW the transport
+       (redesign 2026-08), not between the drawing and the sentence where it
+       started.
+
+       MEASURED reason: in a bench's pinned stage column the whole instrument has
+       to fit one viewport, and on the four lessons with a tall drawing (the
+       graph, the tree, the call stack, the DP table) 88px of legend and metric
+       pills above the transport was exactly what pushed Play below the fold at
+       1440x900. Ordering the instrument by what a reader needs in view — the
+       drawing, the sentence about it, the controls that move it — puts the two
+       blocks a reader consults occasionally after the three they use constantly.
+
+       OUTSIDE `.viz-controls`, deliberately: the legend explains the colours of
+       the STILL as much as of the live drawing, and `.viz-controls` is what the
+       `<noscript>` kill-switch hides. With JavaScript off the key sits directly
+       under the figure, which is where it always was. */
+  }
+  <div class="viz-key">
+    {
+      /* Auto-legend (build time): one pill per highlight kind this trace really
+           uses. The swatch repeats the renderer's own token + tint, the glyph is
+           the character the renderer draws, and the word is the plain-language
+           name — so colour is never the only signal here either. `active` and
+           `frontier` have no character marker; frontier's dashed swatch border
+           carries its non-colour cue. */
+    }
+    {
+      legend.length > 0 && (
+        <ul
+          class="viz-legend"
+          role="list"
+          aria-label="What the highlights mean"
+          data-viz-legend
+        >
+          {legend.map((item) => (
+            <li class="viz-pill viz-legend__item">
+              <span
+                class="viz-legend__swatch"
+                data-kind={item.kind}
+                style={`--legend-hl: var(${item.token})`}
+                aria-hidden="true"
+              />
+              {item.glyph && (
+                <span class="viz-legend__glyph" aria-hidden="true">
+                  {item.glyph}
+                </span>
+              )}
+              <span>{item.word}</span>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
+    {
+      /* A11Y-2: exposed, not aria-hidden — the pills are a SIBLING of the
+           aria-live explanation, so screen-reader users can read the counts on
+           demand without the live region re-announcing them every step. */
+    }
+    {
+      showMetrics && (
+        <div class="viz-metrics" data-viz-metrics>
+          {metricPills.map((pill) => (
+            <span class="viz-pill">
+              {pill.label}
+              <b>{pill.value}</b>
+            </span>
+          ))}
+        </div>
       )
     }
   </div>
 
   {
     /* The ledger closes the instrument, and DOM order IS the visual order:
-       drawing, sentence, transport, the run. OUTSIDE `.viz-controls` on purpose
+       drawing, sentence, transport, key, the run. OUTSIDE `.viz-controls` on purpose
        — the `<noscript>` kill-switch below hides that block, and this table must
        survive with JavaScript off, because with JavaScript off it is the lesson.
        Its seek buttons ship `disabled` and stay that way until the island turns
@@ -909,6 +967,16 @@ const targetId = `${uid}-target`;
     scroll-margin-top: calc(
       var(--header-h) + var(--toc-bar-h, 0rem) + var(--space-2)
     );
+    /* The instrument now appears at three very different widths on the SAME
+       viewport — full-bleed on a phone, ~1150px in a solo bench, ~500px pinned
+       in a bench's stage column — so every layout decision inside it has to
+       follow its own box rather than the window's (redesign 2026-08). The
+       viewport media queries that used to switch the control bar and the
+       transport are container queries against this name below.
+
+       `inline-size` only: a `size` container would need a height too, and this
+       element's height is exactly what its contents decide. */
+    container: viz / inline-size;
   }
 
   @media (min-width: 1024px) {
@@ -1342,12 +1410,23 @@ const targetId = `${uid}-target`;
     font-size: 12px;
   }
 
+  /* ---- The key: legend + counters, under the transport ---- */
+  .viz-key {
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  @media (min-width: 768px) {
+    .viz-key {
+      padding: 0 var(--space-6) var(--space-6);
+    }
+  }
+
   /* ---- Metrics ---- */
   .viz-metrics {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    margin-bottom: var(--space-3);
+    margin-bottom: 0;
   }
 
   /* A chip INSIDE the level-1 frame, so it is a sunken well, not a raised
@@ -1521,7 +1600,23 @@ const targetId = `${uid}-target`;
        a 16px margin on 16px of padding. */
   }
 
-  @media (min-width: 640px) {
+  /* Was `@media (min-width: 640px)`. A pinned stage column is ~545px wide on a
+     1600px screen, so the viewport query put transport, scrubber and speed on
+     one row inside a box that could not hold them and the speed label landed on
+     top of the slider. The container query asks the only question that matters:
+     is THIS instrument wide enough?
+
+     36rem, and the number is a measurement rather than a round one. A container
+     query resolves against the CONTENT box, and `.viz` carries a 1px border from
+     768px up, so a 545px pinned pane queries as 543. One row inside it fits on
+     paper — transport ~300 + counter 40 + speed ~116 + gaps 32 = 488 against
+     ~495 of usable width after `.viz-controls`' padding — and fails in practice:
+     at 7px of slack the step counter wraps to two lines mid-row. So the pinned
+     pane takes the two-row layout deliberately, and 36rem (576px) is safely above
+     it; a solo bench at ~1150px is unambiguously one row. The 44px this costs the
+     pane is affordable now that the legend and the counters sit below the
+     transport rather than above it. */
+  @container viz (min-width: 36rem) {
     .viz-control-bar {
       grid-template-columns: auto minmax(0, 1fr) auto;
       grid-template-areas: 'transport scrub speed';
@@ -1723,9 +1818,26 @@ const targetId = `${uid}-target`;
     flex-wrap: wrap;
   }
 
-  @media (min-width: 640px) {
+  @container viz (min-width: 36rem) {
     .viz-transport {
       justify-content: flex-start;
+    }
+  }
+
+  /* Vertical economy for the pinned stage column. A whole instrument plus its
+     table has to sit inside one viewport there, and these are the bands that can
+     give without costing the reader anything they were using: the gap under the
+     legend, and the frame's and controls' own block padding. (The larger saving
+     was structural — the legend and the counters moved BELOW the transport, so
+     they no longer stand between the drawing and the controls at all.) */
+  @container viz (max-width: 34rem) {
+    .viz-legend {
+      margin-bottom: var(--space-2);
+    }
+
+    .viz-frame,
+    .viz-controls {
+      padding-block: var(--space-3);
     }
   }
 
@@ -1859,18 +1971,56 @@ const targetId = `${uid}-target`;
     padding-inline: var(--space-3);
   }
 
-  /* ---- Custom input ---- */
-  .viz-custom {
+  /* ---- Custom input, behind a disclosure (redesign 2026-08) ---- */
+  .viz-custom-open {
     margin-top: var(--space-4);
-    padding-top: var(--space-4);
     border-top: 1px solid var(--border);
   }
 
-  .viz-custom__legend {
-    margin: 0 0 var(--space-2);
+  /* A real control, sized like one: 44px of target (WCAG 2.5.5) with the label
+     and its chevron on the same baseline. It reads as the promise it is —
+     "Run it on your own input" — rather than as the section label the `<p>` it
+     replaces used to be. */
+  .viz-custom-open summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding-block: var(--space-2);
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--text);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .viz-custom-open summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .viz-custom-open summary:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .viz-custom-open summary:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+    border-radius: var(--radius-control);
+  }
+
+  .viz-custom-open__chevron {
+    flex: none;
+    color: var(--text-muted);
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  .viz-custom-open[open] .viz-custom-open__chevron {
+    transform: rotate(90deg);
+  }
+
+  .viz-custom {
+    padding-bottom: var(--space-2);
   }
 
   .viz-custom__fields {

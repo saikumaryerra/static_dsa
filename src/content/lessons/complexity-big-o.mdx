@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -107,6 +108,10 @@ The trick is that Big-O ignores constant factors and small details and keeps onl
 
 ## How it works
 
+<Bench id="visualizer">
+
+<Visualizer slot="stage" algorithm="growth-rates" renderer="chart" input="16" />
+
 To find an algorithm's Big-O, count the steps in terms of n and keep the fastest-growing term:
 
 1. **No loop over the input** → the work does not grow with n. That is **O(1)**, "constant time."
@@ -115,19 +120,21 @@ To find an algorithm's Big-O, count the steps in terms of n and keep the fastest
 4. **Halving the problem each step** (like binary search) → about log₂(n) steps. That is **O(log n)**, "logarithmic time" — remarkably slow-growing.
 5. **Splitting and recombining** (like merge sort) → **O(n log n)**, which sits between linear and quadratic.
 
-The numbers matter. At n = 1,000, an O(log n) algorithm does about 10 steps, O(n) does 1,000, and O(n²) does 1,000,000. The visualization below plots all five curves at once so you can watch them separate. Step the input size **n** upward and see how far O(n²) pulls away from the rest.
-
-## Visualizer
-
-<Visualizer algorithm="growth-rates" renderer="chart" input="16" />
+The numbers matter. At n = 1,000, an O(log n) algorithm does about 10 steps, O(n) does 1,000, and O(n²) does 1,000,000. The visualization plots all five curves at once so you can watch them separate. Step the input size **n** upward and see how far O(n²) pulls away from the rest.
 
 Each curve is told apart by its **line style and end label**, not by color. Press **Play** to sweep the guide line from small n to large n, or **Step forward** one size at a time. Enter a larger maximum n in the box to watch the gaps grow even wider.
 
+</Bench>
+
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 This lesson compares functions rather than analyzing one algorithm, so the table summarizes the three code snippets below: the direct lookup is **O(1)** (best), the single loop is **O(n)** (average), and the nested loop is **O(n²)** (worst). None of them allocate extra space that grows with n, so each uses **O(1)** auxiliary space.
+
+</Bench>
 
 ## Code
 

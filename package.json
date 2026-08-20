@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "og": "node --experimental-transform-types scripts/build-og.mjs",
     "icons": "node scripts/build-icons.mjs",
+    "fonts": "node scripts/build-fonts.mjs",
     "audit:frames": "node --experimental-transform-types scripts/audit-frames.mjs"
   },
   "dependencies": {

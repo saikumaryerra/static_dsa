@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -102,6 +103,17 @@ There is one wrinkle. Two different keys can hash to the **same** bucket — tha
 
 ## How it works
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="hash-table-operations"
+  renderer="hashTable"
+  input="[11,24,6,15,20] cap=5 target=6"
+  inputLabel="Keys"
+  targetLabel="Search key"
+/>
+
 We handle collisions with **[separate chaining](/glossary#chaining)**: each bucket holds a little list (a chain) of all the keys that hashed to it. The visualization draws the buckets as a vertical column of numbered slots; each bucket's chain grows to the right using the same node-and-arrow picture you saw for linked lists.
 
 1. **Hash** — compute `bucket = key % capacity`. The `▶` caret marks the bucket being probed.
@@ -110,23 +122,19 @@ We handle collisions with **[separate chaining](/glossary#chaining)**: each buck
 
 The fewer keys share a bucket, the shorter the chains and the faster the lookups. The ratio of keys to buckets — the **load factor** — is the dial that controls this, and the visualization prints it after the inserts.
 
-## Visualizer
-
-<Visualizer
-  algorithm="hash-table-operations"
-  renderer="hashTable"
-  input="[11,24,6,15,20] cap=5 target=6"
-  inputLabel="Keys"
-  targetLabel="Search key"
-/>
-
 Press **Play**, or **Step forward** to move one hash, insert, or comparison at a time. Watch keys `11` and `6` collide in bucket 1 — and `15` and `20` collide in bucket 0 — forming chains, then see the search for `6` probe bucket 1 and walk the chain to the match. Try your own keys, bucket count (`cap=`), and search target.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 With a good hash function and enough buckets, keys spread out, chains stay short, and insert and search are on **average O(1)** — you compute the bucket and touch only a handful of entries. The **worst case is O(n)**: if every key collides into one bucket, that bucket becomes a linear list and you are back to scanning all `n` keys. The table stores every key, so space is **O(n)**. Keeping the load factor low (real hash tables grow and rehash once it passes roughly `0.75`) is what keeps you in the fast average case.
+
+</Bench>
 
 ## Code
 

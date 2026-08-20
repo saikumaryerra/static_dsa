@@ -1,26 +1,45 @@
 ---
 /**
- * Home page (site spec §8 "Home page", M1 wireframe + M5 design §3 polish).
+ * Home page (site spec §8, M1 wireframe, M5 design §3, M7.3 hero — rebuilt in the
+ * 2026-08 redesign).
  *
- * Sections: hero (value prop + subhead + primary CTA to /learn + secondary link),
- * three feature blurbs (interactive / beginner-friendly / free), and two track
- * cards linking to /learn. Header/footer/skip-link come from BaseLayout.
+ * WHAT CHANGED AND WHY. The page used to open with a still: a frozen frame of
+ * binary search, produced by the real renderer so it could never drift, with
+ * "Play it in the lesson →" underneath. It was honest and it was the wrong
+ * artifact. A product whose entire claim is *you can step through this* opened
+ * by showing a photograph of stepping through it, and asked the visitor to
+ * navigate twice before the claim could be checked. The hero now mounts the REAL
+ * instrument — the same `<Visualizer>` island a lesson uses, on the same trace —
+ * so the first thing a stranger can do on this site is press Play.
  *
- * M5: the track-card counts, total minutes, difficulty spread, AND the "N lessons"
- * heading are DERIVED from the published lessons collection (design §3.5) — never
- * hardcoded, so they can never drift from the real curriculum. Optional site-level
- * WebSite JSON-LD is injected via the BaseLayout head slot (arch §3.3).
+ * That deleted about 130 lines from this file: the `renderStatic` call, the
+ * frame-picking derivation, the build-time assertion that the renderer still
+ * emits nine class names, and the ~110 lines of `.hero-demo__canvas :global(…)`
+ * CSS that restated the renderer's stylesheet because the still was drawn
+ * outside the island that owns it. All of it existed to keep a hand-placed copy
+ * of the product in step with the product. Mounting the product needs none of it.
  *
- * M7.3 adds the hero demo panel (IA-1/VD-2) and the display type tier — see the
- * SPEC-GAP note on the demo block below.
+ * Sections, each with one job:
+ *   hero        what this is + the thing itself, running
+ *   lesson      what a lesson gives you, described in terms of the hero above it
+ *   curriculum  every lesson, by track — the scope of the thing, and 15 doors in
+ *   candour     what it costs and what it takes from you (both nothing)
+ *   close       one last way in
+ *
+ * The track counts, minutes, difficulty spread and the lesson lists are all
+ * DERIVED from the published collection (M5 design §3.5), so they can never
+ * drift from the real curriculum. Nothing on this page is fabricated: there are
+ * no testimonials, ratings, user counts or logos, because the product has never
+ * been publicly measured and inventing one would be the worst thing this page
+ * could do (PRODUCT.md, "Evidence on Hand").
  */
 import { getCollection } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Visualizer from '../viz/Visualizer.astro';
 import { webSiteJsonLd } from '../lib/structured-data';
 import { resumeLabel, type LessonRef } from '../lib/progress';
-import { algorithms, renderers } from '../viz/registry';
-import type { Algorithm, RendererModule, Step } from '../viz/core/types';
+import { TRACK_ORDER, TRACK_COPY } from '../lib/tracks';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
 const totalLessons = published.length;
@@ -28,69 +47,29 @@ const totalLessons = published.length;
 // WebSite JSON-LD (arch §3.3): static, zero client JS. Astro.site is always set.
 const jsonLd = webSiteJsonLd(Astro.site!);
 
-interface Feature {
-  title: string;
-  body: string;
-  /** Inline 24px stroke icon path data (drawn by hand — no icon library, spec §4). */
-  iconPaths: string[];
-}
-
-const features: Feature[] = [
+/**
+ * What one lesson actually gives a reader. Three claims, each about something
+ * visible in the hero instrument directly above them rather than about the
+ * product in the abstract — "step forward and back" is a button they can already
+ * see, and "the run written out as a table" is the table under the drawing.
+ */
+const promises = [
   {
-    title: 'Interactive by default',
-    body: 'Every lesson is built around a visualization you control: play, pause, step forward and back, or run the algorithm on your own input.',
-    // Play button in a circle — "press play on the algorithm".
-    iconPaths: [
-      'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z',
-      'M10 8l6 4-6 4V8z',
-    ],
+    title: 'Step it, forwards and back',
+    body: 'The drawing above is not an animation. An instrumented algorithm ran once and recorded every step, so the player is just an index into that record — which is why stepping backwards is instant, and why it is always the truth.',
   },
   {
-    title: 'Made for beginners',
-    body: 'Plain language, concrete examples, and every term defined the first time it appears. Start from zero and build up one lesson at a time.',
-    // Open book.
-    iconPaths: [
-      'M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z',
-      'M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z',
-    ],
+    title: 'Read the same run as a table',
+    body: 'Under every drawing is the run written out, one row per step, with the algorithm’s own variables as columns. Two views of one trace: they cannot tell you different stories, and with JavaScript off the table is the lesson.',
   },
   {
-    title: 'Free, forever',
-    body: 'No account, no paywall, no tracking. The whole site is static and open source, and every lesson works offline once loaded.',
-    // Heart.
-    iconPaths: [
-      'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
-    ],
-  },
-];
-
-interface Track {
-  id: 'foundations' | 'algorithms';
-  label: string;
-  title: string;
-  summary: string;
-}
-
-/** Static presentation for each track; counts/minutes/spread are derived below. */
-const trackDefs: Track[] = [
-  {
-    id: 'foundations',
-    label: 'Track A',
-    title: 'Foundations & Data Structures',
-    summary:
-      'Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on.',
-  },
-  {
-    id: 'algorithms',
-    label: 'Track B',
-    title: 'Algorithms',
-    summary:
-      'Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks.',
+    title: 'Run it on your own numbers',
+    body: 'Type an array and press Run. The algorithm executes on your input for real and the drawing, the table and the step count all follow — no canned second example, nothing pre-recorded.',
   },
 ];
 
 /**
- * Human-readable difficulty spread for a track's lessons (design §3.5) — e.g.
+ * Human-readable difficulty spread for a track's lessons (M5 design §3.5) — e.g.
  * "8 beginner · 1 intermediate" or "All beginner". Difficulty as words (never a
  * color-only chip) keeps it accessible (§3.8, WCAG 1.4.1).
  */
@@ -105,6 +84,28 @@ function difficultySpread(lessons: CollectionEntry<'lessons'>[]): string {
     ? `All ${parts[0].split(' ')[1]}`
     : parts.join(' · ');
 }
+
+/**
+ * The two tracks with their real contents. The home page used to show a
+ * paragraph *about* each track; it now shows the lessons themselves, because a
+ * visitor deciding whether this site covers what they came for should not have
+ * to take a summary's word for it, and because fifteen named links are fifteen
+ * ways in for the reader who arrived wanting exactly one of them.
+ */
+const tracks = TRACK_ORDER.map((id) => {
+  const lessons = published
+    .filter((l) => l.data.track === id)
+    .sort((a, b) => a.data.order - b.data.order);
+  const minutes = lessons.reduce((sum, l) => sum + l.data.estimatedMinutes, 0);
+  return {
+    id,
+    ...TRACK_COPY[id],
+    lessons,
+    count: lessons.length,
+    totalMinutes: Math.round(minutes / 5) * 5,
+    spread: difficultySpread(lessons),
+  };
+});
 
 /**
  * The lesson list the hero's continue line reads (M7.2 progress system), in
@@ -133,163 +134,71 @@ const resumeFallback = firstLesson
   ? resumeLabel(firstLesson, 0, lessonRefs.length)
   : '';
 
-/**
- * ── Hero demo frame (M7.3 IA-1/VD-2) ──────────────────────────────────────────
- *
- * SPEC-GAP: §8 defines the hero as value prop + subhead + CTAs, so this panel is
- * an ADDITION (M7 plan, phase M7.3). The h1 promises motion and the first proof
- * of it used to be two navigations deep.
- *
- * It is NOT a mock. Page frontmatter runs at BUILD time only, so — exactly as
- * `src/viz/Visualizer.astro` does for its still (architecture §1) — it awaits the
- * same lazy registry thunks the lesson uses, runs the real instrumented
- * algorithm, and asks the real renderer for a DOM-free SVG string. The drawing
- * therefore cannot drift from the one the lesson shows, because it IS the
- * lesson's renderer output, and it costs the home page zero client JS (the
- * thunks resolve server-side; nothing here is reachable from a client script).
- *
- * The input is the algorithm's own `defaultInput()` — "a sensible starting input
- * for the lesson's default view" (core/types) and, today, the very array the
- * binary-search lesson authors. Deriving it beats restating a literal here: the
- * panel promises a run and links to it, so the two must never show different
- * arrays.
- *
- * `unknown` state throughout, as in the Visualizer frontmatter: the registry's
- * thunks are typed against the generic contract, and this page has no business
- * knowing binary search's state shape — it only reads `highlights`.
- */
-const heroAlgorithm: Algorithm<unknown, unknown> =
-  await algorithms['binary-search']();
-const heroRenderer: RendererModule<unknown> = await renderers.array();
-const heroTrace = heroAlgorithm.run(heroAlgorithm.defaultInput());
-
-/** Ids in a step's search-window highlight (0 when it has none left). */
-const windowSize = (step: Step<unknown>): number =>
-  (step.highlights ?? []).find((h) => h.kind === 'range')?.ids.length ?? 0;
-
-/**
- * The frame to show: the LAST step that still probes a window NARROWER than the
- * one the search started with. That rules out step 0 (whole array, no probe) and
- * the final "found" frame, so the picture is unmistakably an algorithm mid-run —
- * the narrowing is the whole idea of binary search. Derived from the trace rather
- * than pinned to an index, so a change to `defaultInput()` cannot silently pick a
- * boring frame; a default whose trace never narrows FAILS THE BUILD instead of
- * shipping one.
- */
-const heroFullWindow = windowSize(heroTrace[0]!);
-const heroStepIndex = heroTrace.findLastIndex(
-  (step) =>
-    windowSize(step) > 0 &&
-    windowSize(step) < heroFullWindow &&
-    (step.highlights ?? []).some((h) => h.kind === 'active'),
-);
-if (heroStepIndex < 0) {
-  throw new Error(
-    "Hero demo: binary search's defaultInput() never narrows its search window — the home page has no mid-run frame to show.",
-  );
-}
-
-const heroStill = heroRenderer.renderStatic(heroTrace[heroStepIndex]!, {
-  title: heroAlgorithm.label,
-  // Stable, not random: the ids land in the built HTML, and a value that changed
-  // per build would churn the e2e visual/aria baselines for no reason.
-  idBase: 'hero-demo',
-});
-const heroCaption = `Binary search, step ${heroStepIndex + 1} of ${heroTrace.length}`;
-
-/**
- * The still is drawn with the renderer's `.viz-*` classes, which
- * `src/viz/Visualizer.astro` styles from an `is:global` block — but that
- * stylesheet only ships on pages that mount the island, so the `<style>` below
- * restates the handful this one pinned frame needs. That restatement is the only
- * thing here that CAN drift, so the build asserts the renderer still emits every
- * class the local CSS styles.
- */
-const HERO_STILL_CLASSES = [
-  'viz-cell__rect',
-  'viz-cell__value',
-  'viz-cell__index',
-  'is-range',
-  'is-active',
-  'is-eliminated',
-  'viz-range-bar',
-  'viz-marker',
-  'viz-mid-label',
-];
-const heroMissingClasses = HERO_STILL_CLASSES.filter(
-  (cls) => !heroStill.includes(cls),
-);
-if (heroMissingClasses.length > 0) {
-  throw new Error(
-    `Hero demo still no longer emits: ${heroMissingClasses.join(', ')}. The renderer's class contract changed — update the hero's styles with it.`,
-  );
-}
-
-// Derive per-track meta from the collection: count, minutes (summed, rounded to
-// the nearest 5), and the difficulty spread — anti-drift (design §3.5).
-const tracks = trackDefs.map((def) => {
-  const lessons = published.filter((l) => l.data.track === def.id);
-  const minutes = lessons.reduce((sum, l) => sum + l.data.estimatedMinutes, 0);
-  const roundedMinutes = Math.round(minutes / 5) * 5;
-  return {
-    ...def,
-    count: lessons.length,
-    totalMinutes: roundedMinutes,
-    spread: difficultySpread(lessons),
-  };
-});
+/** Two-digit lesson number, matching the curriculum cards. */
+const num = (order: number) => String(order).padStart(2, '0');
 ---
 
 <BaseLayout
   title="LearnDSA — see data structures and algorithms in motion"
   description="Free, interactive lessons on data structures and algorithms. Play, pause, and step through every swap, pointer move, and recursive call — on your own input."
   canonicalPath="/"
+  wide
 >
   <script type="application/ld+json" slot="head" set:html={jsonLd} is:inline />
 
-  <!-- Hero: left-aligned per wireframe (center-aligned rag breaks with longer
-       strings). H1 balances + caps at 20ch to avoid ragged breaks (design §3.2).
-       M7.3: two columns from 1024px — copy left, a real frame of the binary-search
-       visualizer right; below that the panel stacks under the CTA row. -->
-  <section class="hero py-16 md:pt-24 md:pb-20">
-    <div>
+  <!-- Hero: copy left, the real instrument right from 1024px; stacked below it.
+       Left-aligned per wireframe (a centred rag breaks with longer strings). -->
+  <section class="hero">
+    <div class="hero__copy">
       <h1 class="hero__title">See data structures and algorithms in motion</h1>
-      <p class="mt-5 max-w-[55ch] text-lg text-muted">
-        LearnDSA teaches the core of computer science with interactive,
-        step-by-step visualizations. Watch every swap, pointer move, and
-        recursive call happen — then run each algorithm on your own input.
+      <p class="hero__lede">
+        Fifteen lessons that teach the core of computer science by showing you
+        the algorithm running. Every swap, pointer move and recursive call, one
+        step at a time — on your own input, in your own browser.
       </p>
-      <div class="mt-8 flex flex-wrap items-center gap-4">
-        <a href="/learn" class="btn-primary">Start learning</a>
+      <div class="hero__actions">
+        <a
+          href={firstLesson ? `/learn/${firstLesson.slug}` : '/learn'}
+          class="btn-primary"
+        >
+          Start with lesson 01
+        </a>
         {
           /* Secondary stays a TEXT link (one clear primary); min-height 44px +
              inline-flex aligns it to the button's baseline on the shared row
-             (design §3.3). Arrow in its own span so translations never bake it in. */
+             (M5 design §3.3). Arrow in its own span so translations never bake
+             it into the label. */
         }
-        <a
-          href="/about"
-          class="inline-flex min-h-[44px] items-center font-medium text-brand hover:underline"
-        >
-          How it works <span aria-hidden="true">→</span>
+        <a href="/learn" class="hero__secondary">
+          See all {totalLessons} lessons <span aria-hidden="true">→</span>
         </a>
       </div>
 
       {
-        /* Continue line (M7.2): the primary CTA above keeps its stable "Start
-           learning" wording for first-time visitors, and this secondary line is
-           what personalises. It ships server-rendered pointing at lesson 01, so
-           with JS off — or with storage blocked — it is still a true, useful
-           link; the island only rewrites it once it can read this device. */
+        /* Continue line (M7.2, amended by the redesign). It used to ship VISIBLE
+           and server-rendered pointing at lesson 01, so a JS-off reader still had
+           a true link. The primary CTA above now says exactly that — "Start with
+           lesson 01" — so on a first visit the two said the same thing twice, one
+           under the other. A returning reader is the only person this line has
+           anything to tell, so it ships `hidden` and the island reveals it only
+           once it can see at least one completed lesson on this device.
+
+           Nothing is lost with JavaScript off or with storage blocked: the line
+           stays hidden and the CTA above is the same destination it would have
+           offered. The server-rendered text is still the real wording from
+           `resumeLabel`, so the reveal cannot flash a different sentence. */
       }
       {
         firstLesson && (
           <p
-            class="mt-4 text-sm text-muted"
+            class="hero__resume"
             data-lessons={JSON.stringify(lessonRefs)}
+            data-resume-root
+            hidden
           >
             <a
               href={`/learn/${firstLesson.slug}`}
-              class="inline-flex min-h-[44px] items-center gap-1 font-medium text-brand hover:underline"
+              class="hero__resume-link"
               data-resume-link
             >
               <span data-resume-label>{resumeFallback}</span>
@@ -304,308 +213,439 @@ const tracks = trackDefs.map((def) => {
     </div>
 
     {
-      /* The whole panel is the link — a 44px-plus target that lands on the
-         lesson's own "## Visualizer" heading. `aria-label` keeps the name short
-         (the composed name would otherwise swallow the SVG's title AND its
-         step explanation) and is built from the two visible strings verbatim,
-         so speech input still matches what a reader can see (WCAG 2.5.3). */
+      /* THE PRODUCT, NOT A PICTURE OF IT. This is the same island, algorithm and
+         renderer the binary-search lesson mounts, so nothing here can drift from
+         what a lesson does — it is not "kept in sync", it is the same code.
+
+         Two props are set against their defaults. `allowCustomInput={false}`:
+         the custom-input form is the one control that needs its own explanation
+         (formats, caps, a target field), and the hero's job is to get a stranger
+         to press Play, not to teach an input grammar — the lesson two clicks away
+         does that, and the third promise below says so in words. `showLedger`
+         stays on, because the table under the drawing IS the argument this page
+         is making. */
     }
-    <a
-      class="hero-demo"
-      href="/learn/binary-search#visualizer"
-      aria-label={`${heroCaption} — play it in the lesson`}
-    >
-      <figure class="hero-demo__figure">
-        <div class="hero-demo__canvas" set:html={heroStill} />
-        <figcaption class="hero-demo__caption">
-          <span>{heroCaption}</span>
-          <span class="hero-demo__cta"
-            >Play it in the lesson <span aria-hidden="true">→</span></span
-          >
-        </figcaption>
-      </figure>
-    </a>
+    <div class="hero__stage">
+      <Visualizer
+        algorithm="binary-search"
+        renderer="array"
+        input="[1,3,5,7,9,11] target=7"
+        allowCustomInput={false}
+      />
+      <p class="hero__stage-note">
+        The real lesson visualization, running here. <a
+          href="/learn/binary-search"
+          >Open the lesson <span aria-hidden="true">→</span></a
+        >
+      </p>
+    </div>
   </section>
 
-  <!-- Feature blurbs: borderless, whitespace-separated (editorial, not dashboard). -->
-  <section class="mt-16 md:mt-24">
-    <div class="grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-8">
+  <!-- What a lesson gives you. Borderless and whitespace-separated (editorial,
+       not dashboard), and each claim is about the instrument directly above. -->
+  <section class="promises" aria-labelledby="promises-heading">
+    <h2 id="promises-heading" class="section-heading">
+      What a lesson actually does
+    </h2>
+    <div class="promises__grid">
       {
-        features.map((feature) => (
-          <div>
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="text-brand"
-              aria-hidden="true"
-            >
-              {feature.iconPaths.map((d) => (
-                <path d={d} />
-              ))}
-            </svg>
-            <h2 class="mt-4 text-lg font-semibold">{feature.title}</h2>
-            <p class="mt-2 text-base text-muted">{feature.body}</p>
+        promises.map((promise) => (
+          <div class="promise">
+            <h3 class="promise__title">{promise.title}</h3>
+            <p class="promise__body">{promise.body}</p>
           </div>
         ))
       }
     </div>
   </section>
 
-  <!-- Track cards: whole card is one link (wireframe). Count + meta data-driven. -->
-  <section class="mt-16 md:mt-24">
-    <h2 class="mb-6 text-2xl font-bold">Two tracks, {totalLessons} lessons</h2>
-    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+  <!-- The curriculum itself: two tracks, every lesson named and linked. -->
+  <section class="curriculum" aria-labelledby="curriculum-heading">
+    <div class="curriculum__head">
+      <h2 id="curriculum-heading" class="section-heading">
+        {totalLessons} lessons, two tracks
+      </h2>
+      <p class="curriculum__intro">
+        Work through them in order, or start at whichever one you came for —
+        nothing is locked, and every lesson names what it builds on.
+      </p>
+    </div>
+    <div class="curriculum__tracks">
       {
         tracks.map((track) => (
-          <a href={`/learn#track-${track.id}`} class="track-card">
-            <p class="text-xs tracking-[0.06em] text-muted uppercase">
-              {track.label}
+          <div class="track">
+            <h3 class="track__title">
+              <a href={`/learn#track-${track.id}`}>{track.heading}</a>
+            </h3>
+            <p class="track__meta tabular-nums">
+              {track.count} lessons · ~{track.totalMinutes} min · {track.spread}
             </p>
-            <h3 class="mt-2 text-xl font-semibold text-text">{track.title}</h3>
-            <p class="mt-2 text-base text-muted">{track.summary}</p>
-            <p class="mt-4 text-sm text-muted tabular-nums">
-              {track.count} lessons · ~{track.totalMinutes} min · {track.spread}{' '}
-              <span aria-hidden="true">→</span>
-            </p>
-          </a>
+            <ol class="track__list" role="list">
+              {track.lessons.map((lesson) => (
+                <li>
+                  <a href={`/learn/${lesson.data.slug}`} class="track__lesson">
+                    <span class="track__num tabular-nums" aria-hidden="true">
+                      {num(lesson.data.order)}
+                    </span>
+                    <span class="track__name">{lesson.data.title}</span>
+                    <span class="track__mins tabular-nums">
+                      {lesson.data.estimatedMinutes} min
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </div>
         ))
       }
     </div>
   </section>
+
+  <!-- Candour. These are the product's own non-promises, stated plainly rather
+       than buried — PRODUCT.md calls that candour part of the identity, and it
+       is also the honest answer to "what is the catch". Nothing here is a claim
+       about popularity or quality, because there is no evidence for one. -->
+  <section class="candour" aria-labelledby="candour-heading">
+    <h2 id="candour-heading" class="section-heading">What it costs you</h2>
+    <dl class="candour__list">
+      <div>
+        <dt>No account, no paywall</dt>
+        <dd>
+          Every lesson is open on the first visit. There is nothing to sign up
+          for, because there is no server to sign up to.
+        </dd>
+      </div>
+      <div>
+        <dt>No tracking, no cookies</dt>
+        <dd>
+          Nothing is measured and nothing is sent anywhere. The site makes no
+          network calls at all once a page has loaded.
+        </dd>
+      </div>
+      <div>
+        <dt>Progress stays on this device</dt>
+        <dd>
+          What you finish is remembered in this browser only — never synced,
+          never uploaded. Clearing your browser data clears it.
+        </dd>
+      </div>
+      <div>
+        <dt>Works offline, and without JavaScript</dt>
+        <dd>
+          A loaded lesson keeps working with no connection. With scripts blocked
+          the prose, the code and the written-out run are all still there.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="close">
+    <h2 class="close__title">Start where the rest of it builds from.</h2>
+    {
+      firstLesson && (
+        <a href={`/learn/${firstLesson.slug}`} class="btn-primary">
+          Begin: {num(firstLesson.order)} · {firstLesson.title}
+        </a>
+      )
+    }
+  </section>
 </BaseLayout>
 
 <style>
-  /* ---- Hero layout (M7.3 IA-1/VD-2) ---- */
-  .hero {
-    display: grid;
-    gap: var(--space-8);
+  /* ---- Shared section rhythm ----
+     One vertical scale for the whole page, so the gaps between sections read as
+     a system rather than as four independent decisions. */
+  .promises,
+  .curriculum,
+  .candour,
+  .close {
+    margin-top: var(--space-20);
   }
 
-  /* Two columns only where the drawing still has room to stay legible. Below
-     1024px the panel stacks under the CTA row, separated by the ordinary grid
-     gap rather than any extra hero padding — the mobile hero must not regrow a
-     dead band (RSP-6). */
-  @media (min-width: 1024px) {
-    .hero {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      align-items: center;
-      gap: var(--space-12);
+  @media (min-width: 768px) {
+    .promises,
+    .curriculum,
+    .candour,
+    .close {
+      margin-top: var(--space-24);
     }
   }
 
-  /* Display tier (M7.3): the home h1 is the ONE place the site goes bigger,
-     heavier and tighter than the interior scale — interior pages keep --text-4xl.
-     `text-wrap: balance` comes from the base h1 rule in global.css. */
+  .section-heading {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+  }
+
+  /* ---- Hero ---- */
+  .hero {
+    display: grid;
+    gap: var(--space-10);
+    padding-block: var(--space-12) 0;
+  }
+
+  /* Two columns only where the instrument still has room to be legible. Below
+     1024px it stacks under the CTA row, separated by the ordinary grid gap
+     rather than any extra hero padding — the mobile hero must not regrow a dead
+     band (M7.1 RSP-6). `start` so the copy sits at the top of a tall
+     instrument instead of floating in the middle of it. */
+  @media (min-width: 1024px) {
+    .hero {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+      /* Centred, not `start`: the instrument is roughly twice the height of the
+         copy, and top-aligning left a 350px hole under the CTA row that read as
+         an unfinished column rather than as breathing room. */
+      align-items: center;
+      gap: var(--space-12);
+      padding-block: var(--space-16) 0;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .hero {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
+    }
+  }
+
+  /* The one display-tier heading on the site (M7.3): --text-5xl, --weight-heavy
+     and --tracking-tighter are a set, and no other page may use them. Capped at
+     18ch so the rag breaks where the meaning does. */
   .hero__title {
-    max-width: 20ch;
+    max-width: 18ch;
     font-size: var(--text-5xl);
     font-weight: var(--weight-heavy);
     line-height: var(--leading-tight);
     letter-spacing: var(--tracking-tighter);
+    text-wrap: balance;
   }
 
-  /* ---- Hero demo panel ----
-     Elevation level 1 AT REST (the model in global.css): 1px `--border` keyline
-     + a resting `--shadow-1`, over the `--brand-soft` fill the M7.3 plan pins
-     for this panel. The resting shadow is the point of VD-3 — a card has to be
-     separable from the page before anyone points at it — and this panel, whose
-     entire job is to be noticed, was still shipping its shadow as a hover
-     reward, the exact defect VD-3 exists to end.
-
-     The keyline is `--border`, NOT `--brand-border`: tokens.css declares that
-     token decorative (1.36:1 on `--surface` and 1.32:1 on the canvas, both
-     light) and bars it from being the only thing defining an interactive
-     boundary — which is what it was doing here. `--border` is decorative too
-     (1.32:1 light / 1.36:1 dark against the canvas) and that is fine, because
-     it is not what identifies the link: the tinted fill, the shadow and the
-     brand "Play it in the lesson →" line are. Same division of labour as
-     `.track-card`, the reference level-1 card. */
-  .hero-demo {
-    display: block;
-    padding: var(--space-5);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    background-color: var(--brand-soft);
-    box-shadow: var(--shadow-1);
-    transition:
-      border-color var(--duration-fast) var(--ease-standard),
-      box-shadow var(--duration-fast) var(--ease-standard);
+  .hero__lede {
+    margin-top: var(--space-5);
+    max-width: 46ch;
+    font-size: var(--text-lg);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
   }
 
-  /* Hover promotes to level 2: `--shadow-2` plus the model's `--text-muted`
-     keyline, 5.43:1 light / 6.21:1 dark on this fill. (`--border-strong` would
-     be 2.96:1 dark here — now UNDER the 1.4.11 floor rather than on it, which is
-     why the model names `--text-muted` as the level-2 keyline in the first
-     place, and the same measurement that sent the glossary chip's new hover edge
-     to `--brand`.)
-
-     The FILL stays `--brand-soft`. global.css's level-2 note exempts a branded
-     surface from the fill/keyline pair — a brand fill already lifts a panel off
-     the page, which is why `.skip-link` keeps its own and takes the shadow
-     alone. This panel takes the KEYLINE anyway, because in dark a shadow tops
-     out at 1.10:1 on the canvas and cannot carry a state change by itself: the
-     keyline moving from 1.08:1 to 6.21:1 against the fill is what a dark-theme
-     reader actually sees happen. */
-  .hero-demo:hover {
-    border-color: var(--text-muted);
-    box-shadow: var(--shadow-2);
-  }
-
-  /* Pressed reads as the card settling back down to level 1; no transform, no
-     motion. `:hover` still matches while the pointer is down, so both of the
-     properties it moved have to be restated. */
-  .hero-demo:active {
-    border-color: var(--border);
-    box-shadow: var(--shadow-1);
-  }
-
-  .hero-demo__figure {
-    margin: 0;
-  }
-
-  .hero-demo__caption {
+  .hero__actions {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-2);
-    margin-top: var(--space-4);
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+  }
+
+  .hero__secondary {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    gap: var(--space-1);
+    font-weight: var(--weight-medium);
+    color: var(--brand);
+  }
+
+  .hero__secondary:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .hero__resume {
+    margin-top: var(--space-2);
     font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
-  .hero-demo__cta {
+  .hero__resume-link {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    gap: var(--space-1);
+    font-weight: var(--weight-medium);
     color: var(--brand);
-    font-weight: var(--weight-semibold);
   }
 
-  .hero-demo:hover .hero-demo__cta {
+  .hero__resume-link:hover {
     text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
-  /* ---- The still's own classes ----
-     `src/viz/Visualizer.astro` owns these rules in an `is:global` block, but that
-     stylesheet only ships on pages that mount the island, so the home page
-     restates the subset this ONE pinned frame uses. Token values are identical to
-     the lesson's; the transitions are dropped (a static frame never tweens), and
-     the frontmatter fails the build if the renderer stops emitting any class
-     named here, so the pair cannot silently drift. The `px` font sizes are SVG
-     user units inside the viewBox — they scale with the drawing, exactly as in
-     the visualizer. */
-  .hero-demo__canvas :global(.viz-cell__rect) {
-    fill: var(--surface);
-    stroke: var(--border-strong);
-    stroke-width: 1.5;
+  /* The instrument's own full-bleed negative margin (RSP-2) is right inside a
+     lesson's reading column and wrong here, where the hero column already has
+     the page gutter. Cancel it at the widths where the hero is one column; the
+     `.viz` rule restores its own margins from 768px up anyway. */
+  .hero__stage :global(.viz) {
+    margin-block-start: 0;
   }
 
-  .hero-demo__canvas :global(.viz-cell__value) {
-    fill: var(--text);
-    font-family: var(--font-mono);
-    font-size: 20px;
+  .hero__stage-note {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .hero__stage-note a {
+    color: var(--brand);
+    font-weight: var(--weight-medium);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ---- What a lesson does ---- */
+  .promises__grid {
+    display: grid;
+    gap: var(--space-8);
+    margin-top: var(--space-8);
+  }
+
+  @media (min-width: 768px) {
+    .promises__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-10);
+    }
+  }
+
+  .promise__title {
+    font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
   }
 
-  .hero-demo__canvas :global(.viz-cell__index) {
-    fill: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 12px;
+  .promise__body {
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
   }
 
-  .hero-demo__canvas :global(.viz-cell.is-range .viz-cell__rect) {
-    fill: color-mix(in srgb, var(--hl-active) 15%, var(--surface));
+  /* ---- Curriculum ---- */
+  .curriculum__intro {
+    margin-top: var(--space-3);
+    max-width: 60ch;
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
   }
 
-  .hero-demo__canvas :global(.viz-cell.is-active) {
-    transform: translateY(-3px);
+  .curriculum__tracks {
+    display: grid;
+    gap: var(--space-10);
+    margin-top: var(--space-8);
   }
 
-  .hero-demo__canvas :global(.viz-cell.is-active .viz-cell__rect) {
-    fill: color-mix(in srgb, var(--hl-active) 15%, var(--surface));
-    stroke: var(--hl-active);
-    stroke-width: 3;
+  @media (min-width: 900px) {
+    .curriculum__tracks {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-12);
+      align-items: start;
+    }
   }
 
-  /* The lesson's own 0.42, and DIFFERENTIAL here: this frame keeps a live
-     window and a probe, so the dim is exactly what makes the narrowing visible
-     — the three ruled-out cells recede while every cell that still carries
-     information stays at full strength (`--text` is 14.76:1 light / 11.73:1 dark
-     on the live `is-range` tint). The /404 still deliberately scopes the same
-     0.42 instead: there the search has collapsed and EVERY cell is eliminated,
-     so a whole-cell wash would fade the drawing without saying anything — see
-     the note at that rule in 404.astro. */
-  .hero-demo__canvas :global(.viz-cell.is-eliminated) {
-    opacity: 0.42;
-  }
-
-  .hero-demo__canvas :global(.viz-range-bar) {
-    stroke: var(--hl-active);
-    stroke-width: 3;
-    stroke-linecap: round;
-  }
-
-  .hero-demo__canvas :global(.viz-marker) {
-    fill: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 12px;
+  .track__title {
+    font-size: var(--text-xl);
     font-weight: var(--weight-semibold);
   }
 
-  .hero-demo__canvas :global(.viz-mid-label) {
-    fill: var(--text);
+  .track__title a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .track__meta {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .track__list {
+    margin-top: var(--space-4);
+    list-style: none;
+    padding: 0;
+    /* A hairline between rows rather than a card each: fifteen cards would make
+       the curriculum look like a shop, and the list is already a list. */
+    border-top: 1px solid var(--border);
+  }
+
+  .track__list li {
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* The whole row is the target, and it clears 44px (WCAG 2.5.5) without a
+     card's worth of padding. Grid rather than flex so the numbers, the names
+     and the minutes each hold their own column across every row. */
+  .track__lesson {
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 44px;
+    padding-block: var(--space-2);
+    color: var(--text);
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  /* Fill AND underline, never colour alone: the achromatic chrome leaves the
+     fill move nearly invisible on its own (M7.3), so hover carries two signals
+     exactly as `.btn-secondary` and the collapsed disclosure rows do. */
+  .track__lesson:hover {
+    background-color: var(--brand-soft);
+  }
+
+  .track__lesson:hover .track__name {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .track__num {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    padding-inline-start: var(--space-2);
+  }
+
+  .track__mins {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    padding-inline-end: var(--space-2);
+  }
+
+  /* ---- Candour ---- */
+  .candour__list {
+    display: grid;
+    gap: var(--space-6);
+    margin-top: var(--space-8);
+  }
+
+  @media (min-width: 768px) {
+    .candour__list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-8) var(--space-12);
+    }
+  }
+
+  .candour__list dt {
+    font-weight: var(--weight-semibold);
+  }
+
+  .candour__list dd {
+    margin-top: var(--space-1);
+    max-width: 46ch;
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* ---- Close ---- */
+  .close {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-5);
+    padding-top: var(--space-12);
+    border-top: 1px solid var(--border);
+  }
+
+  .close__title {
+    max-width: 22ch;
+    font-size: var(--text-3xl);
     font-weight: var(--weight-bold);
-  }
-
-  /* ---- Forced colors / Windows High Contrast ----
-     HCM-1's hardening lives in the Visualizer island's `is:global` block, which
-     ships only on pages that mount the island — this still is rendered outside
-     it, so it needs its own. Same contract as the lesson's: forced colours
-     override author `fill`/`stroke`, so repaint in SYSTEM colours (the one
-     author colour this mode does not override) and re-encode the state on the
-     channels it preserves. Minimal on purpose — a single decorative frame owes
-     legible numerals and a visible cell boundary, not the lesson's full
-     ten-state vocabulary.
-
-     Each selector below is written at the specificity of the everyday rule it
-     has to beat and wins on source order; a bare `.viz-cell__rect` would lose
-     to the `is-range` / `is-active` tints above, leaving the UA's own
-     substitution — one flat colour for fill and stroke alike — as the whole
-     picture. (The lesson's block ties the same knot with `:is()`.) Two things
-     are deliberately left alone:
-     `is-active`'s 3px stroke and 3px lift (both survive untouched, and they are
-     what still names the probe), and `is-eliminated`'s `opacity`, which is an
-     alpha rather than a colour and so is not overridden either. */
-  @media (forced-colors: active) {
-    .hero-demo__canvas :global(.viz-cell__rect),
-    .hero-demo__canvas :global(.viz-cell.is-range .viz-cell__rect),
-    .hero-demo__canvas :global(.viz-cell.is-active .viz-cell__rect) {
-      fill: Canvas;
-      stroke: CanvasText;
-    }
-
-    /* The live window keeps a channel of its own: the same `1 4` fine dots the
-       lesson's mapping table assigns `is-range`, so the two agree. */
-    .hero-demo__canvas :global(.viz-cell.is-range .viz-cell__rect) {
-      stroke-dasharray: 1 4;
-    }
-
-    .hero-demo__canvas :global(.viz-cell__value),
-    .hero-demo__canvas :global(.viz-cell__index),
-    .hero-demo__canvas :global(.viz-marker),
-    .hero-demo__canvas :global(.viz-mid-label) {
-      fill: CanvasText;
-    }
-
-    .hero-demo__canvas :global(.viz-range-bar) {
-      stroke: CanvasText;
-    }
+    line-height: var(--leading-snug);
+    letter-spacing: var(--tracking-tight);
   }
 </style>
 
@@ -616,10 +656,10 @@ const tracks = trackDefs.map((def) => {
    * can see this device's `lesson:{slug}:complete` keys it becomes
    * "Continue: NN · …", or stands down for "All N done — revisit any lesson."
    *
-   * The primary "Start learning" CTA above is deliberately untouched — a
-   * first-time visitor must always meet the same hero. All storage access goes
-   * through `src/lib/progress.ts` (one module, one try/catch discipline), so a
-   * blocked store simply leaves the server-rendered line in place.
+   * The primary CTA above is deliberately untouched — a first-time visitor must
+   * always meet the same hero. All storage access goes through
+   * `src/lib/progress.ts` (one module, one try/catch discipline), so a blocked
+   * store simply leaves the server-rendered line in place.
    */
   import {
     nextIncomplete,
@@ -634,14 +674,23 @@ const tracks = trackDefs.map((def) => {
     const list = parseLessonRefs(host?.dataset['lessons']);
     if (list.length === 0) return; // no injected list: leave the fallback alone
 
+    const root = document.querySelector<HTMLElement>('[data-resume-root]');
     const link =
       document.querySelector<HTMLAnchorElement>('[data-resume-link]');
     const label = document.querySelector<HTMLElement>('[data-resume-label]');
     const done = document.querySelector<HTMLElement>('[data-resume-done]');
-    if (!link || !label || !done) return;
+    if (!root || !link || !label || !done) return;
 
     const next = nextIncomplete(list);
-    const text = resumeLabel(next, readCompleted(list).length, list.length);
+    const completed = readCompleted(list).length;
+    // Nothing finished on this device: there is nothing to resume, and the
+    // primary CTA above already offers lesson 01. Staying hidden is the whole
+    // behaviour — this is also the state a reader returns to after using the
+    // reset control, so the line has to be able to go back to it.
+    root.hidden = completed === 0;
+    if (completed === 0) return;
+
+    const text = resumeLabel(next, completed, list.length);
     if (next) {
       link.href = `/learn/${next.slug}`;
       label.textContent = text;

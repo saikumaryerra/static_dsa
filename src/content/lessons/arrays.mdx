@@ -15,6 +15,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -101,28 +102,35 @@ That is the array's superpower and its weakness in one. **Reading any element is
 
 Picture the array as boxed cells, each with its index printed underneath. The bracket beneath the row marks the valid index range — from the first index (**lo**) to the last (**hi**).
 
-- **Access index `i`** — the computer jumps directly to that slot using its address. One step, **O(1)**, no matter how large the array is.
-- **Insert `value` at index `i`** — first every element from `i` onward must shift one slot to the **right** to open a gap; only then can the value drop in. In the worst case (inserting at the front) all n elements move, so this is **O(n)**.
-- **Delete at index `i`** — removing the element leaves a hole, so every later element shifts one slot to the **left** to close it. Again up to n elements move: **O(n)**.
-
-Step through the visualization to watch a direct access, then an insert that ripples the tail rightward, then a delete that pulls it back leftward. The **shift** caret marks each element as it moves — count them to feel the O(n) cost.
-
-## Visualizer
+<Bench id="visualizer">
 
 <Visualizer
+  slot="stage"
   algorithm="array-operations"
   renderer="array"
   input="[10,20,30,40,50] target=2"
   targetLabel="Index"
 />
 
+- **Access index `i`** — the computer jumps directly to that slot using its address. One step, **O(1)**, no matter how large the array is.
+- **Insert `value` at index `i`** — first every element from `i` onward must shift one slot to the **right** to open a gap; only then can the value drop in. In the worst case (inserting at the front) all n elements move, so this is **O(n)**.
+- **Delete at index `i`** — removing the element leaves a hole, so every later element shifts one slot to the **left** to close it. Again up to n elements move: **O(n)**.
+
+Step through the visualization to watch a direct access, then an insert that ripples the tail rightward, then a delete that pulls it back leftward. The **shift** caret marks each element as it moves — count them to feel the O(n) cost.
+
 Press **Play**, or **Step forward** to move one shift at a time. The `+` marks the inserted value; the `✕` marks the element being deleted; each **shift** highlight is one element moving. Try your own array — the number in the second box picks which index gets the O(1) access.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Access is the best case at **O(1)** — a direct jump. Insert and delete are the worst case at **O(n)**, because shifting the tail touches up to every element. All of this happens in place, reusing the same storage, so the extra space is **O(1)**.
+
+</Bench>
 
 ## Code
 

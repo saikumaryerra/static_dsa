@@ -16,6 +16,8 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { openCustomInput } from './utils/disclosure';
+
 /**
  * Scrolls a visualizer into view and waits for its island to hydrate.
  *
@@ -192,7 +194,10 @@ test.describe('a new trace brings its own box', () => {
 
     // `mount` runs once per island, so `setExtent` is the only channel that can
     // update the box afterwards. A twelve-item array needs a wider one, and it
-    // must be applied BEFORE the redraw loadTrace triggers.
+    // must be applied BEFORE the redraw loadTrace triggers. (The form that
+    // starts that run is behind a disclosure since amendment C-2; opening it is
+    // not what this test is about, so it is done directly.)
+    await openCustomInput(viz);
     await viz.locator('[data-viz-array]').fill('[1,2,3,4,5,6,7,8,9,10,11,12]');
     await viz.locator('[data-viz-target]').fill('9');
     await viz.locator('[data-viz-run]').click();
@@ -285,6 +290,7 @@ test.describe('the legibility floor under a frozen extent', () => {
     // DRIVEN rather than branched on — a conditional assertion would never take
     // this side at this viewport, and this side is the whole a11y argument
     // against a vertical twin.
+    await openCustomInput(viz); // amendment C-2
     await viz
       .locator('[data-viz-array]')
       .fill('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]');
@@ -354,6 +360,7 @@ test.describe('custom input accepts the advertised format', () => {
     // The authored run is six cells wide (`viewWidth(6)` = 384).
     await expect(svg).toHaveAttribute('viewBox', '0 0 384 132');
 
+    await openCustomInput(viz); // amendment C-2
     await viz.locator('[data-viz-array]').fill('1,3,5,7,9');
     await viz.locator('[data-viz-target]').fill('5');
     await viz.locator('[data-viz-run]').click();
@@ -374,6 +381,7 @@ test.describe('custom input accepts the advertised format', () => {
     // "no `[…]` literal" branch, so binary search's ONE pedagogical error — the
     // sorted precondition the lesson is about — was unreachable for anyone who
     // typed what the help text asked for.
+    await openCustomInput(viz); // amendment C-2
     await viz.locator('[data-viz-array]').fill('9,2,7,4,1');
     await viz.locator('[data-viz-target]').fill('4');
     await viz.locator('[data-viz-run]').click();
@@ -404,6 +412,7 @@ test.describe('custom input accepts the advertised format', () => {
     // composer refuses to wrap `''` into `[]`, so `parseInput` still finds no
     // list. The message must keep the word "array" or `errorField` sends the
     // focus move to the TARGET field, which is the field that is fine.
+    await openCustomInput(viz); // amendment C-2
     await viz.locator('[data-viz-array]').fill('');
     await viz.locator('[data-viz-target]').fill('4');
     await viz.locator('[data-viz-run]').click();
@@ -426,6 +435,7 @@ test.describe('custom input accepts the advertised format', () => {
     // The authored graph has six vertices, 0–5.
     await expect(canvas.locator('#n5')).toHaveCount(1);
 
+    await openCustomInput(viz); // amendment C-2
     await viz.locator('[data-viz-array]').fill('0-1,1-2');
     await viz.locator('[data-viz-target]').fill('1');
     await viz.locator('[data-viz-run]').click();
@@ -451,6 +461,7 @@ test.describe('custom input accepts the advertised format', () => {
     // The authored run is n=6, so the table holds cells i0–i6.
     await expect(canvas.locator('#i6')).toHaveCount(1);
 
+    await openCustomInput(viz); // amendment C-2
     await viz.locator('[data-viz-array]').fill('8');
     await viz.locator('[data-viz-run]').click();
 

@@ -4,13 +4,18 @@
  * Six things that only exist in a rendered page, and that no unit test or aria
  * snapshot can see:
  *
- *  - **The hero demo panel (IA-1 / VD-2).** The h1 promises motion and the first
- *    proof of it used to be two navigations deep. The panel has to be a real
- *    `renderStatic()` frame of the binary-search trace — the standing rule is
- *    "never hand-mock the product" — so the assertions below are written against
- *    the RENDERER's contract (the `cellId()` id vocabulary from
- *    `src/viz/core/ids.ts`, its class names, its `<title>`), not against the
- *    picture. Hand-authored markup can pass a screenshot; it cannot pass this.
+ *  - **The home hero instrument (IA-1 / VD-2, rebuilt by amendment H-1).** The h1
+ *    promises motion and the first proof of it used to be two navigations deep.
+ *    The hero answered that with a still — a real `renderStatic()` frame of the
+ *    binary-search trace, because the standing rule is "never hand-mock the
+ *    product" — and the assertions here were written against the RENDERER's
+ *    contract (the `cellId()` id vocabulary from `src/viz/core/ids.ts`, its class
+ *    names, its `<title>`) so that hand-authored markup could never pass them.
+ *    The hero now mounts the REAL `<Visualizer>` island, on the same trace, so
+ *    the same intent is served by strictly stronger claims: it is a live
+ *    `[data-viz]` carrying the lesson's registry ids, it hydrates, Play advances
+ *    it under its own power, and it runs the very trace of the lesson its note
+ *    links to. A picture of the product passes none of those.
  *  - **Lesson-card affordance (CMP-1).** The card said "link" to nobody: hover
  *    moved a 1px border, there was no pressed state, and the home track cards
  *    carried a "→" convention these 15 contradicted.
@@ -50,7 +55,7 @@ import {
 } from './utils/color';
 
 const LESSON = '/learn/binary-search';
-/** ≥1024px, where the hero is two columns and the lesson rail exists. */
+/** ≥1024px, where the hero is two columns, and past the lesson's 1200px split. */
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 
@@ -72,106 +77,206 @@ function rectHeight(locator: Locator): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
-// Hero demo panel (IA-1 / VD-2)
+// The home hero instrument (IA-1 / VD-2, rebuilt by amendment H-1)
 // ---------------------------------------------------------------------------
 
-test.describe('hero demo panel', () => {
+/**
+ * The hero's instrument. Deliberately addressed as `[data-viz]` — the same
+ * attribute every lesson's island carries — rather than through a hero-specific
+ * class: what H-1 claims is that the hero mounts the ORDINARY component, and a
+ * bespoke selector would let a bespoke panel pass.
+ *
+ * @param page - A loaded home page.
+ */
+const heroViz = (page: Page): Locator =>
+  page.locator('.hero__stage [data-viz]');
+
+/**
+ * Waits for the hero island to hydrate and hands back its locator.
+ *
+ * `data-viz-ready` is set at the very end of mount, after the build-time still
+ * has been replaced by the live renderer — so it is the one signal that
+ * separates "the picture arrived" from "the instrument arrived", which is the
+ * whole of H-1.
+ *
+ * @param page - A loaded home page.
+ */
+async function hydrateHero(page: Page): Promise<Locator> {
+  const viz = heroViz(page);
+  await viz.scrollIntoViewIfNeeded();
+  await expect(viz).toHaveAttribute('data-viz-ready', 'true', {
+    timeout: 15_000,
+  });
+  return viz;
+}
+
+test.describe('home hero instrument', () => {
   test.use({ viewport: DESKTOP });
 
   test('sits beside the copy column at >=1024px', async ({ page }) => {
     await page.goto('/');
 
     const hero = await box(page.locator('.hero'));
-    const panel = await box(page.locator('.hero-demo'));
-    const cta = await box(page.getByRole('link', { name: 'Start learning' }));
-
-    // Right column: the panel starts past the hero's midpoint...
-    expect(panel.x).toBeGreaterThan(hero.x + hero.width / 2);
-    // ...clear of the copy, which is what "two columns" means...
-    expect(cta.x + cta.width).toBeLessThanOrEqual(panel.x);
-    // ...and BESIDE it rather than under it (the mobile arrangement, asserted
-    // separately below, would satisfy the two rules above just as well).
-    expect(panel.y).toBeLessThan(cta.y + cta.height);
-  });
-
-  test('is the real renderer output, not a hand-drawn mock', async ({
-    page,
-  }) => {
-    await page.goto('/');
-    const panel = page.locator('.hero-demo');
-    const svg = panel.locator('svg');
-
-    // The renderer's own accessible scaffold (src/viz/core/svg.ts): role=img
-    // named by a <title>/<desc> pair whose ids come from the `idBase` the home
-    // page passes.
-    await expect(svg).toHaveAttribute('role', 'img');
-    await expect(svg).toHaveAttribute(
-      'aria-labelledby',
-      'hero-demo-t hero-demo-d',
+    // The grid CELL, not the `.viz` inside it: the instrument carries RSP-2's
+    // full-bleed negative inline margin below 768px, so its own box is not the
+    // column's box and the mobile assertion below would be measuring the bleed.
+    // One selector for both widths keeps the two tests comparable.
+    const stage = await box(page.locator('.hero__stage'));
+    const cta = await box(
+      page.getByRole('link', { name: 'Start with lesson 01' }),
     );
 
-    // The stable id vocabulary (`cellId(i)` → "i3"). Asserting the exact
-    // sequence also pins that the cells are the renderer's, in its order.
-    const ids = await panel
+    // Right column: the stage starts past the hero's midpoint...
+    expect(stage.x).toBeGreaterThan(hero.x + hero.width / 2);
+    // ...clear of the copy, which is what "two columns" means...
+    expect(cta.x + cta.width).toBeLessThanOrEqual(stage.x);
+    // ...and BESIDE it rather than under it (the mobile arrangement, asserted
+    // separately below, would satisfy the two rules above just as well).
+    expect(stage.y).toBeLessThan(cta.y + cta.height);
+  });
+
+  test('is the island a lesson mounts, and it hydrates', async ({ page }) => {
+    await page.goto('/');
+    const viz = heroViz(page);
+
+    // The island's own contract, spelled in the registry ids `Visualizer.astro`
+    // validates at BUILD time. A hand-drawn panel has no reason to carry these,
+    // and no way to make them true.
+    await expect(viz).toHaveCount(1);
+    await expect(viz).toHaveAttribute('data-algorithm', 'binary-search');
+    await expect(viz).toHaveAttribute('data-renderer', 'array');
+
+    // The one prop H-1 sets against its default, pinned so the deviation stays
+    // the stated one: the custom-input form is the single control that needs its
+    // own explanation (formats, caps, a target field) and the hero's job is to
+    // get a stranger to press Play. Everything else the component ships — the
+    // transport, the scrubber, the speed select, and the ledger that IS this
+    // page's argument — is the lesson's, unmodified.
+    await expect(viz.locator('details.viz-custom-open')).toHaveCount(0);
+    await expect(viz.locator('[data-ledger]')).toHaveCount(1);
+
+    const live = await hydrateHero(page);
+
+    // The renderer's accessible scaffold survives the swap (src/viz/core/svg.ts):
+    // role=img, named by a <title>/<desc> pair. The ids are the BUILD's on the
+    // still and the DOM renderer's own after mount, so they are asserted by
+    // RESOLVING them to their text rather than by spelling — an `aria-labelledby`
+    // pointing at nothing is an unnamed image whichever half of the lifecycle
+    // painted it, and that is the failure worth catching.
+    const svg = live.locator('.viz-canvas svg');
+    await expect(svg).toHaveAttribute('role', 'img');
+    const named = await svg.evaluate((el) =>
+      (el.getAttribute('aria-labelledby') ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => el.querySelector(`#${CSS.escape(id)}`)?.textContent ?? ''),
+    );
+    expect(named).toHaveLength(2);
+    expect(named.every((text) => text.trim().length > 0)).toBe(true);
+
+    // The stable id vocabulary (`cellId(i)` → "i3"), read AFTER mount because
+    // the live renderer keeps those ids for exactly the reason the still has
+    // them: highlights and CSS transitions target them. Asserting the whole
+    // sequence pins that the cells are the renderer's, in its order.
+    const ids = await live
       .locator('.viz-cell')
       .evaluateAll((cells) => cells.map((cell) => cell.id));
     expect(ids.length).toBeGreaterThan(0);
     expect(ids).toEqual(ids.map((_, index) => `i${index}`));
-
-    // Mid-run, and provably so: a narrowed window (some cells eliminated), one
-    // probed cell, and the range bar + "mid" label the ArrayRenderer draws as
-    // the non-colour layer. Step 0 has none of this; the final frame has no
-    // active probe.
-    await expect(panel.locator('.viz-cell.is-active')).toHaveCount(1);
-    await expect(panel.locator('.viz-cell.is-eliminated')).not.toHaveCount(0);
-    await expect(panel.locator('.viz-range-bar')).toHaveCount(1);
-    await expect(panel.locator('.viz-mid-label')).toHaveCount(1);
-
-    // Same drawing as the lesson it links to. The panel derives its input from
-    // `defaultInput()` and the lesson authors the same array on purpose — a
-    // panel that promised a run and then showed a different one would be the
-    // exact drift "never hand-mock the product" exists to prevent.
-    const heroValues = await panel
-      .locator('.viz-cell__value')
-      .allTextContents();
-    const heroTitle = await svg.locator('title').textContent();
-
-    await page.goto(LESSON);
-    const lessonViz = page.locator('#viz-binary-search');
-    expect(
-      await lessonViz.locator('.viz-cell__value').allTextContents(),
-    ).toEqual(heroValues);
-    expect(await lessonViz.locator('svg title').first().textContent()).toBe(
-      heroTitle,
-    );
   });
 
-  test('links to a URL that actually resolves', async ({ page, request }) => {
+  test('plays and steps, which the still it replaced never could', async ({
+    page,
+  }) => {
     await page.goto('/');
-    const panel = page.locator('.hero-demo');
+    const viz = await hydrateHero(page);
+    const counter = viz.locator('[data-viz-counter]');
 
-    const href = (await panel.getAttribute('href')) ?? '';
-    const [path, fragment] = href.split('#');
-    expect(path).toBeTruthy();
-    expect(fragment).toBeTruthy();
+    // Mount ends in `player.reset()`, so a hydrated island is parked on step 1
+    // of the four-step authored run before anything is pressed.
+    await expect(counter).toHaveText('1 / 4');
+
+    // Play, under its own power — the claim the whole page exists to make, and
+    // the one a photograph of the product cannot be made to pass. 3× so the four
+    // steps land well inside the timeout; at the end the button renames itself
+    // rather than dying under the pointer (M7.1 VIZ-4).
+    await viz.locator('[data-viz-speed]').selectOption('3');
+    await viz.locator('[data-viz-play]').click();
+    await expect(counter).toHaveText('4 / 4', { timeout: 10_000 });
+    await expect(viz.locator('.viz-cell.is-found')).toHaveCount(1);
+
+    // …and then back to the mid-run frame the old still was a photograph of.
+    // Step 3 of this trace is the one that proves a search is under way rather
+    // than merely drawn: a narrowed window (indices 0–2 discarded), one probed
+    // cell, and the range bar + "mid" label the ArrayRenderer draws as the
+    // non-colour layer. Step 1 has none of it and step 4 has no active probe —
+    // which is why the counter is asserted alongside them.
+    await viz.locator('[data-viz-reset]').click();
+    await expect(counter).toHaveText('1 / 4');
+    const forward = viz.locator('[data-viz-forward]');
+    await forward.click();
+    await forward.click();
+    await expect(counter).toHaveText('3 / 4');
+
+    await expect(viz.locator('.viz-cell.is-active')).toHaveCount(1);
+    await expect(viz.locator('.viz-cell.is-eliminated')).toHaveCount(3);
+    await expect(viz.locator('.viz-range-bar')).toHaveCount(1);
+    await expect(viz.locator('.viz-mid-label')).toHaveCount(1);
+  });
+
+  test('runs the trace of the lesson its note links to', async ({
+    page,
+    request,
+  }) => {
+    await page.goto('/');
+    const viz = await hydrateHero(page);
+
+    // The instrument is no longer a link itself (it is a control surface now, so
+    // wrapping it in an anchor would have been a 2.1.1 trap); the note under it
+    // is the way out, and it is read rather than hard-coded so this test follows
+    // the link the page actually offers.
+    const note = page.locator('.hero__stage-note a');
+    const href = (await note.getAttribute('href')) ?? '';
+    expect(href).toBeTruthy();
 
     // A real request against the BUILT site: `build.format: 'file'` emits
     // `learn/binary-search.html`, so a link that works in `astro dev` can still
     // 404 in production. Only an HTTP check catches that.
-    const response = await request.get(path!);
+    const response = await request.get(href);
     expect(response.status()).toBe(200);
 
-    // …and the fragment resolves to something, not just the page.
-    await panel.click();
-    await expect(page).toHaveURL(new RegExp(`#${fragment}$`));
-    await expect(page.locator(`#${fragment}`)).toBeVisible();
+    const heroValues = await viz.locator('.viz-cell__value').allTextContents();
+    const heroTitle = await viz.locator('.viz-canvas svg title').textContent();
+    expect(heroValues.length).toBeGreaterThan(0);
+
+    await note.click();
+    await expect(page).toHaveURL(new RegExp(`${href}/?$`));
+
+    // The same run, drawn the same way. Before H-1 this asserted that a still
+    // and a lesson had been kept in step by hand; now the two are the same
+    // component on the same authored input, so a divergence here means one of
+    // them was handed a different one — which is the drift "never hand-mock the
+    // product" exists to prevent, restated for a hero that IS the product.
+    const lessonViz = page.locator('#viz-binary-search [data-viz]');
+    await lessonViz.scrollIntoViewIfNeeded();
+    await expect(lessonViz).toHaveAttribute('data-viz-ready', 'true', {
+      timeout: 15_000,
+    });
+    expect(
+      await lessonViz.locator('.viz-cell__value').allTextContents(),
+    ).toEqual(heroValues);
+    expect(await lessonViz.locator('.viz-canvas svg title').textContent()).toBe(
+      heroTitle,
+    );
   });
 
   test('the primary CTA paints three distinct states (CMP-8)', async ({
     page,
   }) => {
     await page.goto('/');
-    const cta = page.getByRole('link', { name: 'Start learning' });
+    // "Start with lesson 01" (amendment H-2): the CTA now names the destination
+    // the continue line used to duplicate underneath it.
+    const cta = page.getByRole('link', { name: 'Start with lesson 01' });
     const fill = () => computed(cta, 'backgroundColor');
 
     const resting = await fill();
@@ -192,7 +297,7 @@ test.describe('hero demo panel', () => {
   });
 });
 
-test.describe('hero demo panel, below 1024px', () => {
+test.describe('home hero instrument, below 1024px', () => {
   test.use({ viewport: MOBILE });
 
   test('stacks under the CTA row instead of shrinking beside it', async ({
@@ -200,33 +305,62 @@ test.describe('hero demo panel, below 1024px', () => {
   }) => {
     await page.goto('/');
 
-    const panel = await box(page.locator('.hero-demo'));
-    const cta = await box(page.getByRole('link', { name: 'Start learning' }));
+    const stage = await box(page.locator('.hero__stage'));
+    const cta = await box(
+      page.getByRole('link', { name: 'Start with lesson 01' }),
+    );
 
-    expect(panel.y).toBeGreaterThanOrEqual(cta.y + cta.height);
+    expect(stage.y).toBeGreaterThanOrEqual(cta.y + cta.height);
     // Same column, not indented into a second one (1px of tolerance for the
-    // sub-pixel rounding a fluid grid can produce).
-    expect(Math.abs(panel.x - cta.x)).toBeLessThanOrEqual(1);
+    // sub-pixel rounding a fluid grid can produce). Measured on `.hero__stage`
+    // rather than on the `.viz` inside it: below 768px the instrument
+    // deliberately bleeds out through the page gutter (RSP-2), so its own x sits
+    // a gutter to the LEFT of the column and would fail a rule it is obeying.
+    expect(Math.abs(stage.x - cta.x)).toBeLessThanOrEqual(1);
   });
 });
 
-test.describe('hero demo panel, JavaScript disabled', () => {
+test.describe('home hero instrument, JavaScript disabled', () => {
   test.use({ viewport: DESKTOP, javaScriptEnabled: false });
 
-  test('is drawn anyway, because it is build-time SVG', async ({ page }) => {
+  test('falls back to its build-time frame with the controls switched off', async ({
+    page,
+  }) => {
     await page.goto('/');
-    const panel = page.locator('.hero-demo');
+    const viz = heroViz(page);
 
-    await expect(panel).toBeVisible();
-    await expect(panel.locator('svg')).toBeVisible();
-    await expect(panel.locator('.viz-cell')).not.toHaveCount(0);
+    // This assertion is the INVERSE of the one it replaces, on purpose. While
+    // the hero was a still, `[data-viz]` had to be absent from `/` — the panel
+    // cost the page zero client JS. H-1 changed that deliberately and priced it
+    // (the page now carries the player, the array renderer and the binary-search
+    // chunk; `js-budget.spec.ts` prints the real per-page table). What must NOT
+    // change is everything below: the page is still whole without any of it.
+    await expect(viz).toHaveCount(1);
+    await expect(viz).not.toHaveAttribute('data-viz-ready', 'true');
+
+    // `renderStatic(step0)` ran at BUILD time, so the drawing is in the HTML
+    // before a single byte of script is fetched.
+    await expect(viz.locator('.viz-canvas svg')).toBeVisible();
+    await expect(viz.locator('.viz-cell')).not.toHaveCount(0);
     // Values, not just boxes: an SVG that lost its text would still "render".
-    const values = await panel.locator('.viz-cell__value').allTextContents();
+    const values = await viz.locator('.viz-cell__value').allTextContents();
     expect(values.every((value) => value.trim().length > 0)).toBe(true);
 
-    // And it is NOT an island: the home page mounts no visualizer at all, so the
-    // panel costs the page zero client JS whether or not JS is available.
-    await expect(page.locator('[data-viz]')).toHaveCount(0);
+    // The still's <title>/<desc> ids are the INSTRUMENT's own (Plan C §5), which
+    // is what makes a server-rendered frame nameable from outside and an anchor
+    // target. This is the half of the renderer scaffold that only the pre-mount
+    // DOM can state, which is why it is asserted here rather than above.
+    const id = await viz.getAttribute('id');
+    await expect(viz.locator('.viz-canvas svg')).toHaveAttribute(
+      'aria-labelledby',
+      `${id}-t ${id}-d`,
+    );
+
+    // …and the island's own `<noscript>` kill-switch has taken the transport
+    // away rather than leaving a dead one a reader can press (spec §4), exactly
+    // as it does on a lesson page.
+    await expect(viz.locator('.viz-controls')).toBeHidden();
+    await expect(viz.locator('.viz-nojs-note')).toBeVisible();
   });
 });
 
@@ -432,13 +566,23 @@ for (const theme of ['light', 'dark'] as const) {
       );
     });
 
-    test('the hero panel and the 404 panel rest at level 1', async ({
+    test('the hero instrument and the 404 panel rest at level 1', async ({
       page,
     }) => {
       await page.goto('/');
-      // Both are `--brand-soft` rather than `--surface`: they are the phase's
-      // two brand moments, and the tint is the thing that says so.
-      await expectLevelOne(page, page.locator('.hero-demo'), '--brand-soft');
+      // The hero's `--brand-soft` tint went with the still it belonged to
+      // (amendment H-1). What stands in the hero's right column now is an
+      // ordinary instrument card, so it takes the ordinary level-1 fill — the
+      // same recipe as the lesson's callout and complexity table above, which
+      // is the point: the home page's biggest surface is not a special case.
+      // The 404 panel is the only PANEL still tinted `--brand-soft` (the token
+      // is not retired — the ToC's current-section row still uses it), and it is
+      // still the one build-time still the site ships to a browser.
+      await expectLevelOne(
+        page,
+        page.locator('.hero__stage .viz'),
+        '--surface',
+      );
 
       await page.goto('/404');
       await expectLevelOne(

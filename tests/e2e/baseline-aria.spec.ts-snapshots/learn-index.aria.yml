@@ -31,73 +31,64 @@
     - paragraph: Practiced 0 · Mastered 0
     - list:
       - listitem:
-        - link "Beginner Complexity & Big-O Measure how an algorithm's work grows with input size, and compare O(1), O(log n), O(n), O(n log n), and O(n²). ~9 min read Start lesson":
+        - link "Complexity & Big-O Measure how an algorithm's work grows with input size, and compare O(1), O(log n), O(n), O(n log n), and O(n²). ~9 min read Start lesson":
           - /url: /learn/complexity-big-o
-          - text: ""
           - heading "Complexity & Big-O" [level=3]
           - paragraph: Measure how an algorithm's work grows with input size, and compare O(1), O(log n), O(n), O(n log n), and O(n²).
           - paragraph: ~9 min read
           - text: ""
       - listitem:
-        - 'link "Beginner Arrays Contiguous, index-addressable storage: O(1) access, but O(n) insert and delete because elements must shift. ~8 min read Start lesson"':
+        - 'link "Arrays Contiguous, index-addressable storage: O(1) access, but O(n) insert and delete because elements must shift. ~8 min read Start lesson"':
           - /url: /learn/arrays
-          - text: ""
           - heading "Arrays" [level=3]
           - paragraph: "Contiguous, index-addressable storage: O(1) access, but O(n) insert and delete because elements must shift."
           - paragraph: ~8 min read
           - text: ""
       - listitem:
-        - 'link "Beginner Linked Lists Nodes joined by pointers: O(1) insert and delete at a known spot, but O(n) to reach a position because there is no random access. ~9 min read Start lesson"':
+        - 'link "Linked Lists Nodes joined by pointers: O(1) insert and delete at a known spot, but O(n) to reach a position because there is no random access. ~9 min read Start lesson"':
           - /url: /learn/linked-lists
-          - text: ""
           - heading "Linked Lists" [level=3]
           - paragraph: "Nodes joined by pointers: O(1) insert and delete at a known spot, but O(n) to reach a position because there is no random access."
           - paragraph: ~9 min read
           - text: ""
       - listitem:
-        - 'link "Beginner Stacks A LIFO collection: push and pop happen at one end, the top, and both are O(1). ~7 min read Start lesson"':
+        - 'link "Stacks A LIFO collection: push and pop happen at one end, the top, and both are O(1). ~7 min read Start lesson"':
           - /url: /learn/stacks
-          - text: ""
           - heading "Stacks" [level=3]
           - paragraph: "A LIFO collection: push and pop happen at one end, the top, and both are O(1)."
           - paragraph: ~7 min read
           - text: ""
       - listitem:
-        - 'link "Beginner Queues A FIFO collection: enqueue at the rear, dequeue at the front, both O(1). A circular buffer reuses freed slots by wrapping around. ~8 min read Start lesson"':
+        - 'link "Queues A FIFO collection: enqueue at the rear, dequeue at the front, both O(1). A circular buffer reuses freed slots by wrapping around. ~8 min read Start lesson"':
           - /url: /learn/queues
-          - text: ""
           - heading "Queues" [level=3]
           - paragraph: "A FIFO collection: enqueue at the rear, dequeue at the front, both O(1). A circular buffer reuses freed slots by wrapping around."
           - paragraph: ~8 min read
           - text: ""
       - listitem:
-        - link /Beginner Hash Tables Store keys by hashing them to buckets for near-instant lookup; handle collisions by chaining keys that land in the same bucket\. ~\d+ min read Start lesson/:
+        - link /Hash Tables Store keys by hashing them to buckets for near-instant lookup; handle collisions by chaining keys that land in the same bucket\. ~\d+ min read Start lesson/:
           - /url: /learn/hash-tables
-          - text: ""
           - heading "Hash Tables" [level=3]
           - paragraph: Store keys by hashing them to buckets for near-instant lookup; handle collisions by chaining keys that land in the same bucket.
           - paragraph: /~\d+ min read/
           - text: ""
       - listitem:
-        - link /Beginner Trees & Binary Search Trees A binary search tree keeps values ordered — smaller on the left, larger on the right — so insert and search follow one path down and run in O\(log n\) when balanced\. ~\d+ min read Start lesson/:
+        - link /Trees & Binary Search Trees A binary search tree keeps values ordered — smaller on the left, larger on the right — so insert and search follow one path down and run in O\(log n\) when balanced\. ~\d+ min read Start lesson/:
           - /url: /learn/trees-bst
-          - text: Beginner
           - heading "Trees & Binary Search Trees" [level=3]
           - paragraph: A binary search tree keeps values ordered — smaller on the left, larger on the right — so insert and search follow one path down and run in O(log n) when balanced.
           - paragraph: /~\d+ min read/
           - text: Start lesson
       - listitem:
-        - link /Beginner Heaps A binary heap is a complete tree kept in an array where every parent outranks its children, giving O\(log n\) insert and O\(1\) access to the max \(or min\)\. ~\d+ min read Start lesson/:
+        - link /Heaps A binary heap is a complete tree kept in an array where every parent outranks its children, giving O\(log n\) insert and O\(1\) access to the max \(or min\)\. ~\d+ min read Start lesson/:
           - /url: /learn/heaps
-          - text: ""
           - heading "Heaps" [level=3]
           - paragraph: A binary heap is a complete tree kept in an array where every parent outranks its children, giving O(log n) insert and O(1) access to the max (or min).
           - paragraph: /~\d+ min read/
           - text: ""
       - listitem:
-        - link /Beginner Graphs Vertices joined by edges model networks; store them as an adjacency list or matrix, and choose which by trading space against edge-lookup speed\. ~\d+ min read Start lesson/:
+        - link /Graphs Vertices joined by edges model networks; store them as an adjacency list or matrix, and choose which by trading space against edge-lookup speed\. ~\d+ min read Start lesson/:
           - /url: /learn/graphs
-          - text: ""
           - heading "Graphs" [level=3]
           - paragraph: Vertices joined by edges model networks; store them as an adjacency list or matrix, and choose which by trading space against edge-lookup speed.
           - paragraph: /~\d+ min read/
@@ -109,25 +100,22 @@
     - paragraph: Practiced 0 · Mastered 0
     - list:
       - listitem:
-        - link /Beginner Recursion A function that calls itself, breaking a problem into a smaller version of itself until it reaches a base case — with the call stack keeping track\. ~\d+ min read Start lesson/:
+        - link /Recursion A function that calls itself, breaking a problem into a smaller version of itself until it reaches a base case — with the call stack keeping track\. ~\d+ min read Start lesson/:
           - /url: /learn/recursion
-          - text: ""
           - heading "Recursion" [level=3]
           - paragraph: A function that calls itself, breaking a problem into a smaller version of itself until it reaches a base case — with the call stack keeping track.
           - paragraph: /~\d+ min read/
           - text: ""
       - listitem:
-        - 'link /Beginner Linear & Binary Search Find an element in an array two ways: linear search scans every item in O\(n\); binary search halves a sorted range in O\(log n\)\. ~\d+ min read Start lesson/':
+        - 'link /Linear & Binary Search Find an element in an array two ways: linear search scans every item in O\(n\); binary search halves a sorted range in O\(log n\)\. ~\d+ min read Start lesson/':
           - /url: /learn/binary-search
-          - text: ""
           - heading "Linear & Binary Search" [level=3]
           - paragraph: "Find an element in an array two ways: linear search scans every item in O(n); binary search halves a sorted range in O(log n)."
           - paragraph: /~\d+ min read/
           - text: ""
       - listitem:
-        - 'link /Beginner Sorting I: Bubble, Selection, Insertion Three simple comparison sorts — bubble, selection, and insertion — that reorder an array in place by comparing and swapping, and why they all run in O\(n²\)\. ~\d+ min read Start lesson/':
+        - 'link /Sorting I: Bubble, Selection, Insertion Three simple comparison sorts — bubble, selection, and insertion — that reorder an array in place by comparing and swapping, and why they all run in O\(n²\)\. ~\d+ min read Start lesson/':
           - /url: /learn/sorting-basics
-          - text: Beginner
           - 'heading "Sorting I: Bubble, Selection, Insertion" [level=3]'
           - paragraph: Three simple comparison sorts — bubble, selection, and insertion — that reorder an array in place by comparing and swapping, and why they all run in O(n²).
           - paragraph: /~\d+ min read/
@@ -149,9 +137,8 @@
           - paragraph: /~\d+ min read/
           - text: Start lesson
       - listitem:
-        - link /Beginner Intro to Dynamic Programming Dynamic programming solves a problem by breaking it into overlapping subproblems, solving each once, and reusing the answers — turning exponential recursion into O\(n\) work\. ~\d+ min read Start lesson/:
+        - link /Intro to Dynamic Programming Dynamic programming solves a problem by breaking it into overlapping subproblems, solving each once, and reusing the answers — turning exponential recursion into O\(n\) work\. ~\d+ min read Start lesson/:
           - /url: /learn/dynamic-programming
-          - text: Beginner
           - heading "Intro to Dynamic Programming" [level=3]
           - paragraph: Dynamic programming solves a problem by breaking it into overlapping subproblems, solving each once, and reusing the answers — turning exponential recursion into O(n) work.
           - paragraph: /~\d+ min read/

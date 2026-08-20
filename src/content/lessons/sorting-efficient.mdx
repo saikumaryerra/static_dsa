@@ -16,6 +16,8 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
+import Band from '../../components/Band.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -176,29 +178,53 @@ Both build on **[recursion](/glossary#recursion)**: a problem solved in terms of
 
 ## How it works
 
-**Merge sort — split, then merge.** Keep halving the array until each piece has one element (which is trivially sorted). Then merge pairs of pieces back together: walk a finger down each sorted run and always copy the smaller front value into the result. Merging two runs of total length `k` costs `k` comparisons, and there are `log n` levels of merging, so the whole sort is **O(n log n)** — every time, guaranteed. The cost is memory: merging needs a temporary buffer, so merge sort uses **O(n)** extra space.
-
-**Quick sort — partition around a pivot.** Choose a pivot (here, the last element). Sweep a pointer across the range: each value smaller than the pivot is swapped into a growing "smaller" region on the left. Finally, drop the pivot just after that region — now everything left of it is smaller and everything right is larger, so the pivot is **fixed forever**. Recurse on the left and right sides. Quick sort sorts **in place** (only O(log n) stack space) and is usually the fastest in practice, but a bad pivot can make it slow.
-
-Step through both below. In merge sort, watch the `k` marker write merged values back into each region. In quick sort, watch the pivot (marked **pivot**) stay put while smaller values are swapped left, then land in its final ✓ spot.
+Step through both. In merge sort, watch the `k` marker write merged values back into each region. In quick sort, watch the pivot (marked **pivot**) stay put while smaller values are swapped left, then land in its final ✓ spot.
 
 ### Merge sort
 
-<Visualizer algorithm="merge-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="merge-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
+**Merge sort — split, then merge.** Keep halving the array until each piece has one element (which is trivially sorted). Then merge pairs of pieces back together: walk a finger down each sorted run and always copy the smaller front value into the result. Merging two runs of total length `k` costs `k` comparisons, and there are `log n` levels of merging, so the whole sort is **O(n log n)** — every time, guaranteed. The cost is memory: merging needs a temporary buffer, so merge sort uses **O(n)** extra space.
+
+</Bench>
 
 ### Quick sort
 
-<Visualizer algorithm="quick-sort" renderer="bars" input="[5,2,9,1,7,3]" />
+<Bench>
 
-<Challenge id="sorting-efficient/worst-case" />
-<Challenge id="sorting-efficient/pivot-in-the-middle" />
-<Challenge id="sorting-efficient/merges-best-day" />
+<Visualizer
+  slot="stage"
+  algorithm="quick-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
+**Quick sort — partition around a pivot.** Choose a pivot (here, the last element). Sweep a pointer across the range: each value smaller than the pivot is swapped into a growing "smaller" region on the left. Finally, drop the pivot just after that region — now everything left of it is smaller and everything right is larger, so the pivot is **fixed forever**. Recurse on the left and right sides. Quick sort sorts **in place** (only O(log n) stack space) and is usually the fastest in practice, but a bad pivot can make it slow.
+
+</Bench>
+
+<Band>
+  <Challenge id="sorting-efficient/worst-case" />
+  <Challenge id="sorting-efficient/pivot-in-the-middle" />
+  <Challenge id="sorting-efficient/merges-best-day" />
+</Band>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Both sorts do `n` work across about `log n` levels, giving **O(n log n)** — merge sort _always_, and quick sort in the best and average cases. Quick sort's **worst case is O(n²)**: if the pivot is repeatedly the smallest or largest value (for example, an already-sorted array with a last-element pivot), the partitions are lopsided and the recursion degenerates into n levels of n work. Real implementations avoid this with a randomized or median-of-three pivot. On space, merge sort needs an **O(n)** buffer to merge, while quick sort sorts in place using only **O(log n)** stack for the recursion.
+
+</Bench>
 
 ## Code
 
@@ -242,6 +268,15 @@ Merge sort and quick sort in Python, JavaScript, and Java. The quick-sort code u
 
 ## Practice
 
+<Bench>
+
+<FinalRun
+  slot="stage"
+  slug="sorting-efficient"
+  algorithm="quick-sort"
+  metric="comparisons"
+/>
+
 Work each one out before opening the answer.
 
 **1. Merge sort is O(n log n) on every input, but quick sort can be O(n²). What causes quick sort's worst case?**
@@ -270,8 +305,4 @@ Work each one out before opening the answer.
   in-place speed makes it the better fit — just use a randomized pivot.
 </PracticeCheck>
 
-<FinalRun
-  slug="sorting-efficient"
-  algorithm="quick-sort"
-  metric="comparisons"
-/>
+</Bench>

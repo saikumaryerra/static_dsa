@@ -15,6 +15,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -101,14 +102,10 @@ The two operations have traditional names: **push** (add an item on top) and **p
 
 The visualization draws the stack vertically, index 0 at the bottom, the newest item on top. A **top** caret always marks where the action happens.
 
-1. **Push** — place the new value on top. Because we only ever add at the top, nothing below moves. **O(1)**.
-2. **Pop** — remove the top value. Again nothing below moves. **O(1)**.
-
-Because the last item pushed sits on top, it is the first one popped. Watch the demo build the stack up by pushing several values, then tear it down by popping — the values come off in the exact reverse of the order they went on. That reversal is LIFO in action.
-
-## Visualizer
+<Bench id="visualizer">
 
 <Visualizer
+  slot="stage"
   algorithm="stack-operations"
   renderer="stack"
   input="[12,34,56]"
@@ -116,13 +113,24 @@ Because the last item pushed sits on top, it is the first one popped. Watch the 
   inputLabel="Values"
 />
 
+1. **Push** — place the new value on top. Because we only ever add at the top, nothing below moves. **O(1)**.
+2. **Pop** — remove the top value. Again nothing below moves. **O(1)**.
+
+Because the last item pushed sits on top, it is the first one popped. Watch the demo build the stack up by pushing several values, then tear it down by popping — the values come off in the exact reverse of the order they went on. That reversal is LIFO in action.
+
 Press **Play**, or **Step forward** one operation at a time. The `+` marks a push, the `✕` marks a pop, and the **top** caret follows the top of the stack. Enter your own values to push — then watch them pop off in reverse.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Every stack operation touches only the top, so push, pop, and peek are all **O(1)** — best, average, and worst case alike. Each operation needs just **O(1)** extra space. (Storing n items uses O(n) memory overall, but that is the size of the data, not the cost of an operation.)
+
+</Bench>
 
 ## Code
 
