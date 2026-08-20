@@ -52,16 +52,6 @@ export const codeTabs = [
   },
 ];
 
-## Intuition
-
-Imagine you are standing in a long line and want to know your position, but you can only see the person directly in front of you. So you ask them: "What number are you?" They do not know either, so they ask the person in front of _them_, and so on. Eventually the question reaches the very first person, who can answer without asking anyone — "I am number one." That answer travels back down the line, each person adding one, until it reaches you.
-
-That is **[recursion](/glossary#recursion)**: solving a problem by having it ask a _smaller version of the same problem_ for help, until the problem is small enough to answer directly. Two ingredients make it work — a **[base case](/glossary#base-case)** that stops the asking (the first person in line), and a **recursive case** that reduces the problem a little and passes it along (asking the person in front).
-
-Recursion shines when a problem naturally contains smaller copies of itself: walking a folder tree, exploring a maze, or the divide-and-conquer sorts you will meet later. Anything you can write with recursion you _can_ also write with a loop — but for self-similar problems, the recursive version is often far clearer.
-
-## How it works
-
 <Bench id="visualizer">
 
 <Visualizer
@@ -72,6 +62,16 @@ Recursion shines when a problem naturally contains smaller copies of itself: wal
   inputLabel="n"
   showTarget={false}
 />
+
+## Intuition
+
+Imagine you are standing in a long line and want to know your position, but you can only see the person directly in front of you. So you ask them: "What number are you?" They do not know either, so they ask the person in front of _them_, and so on. Eventually the question reaches the very first person, who can answer without asking anyone — "I am number one." That answer travels back down the line, each person adding one, until it reaches you.
+
+That is **[recursion](/glossary#recursion)**: solving a problem by having it ask a _smaller version of the same problem_ for help, until the problem is small enough to answer directly. Two ingredients make it work — a **[base case](/glossary#base-case)** that stops the asking (the first person in line), and a **recursive case** that reduces the problem a little and passes it along (asking the person in front).
+
+Recursion shines when a problem naturally contains smaller copies of itself: walking a folder tree, exploring a maze, or the divide-and-conquer sorts you will meet later. Anything you can write with recursion you _can_ also write with a loop — but for self-similar problems, the recursive version is often far clearer.
+
+## How it works
 
 Take `factorial(n)`, which multiplies `n × (n-1) × … × 1`. The insight is that `factorial(n)` is just `n × factorial(n - 1)` — the same problem, one size smaller.
 

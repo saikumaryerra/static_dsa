@@ -168,6 +168,15 @@ export const insertionTabs = [
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="bubble-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
 ## Intuition
 
 Sorting means putting items in order — smallest to largest, A to Z, cheapest to priciest. It is one of the most common things a program does, and the first sorts you learn all share the same humble idea: **compare two items, and swap them if they are in the wrong order.** Do that enough times, in the right pattern, and the whole array falls into order.
@@ -183,15 +192,6 @@ Each sort grows a **sorted region** and shrinks an **unsorted region**, just by 
 Read the drawings the same way in all three: the dimmed cells are the part already locked in final position, the lifted cell is the value currently in play, and the dashed tie-line joins the two cells being compared. The bracket under the bars, labelled **`lo`** and **`hi`**, marks the current **active (unsorted) window** — the stretch the pass is still working over, which shrinks as the sorted region grows.
 
 ### Bubble sort
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="bubble-sort"
-  renderer="bars"
-  input="[5,2,9,1,7,3]"
-/>
 
 **Bubble sort** makes repeated passes over the unsorted part. On each pass it compares every adjacent pair and swaps the ones out of order, so the largest remaining value "bubbles" to the end. After each pass the tail is locked. If a whole pass makes no swaps, the array is already sorted and it stops early.
 

@@ -106,6 +106,17 @@ static int fib(int n, int[] memo) {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="dp-fib-tabulation"
+  renderer="table"
+  input="6"
+  inputLabel="n"
+  showTarget={false}
+/>
+
 ## Intuition
 
 Try computing the Fibonacci numbers the obvious recursive way: `fib(n) = fib(n-1) + fib(n-2)`. It looks elegant, but it hides an explosion of repeated work. Computing `fib(5)` recomputes `fib(3)` three separate times and `fib(2)` five times — and the deeper you go, the worse it gets. For larger `n` the same tiny subproblems are recalculated millions of times, and the running time balloons to roughly `O(2ⁿ)`. You saw this exact trap in the [Recursion](/learn/recursion) lesson, where the call stack for `fib(5)` recomputed the same calls over and over.
@@ -139,17 +150,6 @@ Either way, each of the `n + 1` cells is computed exactly once. The visualizers 
 Watch the same Fibonacci table fill in two different ways. Each `dp[i]` lights up its two dependency cells (dashed tie-lines) so you can see `dp[i] = dp[i-1] + dp[i-2]` happen.
 
 ### Bottom-up (tabulation)
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="dp-fib-tabulation"
-  renderer="table"
-  input="6"
-  inputLabel="n"
-  showTarget={false}
-/>
 
 Tabulation fills left → right; every value is ready before it is needed. There is nothing to look up because nothing is ever missing.
 

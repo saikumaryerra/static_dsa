@@ -105,6 +105,16 @@ static void deleteAfter(Node prev) {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="linked-list-operations"
+  renderer="linkedList"
+  input="[12,34,56,78] target=1"
+  targetLabel="Index"
+/>
+
 ## Intuition
 
 An array is a row of lockers bolted in a fixed block. A **[linked list](/glossary#linked-list)** is the opposite idea: a treasure hunt. Each node is a scrap of paper holding a value _and_ directions to the next scrap — a **[pointer](/glossary#pointer)**. The nodes can live anywhere in memory; what links them is the chain of pointers. You always start from a special pointer called **head**, which points at the first node.
@@ -116,16 +126,6 @@ A **pointer** is simply a reference that says "the next node is over there." Whe
 ## How it works
 
 The visualization draws each node as a box with an arrow (`next`) to the following node; the final node points at `⌀` (null), meaning "end of list." Named carets under the boxes track our pointers.
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="linked-list-operations"
-  renderer="linkedList"
-  input="[12,34,56,78] target=1"
-  targetLabel="Index"
-/>
 
 1. **Traverse** — to reach node `k`, start `curr` at the head and follow `next` `k` times. Each hop is one step, so reaching a deep node is **O(n)**. A `✓` badge marks nodes we have already passed.
 2. **Insert after** a node — create a new node, point its `next` at the current node's old `next`, then point the current node's `next` at the new node. Two arrows change; nothing shifts. That is **O(1)**.

@@ -92,16 +92,6 @@ static void deleteAt(int[] arr, int size, int i) {
   },
 ];
 
-## Intuition
-
-An **[array](/glossary#array)** is like a row of numbered lockers bolted to a wall. The lockers sit side by side in one continuous block of memory, and each has a fixed **[index](/glossary#index)** — its position, counted from 0. Because the block is contiguous and every slot is the same size, the computer can compute the exact address of locker `i` with a single multiplication and go straight there. It never has to walk past the earlier lockers.
-
-That is the array's superpower and its weakness in one. **Reading any element is instant** — index 0 and index 999 cost exactly the same. But the lockers are bolted in place: to squeeze a new item into the middle, everything after it has to slide over to make room, and to remove an item, everything after it slides back to close the gap. Sliding a lot of elements is slow.
-
-## How it works
-
-Picture the array as boxed cells, each with its index printed underneath. The bracket beneath the row marks the valid index range — from the first index (**lo**) to the last (**hi**).
-
 <Bench id="visualizer">
 
 <Visualizer
@@ -111,6 +101,16 @@ Picture the array as boxed cells, each with its index printed underneath. The br
   input="[10,20,30,40,50] target=2"
   targetLabel="Index"
 />
+
+## Intuition
+
+An **[array](/glossary#array)** is like a row of numbered lockers bolted to a wall. The lockers sit side by side in one continuous block of memory, and each has a fixed **[index](/glossary#index)** — its position, counted from 0. Because the block is contiguous and every slot is the same size, the computer can compute the exact address of locker `i` with a single multiplication and go straight there. It never has to walk past the earlier lockers.
+
+That is the array's superpower and its weakness in one. **Reading any element is instant** — index 0 and index 999 cost exactly the same. But the lockers are bolted in place: to squeeze a new item into the middle, everything after it has to slide over to make room, and to remove an item, everything after it slides back to close the gap. Sliding a lot of elements is slow.
+
+## How it works
+
+Picture the array as boxed cells, each with its index printed underneath. The bracket beneath the row marks the valid index range — from the first index (**lo**) to the last (**hi**).
 
 - **Access index `i`** — the computer jumps directly to that slot using its address. One step, **O(1)**, no matter how large the array is.
 - **Insert `value` at index `i`** — first every element from `i` onward must shift one slot to the **right** to open a gap; only then can the value drop in. In the worst case (inserting at the front) all n elements move, so this is **O(n)**.

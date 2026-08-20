@@ -146,6 +146,17 @@ static List<Integer> dfs(Map<Integer, List<Integer>> graph, int start) {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="bfs"
+  renderer="graph"
+  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
+  inputLabel="Edges"
+  targetLabel="Start node"
+/>
+
 ## Intuition
 
 A graph is a web of nodes joined by edges — cities linked by roads, people linked by friendships, web pages linked by hyperlinks. A **traversal** answers a basic question: starting from one node, how do I visit every node I can reach, without going in circles?
@@ -171,17 +182,6 @@ The only difference is step 2's "remove": BFS removes from the **front** of a qu
 Step through both. **Violet ✓** marks visited nodes, the **dashed ring** marks the frontier (the queue or stack), and the lifted blue node is the one being processed. Each step's caption shows the frontier's exact contents.
 
 ### Breadth-first search
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="bfs"
-  renderer="graph"
-  input="0-1,0-2,1-3,2-3,3-4,4-5 target=0"
-  inputLabel="Edges"
-  targetLabel="Start node"
-/>
 
 Take this graph with edges `0-1, 0-2, 1-3, 2-3, 3-4, 4-5`, starting at node `0`. Following neighbors in ascending order, the frontier evolves like this:
 

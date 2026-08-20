@@ -111,16 +111,6 @@ export const codeTabs = [
   },
 ];
 
-## Intuition
-
-A **[queue](/glossary#queue)** is a line at a coffee shop. You join at the **back**, and the barista serves from the **front**. Whoever has waited longest is served next — no cutting in line. That is the opposite of a stack: a queue is **[FIFO](/glossary#fifo)**, "first in, first out."
-
-The two operations are **enqueue** (join at the rear) and **dequeue** (leave from the front). Because the two ends are different, a queue naturally preserves arrival order — which is exactly what you want for a print spooler, a task scheduler, or the "to visit" list in a breadth-first search.
-
-There is a clever storage trick worth meeting early. If we keep the queue in a fixed array and just move the front index forward on each dequeue, the used region drifts rightward and eventually the front bumps into the end — even though the freed slots at the start are sitting empty. A **circular queue** (or **ring buffer**) fixes this by letting the rear **wrap around** to index 0, reusing those freed slots. The array is finite, but we treat it as if its ends were joined into a ring.
-
-## How it works
-
 <Bench id="visualizer">
 
 <Visualizer
@@ -131,6 +121,16 @@ There is a clever storage trick worth meeting early. If we keep the queue in a f
   showTarget={false}
   inputLabel="Values"
 />
+
+## Intuition
+
+A **[queue](/glossary#queue)** is a line at a coffee shop. You join at the **back**, and the barista serves from the **front**. Whoever has waited longest is served next — no cutting in line. That is the opposite of a stack: a queue is **[FIFO](/glossary#fifo)**, "first in, first out."
+
+The two operations are **enqueue** (join at the rear) and **dequeue** (leave from the front). Because the two ends are different, a queue naturally preserves arrival order — which is exactly what you want for a print spooler, a task scheduler, or the "to visit" list in a breadth-first search.
+
+There is a clever storage trick worth meeting early. If we keep the queue in a fixed array and just move the front index forward on each dequeue, the used region drifts rightward and eventually the front bumps into the end — even though the freed slots at the start are sitting empty. A **circular queue** (or **ring buffer**) fixes this by letting the rear **wrap around** to index 0, reusing those freed slots. The array is finite, but we treat it as if its ends were joined into a ring.
+
+## How it works
 
 The visualization always draws all the fixed slots, so you can see the ring's capacity. Empty slots show a dim `·`; the **front** and **rear** carets mark the live ends.
 

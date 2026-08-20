@@ -105,6 +105,15 @@ class BST {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="bst-operations"
+  renderer="tree"
+  input="[50,30,70,20,40,60] target=40"
+/>
+
 ## Intuition
 
 A **[tree](/glossary#tree)** is a branching structure of **nodes**: one node at the top (the **root**), each node pointing to some **children** below it, with no loops. It is how you would draw a family tree or a company org chart — one box at the top, lines fanning downward.
@@ -114,15 +123,6 @@ A **binary tree** restricts each node to at most two children, a **left** and a 
 Why does it help? Because at every node you can throw away half the tree. Looking for a value, you compare it to the current node: if it is smaller you go left, if larger you go right — the other entire branch cannot possibly hold it. It is binary search, but living in a linked structure you can cheaply grow by inserting new nodes. When the tree stays balanced, that halving makes search and insert **O(log n)**.
 
 ## How it works
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="bst-operations"
-  renderer="tree"
-  input="[50,30,70,20,40,60] target=40"
-/>
 
 The visualization draws the tree with the root at the top and children fanning downward; left children sit to the left, right children to the right, so the ordering rule is visible in the layout itself.
 

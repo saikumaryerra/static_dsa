@@ -98,6 +98,10 @@ static int countPairs(int[] arr) {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer slot="stage" algorithm="growth-rates" renderer="chart" input="16" />
+
 ## Intuition
 
 Imagine two ways to find a friend's phone number. The first: you already have it saved, so you open the contact and read it — one action, done. The second: someone hands you a shuffled stack of a thousand business cards and you flip through until you find the right one. The saved contact takes the same effort whether you have ten contacts or ten million. The stack of cards gets worse as the stack grows.
@@ -107,10 +111,6 @@ Imagine two ways to find a friend's phone number. The first: you already have it
 The trick is that Big-O ignores constant factors and small details and keeps only the term that dominates as n grows large. A function that does `3n + 50` steps is just **O(n)** — because when n is huge, the `+ 50` and the `× 3` stop mattering compared to how the `n` itself scales.
 
 ## How it works
-
-<Bench id="visualizer">
-
-<Visualizer slot="stage" algorithm="growth-rates" renderer="chart" input="16" />
 
 To find an algorithm's Big-O, count the steps in terms of n and keep the fastest-growing term:
 

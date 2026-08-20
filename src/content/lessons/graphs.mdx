@@ -86,16 +86,6 @@ class Graph {
   },
 ];
 
-## Intuition
-
-Almost anything made of things and connections is a **[graph](/glossary#graph)**: cities joined by roads, people joined by friendships, web pages joined by links. The things are **vertices** (also called nodes); the connections are **edges**. That is the entire vocabulary, and it is astonishingly general — trees and linked lists are just special, restricted kinds of graphs.
-
-Edges come in flavors. An edge can be **undirected** — a two-way street, friendship, "either can reach the other" — or **directed**, a one-way arrow from one vertex to another (a follows b, but not the reverse). An edge can also carry a **weight**: a number like a distance, a cost, or a capacity. A road network is a weighted graph; who-follows-whom on social media is a directed graph.
-
-The interesting question is not what a graph _is_ but how you **store** one so a program can work with it. Two representations dominate, and picking between them is a classic space-versus-speed trade-off.
-
-## How it works
-
 <Bench id="visualizer">
 
 <Visualizer
@@ -106,6 +96,16 @@ The interesting question is not what a graph _is_ but how you **store** one so a
   showTarget={false}
   inputLabel="Edges"
 />
+
+## Intuition
+
+Almost anything made of things and connections is a **[graph](/glossary#graph)**: cities joined by roads, people joined by friendships, web pages joined by links. The things are **vertices** (also called nodes); the connections are **edges**. That is the entire vocabulary, and it is astonishingly general — trees and linked lists are just special, restricted kinds of graphs.
+
+Edges come in flavors. An edge can be **undirected** — a two-way street, friendship, "either can reach the other" — or **directed**, a one-way arrow from one vertex to another (a follows b, but not the reverse). An edge can also carry a **weight**: a number like a distance, a cost, or a capacity. A road network is a weighted graph; who-follows-whom on social media is a directed graph.
+
+The interesting question is not what a graph _is_ but how you **store** one so a program can work with it. Two representations dominate, and picking between them is a classic space-versus-speed trade-off.
+
+## How it works
 
 The visualization builds a small **directed, weighted** graph one piece at a time: first each vertex appears, then each edge is drawn with an arrowhead (its direction) and a weight label. Watch it assemble, then compare the two ways a program could store the very same graph.
 

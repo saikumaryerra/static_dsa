@@ -166,6 +166,15 @@ static int partition(int[] arr, int lo, int hi) {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="merge-sort"
+  renderer="bars"
+  input="[5,2,9,1,7,3]"
+/>
+
 ## Intuition
 
 The O(n²) sorts get slow because every item is compared against nearly every other item. The fast sorts escape that trap with **[divide and conquer](/glossary#divide-and-conquer)**: split the problem into smaller pieces, solve each piece, and stitch the solutions together. Because splitting in half repeatedly reaches a single element in only about `log n` steps, and each level of splitting does `n` work, the total lands at **O(n log n)** — dramatically faster than O(n²) as `n` grows.
@@ -181,15 +190,6 @@ Both build on **[recursion](/glossary#recursion)**: a problem solved in terms of
 Step through both. In merge sort, watch the `k` marker write merged values back into each region. In quick sort, watch the pivot (marked **pivot**) stay put while smaller values are swapped left, then land in its final ✓ spot.
 
 ### Merge sort
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="merge-sort"
-  renderer="bars"
-  input="[5,2,9,1,7,3]"
-/>
 
 **Merge sort — split, then merge.** Keep halving the array until each piece has one element (which is trivially sorted). Then merge pairs of pieces back together: walk a finger down each sorted run and always copy the smaller front value into the result. Merging two runs of total length `k` costs `k` comparisons, and there are `log n` levels of merging, so the whole sort is **O(n log n)** — every time, guaranteed. The cost is memory: merging needs a temporary buffer, so merge sort uses **O(n)** extra space.
 

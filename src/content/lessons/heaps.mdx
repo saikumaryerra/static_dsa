@@ -86,16 +86,6 @@ class MaxHeap {
   },
 ];
 
-## Intuition
-
-Picture a tournament bracket flipped upside down: the champion sits at the top, and everyone below is someone that player beat. You do not know the exact ordering of the losers, and you do not care — you only need to know who is on top. That is the deal a **[heap](/glossary#heap)** makes.
-
-A **binary heap** is a binary tree with one rule, the **heap property**: every parent **outranks** its children. In a **max-heap** that means every parent is greater than or equal to its children, so the largest value is always at the root. (A **min-heap** flips it: smallest on top.) Unlike a binary search tree, a heap makes no promise about left-versus-right order — it is a much weaker rule, and that weakness is exactly what makes heaps cheap to maintain.
-
-The payoff: the maximum is always sitting at the root, ready in **O(1)**, and adding a new value only has to bubble up one path, in **O(log n)**. That combination is why heaps power **priority queues** and the sorting algorithm heapsort.
-
-## How it works
-
 <Bench id="visualizer">
 
 <Visualizer
@@ -106,6 +96,16 @@ The payoff: the maximum is always sitting at the root, ready in **O(1)**, and ad
   showTarget={false}
   inputLabel="Values"
 />
+
+## Intuition
+
+Picture a tournament bracket flipped upside down: the champion sits at the top, and everyone below is someone that player beat. You do not know the exact ordering of the losers, and you do not care — you only need to know who is on top. That is the deal a **[heap](/glossary#heap)** makes.
+
+A **binary heap** is a binary tree with one rule, the **heap property**: every parent **outranks** its children. In a **max-heap** that means every parent is greater than or equal to its children, so the largest value is always at the root. (A **min-heap** flips it: smallest on top.) Unlike a binary search tree, a heap makes no promise about left-versus-right order — it is a much weaker rule, and that weakness is exactly what makes heaps cheap to maintain.
+
+The payoff: the maximum is always sitting at the root, ready in **O(1)**, and adding a new value only has to bubble up one path, in **O(log n)**. That combination is why heaps power **priority queues** and the sorting algorithm heapsort.
+
+## How it works
 
 Two things make a heap efficient. First, it is a **complete binary tree**: every level is full except possibly the last, which fills left to right. Second, that shape lets you store the whole tree in a plain **[array](/glossary#array)** with no pointers at all — the tree is implied by index arithmetic:
 

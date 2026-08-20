@@ -90,6 +90,17 @@ class Stack {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="stack-operations"
+  renderer="stack"
+  input="[12,34,56]"
+  showTarget={false}
+  inputLabel="Values"
+/>
+
 ## Intuition
 
 Think of a stack of dinner plates. You add a clean plate to the **top** of the pile, and when you need one you take it from the **top** too. You never pull a plate out of the middle — the whole tower would topple. So the plate you grab is always the one you added most recently.
@@ -101,17 +112,6 @@ The two operations have traditional names: **push** (add an item on top) and **p
 ## How it works
 
 The visualization draws the stack vertically, index 0 at the bottom, the newest item on top. A **top** caret always marks where the action happens.
-
-<Bench id="visualizer">
-
-<Visualizer
-  slot="stage"
-  algorithm="stack-operations"
-  renderer="stack"
-  input="[12,34,56]"
-  showTarget={false}
-  inputLabel="Values"
-/>
 
 1. **Push** — place the new value on top. Because we only ever add at the top, nothing below moves. **O(1)**.
 2. **Pop** — remove the top value. Again nothing below moves. **O(1)**.
