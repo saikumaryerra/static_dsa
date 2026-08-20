@@ -167,13 +167,18 @@ published: true
 
 Lesson body sections (authors follow this order; enforce with a lint/checklist, not hard code):
 1. **Intuition** — plain-language "what & why," a real-world analogy.
-2. **How it works** — step-by-step, referencing the visualization.
-3. **`<Visualizer />`** — the interactive island (see §11 for the component API).
-4. **Complexity** — auto-rendered from frontmatter + a sentence of explanation.
-5. **Code** — `<CodeTabs>` with the same algorithm in **Python, JavaScript, and Java** (pick these three; each tab is a fenced code block).
-6. **Common pitfalls / edge cases** — collapsible.
-7. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
-8. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson, and authored as a card at the **end of the Practice section**, not under a heading of its own (it is one prompt, and a heading would promise a section).
+2. **How it works** — step-by-step, **with the visualization beside it**.
+   *(Amended by the redesign 2026-08, amendment S-1: `<Visualizer />` is no longer a section of its
+   own. It sits inside a `<Bench>` in "How it works" — the artifact in the bench's `stage` slot, the
+   prose that narrates it in the reading column — because the explanation and the thing it explains
+   belong on the same screen. The `## Visualizer` heading is gone from every lesson; the
+   `#visualizer` anchor survives as an id on the lesson's first bench, so existing deep links still
+   land on the instrument. `tests/e2e/m4-lessons.spec.ts` already treated that heading as optional.)*
+3. **Complexity** — auto-rendered from frontmatter + a sentence of explanation.
+4. **Code** — `<CodeTabs>` with the same algorithm in **Python, JavaScript, and Java** (pick these three; each tab is a fenced code block).
+5. **Common pitfalls / edge cases** — collapsible.
+6. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
+7. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson, and authored as a card at the **end of the Practice section**, not under a heading of its own (it is one prompt, and a heading would promise a section).
 
 **Authoring the M8 components (amended M8.1/M8.3).** Three components are dropped into the body like
 `<Visualizer>`; each is optional, each ships its own `<noscript>` kill-switch, and none of them
@@ -328,6 +333,27 @@ export interface Highlight {
 
 export type Trace<TState = unknown> = Step<TState>[];
 
+// The drawing box for a WHOLE trace, in viewBox user units (amended, Plan A):
+// the per-step maximum of every box the renderer would compute for that trace.
+export interface Extent {
+  w: number;                     // viewBox width in user units
+  h: number;                     // viewBox height in user units
+}
+
+// One value column of the ledger — the trace written out as a table (Plan C).
+// `from` reads the STEP, and the only thing it may read on it is `state`.
+export interface LedgerColumn<TState> {
+  label: string;                 // the column head, e.g. 'lo' — the algorithm's own name for it
+  from(step: Step<TState>): string | number | null; // null renders '·', never 0
+  numeric?: boolean;             // set in numerals (right-aligned); inferred from the value otherwise
+}
+
+// What an algorithm declares about its own table. Optional in every part.
+export interface LedgerSpec<TState> {
+  columns: LedgerColumn<TState>[];
+  costKey?: string;              // which metric closes the table, e.g. 'comparisons'
+}
+
 // Every instrumented algorithm implements this shape.
 export interface Algorithm<TInput, TState> {
   id: string;                    // e.g. 'binary-search'
@@ -342,11 +368,24 @@ export interface Algorithm<TInput, TState> {
   // Algorithms without it simply don't offer predict mode (the toggle hides).
   predictStep?(trace: Trace<TState>, i: number, input: TInput):
     { prompt: string; choices: string[]; correctIndex: number } | null;
+
+  // Plan C, optional: the value columns this algorithm's ledger shows. An
+  // algorithm that declares nothing gets the generic table built from the
+  // counters it already emits (`# · what happened · comparisons`).
+  ledger?: LedgerSpec<TState>;
+}
+
+// Options shared by the build-time still and the live mount.
+export interface RenderOpts {
+  title?: string;                // SVG <title> — the per-algorithm label
+  idBase?: string;               // seeds the <title>/<desc> ids so two islands never collide
+  extent?: Extent;               // the frozen box; omit it to draw the natural per-step box
 }
 
 // Renderer contract (one per structure family).
 export interface Renderer<TState> {
   mount(container: HTMLElement, opts?: RenderOpts): void;
+  setExtent(extent: Extent | undefined): void; // REQUIRED — see "the extent lifecycle"
   render(step: Step<TState>): void;   // idempotent: draw exactly this step
   destroy(): void;
 }
@@ -357,8 +396,139 @@ export interface Renderer<TState> {
 export interface RendererModule<TState> {
   create(): Renderer<TState>;
   renderStatic(step: Step<TState>, opts: RenderOpts): string;
+  measure(step: Step<TState>): Extent; // REQUIRED — geometry only, no markup built
 }
 ```
+
+**The extent lifecycle (amended by Plan A).** A renderer sizes its viewBox from the *current* step, so
+a structure that grows mid-trace resized the canvas while the reader stepped — measured in viewBox
+units at `40×66 → 380×222` on the BST, `80×184 → 326×308` on the heap and `104 → 220` in height on
+the stack, which moves the transport row out from under a thumb. **One box is computed per trace and
+every step is drawn inside it.**
+
+- `traceExtent(measure, trace)` (`src/viz/core/extent.ts`, pure) reduces a trace to the per-axis
+  maximum. It throws on an empty trace or a non-positive, non-finite measurement rather than
+  inventing a zero box: a silently wrong box shows up as a clipped drawing on a page nobody is
+  looking at.
+- `fitToExtent(canvas, extent, anchor)` (`src/viz/renderers/shared.ts`, pure) widens one step's
+  natural canvas to that box and offsets the drawing by the renderer's declared `ANCHOR`. It
+  **clamps, never shrinks** — `max(extent, natural)` per axis — so a stale extent can only widen the
+  box and can never clip a drawing. It is applied in exactly two places, `renderStaticSvg` and
+  `createRenderer.render`, so the build-time still and the hydrated drawing cannot drift.
+- **Anchors.** Top-left by default (drawings lay out from the origin and grow right/down into the
+  reserved space). **Bottom** for `stack` and `callStack`: both draw a ground line under their lowest
+  slot, which a top anchor would slide downward on every push, and growing upward is also the
+  physical model those lessons teach. **Centre-x** for `heap`, whose levels are already centred on
+  the natural content width, so centring keeps the root still across a level gain.
+- **Both ends of the pipeline use it.** The build reduces the trace and **re-emits the still with
+  that extent**, so the JS-off and printed frame is the same box the island draws instead of jumping
+  once at hydration. `data-extent` carries the build's measurement to the island so the first
+  hydrated draw reuses the still's exact viewBox — deliberately *not* load-bearing: the island
+  recomputes from the same trace when the attribute is missing or unparseable, because drawing
+  unfrozen is the defect and falling back to it silently would reintroduce the resize.
+
+**Why `setExtent` is separate from `mount`.** `mount` runs exactly **once** per island, while
+`Player.loadTrace` re-traces on **every** custom run and on "Restore example". An extent that could
+only arrive at mount would be frozen at the authored run's size, so the custom run — the case whose
+size varies most — would draw against a stale box. Both `loadTrace` paths must go through
+`setExtent` before the redraw; missing either leaves that path drawing against the old box. It is
+required rather than optional because an optional channel is one a renderer can silently not
+implement.
+
+**Why `measure` exists at all.** Reading the box back out of `renderStatic`'s emitted string costs
+**247 ms** for bubble sort at the permitted n = 30 (901 steps) on a fast desktop — a second or more
+on a phone — run synchronously inside the custom-input submit handler. The geometry-only form costs
+**0.44 ms**, a 560× difference, which is the whole reason it is a second entry point. Each renderer
+**extracts** the viewBox computation its own `draw` already performs and `draw` then calls it, so
+there is one source and no restated formula. Its only failure mode is disagreeing with the drawing,
+so that agreement is a test: `tests/unit/renderers/measure.test.ts` asserts `measure(step)` equals
+the box `draw(step)` emits for every step of the shipped lesson instruments, and separately that the
+seven the frame audit reports as varying really do vary (a fixture that goes constant would make the
+first assertion a tautology). `npm run audit:frames` re-derives which those are.
+
+**Marker meta (amended by Plan A).** `Highlight.meta` is how an algorithm names a marker, and there
+are exactly two shapes:
+
+- **`meta.label` — a single-target marker**, read through `metaLabel(h, fallback)`. Single-target
+  kinds keep their renderer fallbacks deliberately (`GraphRenderer`'s `at`; `array-operations`'
+  authored `read`/`shift` and `insertion-sort`'s `key` override it): a caret's *position* already
+  carries its meaning, so an unnamed one is still correct.
+- **`meta.startLabel` / `meta.endLabel` — the two ends of a `range`**, read through
+  `metaRangeLabels(h)`, which has **no fallback at all**. A range *end* has no meaning without a
+  name, so a renderer that invents one is inventing vocabulary for a lesson it knows nothing about —
+  which is how the five sorts, `array-operations` and linear search came to print binary search's
+  `lo`/`hi` window, linear search two paragraphs after its prose says *"There is no `lo`, `hi`, or
+  `mid`"*. Only the label **text** is gated: the range underbar is the kind's required non-colour
+  cue (design §3.2) and every range still draws it.
+
+**Custom input — the wire format.** The form renders two fields; `parseInput` takes one raw string.
+`composeCustomInput(first, target, authoredFirst)` (`src/viz/core/input-hint.ts`, pure) joins them
+into `` `${first} target=${target}` `` — the exact inverse of `splitAuthoredInput` — and wraps a bare
+comma-separated list in the `[…]` every array parser requires, so `1,3,5,7` and `[1,3,5,7]` are both
+accepted and the field's own "Up to 30 whole numbers, comma-separated" help text stops being a lie.
+
+The wrap is **gated**, because one composer serves all 21 instruments and an unconditional wrap
+corrupts every non-array lesson (a graph reader types `0-1,0-2,1-3`; a DP reader types `7`). Both
+halves must hold:
+
+1. the instrument's **authored** first field starts with `[` — read client-side from `data-input`
+   through `splitAuthoredInput`, never from the build-time placeholder, which the island never
+   receives and whose no-authored-input fallback is itself bracketed; and
+2. the **typed** field contains no `[`, `]` or `=`. Wrapping may only ever rescue an input that fails
+   today: `[` is already a literal, `=` carries the hash-table lesson's `cap=5 [11,24]` companion
+   token (which works today and would not once wrapped), and `9,2],7` wraps to `[9,2],7]`, whose
+   first `[…]` parses — silently dropping the reader's `7` with no error at all.
+
+Nothing else is normalised, so a malformed list still reaches `parseInput` and still produces that
+algorithm's own message. Any such message must contain a first-field word (`core/error-field`'s
+`FIRST_FIELD_WORDS`, e.g. "array") or the error lands on the target field the reader got right.
+
+**The ledger — the trace, written out (added by Plan C).** A `Step` is one **row** and
+`Trace = Step[]` is the **table**, so `core/ledger.ts` (pure) transcribes one into the other and
+`Ledger.astro` draws it at the foot of the instrument, inside a native `<details>`. It is a second
+**view** of the same precomputed trace, never a second copy of its state: it re-runs nothing, holds
+no index of its own, and the Player stays the single source of which step is current. The
+`showLedger` prop (default `true`) opts a chrome demonstration out — `/about` and `/dev/renderers`
+set it `false` — and the cost column independently inherits `showMetrics`, so the two props cannot
+contradict each other.
+
+**Two provenance rules, enforced by tests rather than by review**, because they are exactly the kind
+of thing that rots silently:
+
+1. **A value cell reads `step.state` and nothing else.** `LedgerColumn.from` is handed the step and
+   may take only the snapshot the algorithm emitted.
+2. **"What happened" is authored text** — `firstSentence(step.explanation)`, deterministic, with the
+   terminator kept. Terminators are `.` `?` `!` and **not** `;`, because the flagship lesson's own
+   sentence is *"Search window is indices 0–5; middle index 2 holds 5…"* and splitting on the
+   semicolon truncated it before the probe.
+
+**There is deliberately no code path from `highlights` into a cell.** A view that reconstructs
+meaning out of highlight ids is a second narration channel able to disagree with the sentence the
+author wrote, on the one product whose promise is that nothing is faked. Two drafts of this design
+broke one of the two rules; both are now unit tests.
+
+**The row cap is 200, on every path** — the server render and the island's rebuild call the same
+function — and **whenever it binds the reader is told, in words, with both numbers**: *"Showing the
+first 200 of 901 steps. Narrow the input to see the whole run."* It can never bind on authored
+content (the longest shipped run is 33 rows); it binds only on a custom run near the §11.4 input
+caps, where a trace reaches 901 steps and a table stops being something a person reads.
+
+**Predict mode hides the whole table** (`setPredict`, the single writer of every piece of predict
+state), because the ledger renders `trace[i + 1]` — the step every predictor grades against — and
+for bubble and insertion sort the `swaps` column *is* the grading expression. Hidden, not blanked:
+blanking the rows past the current one still leaks the answer through the row count, and styling a
+leak is not hiding it. Row seeks are declined on the same condition the slider's handler already
+uses. This is **not** the killed cost withholding — see §19.1, which carries the distinction so it
+is not re-litigated.
+
+**Instrument ids are derived, not random** (`core/instrument-id.ts`): `viz-${algorithm}-${hash}` over
+`pathname:algorithm:renderer`, with a per-render tally appending `-2` only on an actual repeat. Rows
+are `${uid}-row-${n}`, 1-based, which is what makes a run addressable at all —
+`<StepLink algorithm renderer step>` is a prose link to one of them. It resolves its target through
+`instrumentIdFor`, the **non-claiming** half of that module: `claimInstrumentId` mints, so asking it
+again for an existing instrument's id returns the id of one that does not exist. A `<tr>` inherits no
+`scroll-margin-top` from the lesson layout (that rule is scoped to `h2`/`h3`), so the ledger declares
+the same offset for its rows and the instrument declares it too.
 
 ### 11.3 The `Visualizer` island (public API used in MDX)
 
@@ -369,6 +539,7 @@ export interface RendererModule<TState> {
   input="[1,3,5,7,9,11] target=7" // optional initial input; else algorithm.defaultInput()
   allowCustomInput={true}
   showMetrics={true}
+  showLedger={true}             // Plan C: the run written out under the drawing
 />
 ```
 
@@ -584,20 +755,114 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
       page exceeds 60 KB gz of eager JS — and Lighthouse targets (§14), which stay a manual check.
 - [ ] No `console.log`, no dead code, no unexplained `SPEC-GAP` left unreviewed.
 
+**Two blind spots in that gate, found by Plan C. Neither is a bug; both are things the checklist
+cannot see, so anyone adding surface of the same shape has to know about them.**
+
+- **axe cannot see a closed `<details>`.** Its content is `display: none`, so every shipped scan
+  walked straight past the ledger. Anything put behind a disclosure — or behind any collapsed
+  container — needs a scan that OPENS it first. Doing that for the ledger immediately found a real
+  `serious` failure (`scrollable-region-focusable` on three wells), which had been invisible not
+  because the scan was weak but because the scan never reached it. The same applies to any state a
+  scan cannot enter on its own: a mode toggle, a revealed panel, an error state.
+- **The aria baselines were stale by a whole milestone and passed anyway.** They predated M8
+  entirely, and `toMatchAriaSnapshot` matches a SUBSET: everything M8 added was an *addition*, so
+  every missing item was invisible to the comparison. A green aria run therefore means "nothing that
+  was recorded has changed", not "the tree is what the file says". Re-seed them whenever a
+  milestone adds structure — and read the diff, because that is the only moment the drift is
+  visible.
+
 ---
 
 ## 19. Open questions (flag with `SPEC-GAP`, don't block on them)
-- Final font + exact brand color: pick tasteful defaults; easy to swap in tokens.
+
+> **Four of these were settled by the 2026-08 redesign.** Its interpretation contract, the direction
+> as built, the design-system decisions and the full list of constraints it reopened live in
+> `docs/redesign-2026-08/` — `03-amendments.md` is the one to read before re-opening any of them.
+
+- ~~Final font~~ **settled (redesign 2026-08, amendment T-1):** IBM Plex Sans + IBM Plex Mono,
+  self-hosted, subset from the repo's own characters by `npm run fonts`, 77,704 bytes measured, with
+  metric-matched fallbacks for CLS. The **brand colour stays achromatic** — `--brand` is
+  byte-identical to `--text`, and re-introducing a hue is still a spec amendment.
 - Do we want a lightweight "was this helpful?" thumbs (no backend, localStorage only)? Default: skip for v1.
 - Exact three code languages: spec says Python / JavaScript / Java — confirm before M4 if there's a preference.
-- **M7.3 difficulty chips** — semantic soft-fill vs badge-the-exception reverses a documented
-  neutral-chip decision; needs designer sign-off before implementation (§8).
-- **Glossary search island** (~1 KB) — beyond the §8 glossary definition; the zero-JS
-  "Also called:" aliases ship regardless. Owner decision.
+- ~~**M7.3 difficulty chips**~~ **settled (redesign 2026-08, amendment D-1):** badge-the-exception,
+  on the `/learn` grid only — the chip renders on a curriculum card when the lesson is *not*
+  `beginner` (2 of 15). The lesson page keeps its chip unconditionally, because a reader arriving
+  there has no comparison set in front of them. This carries the original neutral-chip reasoning
+  forward rather than reversing it.
+- ~~**Glossary search island**~~ **settled (redesign 2026-08, amendment G-1):** shipped. It filters
+  markup already on the page — no index, no fetch, no store — matching the term, its aliases and its
+  definition; it ships `hidden` and the island reveals it. The zero-JS A–Z list and jump nav are
+  untouched.
 - **Astro prefetch** for lesson links — needs an architect ruling on whether §4's "no runtime
   network calls" bars same-origin prefetch. Default: skip.
 - **Progress export/import code** — the only no-backend answer to "cleared browser data = lost
   progress" (M8). Deferred; revisit only if users ask.
+- **The array family's parse-failure wording understates what is accepted (Plan A).** Since
+  `composeCustomInput` wraps a bare list (§11.2), `5,2,9,1,7` is accepted everywhere `[5,2,9,1,7]`
+  is — but twelve instruments still answer a *failed* parse with a bracketed-only example: the five
+  sorts' *"Type an array to sort, e.g. `[5,2,9,1,7]`"*, plus `array-operations`, `bst-operations`,
+  `linked-list-operations`, `stack-operations`, `queue-operations`, `heap-operations` and
+  `hash-table-operations`. Every one of those strings is still **accurate** — brackets do parse — so
+  this is a wording debt, not a defect, and it is low severity because the composer rescues the
+  bare-list case before `parseInput` ever sees it: those branches are now only reachable with an
+  empty field or a field containing `[`, `]` or `=`. `binary-search` and `linear-search` were
+  rewritten in Plan A and are already correct on their first branch, but their *secondary* messages
+  (*"Add a target, e.g. `[1,3,5,7] target=5`"*) still quote the composed wire format, which no field
+  ever displays. Any rewrite touches twelve algorithm files plus `tests/unit/error-field.test.ts`
+  and their per-algorithm string assertions, and must keep a `FIRST_FIELD_WORDS` term (§11.2).
+  (Counted, not estimated: every one of the twelve parsers accepts the wrapped bare list —
+  `hash-table-operations` included, since its `cap=` companion defaults — so all twelve messages
+  understate the format.)
+
+### 19.1 Settled by measurement — do not re-propose (Plans A and C)
+
+Closed items live here so they stay closed. Each was designed, then deleted by a measurement rather
+than by taste; re-proposing one is a spec amendment that has to beat the evidence.
+
+- **Cost withholding** — a mechanism to hide a visualization's cost column so it would not "publish
+  the Final Run's answer". The premise was false. `FinalRun`'s earned-credit rule is **card-scoped**
+  (`shown` is a local set only when *that card* reveals its own answer; nothing in the path inspects
+  the visualizer), `showMetrics` defaults to `true` so the comparisons pill is live on binary search
+  by design, the final step's authored explanation already reads *"Found 7 at index 3 after 3
+  comparisons"*, and "Watch it happen" sends the reader to that instrument deliberately. It would
+  have guarded a number the product intentionally shows, at the cost of authored props on six
+  lessons, two tests, a JS-off table with an amputated column, and an assertion that cannot pass on
+  the flagship lesson. If hiding the metric is ever wanted it is a **product** decision about
+  `showMetrics` and the authored final sentence, not a ledger detail.
+- **The ledger's predict gate is NOT that decision reversed (Plan C).** Anyone who finds
+  `setPredict`'s `ledgerRoot.hidden = on` will find the bullet above a paragraph later and conclude
+  cost withholding came back. It did not, and the three differences are the whole distinction. Cost
+  withholding was **permanent** — no reader could ever see the cell — for **every reader**, on
+  twelve instruments to guard six, and it hid a number *the product already puts on screen by
+  design*: `showMetrics` defaults to `true`, the final step's own authored sentence reads "…after 3
+  comparisons", and `FinalRun`'s "Watch it happen" link sends the reader to that instrument
+  deliberately. The predict gate is **opt-in** (nothing is hidden until a reader presses Predict, or
+  follows `?review=1`, which is the same act), **mode-scoped** (turning it off restores the table in
+  the state it was left in, and teardown does the same), and what it hides is *the one thing the
+  mode is defined by hiding*: predict grades against `trace[i + 1]`, so the mode exists precisely
+  because the next step is not on screen. Auto-play and the scrubber were already withdrawn for that
+  reason before the ledger existed — the gate **follows** that precedent rather than setting one,
+  and the table is simply the third control that would otherwise show the answer. It is also
+  **hidden, not blanked**: blanking the rows past the current one leaks through the row count, and
+  styling a leak is not hiding it. **Trace Trials were checked separately and are not a conflict** —
+  a trial drives its own instrument at a fixed step and never consults the mode. Finally the shape
+  stays closed: `buildLedger` has **no options parameter** (a `@ts-expect-error`ed three-argument
+  call is what keeps it that way), so a table with one column withheld cannot be built at all —
+  hiding the WHOLE table, in the island, for the duration of a mode, is the only mechanism there is.
+- **A vertical legibility floor** (a `--viz-label-min` token, an explicit pixel height,
+  `overflow-y: auto`, a `max-height` and scroll-into-view). Three measurements retire all of it:
+  every SVG is emitted `preserveAspectRatio="xMidYMid meet"` with `height: auto`, so scaling is
+  uniform and the shipped RSP-2 `min-width: calc(var(--viz-natural-w, 0px) * 0.75)` is **already a
+  two-axis floor**; no `max-height` exists anywhere in `Visualizer.astro` to overflow against, so a
+  tall drawing makes the page taller and never scrolls; and adding one would *create* an a11y bug —
+  `measureCanvas` decides `tabindex`, `role` and the accessible name from **horizontal** overflow
+  alone, so a vertically-overflowing, horizontally-fitting canvas would be an unreachable keyboard
+  scroll region (WCAG 2.1.1), exactly what the floor's own comment says the design avoids. The 11px
+  variant was also wrong on its own terms: the smallest authored label is 12px, so 11/12 ≈ 0.917
+  against the shipped 0.75 is a 22% tightening that would push the DP table (viewBox 446 wide) to
+  409 px on a 390 px phone where 0.75 gives 334 px and it fits. The floor ships **unchanged**; Plan A
+  added only a regression test that `--viz-natural-w` holds one value for a whole run.
 
 ---
 

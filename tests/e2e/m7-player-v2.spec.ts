@@ -14,6 +14,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { openCustomInput } from './utils/disclosure';
+
 const LESSON = '/learn/binary-search';
 // The lesson hosts two array visualizers; scope to the binary-search one, as
 // every other binary-search spec does.
@@ -43,6 +45,15 @@ test.describe('consolidated control bar', () => {
     // reorder), so tabbing forward from the first transport button must walk the
     // bar left to right and then into the custom-input form. A mismatch here is
     // WCAG 2.4.3 and is invisible to every other assertion in the suite.
+    //
+    // Amendment C-2 put that form behind a disclosure, which makes this the test
+    // that carries its whole keyboard contract: the summary is a real control
+    // sitting exactly where the form's first field used to sit, Enter opens it,
+    // and only then do the three fields join the tab order. Driven from the
+    // keyboard rather than through `openCustomInput`, because here the gesture
+    // IS the thing under test — a disclosure no keyboard can open would put the
+    // entire "run it on your own input" promise (§10) out of reach.
+    const CUSTOM_SUMMARY = 'customInputSummary';
     const expected = [
       'vizBack',
       'vizPlay',
@@ -54,22 +65,39 @@ test.describe('consolidated control bar', () => {
       'vizPredict',
       'vizSlider',
       'vizSpeed',
+      CUSTOM_SUMMARY,
       'vizArray',
       'vizTarget',
       'vizRun',
       'vizRestore',
     ];
+    const customOpen = page.locator(`${VIZ} details.viz-custom-open`);
     await page.locator(`${VIZ} [data-viz-reset]`).focus();
     for (const hook of expected) {
       await page.keyboard.press('Tab');
       expect(
-        await page.evaluate(() =>
-          Object.keys((document.activeElement as HTMLElement).dataset).find(
-            (key) => key.startsWith('viz'),
-          ),
-        ),
+        await page.evaluate((summaryHook) => {
+          const active = document.activeElement as HTMLElement;
+          return active.matches('details.viz-custom-open > summary')
+            ? summaryHook
+            : Object.keys(active.dataset).find((key) => key.startsWith('viz'));
+        }, CUSTOM_SUMMARY),
         `tab order should reach ${hook}`,
       ).toBe(hook);
+      if (hook === CUSTOM_SUMMARY) {
+        // Named, not just present: three instruments on one lesson would
+        // otherwise offer three indistinguishable summaries (CNT-8), and the
+        // label has to promise what opening it does.
+        await expect(customOpen.locator('summary')).toHaveAccessibleName(
+          /^Run it on your own input.*Binary search/,
+        );
+        // Closed on arrival — that is the whole point of C-2, and it is why the
+        // three fields below have not been tabbable up to this line — and open
+        // after one Enter, with focus still on the summary the reader pressed.
+        await expect(customOpen).toHaveJSProperty('open', false);
+        await page.keyboard.press('Enter');
+        await expect(customOpen).toHaveJSProperty('open', true);
+      }
     }
 
     // Operable, not merely reachable: the slider is the scrubber, so arrow keys
@@ -146,6 +174,12 @@ test.describe('custom input', () => {
     await page.goto(LESSON);
     await hydrateViz(page);
 
+    // Amendment C-2: the form is behind a disclosure. The description below is
+    // wired in the markup and would read correctly either way, but the help text
+    // is only USEFUL — and only visible — with the form the reader is filling
+    // in, which is the state every assertion here is about.
+    await openCustomInput(page.locator(VIZ));
+
     const array = page.locator(`${VIZ} [data-viz-array]`);
     // aria-describedby lists BOTH ids, space-separated: the format disclosure
     // has to survive an error, and the error has to be announced with the
@@ -192,6 +226,9 @@ test.describe('custom input', () => {
   }) => {
     await page.goto(LESSON);
     await hydrateViz(page);
+    // Amendment C-2: the experiment starts by opening the disclosure. The
+    // keyboard half of that gesture is asserted in the tab-order test above.
+    await openCustomInput(page.locator(VIZ));
 
     const array = page.locator(`${VIZ} [data-viz-array]`);
     const target = page.locator(`${VIZ} [data-viz-target]`);
@@ -227,6 +264,8 @@ test.describe('custom input', () => {
   test('restoring also clears a pending error', async ({ page }) => {
     await page.goto(LESSON);
     await hydrateViz(page);
+
+    await openCustomInput(page.locator(VIZ)); // amendment C-2
 
     const array = page.locator(`${VIZ} [data-viz-array]`);
     await array.fill('[9,2]');
@@ -597,6 +636,10 @@ test.describe('canvas overflow (RSP-2)', () => {
 
     // 30 items (the parser's cap) cannot fit: now it is a real scroll container,
     // and a scroll container no keyboard can reach would be a 2.1.1 failure.
+    // Getting there is a disclosure away (amendment C-2); the overflow this test
+    // is about is unaffected by it — the canvas sits above the form, and both
+    // "Run" and "Restore example" live inside it.
+    await openCustomInput(page.locator(VIZ));
     const many = Array.from({ length: 30 }, (_, i) => (i + 1) * 2);
     await page.locator(`${VIZ} [data-viz-array]`).fill(`[${many.join(',')}]`);
     await page.locator(`${VIZ} [data-viz-target]`).fill('42');

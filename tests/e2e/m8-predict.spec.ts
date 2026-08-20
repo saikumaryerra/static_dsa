@@ -27,6 +27,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   curriculum,
@@ -109,6 +110,26 @@ async function openBinary(page: Page, url = BINARY): Promise<Locator> {
 /** Answers the whole authored run correctly (three questions). */
 async function answerAuthored(viz: Locator): Promise<void> {
   for (const label of AUTHORED.answers) await answer(viz, label);
+}
+
+/**
+ * Loads {@link LONG} through the instrument's own custom-input form — the run
+ * every "five answers" test below needs, since the authored example is four
+ * steps and can never reach the bar.
+ *
+ * Opens the disclosure first. The 2026-08 redesign put the form behind a
+ * `<details>` labelled "Run it on your own input — {algorithm}" (amendment C-2),
+ * so its fields are `display: none` until a reader opens it; `openCustomInput`
+ * sets `open` instead of clicking the summary, which keeps it idempotent and
+ * stops it scrolling the instrument under a test that is about to read it. The
+ * reader's act is unchanged apart from that one click, and so is what these
+ * tests assert about it.
+ *
+ * @param viz - A hydrated viz root offering the custom-input form.
+ */
+async function runLongInput(viz: Locator): Promise<void> {
+  await openCustomInput(viz);
+  await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
 }
 
 test.describe('the toggle exists exactly where a predictor does', () => {
@@ -284,6 +305,12 @@ test.describe('while predicting, watching is unavailable — and nothing is disa
     await expect(note).toContainText(
       'Step forward moves on without answering.',
     );
+    // The note also carries the reason the RUN TABLE is gone (Plan C §4): the
+    // ledger renders `trace[i + 1]`, which is the step every predictor grades
+    // against, so predicting hides it. It names the table rather than "the step
+    // slider", which Plan C made a focus-revealed control the reader cannot see
+    // at rest.
+    await expect(note).toContainText('the run table is hidden');
 
     // Focus survives the mode change and the control still takes focus…
     await play.focus();
@@ -573,7 +600,7 @@ test.describe('activity, never accuracy — the session is not scored', () => {
     page,
   }) => {
     const viz = await openBinary(page);
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
 
     // Sampled after EVERY answer, including the one that crosses the bar: a
@@ -605,7 +632,7 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     const viz = await openBinary(page);
     expect(await readKey(page, masteryKey(BINARY_SLUG))).toBeNull();
 
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
     for (const label of LONG.answers) await answer(viz, label);
 
@@ -687,7 +714,7 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     page,
   }) => {
     const viz = await openBinary(page);
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
 
     // Five answers, three of them right (60%) — over the answer floor, under the
@@ -731,7 +758,7 @@ test.describe('degraded — with no JS and with no store', () => {
 
       const text = await page.locator('body').innerText();
       expect(text).not.toContain('answered ·');
-      expect(text).not.toContain('Auto-play and the step slider are off');
+      expect(text).not.toContain('Auto-play and scrubbing are off');
 
       // DISCRIMINATOR: the page is the M7 page, not a broken one. The
       // build-time still frame is drawn and the prose is all there.
@@ -767,7 +794,7 @@ test.describe('degraded — with no JS and with no store', () => {
     // the store throwing underneath it — "degraded", not "died".
     await expect(predictToggle(viz)).toBeEnabled();
 
-    await runCustomInput(viz, LONG.array, LONG.target, LONG.steps);
+    await runLongInput(viz);
     await enablePredict(viz);
     for (const label of LONG.answers) await answer(viz, label);
 

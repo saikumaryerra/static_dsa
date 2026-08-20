@@ -74,6 +74,7 @@ import {
   pinnedInput,
 } from '../lib/challenges';
 import type { Algorithm } from '../viz/core/types';
+import { instrumentIdFor } from '../viz/core/instrument-id';
 import { nextUid } from './uid';
 
 interface Props {
@@ -161,6 +162,14 @@ const body = entry.body ?? '';
  * @returns The heading id, or `null` when the tag or its heading cannot be found
  * (the caller falls back, then fails the build).
  */
+function visualizerTagAttrs(): string | null {
+  const names = new RegExp(`algorithm=(["'])${algorithm}\\1`);
+  const tag = [...body.matchAll(/<Visualizer\b([\s\S]*?)\/>/g)].find((match) =>
+    names.test(match[1] ?? ''),
+  );
+  return tag?.[1] ?? null;
+}
+
 function visualizerHeadingId(): string | null {
   // Tag by tag, lazily up to each `/>` — the same segmentation
   // `findVisualizerInput` uses in `src/lib/challenges.ts`. A single regex
@@ -183,17 +192,46 @@ function visualizerHeadingId(): string | null {
   return headings.find((heading) => heading.text.trim() === text)?.slug ?? null;
 }
 
+/**
+ * Where "Watch it happen" points, resolved to THE INSTRUMENT rather than to a
+ * heading (redesign 2026-08).
+ *
+ * It used to land on the heading a `<Visualizer>` sat under, which was the best
+ * available answer while the drawing lived in the reading column a screenful
+ * below its own `##`. Now that instruments sit in a bench's stage column — and
+ * one lesson's instruments may sit above every heading they relate to — the
+ * heading is no longer where the drawing is, and on binary search there is no
+ * `## Visualizer` heading left to fall back to.
+ *
+ * So this derives the instrument's own id through `instrumentIdFor`, exactly as
+ * `<StepLink>` does: the same read-only half of the function `Visualizer.astro`
+ * claims with, seeded from the same pathname, so the anchor cannot name an id
+ * the page does not mint. The renderer comes out of the very tag this file
+ * already located, which is what keeps the two halves of the tuple honest —
+ * guessing `array` because the algorithm is a search would break the moment a
+ * lesson drew one with a different renderer.
+ */
+const tagAttrs = visualizerTagAttrs();
+const rendererId = /renderer=(["'])(.*?)\1/.exec(tagAttrs ?? '')?.[2];
 const ownHeading = visualizerHeadingId();
 const target =
   anchor ??
-  (ownHeading !== null
-    ? `#${ownHeading}`
-    : headingIds.has('visualizer')
-      ? '#visualizer'
+  (rendererId !== undefined
+    ? `#${instrumentIdFor(Astro.url.pathname, algorithm, rendererId, 1)}`
+    : ownHeading !== null
+      ? `#${ownHeading}`
       : null);
-if (target === null || !headingIds.has(target.slice(1))) {
+if (target === null) {
   throw new Error(
-    `FinalRun ("${slug}"): "Watch it happen" would point at ${target ?? 'nothing'}, which is not a heading on this lesson. Available: ${[...headingIds].map((id) => `#${id}`).join(', ')}.`,
+    `FinalRun ("${slug}"): "Watch it happen" has nowhere to point — no <Visualizer algorithm="${algorithm}" …/> tag was found in this lesson, and no anchor was passed. Heading ids available: ${[...headingIds].map((id) => `#${id}`).join(', ')}.`,
+  );
+}
+// An AUTHORED anchor is still checked against the real heading ids: passing one
+// means overriding the derivation, and the one failure that override can have is
+// naming a section that does not exist.
+if (anchor !== undefined && !headingIds.has(anchor.slice(1))) {
+  throw new Error(
+    `FinalRun ("${slug}"): anchor "${anchor}" is not a heading on this lesson. Available: ${[...headingIds].map((id) => `#${id}`).join(', ')}.`,
   );
 }
 
@@ -385,7 +423,7 @@ const statusId = `fr-status-${uid}`;
   }
 
   /* Matches the visualizer's custom-input field: level 1 on the page canvas,
-     `--border-strong` (4.55:1 on the canvas) so the box is a shape and not a
+     `--border-strong` (3.94:1 light / 3.71:1 dark on the canvas) so the box is a shape and not a
      suggestion, and 44px tall like every control it sits beside. */
   .final-run__field input {
     min-height: 44px;

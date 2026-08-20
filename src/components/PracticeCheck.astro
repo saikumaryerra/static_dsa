@@ -250,9 +250,15 @@ const askId = `pc-ask-${nextUid()}`;
      and an inset ring thickens it to 2px WITHOUT reflowing the row (the same
      no-reflow trick the header's `aria-current` underline uses). The fill is
      MarkComplete's 12% brand tint, so "I chose this" looks the same in both
-     places. Text colour is left at --text, which measures 14.25:1 light /
-     12.91:1 dark on that tint over the lesson canvas, and the brand ring is
-     5.02:1 / 5.33:1 on it — clear of 1.4.3 and 1.4.11. The dot is also what
+     places. Text colour is left at --text, which measures 13.85:1 light /
+     12.21:1 dark on that tint over the lesson canvas, and the brand ring is
+     the same figure now that --brand and --text are one value — both clear of
+     1.4.3 and 1.4.11 with room to spare. (The tint is TRANSLUCENT, so it
+     composites over whatever is painted behind the button, and nothing between
+     it and <html> paints: the backdrop is --bg, not this button's own --surface
+     fill, which the tint replaces. Confirmed by sampling the rendered pixel —
+     Chromium composites #DFE0DF light / #292A2B dark — rather than by reading
+     the rule.) The dot is also what
      separates chosen from `.btn-secondary`'s hover, which lands on a
      similar fill. */
   .practice-check__dot {

@@ -19,6 +19,10 @@
 - main:
   - heading "Glossary" [level=1]
   - paragraph: Every term the lessons introduce, defined in one or two sentences and linked back to where you first meet it.
+  - search:
+    - text: Filter terms
+    - searchbox "Filter terms"
+    - status
   - navigation "Jump to letter":
     - list:
       - listitem:
@@ -112,6 +116,7 @@
     - term: Big-O notation
     - definition:
       - paragraph: A shorthand for how an algorithm’s running time or memory grows as its input gets larger, ignoring constant factors and lower-order terms. It describes the worst-case upper bound, so O(n) means "grows in proportion to the input size".
+      - paragraph: "Also called: Big O notation, asymptotic notation"
       - paragraph:
         - link "Introduced in Complexity & Big-O":
           - /url: /learn/complexity-big-o
@@ -124,12 +129,14 @@
     - term: Binary search tree
     - definition:
       - paragraph: A binary tree that keeps every node’s left subtree smaller than the node and every right subtree larger. That ordering makes search, insertion, and deletion run in O(log n) time when the tree stays balanced.
+      - paragraph: "Also called: BST"
       - paragraph:
         - link "Introduced in Trees & Binary Search Trees":
           - /url: /learn/trees-bst
     - term: Breadth-first search
     - definition:
       - paragraph: A graph traversal that explores all neighbours at the current distance before moving farther out, using a queue to track what to visit next. It finds the shortest path in an unweighted graph.
+      - paragraph: "Also called: BFS"
       - paragraph:
         - 'link "Introduced in Graph Traversal: BFS & DFS"':
           - /url: /learn/graph-traversal
@@ -142,6 +149,7 @@
     - term: Bucket
     - definition:
       - paragraph: One slot of a hash table, identified by a hashed index, that holds the entries assigned to it. When several keys hash to the same bucket, they share it via a collision-handling scheme.
+      - paragraph: "Also called: slot"
       - paragraph:
         - link "Introduced in Hash Tables":
           - /url: /learn/hash-tables
@@ -156,12 +164,14 @@
     - term: Chaining
     - definition:
       - paragraph: A collision-handling strategy where each bucket holds a small linked list (or other list) of all entries that hashed to it. Lookups scan only the short chain in the matching bucket.
+      - paragraph: "Also called: separate chaining"
       - paragraph:
         - link "Introduced in Hash Tables":
           - /url: /learn/hash-tables
     - term: Circular buffer
     - definition:
       - paragraph: A fixed-size array used as a queue in which the front and back indices wrap around to the beginning when they reach the end. Reusing the freed slots avoids shifting elements on every dequeue.
+      - paragraph: "Also called: ring buffer"
       - paragraph:
         - link "Introduced in Queues":
           - /url: /learn/queues
@@ -176,6 +186,7 @@
     - term: Depth-first search
     - definition:
       - paragraph: A graph traversal that follows one path as far as it can before backtracking to explore alternatives, using a stack or recursion. It is well suited to cycle detection and topological ordering.
+      - paragraph: "Also called: DFS"
       - paragraph:
         - 'link "Introduced in Graph Traversal: BFS & DFS"':
           - /url: /learn/graph-traversal
@@ -188,6 +199,7 @@
     - term: Dynamic programming
     - definition:
       - paragraph: A technique that solves a problem by breaking it into overlapping subproblems, solving each one only once, and reusing the stored results. It turns exponential recursion into efficient, reusable work.
+      - paragraph: "Also called: DP"
       - paragraph:
         - link "Introduced in Intro to Dynamic Programming":
           - /url: /learn/dynamic-programming
@@ -238,6 +250,7 @@
     - term: Index
     - definition:
       - paragraph: The integer position of an element within an array, conventionally starting at 0. Because elements sit at evenly spaced addresses, the computer can jump straight to any index in O(1).
+      - paragraph: "Also called: subscript"
       - paragraph:
         - link "Introduced in Arrays":
           - /url: /learn/arrays
@@ -264,6 +277,7 @@
     - term: Linear search
     - definition:
       - paragraph: A search algorithm that checks each element in order until it finds the target or reaches the end. It works on any data but takes O(n) time in the worst case.
+      - paragraph: "Also called: sequential search"
       - paragraph:
         - link "Introduced in Linear & Binary Search":
           - /url: /learn/binary-search
@@ -276,6 +290,7 @@
     - term: Logarithmic time
     - definition:
       - paragraph: A running time of O(log n), where the work grows very slowly because each step discards a large fraction of the remaining input. Halving the search space every step, as binary search does, is the classic example.
+      - paragraph: "Also called: O(log n)"
       - paragraph:
         - link "Introduced in Complexity & Big-O":
           - /url: /learn/complexity-big-o
@@ -326,6 +341,7 @@
     - term: Pointer
     - definition:
       - paragraph: A reference from one node to another that links the pieces of a data structure together. Following pointers is how you traverse a linked list, tree, or graph.
+      - paragraph: "Also called: reference, link"
       - paragraph:
         - link "Introduced in Linked Lists":
           - /url: /learn/linked-lists
@@ -340,6 +356,7 @@
     - term: Quick sort
     - definition:
       - paragraph: A divide-and-conquer sort that partitions the list around a chosen pivot, then sorts the two sides recursively. It averages O(n log n) time and sorts in place, though a poor pivot degrades it to O(n²).
+      - paragraph: "Also called: quicksort"
       - paragraph:
         - 'link "Introduced in Sorting II: Merge & Quick"':
           - /url: /learn/sorting-efficient

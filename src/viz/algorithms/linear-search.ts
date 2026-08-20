@@ -75,7 +75,7 @@ function run(input: LinearSearchInput): Trace<LinearSearchState> {
     { array, index: null, foundIndex: null },
     array.length === 0
       ? `The array is empty, so ${target} cannot be found.`
-      : `Ready. Scanning left to right for ${target} in an array of ${array.length} ${
+      : `Ready — scanning left to right for ${target} in an array of ${array.length} ${
           array.length === 1 ? 'item' : 'items'
         }.`,
     array.length === 0 ? [] : [windowHighlight(0, last)],
@@ -124,7 +124,10 @@ function parseInput(raw: string): LinearSearchInput | { error: string } {
   const targetMatch = text.match(/target\s*=\s*(-?\d+)/i);
 
   if (!arrayMatch) {
-    return { error: 'Type an array and target, e.g. [4,1,7,2] target=7' };
+    // Same rewrite as binary search's, for the same reason: the field's help
+    // text promises a bare comma-separated list, so the fallback must describe
+    // that. Keeps the word "array" so `core/error-field` still blames field one.
+    return { error: 'Enter an array of whole numbers, e.g. 4,1,7,2' };
   }
   if (!targetMatch) {
     return { error: 'Add a target, e.g. [4,1,7,2] target=7' };

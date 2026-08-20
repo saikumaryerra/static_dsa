@@ -18,17 +18,19 @@
  * (`--hl-compare` is NOT reachable from chrome: the six highlight roles belong
  * to the visualization). Still not a red, and still not color-carried: the
  * triangle glyph and the bold word "Warning" remain the non-color layer.
- * `--accent-warn` on `--surface` is 5.02:1 light / 6.81:1 dark, so the head
+ * `--accent-warn` on `--surface` is 5.02:1 light / 8.26:1 dark, so the head
  * clears 1.4.3 as text and the 4px keyline clears 1.4.11 as a graphic (against
- * the canvas it borders on its other side it is 4.80:1 light / 8.72:1 dark).
+ * the canvas it borders on its other side it is 4.89:1 light / 8.92:1 dark).
+ * The achromatic repaint left this token alone deliberately — it is now the only
+ * chrome hue on the page, which is the trade recorded in m7-ux-overhaul CMP-11.
  *
  * M7.3 VD-3 also moves the box onto elevation level 1 — `--surface` + 1px
  * `--border` + a resting `--shadow-1`, the same recipe `.track-card` uses. The
  * fill alone stopped doing the job when the canvas inverted: `--surface` against
- * `--bg` is 1.05:1 light (#FFFFFF on #F8FAFC) and 1.28:1 dark, so a borderless,
+ * `--bg` is 1.03:1 light (#FFFFFF on #FCFCFB) and 1.08:1 dark, so a borderless,
  * shadowless callout read as an indented paragraph with a bar. Neither the
  * keyline nor the shadow is a 1.4.11 boundary and neither is asked to be
- * (`--border` on the canvas is 1.18:1 light / 1.81:1 dark, the decorative
+ * (`--border` on the canvas is 1.32:1 light / 1.36:1 dark, the decorative
  * register the token is documented for) — they separate the box, while the icon
  * and the bold label are what actually name it.
  */

@@ -53,7 +53,8 @@ const audiences: { who: string; detail: string }[] = [
       <h1>About LearnDSA</h1>
       <p class="about__lede">
         LearnDSA makes data structures and algorithms visible: every lesson is
-        built around an animation you control and can run on your own input.
+        built around a visualization you can step through and run on your own
+        input.
       </p>
     </header>
 
@@ -111,10 +112,12 @@ const audiences: { who: string; detail: string }[] = [
         You're not watching a video; you're scrubbing through that list.
       </p>
       <p>
-        Play advances it, Step moves one operation forward or back, the slider
-        jumps anywhere, and Custom input re-runs it on numbers you type. Because
-        every step is recorded up front, stepping backward is instant and
-        nothing is faked.
+        Play advances it, Step moves one operation forward or back, and Custom
+        input re-runs it on numbers you type. In the lessons that same recorded
+        list is also written out as a table under the drawing, one row per step
+        — close enough to the prose that a sentence can link straight to the
+        step it is talking about. Because every step is recorded up front,
+        stepping backward is instant and nothing is faked.
       </p>
 
       <Callout variant="tip">
@@ -126,8 +129,22 @@ const audiences: { who: string; detail: string }[] = [
           <li>
             <strong>Step ±</strong> — move exactly one operation forward or back.
           </li>
+          {
+            /* "click any row" became true only when the island gained its seek
+               wiring. Until it did, this bullet deliberately stopped at "read":
+               the rows were server-rendered and inert, and advertising a control
+               that does nothing is worse than describing less than there is. */
+          }
           <li>
-            <strong>Scrub</strong> — drag the slider to jump to any point.
+            <strong>The run, written out</strong> — in a lesson, open the table under
+            the drawing to read every step of the run at once, and click any row to
+            send the drawing to that step.
+          </li>
+          <li>
+            <strong>Scrub</strong> — tab to the step slider, which appears when it
+            takes focus, and use the arrow keys, <kbd>Home</kbd> and <kbd
+              >End</kbd
+            >.
           </li>
           <li>
             <strong>Custom input</strong> — re-run the algorithm on your own values.
@@ -136,12 +153,21 @@ const audiences: { who: string; detail: string }[] = [
       </Callout>
 
       <figure class="about__demo">
+        {
+          /* `showLedger={false}`: this is a demonstration of the CHROME, not a
+             lesson, so the run written out belongs where there is an algorithm
+             to learn — and the page's own callout above says "in a lesson" for
+             that reason. `showMetrics={false}` is the older half of the same
+             decision, and the ledger's cost column inherits it, so the two can
+             never contradict each other. */
+        }
         <Visualizer
           algorithm="binary-search"
           renderer="array"
           input="[1,3,5,7,9,11] target=7"
           allowCustomInput={false}
           showMetrics={false}
+          showLedger={false}
         />
         <figcaption class="about__figcaption">
           A live example — the same Binary Search visualization used in the

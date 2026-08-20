@@ -1,0 +1,135 @@
+---
+/**
+ * `<Bench>` — one instrument and the prose that explains it, side by side
+ * (redesign 2026-08, amendment L-2).
+ *
+ * WHAT PROBLEM THIS SOLVES. Until now a lesson was an essay with a figure in it:
+ * the drawing sat in the reading column at 824px, the sentence describing what
+ * to press sat *below* the thing it described, and the run's ledger was folded
+ * shut under both. A reader following "watch `lo` and `hi` close in" had to hold
+ * the sentence in memory, scroll, and look. That is textbook split attention, on
+ * the one page whose entire promise is that you can WATCH the algorithm.
+ *
+ * A bench pairs exactly one instrument with the prose that narrates it. On a wide
+ * screen the prose scrolls in the reading column while the instrument stays
+ * pinned beside it, so the sentence and the thing it describes are on screen at
+ * the same time — and `<StepLink>` in that prose now moves a drawing the reader
+ * can see, rather than scrolling them away from the sentence they were reading.
+ *
+ * DOM ORDER IS THE MOBILE ORDER, and it is deliberately unchanged from what the
+ * lesson shipped before: heading, prose, instrument. The two columns are a grid
+ * placement at ≥1200px, never a reordering — so a narrow screen, a printed page,
+ * and a screen reader all get the sequence the prose was written for. Nothing is
+ * hoisted.
+ *
+ * WHY STICKY WORKS HERE. The stage is a grid item with `align-items: start`, so
+ * it keeps its own content height while its containing block is as tall as the
+ * reading column. That difference IS the travel. A bench whose prose cannot
+ * outrun its instrument therefore has nothing to stick to — which is what `solo`
+ * is for.
+ *
+ * Props:
+ * - `solo`  the prose here is too short to give the pin any travel (a bare
+ *           heading, or a couple of challenge cards). The bench renders as one
+ *           full-width column instead, which is *wider* than the old reading
+ *           column rather than narrower — a comparison set of three sorts reads
+ *           better stacked at full width than squeezed into half of one.
+ *           Authored, not inferred: only the author knows whether the prose
+ *           beside an instrument is its explanation or just a label.
+ * - `id`    optional anchor, for the lesson's `#visualizer` contract.
+ *
+ * There is no `<noscript>` kill-switch and no client script: a bench is CSS
+ * layout over content that already works, so with JavaScript off it is simply a
+ * lesson section in its original order.
+ */
+interface Props {
+  solo?: boolean;
+  id?: string;
+}
+
+const { solo = false, id } = Astro.props;
+---
+
+<div class:list={['bench', solo && 'bench--solo']} id={id}>
+  <div class="bench__read"><slot /></div>
+  <div class="bench__stage"><slot name="stage" /></div>
+</div>
+
+<style>
+  /* Below the pinning breakpoint a bench is exactly what the lesson always was:
+     two blocks in source order, prose then instrument. Every rule that makes it
+     two columns lives inside the media query, so there is one code path for
+     phones, print and forced-colors and it is the untouched one. */
+  .bench {
+    display: block;
+  }
+
+  .bench__stage {
+    margin-block-start: var(--space-6);
+  }
+
+  /* The stage is a lesson-body child at mobile widths, where LessonLayout caps
+     prose at --measure. It must break that cap: the drawing is not prose. */
+  .bench__read,
+  .bench__stage {
+    min-width: 0;
+  }
+
+  /* 1200px is where a --stage-w pane and a full reading measure both fit without
+     either being squeezed; min-height keeps a pinned pane off short viewports,
+     where sticking something 600px tall leaves the reader nothing to scroll. */
+  @media (min-width: 1200px) and (min-height: 640px) {
+    .bench:not(.bench--solo) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--stage-w);
+      column-gap: var(--space-10);
+      /* NOT `stretch`: a stretched grid item is already as tall as its row, so
+         `position: sticky` on it would have zero travel. Shrinking the stage to
+         its content is what gives the pin somewhere to go. */
+      align-items: start;
+    }
+
+    .bench:not(.bench--solo) .bench__stage {
+      position: sticky;
+      /* The same offset every sticky thing on the site derives (--header-h), plus
+         one space unit so the pane is not welded to the keyline. */
+      top: calc(var(--header-h) + var(--space-4));
+      margin-block-start: 0;
+      /* A tall instrument (the graph, the BST at depth) must not push its own
+         controls off the bottom of the viewport. Capping the PANE — not the
+         canvas — keeps `measureCanvas`'s horizontal-overflow rule untouched, so
+         the a11y contract that decides the canvas's tabindex is unaffected. */
+      max-height: calc(100dvh - var(--header-h) - var(--space-8));
+      /* MEASURED: binary search's instrument is 932px of drawing, legend,
+         sentence, transport, input disclosure and a four-row table; a 1280x900
+         laptop leaves it 804. The instrument is simply richer than a short
+         viewport, so the pane keeps a scroll of its own as the safety net — the
+         part that falls below the fold is the tail of the ledger, which is the
+         one region a reader chooses to look at rather than one they need in
+         view. `contain` stops a flick that reaches the end of the table from
+         carrying the whole page with it. Everything above the table — the
+         drawing, the sentence and the transport — fits at every height. */
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      /* Room for the focus ring of whatever control sits at the pane's edge;
+         without it the ring is clipped by the scroll container. */
+      padding-inline: var(--space-1);
+      margin-inline: calc(var(--space-1) * -1);
+      scrollbar-gutter: stable;
+    }
+  }
+
+  /* Print gets the source order at full width; a pinned pane means nothing on
+     paper, and `position: sticky` in a paged context is undefined behaviour. */
+  @media print {
+    .bench {
+      display: block;
+    }
+
+    .bench__stage {
+      position: static;
+      max-height: none;
+      overflow: visible;
+    }
+  }
+</style>

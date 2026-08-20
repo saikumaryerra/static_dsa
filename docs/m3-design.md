@@ -148,7 +148,17 @@ Layout math is the architect's (§4); below is the **visual treatment**. All `vi
         └──────────┘
            base line (--border-strong 1.5px)
 ```
-- Vertical 54-tall slots, GAP 4 (read as a physical stack), item 0 bottom, width 96. Push = fade-in top + `+`; pop = fade to 0.42 + remove + `✕`. `top` = `is-pointer` caret + ▶ at top slot's left. viewBox height grows with size.
+- Vertical 54-tall slots, GAP 4 (read as a physical stack), item 0 bottom, width 96. Push = fade-in top + `+`; pop = fade to 0.42 + remove + `✕`. `top` = `is-pointer` caret + ▶ at top slot's left.
+- **Frozen extent, bottom anchor (amended, Plan A — spec §11.2).** An earlier draft of this doc said
+  "viewBox height grows with size", and that is now the defect: the box grew *while the reader
+  stepped* (104 → 220 units here), moving the transport row out from under their thumb. The height a
+  step needs is still computed from the slot count, but a mounted instrument freezes **one** box for
+  the whole trace (the per-step maximum) and draws every step inside it. This renderer therefore
+  declares a **bottom** anchor: the base line under slot 0 is the ground the physical-stack model
+  rests on, so it is the edge that must not move — under a top anchor the ground would slide down on
+  every push. The stack grows *upward* into the reserved space instead, which is also what the
+  lesson teaches. `CallStackRenderer` anchors bottom for the same reason; `heap` anchors centre-x;
+  everything else keeps the default top-left.
 
 ### 2b.3 QueueRenderer (§4.4)
 ```

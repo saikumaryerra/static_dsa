@@ -15,6 +15,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -91,6 +92,16 @@ static void deleteAt(int[] arr, int size, int i) {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="array-operations"
+  renderer="array"
+  input="[10,20,30,40,50] target=2"
+  targetLabel="Index"
+/>
+
 ## Intuition
 
 An **[array](/glossary#array)** is like a row of numbered lockers bolted to a wall. The lockers sit side by side in one continuous block of memory, and each has a fixed **[index](/glossary#index)** — its position, counted from 0. Because the block is contiguous and every slot is the same size, the computer can compute the exact address of locker `i` with a single multiplication and go straight there. It never has to walk past the earlier lockers.
@@ -107,22 +118,19 @@ Picture the array as boxed cells, each with its index printed underneath. The br
 
 Step through the visualization to watch a direct access, then an insert that ripples the tail rightward, then a delete that pulls it back leftward. The **shift** caret marks each element as it moves — count them to feel the O(n) cost.
 
-## Visualizer
-
-<Visualizer
-  algorithm="array-operations"
-  renderer="array"
-  input="[10,20,30,40,50] target=2"
-  targetLabel="Index"
-/>
-
 Press **Play**, or **Step forward** to move one shift at a time. The `+` marks the inserted value; the `✕` marks the element being deleted; each **shift** highlight is one element moving. Try your own array — the number in the second box picks which index gets the O(1) access.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Access is the best case at **O(1)** — a direct jump. Insert and delete are the worst case at **O(n)**, because shifting the tail touches up to every element. All of this happens in place, reusing the same storage, so the extra space is **O(1)**.
+
+</Bench>
 
 ## Code
 

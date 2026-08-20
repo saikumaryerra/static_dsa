@@ -3,6 +3,7 @@ import {
   binarySearch,
   type BinarySearchInput,
 } from '../../src/viz/algorithms/binary-search';
+import { buildLedger } from '../../src/viz/core/ledger';
 import type { Highlight } from '../../src/viz/core/types';
 
 /** Collects every highlight of a given kind across a whole trace. */
@@ -101,7 +102,7 @@ describe('binarySearch.parseInput', () => {
 
   it('rejects a string with no array, with a friendly message', () => {
     expect(binarySearch.parseInput('target=5')).toEqual({
-      error: 'Type an array and target, e.g. [1,3,5,7] target=5',
+      error: 'Enter an array of whole numbers, e.g. 1,3,5,7',
     });
   });
 
@@ -334,6 +335,73 @@ describe('binarySearch.predictStep (M8.2)', () => {
         expect(q.correctIndex).toBeGreaterThanOrEqual(0);
         expect(q.correctIndex).toBeLessThan(q.choices.length);
       }
+    }
+  });
+});
+
+describe('binarySearch.ledger', () => {
+  /**
+   * PROVENANCE RULE 1, on the one algorithm that ships declared columns. Every
+   * value cell reads `step.state` — the snapshot the algorithm emitted — so the
+   * table and the drawing are two views of one trace and cannot tell different
+   * stories. The rule is pinned generically in `ledger.test.ts`; this is the
+   * shipped instance, which is what an author would actually break.
+   */
+  it('transcribes lo, mid and hi straight out of the snapshot', () => {
+    const input = binarySearch.defaultInput();
+    const trace = binarySearch.run(input);
+    const ledger = buildLedger(trace, binarySearch.ledger);
+
+    expect(ledger.headers).toEqual([
+      'lo',
+      'mid',
+      'hi',
+      'what happened',
+      'comparisons',
+    ]);
+    for (const [n, row] of ledger.rows.entries()) {
+      const state = trace[n]!.state;
+      expect(row.cells.slice(0, 3).map((cell) => cell.text)).toEqual([
+        String(state.lo),
+        // `mid` is null before the first compare — the absent mark, never a 0.
+        state.mid === null ? '·' : String(state.mid),
+        String(state.hi),
+      ]);
+    }
+  });
+
+  /**
+   * The window really does close, in the table as well as in the drawing: the
+   * last row of a successful search has lo === mid === hi === the found index.
+   * A column that silently stopped tracking would still pass the shape check
+   * above only if the snapshot itself were wrong, which is the point.
+   */
+  it('ends with the window collapsed onto the answer', () => {
+    const trace = binarySearch.run({ array: [1, 3, 5, 7, 9, 11], target: 7 });
+    const rows = buildLedger(trace, binarySearch.ledger).rows;
+    const last = rows.at(-1)!;
+
+    expect(last.cells.slice(0, 3).map((cell) => cell.text)).toEqual([
+      '3',
+      '3',
+      '3',
+    ]);
+    // Cost stays LAST, after the sentence, on every row.
+    expect(last.cells.at(-1)!.text).toBe('3');
+  });
+
+  /**
+   * A column is set in numerals for the WHOLE column or not at all, so
+   * alignment never changes part-way down. `mid`'s absent first cell declares
+   * itself numeric for exactly this reason.
+   */
+  it('keeps every value column numeric, absent cells included', () => {
+    const trace = binarySearch.run(binarySearch.defaultInput());
+    const ledger = buildLedger(trace, binarySearch.ledger);
+    for (const row of ledger.rows) {
+      expect(row.cells.slice(0, 3).every((cell) => cell.numeric)).toBe(true);
+      // The sentence is prose, and stays prose.
+      expect(row.cells[3]!.numeric).toBe(false);
     }
   });
 });

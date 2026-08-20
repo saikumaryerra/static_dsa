@@ -11,7 +11,7 @@
  * Reduced motion inherited from the token layer. Single atomic redraw per step
  * via the shared DOM helper.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { slotId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, line, rect, text } from '../core/svg';
@@ -23,6 +23,7 @@ import {
   insertMark,
   metaLabel,
   renderStaticSvg,
+  type Anchor,
   type Canvas,
 } from './shared';
 
@@ -47,6 +48,22 @@ const slotYTop = (i: number, n: number): number =>
 const width = PAD + LEFT + SLOT_W + PAD;
 const heightOf = (n: number): number =>
   PAD + TOP + Math.max(n, 1) * SLOT_H + Math.max(n - 1, 0) * GAP + 14;
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup.
+ */
+const measure = (step: Step<StackState>): Extent => ({
+  w: width,
+  h: heightOf(step.state.items.length),
+});
+
+/**
+ * Bottom-anchored: a physical stack sits on the ground, and `draw` puts that
+ * ground line under slot 0. Under a top anchor a frozen box would slide the
+ * ground down on every push.
+ */
+const ANCHOR: Anchor = { x: 'left', y: 'bottom' };
 
 function draw(step: Step<StackState>): Canvas {
   const { items } = step.state;
@@ -134,8 +151,9 @@ function draw(step: Step<StackState>): Canvas {
     }
   }
 
+  const box = measure(step);
   return {
-    viewBox: `0 0 ${width} ${heightOf(n)}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -144,6 +162,7 @@ function draw(step: Step<StackState>): Canvas {
 
 /** Registered stack renderer. */
 export const stackRenderer: RendererModule<StackState> = {
-  create: () => createRenderer(draw),
-  renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  create: () => createRenderer(draw, ANCHOR),
+  renderStatic: (step, opts) => renderStaticSvg(draw, step, opts, ANCHOR),
+  measure,
 };

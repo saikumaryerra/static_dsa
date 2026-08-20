@@ -166,10 +166,15 @@ jobs:
       #   - the CLI option beats the config, so `updateSnapshots: 'none'` (which
       #     `playwright.config.ts` sets whenever CI is set, as it is here) does
       #     not disarm the flag;
-      #   - a bare `--update-snapshots` means `changed`, not `all`;
+      #   - `--update-snapshots=all` is REQUIRED here, not the bare flag. Bare
+      #     means `changed`, which rewrites only captures that FAIL — so a
+      #     site-wide repaint leaves any capture whose diff lands under
+      #     `maxDiffPixelRatio` (0.002) stale-but-passing, silently asserting
+      #     the old design. That is exactly what happened on the achromatic
+      #     repaint: 6 of 14 changed visibly yet diffed under tolerance;
       #   - in `changed` mode a MISSING snapshot is written and the assertion
       #     passes, so a red run here means something genuinely broke.
-      - run: VISUAL_BASELINE=1 npx playwright test tests/e2e/baseline-visual.spec.ts --update-snapshots
+      - run: VISUAL_BASELINE=1 npx playwright test tests/e2e/baseline-visual.spec.ts --update-snapshots=all
 
       # always(): a partial set still shows WHICH capture went wrong, and these
       # PNGs are reviewed before they are committed either way. `error` on empty,

@@ -10,6 +10,7 @@
 import type {
   Algorithm,
   Highlight,
+  LedgerSpec,
   PredictQuestion,
   Step,
   Trace,
@@ -39,11 +40,19 @@ export interface BinarySearchState {
 /** Hard cap on custom-array length (CLAUDE.md / site spec §11.4: arrays ≤ 30). */
 const MAX_ARRAY_LENGTH = 30;
 
-/** Builds `range` highlights over the inclusive window `lo..hi` (empty when lo > hi). */
+/**
+ * Builds `range` highlights over the inclusive window `lo..hi` (empty when
+ * lo > hi).
+ *
+ * The end labels travel WITH the highlight rather than living in the renderer:
+ * ArrayRenderer draws the ranges of eight algorithms — linear search, the array
+ * operations and the five sorts as well as this one — and only this one has a
+ * `lo`/`hi` search window to name.
+ */
 function rangeHighlight(lo: number, hi: number): Highlight {
   const ids: string[] = [];
   for (let i = lo; i <= hi; i += 1) ids.push(cellId(i));
-  return { kind: 'range', ids };
+  return { kind: 'range', ids, meta: { startLabel: 'lo', endLabel: 'hi' } };
 }
 
 /**
@@ -90,7 +99,7 @@ function run(input: BinarySearchInput): Trace<BinarySearchState> {
     { array, lo, mid: null, hi, foundIndex: null },
     array.length === 0
       ? `The array is empty, so ${target} cannot be found.`
-      : `Ready. Searching for ${target} in a sorted array of ${array.length} ${
+      : `Ready — searching for ${target} in a sorted array of ${array.length} ${
           array.length === 1 ? 'item' : 'items'
         }. The whole array is the search window.`,
     array.length === 0 ? [] : [rangeHighlight(lo, hi)],
@@ -152,7 +161,12 @@ function parseInput(raw: string): BinarySearchInput | { error: string } {
   const targetMatch = text.match(/target\s*=\s*(-?\d+)/i);
 
   if (!arrayMatch) {
-    return { error: 'Type an array and target, e.g. [1,3,5,7] target=5' };
+    // Describes the format the FIELD advertises, not the wire format: the
+    // island wraps a bare comma-separated list before this ever runs, and the
+    // old text told a reader with both fields filled in to fill in both fields.
+    // Keeps the word "array" — `core/error-field` attributes this message to
+    // the first field by finding it.
+    return { error: 'Enter an array of whole numbers, e.g. 1,3,5,7' };
   }
   if (!targetMatch) {
     return { error: 'Add a target, e.g. [1,3,5,7] target=5' };
@@ -290,6 +304,36 @@ function predictStep(
 }
 
 /** The registered Binary Search algorithm. */
+/**
+ * The ledger's value columns (Plan C §1): the search window and the probe.
+ *
+ * These are `lo`, `mid` and `hi` because the LESSON is: its prose introduces
+ * exactly those three names, the renderer labels the range ends `lo` and `hi`,
+ * and the code samples in all three languages declare the same three variables.
+ * The table is the fourth view of one run, and it uses the run's own vocabulary.
+ *
+ * PROVENANCE RULE 1, in the one place it is actually shipped: every cell reads
+ * `step.state` — the snapshot the algorithm emitted — and nothing else. Not the
+ * highlights, which say the same thing in the renderer's language and could
+ * disagree with it; not a re-derivation from the array and the target, which
+ * would be this algorithm implemented a second time in a view.
+ *
+ * `mid` is `null` before the first compare, so step 1 renders `·` rather than a
+ * number that would read as index 0. That is the whole reason `LedgerColumn.from`
+ * may return `null`.
+ */
+const ledger: LedgerSpec<BinarySearchState> = {
+  columns: [
+    { label: 'lo', from: (step) => step.state.lo, numeric: true },
+    { label: 'mid', from: (step) => step.state.mid, numeric: true },
+    { label: 'hi', from: (step) => step.state.hi, numeric: true },
+  ],
+  // Named rather than left to the generic fallback, which surfaces every metric
+  // key an algorithm emits: this one emits exactly `comparisons`, and saying so
+  // keeps the column order fixed if it ever emits a second.
+  costKey: 'comparisons',
+};
+
 export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   id: 'binary-search',
   label: 'Binary search on a sorted array',
@@ -297,4 +341,5 @@ export const binarySearch: Algorithm<BinarySearchInput, BinarySearchState> = {
   defaultInput: () => ({ array: [1, 3, 5, 7, 9, 11], target: 7 }),
   parseInput,
   predictStep,
+  ledger,
 };

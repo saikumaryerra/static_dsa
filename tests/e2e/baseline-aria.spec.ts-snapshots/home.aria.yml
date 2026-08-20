@@ -18,30 +18,164 @@
         - button "Switch to dark theme"
 - main:
   - heading "See data structures and algorithms in motion" [level=1]
-  - paragraph: LearnDSA teaches the core of computer science with interactive, step-by-step visualizations. Watch every swap, pointer move, and recursive call happen — then run each algorithm on your own input.
-  - link "Start learning":
+  - paragraph: Fifteen lessons that teach the core of computer science by showing you the algorithm running. Every swap, pointer move and recursive call, one step at a time — on your own input, in your own browser.
+  - link /Start with lesson \d+/:
+    - /url: /learn/complexity-big-o
+  - link /See all \d+ lessons/:
     - /url: /learn
-  - link "How it works":
-    - /url: /about
-  - heading "Interactive by default" [level=2]
-  - paragraph: "Every lesson is built around a visualization you control: play, pause, step forward and back, or run the algorithm on your own input."
-  - heading "Made for beginners" [level=2]
-  - paragraph: Plain language, concrete examples, and every term defined the first time it appears. Start from zero and build up one lesson at a time.
-  - heading "Free, forever" [level=2]
-  - paragraph: No account, no paywall, no tracking. The whole site is static and open source, and every lesson works offline once loaded.
-  - heading /Two tracks, \d+ lessons/ [level=2]
-  - link /Track A Foundations & Data Structures Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on\. 9 lessons · ~\d+ min · All beginner/:
-    - /url: /learn#track-foundations
-    - paragraph: Track A
-    - heading "Foundations & Data Structures" [level=3]
-    - paragraph: Big-O, arrays, linked lists, stacks, queues, hash tables, trees, heaps, and graphs — the building blocks every algorithm relies on.
+  - region "Binary search on a sorted array visualization":
+    - figure:
+      - img "Binary search on a sorted array Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
+      - paragraph: Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.
+    - button "Reset to start" [disabled]
+    - button "Step back" [disabled]
+    - button "Play"
+    - button "Step forward"
+    - button "Predict"
+    - text: Step
+    - slider "Step": "0"
+    - text: Speed
+    - combobox "Speed":
+      - option "0.5×"
+      - option "1×" [selected]
+      - option "1.5×"
+      - option "2×"
+      - option "3×"
+    - paragraph: Space play/pause ← / → step
+    - list "What the highlights mean":
+      - listitem: Current
+      - listitem: Range
+      - listitem: Found
+    - text: Comparisons 0
+    - group:
+      - text: The run, written out — Binary search on a sorted array (4 steps)
+      - group "Binary search on a sorted array, scrollable table":
+        - 'table "Binary search on a sorted array: 4 rows, one per step of this run."':
+          - caption: "Binary search on a sorted array: 4 rows, one per step of this run."
+          - rowgroup:
+            - row "# lo mid hi what happened comparisons":
+              - columnheader "#"
+              - columnheader "lo"
+              - columnheader "mid"
+              - columnheader "hi"
+              - columnheader "what happened"
+              - columnheader "comparisons"
+          - rowgroup:
+            - row "Go to step 1 0 · 5 Ready — searching for 7 in a sorted array of 6 items. 0":
+              - rowheader "Go to step 1":
+                - button "Go to step 1"
+              - cell "0"
+              - cell "·"
+              - cell "5"
+              - cell "Ready — searching for 7 in a sorted array of 6 items."
+              - cell "0"
+            - row "Go to step 2 0 2 5 Search window is indices 0–5; middle index 2 holds 5, which is less than 7. 1":
+              - rowheader "Go to step 2":
+                - button "Go to step 2"
+              - cell "0"
+              - cell "2"
+              - cell "5"
+              - cell "Search window is indices 0–5; middle index 2 holds 5, which is less than 7."
+              - cell "1"
+            - row "Go to step 3 3 4 5 Search window is indices 3–5; middle index 4 holds 9, which is greater than 7. 2":
+              - rowheader "Go to step 3":
+                - button "Go to step 3"
+              - cell "3"
+              - cell "4"
+              - cell "5"
+              - cell "Search window is indices 3–5; middle index 4 holds 9, which is greater than 7."
+              - cell "2"
+            - row "Go to step 4 3 3 3 Middle index 3 holds 7, which equals the target. 3":
+              - rowheader "Go to step 4":
+                - button "Go to step 4"
+              - cell "3"
+              - cell "3"
+              - cell "3"
+              - cell "Middle index 3 holds 7, which equals the target."
+              - cell "3"
+  - paragraph:
+    - text: The real lesson visualization, running here.
+    - link "Open the lesson":
+      - /url: /learn/binary-search
+  - region "What a lesson actually does":
+    - heading "What a lesson actually does" [level=2]
+    - heading "Step it, forwards and back" [level=3]
+    - paragraph: The drawing above is not an animation. An instrumented algorithm ran once and recorded every step, so the player is just an index into that record — which is why stepping backwards is instant, and why it is always the truth.
+    - heading "Read the same run as a table" [level=3]
+    - paragraph: "Under every drawing is the run written out, one row per step, with the algorithm’s own variables as columns. Two views of one trace: they cannot tell you different stories, and with JavaScript off the table is the lesson."
+    - heading "Run it on your own numbers" [level=3]
+    - paragraph: Type an array and press Run. The algorithm executes on your input for real and the drawing, the table and the step count all follow — no canned second example, nothing pre-recorded.
+  - region /\d+ lessons, two tracks/:
+    - heading /\d+ lessons, two tracks/ [level=2]
+    - paragraph: Work through them in order, or start at whichever one you came for — nothing is locked, and every lesson names what it builds on.
+    - heading "Foundations & Data Structures" [level=3]:
+      - link "Foundations & Data Structures":
+        - /url: /learn#track-foundations
     - paragraph: /9 lessons · ~\d+ min · All beginner/
-  - link /Track B Algorithms Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks\. 6 lessons · ~\d+ min · 4 beginner · 2 intermediate/:
-    - /url: /learn#track-algorithms
-    - paragraph: Track B
-    - heading "Algorithms" [level=3]
-    - paragraph: Recursion, binary search, the classic sorts, and graph traversal — watch each one run step by step until it clicks.
+    - list:
+      - listitem:
+        - link "Complexity & Big-O 9 min":
+          - /url: /learn/complexity-big-o
+      - listitem:
+        - link "Arrays 8 min":
+          - /url: /learn/arrays
+      - listitem:
+        - link "Linked Lists 9 min":
+          - /url: /learn/linked-lists
+      - listitem:
+        - link "Stacks 7 min":
+          - /url: /learn/stacks
+      - listitem:
+        - link "Queues 8 min":
+          - /url: /learn/queues
+      - listitem:
+        - link /Hash Tables \d+ min/:
+          - /url: /learn/hash-tables
+      - listitem:
+        - link /Trees & Binary Search Trees \d+ min/:
+          - /url: /learn/trees-bst
+      - listitem:
+        - link /Heaps \d+ min/:
+          - /url: /learn/heaps
+      - listitem:
+        - link /Graphs \d+ min/:
+          - /url: /learn/graphs
+    - heading "Algorithms" [level=3]:
+      - link "Algorithms":
+        - /url: /learn#track-algorithms
     - paragraph: /6 lessons · ~\d+ min · 4 beginner · 2 intermediate/
+    - list:
+      - listitem:
+        - link /Recursion \d+ min/:
+          - /url: /learn/recursion
+      - listitem:
+        - link /Linear & Binary Search \d+ min/:
+          - /url: /learn/binary-search
+      - listitem:
+        - 'link /Sorting I: Bubble, Selection, Insertion \d+ min/':
+          - /url: /learn/sorting-basics
+      - listitem:
+        - 'link /Sorting II: Merge & Quick \d+ min/':
+          - /url: /learn/sorting-efficient
+      - listitem:
+        - 'link /Graph Traversal: BFS & DFS \d+ min/':
+          - /url: /learn/graph-traversal
+      - listitem:
+        - link /Intro to Dynamic Programming \d+ min/:
+          - /url: /learn/dynamic-programming
+  - region "What it costs you":
+    - heading "What it costs you" [level=2]
+    - term: No account, no paywall
+    - definition: Every lesson is open on the first visit. There is nothing to sign up for, because there is no server to sign up to.
+    - term: No tracking, no cookies
+    - definition: Nothing is measured and nothing is sent anywhere. The site makes no network calls at all once a page has loaded.
+    - term: Progress stays on this device
+    - definition: What you finish is remembered in this browser only — never synced, never uploaded. Clearing your browser data clears it.
+    - term: Works offline, and without JavaScript
+    - definition: A loaded lesson keeps working with no connection. With scripts blocked the prose, the code and the written-out run are all still there.
+  - heading "Start where the rest of it builds from." [level=2]
+  - 'link /Begin: \d+ · Complexity & Big-O/':
+    - /url: /learn/complexity-big-o
 - contentinfo:
   - paragraph: LearnDSA — see data structures and algorithms in motion.
   - navigation "Footer":

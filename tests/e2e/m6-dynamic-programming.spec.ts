@@ -65,12 +65,17 @@ test.describe('DP lesson: clean, hydrating page', () => {
   });
 });
 
-test('all seven authored sections are present in order', async ({ page }) => {
+test('all six authored sections are present in order', async ({ page }) => {
   await page.goto(LESSON);
+  // SIX, not seven (redesign 2026-08, amendment S-1): `## Visualizer` is retired
+  // across the curriculum. The visualization lives inside `## How it works`, in a
+  // `<Bench>` whose reading column holds the prose that narrates it — which is
+  // where that prose already was. The deletion is pinned below rather than merely
+  // dropped from this list, so the heading cannot quietly grow back as a second
+  // home for the instrument.
   const REQUIRED_H2 = [
     'Intuition',
     'How it works',
-    'Visualizer',
     'Complexity',
     'Code',
     'Common pitfalls',
@@ -88,6 +93,13 @@ test('all seven authored sections are present in order', async ({ page }) => {
   // Exact order check: the required headings appear in this relative order.
   const positions = REQUIRED_H2.map((n) => trimmed.indexOf(n));
   expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  // The retired heading is gone, and the anchor it used to carry is not: the
+  // lesson's first `<Bench>` keeps `id="visualizer"`, so every deep link that
+  // ever pointed at `#visualizer` still lands on an instrument.
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Visualizer' }),
+  ).toHaveCount(0);
+  await expect(page.locator('#visualizer [data-viz]').first()).toBeVisible();
   expect(positions.every((p) => p >= 0)).toBe(true);
 });
 
@@ -118,7 +130,10 @@ test('complexity table renders O(n) time and O(n) space', async ({ page }) => {
   const table = page.getByRole('heading', { level: 2, name: 'Complexity' });
   await expect(table).toBeVisible();
   // The ComplexityTable is auto-rendered from frontmatter (time+space all O(n)).
-  const complexitySection = page.locator('table').first();
+  // Addressed by its own class, not `table` — Plan C put a ledger table inside
+  // every visualizer, and this lesson mounts two of them ABOVE the complexity
+  // section, so `locator('table').first()` now resolves to a run, not a cost.
+  const complexitySection = page.locator('table.complexity-table');
   await expect(complexitySection).toContainText('O(n)');
 });
 

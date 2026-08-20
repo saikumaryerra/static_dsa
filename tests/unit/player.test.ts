@@ -8,6 +8,8 @@ function fakeRenderer(): Renderer<number> & { drawn: number[] } {
   return {
     drawn,
     mount() {},
+    // Required by the Renderer contract (Plan A §3); the Player never calls it.
+    setExtent() {},
     render(step: Step<number>) {
       drawn.push(step.state);
     },

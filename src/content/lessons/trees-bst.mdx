@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -104,6 +105,15 @@ class BST {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="bst-operations"
+  renderer="tree"
+  input="[50,30,70,20,40,60] target=40"
+/>
+
 ## Intuition
 
 A **[tree](/glossary#tree)** is a branching structure of **nodes**: one node at the top (the **root**), each node pointing to some **children** below it, with no loops. It is how you would draw a family tree or a company org chart — one box at the top, lines fanning downward.
@@ -130,21 +140,19 @@ The visualization draws the tree with the root at the top and children fanning d
 
 Both operations walk **one** root-to-leaf path — never the whole tree — which is where the speed comes from.
 
-## Visualizer
-
-<Visualizer
-  algorithm="bst-operations"
-  renderer="tree"
-  input="[50,30,70,20,40,60] target=40"
-/>
-
 Press **Play**, or **Step forward** to watch the tree build one insertion at a time, then search for `40`: from the root `50` go left, from `30` go right, and land on `40`. The highlighted edges trace the path; visited nodes get a `✓`. Try your own insertion sequence and search target — insert values in a different order and see how the shape changes.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Each step of insert or search moves down one level and discards the other subtree, so the cost is the tree's **height**. In a **balanced** tree the height is about `log n`, giving **O(log n)** — the best case is **O(1)** when the value is the root. But height is not guaranteed: insert already-sorted values and each new node hangs off the last, producing a lopsided chain of height `n` and **O(n)** operations — no better than a linked list. Space is **O(n)** to store the nodes. Keeping the tree balanced is what protects the log-time promise, which is exactly what self-balancing trees (AVL, red-black) are built to do.
+
+</Bench>
 
 ## Code
 

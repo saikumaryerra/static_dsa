@@ -9,7 +9,7 @@
  * Honored highlights: `insert` = call (+), `delete` = return (✕), `active`/`pointer`
  * = the current frame ("curr" caret + ▶). Each carries its non-color marker.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { frameId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, rect, text } from '../core/svg';
@@ -20,6 +20,7 @@ import {
   insertMark,
   metaLabel,
   renderStaticSvg,
+  type Anchor,
   type Canvas,
 } from './shared';
 
@@ -50,6 +51,22 @@ const cardY = (i: number, n: number): number =>
 const width = PAD + LEFT + CARD_W + PAD;
 const heightOf = (n: number): number =>
   PAD + TOP + Math.max(n, 1) * CARD_H + Math.max(n - 1, 0) * GAP + PAD;
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup.
+ */
+const measure = (step: Step<CallStackState>): Extent => ({
+  w: width,
+  h: heightOf(step.state.frames.length),
+});
+
+/**
+ * Bottom-anchored, like the stack renderer: the outermost frame sits on the
+ * floor of the drawing, so a frozen box must reserve its extra room ABOVE the
+ * stack — that is the direction calls grow.
+ */
+const ANCHOR: Anchor = { x: 'left', y: 'bottom' };
 
 function draw(step: Step<CallStackState>): Canvas {
   const { frames } = step.state;
@@ -134,8 +151,9 @@ function draw(step: Step<CallStackState>): Canvas {
     }
   }
 
+  const box = measure(step);
   return {
-    viewBox: `0 0 ${width} ${heightOf(n)}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -144,6 +162,7 @@ function draw(step: Step<CallStackState>): Canvas {
 
 /** Registered call-stack renderer. */
 export const callStackRenderer: RendererModule<CallStackState> = {
-  create: () => createRenderer(draw),
-  renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  create: () => createRenderer(draw, ANCHOR),
+  renderStatic: (step, opts) => renderStaticSvg(draw, step, opts, ANCHOR),
+  measure,
 };

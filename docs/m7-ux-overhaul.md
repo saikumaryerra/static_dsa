@@ -251,7 +251,9 @@ All three phases shipped (`7367685`, `80373a4`, `12d2486`), each with its own e2
 light elevation, sunken/raised levels, the brand tint family, `--accent-warn`, `--header-h`,
 `--text-5xl`/`--weight-heavy`/`--tracking-tighter`, `--disabled-opacity` — in all three blocks
 including the `prefers-color-scheme` mirror, and THM-1's follow-through landed too (the light
-`theme-color` meta is `#F8FAFC`). `src/styles/tokens.css` is the source of truth for all of it.
+`theme-color` meta was set to `#F8FAFC`; Plan B's achromatic repaint later moved it again, to
+`#FCFCFB`, along with the dark literal). `src/styles/tokens.css` is the source of truth for all of
+it — read the file, not this paragraph, for current values.
 
 **Deviations — decisions, not drift:**
 
@@ -273,17 +275,43 @@ including the `prefers-color-scheme` mirror, and THM-1's follow-through landed t
    frame the renderer does not produce (no index row for lo/mid/hi to point at) — the site advertising
    a product that does not exist, which is exactly what "never hand-mock the product" forbids. The
    script is deliberately **not** wired into `npm run build`.
-3. **The visual half of Task 0 is a gate, not coverage.** `tests/e2e/baseline-aria.spec.ts` ships with
-   five committed aria snapshots and runs on every push; `tests/e2e/baseline-visual.spec.ts` is
-   **unseeded and skips by default** — no PNG has ever been committed, and `VISUAL_BASELINE` is set
-   only in the manual seeding job in `.github/workflows/ci.yml`, never on the DoD gate. So a green
-   `npm run test:e2e` says nothing about pixels. Turning it on is two steps, documented at the top of
-   that file. M7.3 repainted the whole site with this half inert; that is a known, recorded gap.
+3. **The visual half of Task 0 was a gate, not coverage — until `dab6108`, when it was armed.**
+   `tests/e2e/baseline-aria.spec.ts` ships with five committed aria snapshots and runs on every push.
+   `tests/e2e/baseline-visual.spec.ts` shipped with M7 **unseeded and skipping by default**, so M7.3
+   repainted the whole site with this half inert — the recorded gap this entry originally described.
+   Both steps have since been done: 14 PNGs are committed under
+   `tests/e2e/baseline-visual.spec.ts-snapshots/`, and `.github/workflows/ci.yml` sets
+   `VISUAL_BASELINE: '1'` on the DoD gate's e2e step, in the pinned
+   `mcr.microsoft.com/playwright:v1.61.1-noble` container. A green `npm run test:e2e` on CI now does
+   say something about pixels; a green one on a workstation still does not, and says so out loud.
+   Plan B re-seeded all 14 — every route changes when the chrome is repainted.
 4. **Scope added during implementation** — already recorded inline under M7.2: the home hero's
    secondary resume line and the PrevNext redesign (next promoted to a card, prev demoted to a text
    link, synthetic last-lesson card so lesson 15 is not a dead end).
 5. **Still deferred, exactly as §19 says:** the glossary search island (the zero-JS "Also called:"
    aliases shipped regardless) and Astro prefetch.
+6. **CMP-11's premise inverted, and the trade is accepted (amended 2026-08-19, Plan B).** The warning
+   callout was given an `--accent-warn` keyline because warning was the *weakest* of the three
+   callout accents — note and tip carried the brand indigo, and a severity that shouts less than a
+   note is backwards. The achromatic repaint removed the brand hue, so the ordering flipped: note and
+   tip now draw their keyline in `--brand`, which is `--text`, at 18.24:1 light / 15.00:1 dark on
+   `--surface`, while warning's `--accent-warn` measures 5.02:1 / 8.26:1. In **dark** the warning
+   keyline is now 1.82× *quieter* than a note's (in light, 3.63× quieter). **No code changes.** The
+   accepted reading: a hue among achromatic neighbours is more urgent than a louder neutral — amber
+   is now the only chrome colour on the page, so it is the only keyline that reads as a *category*
+   rather than as an edge, and CMP-11's real goal (warning must not be the least distinguishable of
+   the three) is met by distinctness rather than by luminance. The non-colour layer CMP-11 always
+   depended on is untouched: the triangle glyph and the bold word "Warning" still name the severity,
+   and §12's never-colour-alone rule is what makes this trade legitimate rather than a regression.
+   If a future audit disagrees, the fix is a heavier keyline on warning, not a hue for note.
+7. **The header nav's pressed state now matches its hover, and that is accepted (Plan B).**
+   `global.css`'s `.nav-link:hover` is `--text` and `:active` is `--brand`; those are one value now,
+   so the press paints nothing new. The rule is deliberately KEPT — CMP-8's five-state selector scan
+   requires the family to declare one — and no treatment was invented for it, because each candidate
+   collides with something documented: an underline collides with the `aria-current` cue, an opacity
+   move collides with `--disabled-opacity`, and a fill move needs the padding and radius RSP-5
+   deliberately withholds from a text nav link. A text link whose press state matches its hover is
+   conventional, not a defect. Recorded here so it stays settled.
 
 ## Considered & rejected (do not re-litigate)
 

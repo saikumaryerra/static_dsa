@@ -15,6 +15,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -110,6 +111,17 @@ export const codeTabs = [
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="queue-operations"
+  renderer="queue"
+  input="[10,20,30]"
+  showTarget={false}
+  inputLabel="Values"
+/>
+
 ## Intuition
 
 A **[queue](/glossary#queue)** is a line at a coffee shop. You join at the **back**, and the barista serves from the **front**. Whoever has waited longest is served next — no cutting in line. That is the opposite of a stack: a queue is **[FIFO](/glossary#fifo)**, "first in, first out."
@@ -127,23 +139,19 @@ The visualization always draws all the fixed slots, so you can see the ring's ca
 
 Step through the demo: it enqueues a few values, dequeues a couple — advancing the front and freeing early slots — then enqueues more until the rear **wraps around** to reuse slot 0. A dashed arc appears when the occupied run wraps past the end.
 
-## Visualizer
-
-<Visualizer
-  algorithm="queue-operations"
-  renderer="queue"
-  input="[10,20,30]"
-  showTarget={false}
-  inputLabel="Values"
-/>
-
 Press **Play**, or **Step forward** one operation at a time. The `+` marks an enqueue at the rear, the `✕` a dequeue at the front, and the carets track **front** and **rear**. The default run wraps around; enter your own values to fill a fresh ring.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 Both enqueue and dequeue touch only one end and do a little index arithmetic, so they are **O(1)** — best, average, and worst case. Each operation needs just **O(1)** extra space; the fixed buffer's O(n) storage is the size of the data, not the cost of an operation.
+
+</Bench>
 
 ## Code
 

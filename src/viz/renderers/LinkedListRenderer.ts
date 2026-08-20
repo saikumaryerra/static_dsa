@@ -10,7 +10,7 @@
  * Honored highlights: `pointer` (named caret), `insert` (+), `delete` (✕ +
  * strikethrough), `active`, `compare` (tie-line), `visited` (✓ badge).
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { nodeId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, line, polygon, rect, text } from '../core/svg';
@@ -20,6 +20,7 @@ import {
   deleteMark,
   insertMark,
   metaLabel,
+  nullLabelWidth,
   renderStaticSvg,
   visitedBadge,
   type Canvas,
@@ -51,7 +52,32 @@ const NODE_Y = PAD + TOP;
 const MID_Y = NODE_Y + NODE_H / 2;
 const CAPTION_Y = NODE_Y + NODE_H + 18;
 const HEIGHT = CAPTION_Y + 14;
-const widthOf = (n: number): number => PAD * 2 + Math.max(n, 1) * PITCH;
+/** The resting label an empty list draws. `widthOf` sizes the box around it. */
+const EMPTY_LABEL = 'empty list ⌀';
+/**
+ * The natural width for `n` nodes, floored by the resting label when there are
+ * none (Plan A §4). An empty list's node-derived box is 108 units wide and
+ * "empty list ⌀" is 132, so the label used to be drawn `start`-anchored at x=50
+ * and run to 182 — 74 units outside its own box.
+ *
+ * Keyed on `n === 0`, which is exactly the condition `draw` emits the label
+ * under, so the reservation and the drawing cannot disagree. (Unlike the tree,
+ * this renderer has no second way to lay out empty: no nodes means the label.)
+ */
+const widthOf = (n: number): number =>
+  Math.max(
+    PAD * 2 + Math.max(n, 1) * PITCH,
+    n === 0 ? nullLabelWidth(EMPTY_LABEL) + PAD * 2 : 0,
+  );
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup.
+ */
+const measure = (step: Step<LinkedListState>): Extent => ({
+  w: widthOf(step.state.nodes.length),
+  h: HEIGHT,
+});
 
 /** Right-pointing arrowhead triangle ending at (x, y). */
 const arrowRight = (x: number, y: number): string =>
@@ -64,6 +90,9 @@ function draw(step: Step<LinkedListState>): Canvas {
   const { nodes, kind, pointers = [] } = step.state;
   const n = nodes.length;
   const classes = applyHighlights(step.highlights);
+  // Measured up front rather than at the end: the resting label is centred in
+  // the box `widthOf` reserved for it, so `draw` must read the same number.
+  const box = measure(step);
 
   let structure = '';
 
@@ -125,10 +154,12 @@ function draw(step: Step<LinkedListState>): Canvas {
     );
   });
   if (n === 0) {
-    structure += text('empty list ⌀', {
+    // Centred in the box `widthOf` widened for it, so the two cannot disagree.
+    structure += text(EMPTY_LABEL, {
       class: 'viz-null',
-      x: PAD + 40,
+      x: box.w / 2,
       y: MID_Y,
+      'text-anchor': 'middle',
       'dominant-baseline': 'central',
     });
   }
@@ -191,7 +222,7 @@ function draw(step: Step<LinkedListState>): Canvas {
   }
 
   return {
-    viewBox: `0 0 ${widthOf(n)} ${HEIGHT}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -202,4 +233,5 @@ function draw(step: Step<LinkedListState>): Canvas {
 export const linkedListRenderer: RendererModule<LinkedListState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

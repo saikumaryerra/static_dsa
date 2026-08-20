@@ -321,11 +321,15 @@ const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
   { fg: '--text', bg: '--surface-sunken', min: AA_TEXT },
   { fg: '--text-muted', bg: '--surface-sunken', min: AA_TEXT },
   { fg: '--border-strong', bg: '--surface-sunken', min: AA_GRAPHICS },
-  // Level 2, `--surface-raised`. NOTE the documented trap in tokens.css: in
-  // dark, --border-strong on this fill is 2.64:1, i.e. BELOW 1.4.11 — so the
-  // keyline for a raised panel is --text-muted, and that is the pairing gated
-  // here. There is deliberately no --border-strong row for this backdrop; add
-  // one only if the dark scale changes enough to earn it.
+  // Level 2, `--surface-raised`. The keyline for a raised panel is --text-muted,
+  // and that is the pairing gated here. There is still deliberately NO
+  // --border-strong row for this backdrop, but its original reason is gone: the
+  // pairing was a documented 1.4.11 trap at 2.64:1 in dark, and the achromatic
+  // repaint took it to 3.15:1 dark / 4.05:1 light. Two reasons the row stays out
+  // anyway — nothing in src/ paints it (this matrix gates what the browser
+  // draws, never what the token table permits), and 0.15 above the graphics
+  // floor is no reason to move a keyline that already has 6.61:1. Add the row if
+  // and only if something starts drawing that pairing.
   { fg: '--text', bg: '--surface-raised', min: AA_TEXT },
   // --text-muted on the raised fill does TWO jobs and is gated by the stricter
   // of them. It is the level-2 KEYLINE (1.4.11, 3:1), but the level-2 surface is
@@ -340,11 +344,19 @@ const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
 
   // ---- M7.3 VD-5: the brand tint family ----
   // `--brand-soft` is a real reading surface: the home hero's demo panel and the
-  // /404 panel are filled with it (caption --text-muted, CTA --brand),
-  // `.btn-secondary` hovers into it with --text on top, and the glossary letter
-  // strip hovers into it with the LETTER in --brand — 26 targets whose hover
-  // state is a fill swap plus a colour swap, so that third row is the one
-  // holding the strip's hover to AA (5.62:1 light / 4.88:1 dark).
+  // /404 panel are filled with it (both captions --text-muted; only the hero's
+  // panel carries a --brand CTA — /404's figure is deliberately not a link and
+  // paints no --brand at all), `.btn-secondary` and `.viz-btn` hover into it
+  // with --text on top, and the glossary letter strip hovers into it with a
+  // --brand edge. The third row is what holds the hero CTA to AA (14.86:1 light
+  // / 12.90:1 dark) and, at the same numbers by construction, the strip's hover
+  // keyline to 1.4.11.
+  // It used to be described as holding the strip's hovered LETTER: the strip
+  // hovered its label to --brand, and the achromatic repaint made --brand
+  // byte-identical to --text, so that half became a no-op and the chip took a
+  // border instead (glossary.astro). The row survives the rewrite because the
+  // hero CTA still draws it — but rows one and three are now the same
+  // measurement, and only row one is load-bearing on its own.
   { fg: '--text', bg: '--brand-soft', min: AA_TEXT },
   { fg: '--text-muted', bg: '--brand-soft', min: AA_TEXT },
   { fg: '--brand', bg: '--brand-soft', min: AA_TEXT },
@@ -678,11 +690,13 @@ describe('DifficultyChip — the neutral pill', () => {
 // --------------------------------------------------------------------------
 
 /**
- * 26 targets in one row, and the only control on the site whose hover moves BOTH
- * the fill and the label — `--brand-soft` under `--brand`, because the strip's
- * chips have no border to carry the other half of the idiom `.btn-secondary`
- * and `.viz-btn` use. The hovered pair is gated in CORE_PAIRS; what is checked
- * here is the third state, which is not a token pairing at all.
+ * 26 targets in one row. The chip hovers on the same idiom `.btn-secondary` and
+ * `.viz-btn` use — a `--brand-soft` fill under a `--brand` edge — which it did
+ * NOT until the achromatic repaint: it used to move the fill and the LABEL
+ * instead, having no border at all, and that second half stopped signalling
+ * anything the moment `--brand` became byte-identical to `--text`. Both halves
+ * of the hover are gated in CORE_PAIRS; what is checked here is the third state,
+ * the empty letters, which is not a token pairing at all.
  */
 describe('glossary letter strip — the dimmed letters', () => {
   for (const theme of THEME_NAMES) {

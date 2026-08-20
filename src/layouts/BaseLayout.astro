@@ -29,6 +29,14 @@ interface Props {
   canonicalPath?: string;
   ogType?: 'website' | 'article';
   ogImage?: string;
+  /**
+   * Widen the shell from `--container-max` to `--shell` (redesign 2026-08,
+   * amendment L-1). Only pages with a genuine third column ask for it: a lesson,
+   * whose instrument pane lives to the right of the reading column, and the
+   * curriculum. A measure-led page (`/about`, `/404`) must NOT — widening a
+   * shell that only ever holds one column of prose just moves the empty space.
+   */
+  wide?: boolean;
 }
 
 const {
@@ -36,6 +44,7 @@ const {
   description,
   canonicalPath,
   ogType = 'website',
+  wide = false,
   // SPEC-GAP (arch §5): §14 "OG images" is satisfied dependency-free by one static
   // 1200×630 default; per-page/per-lesson OG generation is deferred (would need a
   // heavy build dep). M7.3 SEO-2 replaced the flat indigo placeholder with a
@@ -63,14 +72,37 @@ const ogImageUrl = new URL(ogImage, Astro.site);
     {/* M7.1 THM-1: browser chrome matches the canvas (--bg per theme). Media-scoped
         so it works with JS off; the first theme-color whose media matches wins, so
         ThemeToggle inserts an un-scoped meta AHEAD of these when the user overrides
-        the OS. M7.3 (elevation inversion) moved the light value from #FFFFFF to
-        #F8FAFC with --bg; ThemeToggle carries the same literal for the override
-        path, so the two must be changed together.
+        the OS. Both literals track --bg and have moved twice: M7.3 (elevation
+        inversion) took light from #FFFFFF to #F8FAFC, and the achromatic repaint
+        took the pair to #FCFCFB / #0E0F12; ThemeToggle carries the same two
+        literals for the override path, so the three sites change together.
         JSX-form comment, not an HTML one: Astro emits HTML comments verbatim into
         every built page, so maintainer notes would ship in the head of all 21 of
         them, ahead of the render-blocking CSS. This form is stripped at build. */}
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F8FAFC" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B1220" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FCFCFB" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0E0F12" />
+    {/* Both self-hosted subsets, ahead of the render-blocking stylesheet, so the
+        fetch starts on the first byte of the document rather than after the CSS
+        parses and discovers the @font-face. `crossorigin` is mandatory even
+        same-origin — font requests are CORS-mode, and without it the browser
+        makes a SECOND request and the preload is wasted. Two files only, both
+        cut from this site's own characters and both immediately used on every
+        page, which is what makes preloading them honest rather than greedy:
+        60,020 + 17,684 bytes, measured (src/styles/font-charset.ts). */}
+    <link
+      rel="preload"
+      href="/fonts/plex-sans.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/plex-mono.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <!-- Pre-paint theme resolution (designer handoff, byte-verbatim — this file is
          listed in .prettierignore to keep it that way): must run before any content
          paints so the page never flashes the wrong theme. Mirrors
@@ -93,8 +125,17 @@ const ogImageUrl = new URL(ogImage, Astro.site);
         can read; SVG-capable browsers still prefer the vector below it. The
         apple-touch-icon is opaque and full-bleed on purpose — iOS composites home
         screen icons on their own squircle mask, so transparent corners would show
-        through. Both PNGs are rasterized from public/favicon.svg — regenerate them
-        from it, never redraw the mark by hand. */}
+        through. Both PNGs are rasterized from public/favicon.svg — regenerate
+        them with `npm run icons` (scripts/build-icons.mjs), never redraw the mark
+        by hand. That script is new with the achromatic repaint; until then this
+        comment gave the instruction with no tool behind it, and it asserts both
+        properties above on the way out — the 32 keeps its transparent corners,
+        the 180 ships no alpha channel at all.
+
+        The vector was ALSO undecodable until that same change: its comment
+        spelled a CSS custom property, and a double hyphen inside an XML comment
+        is a parse error, so every browser fell through to the 32px raster above.
+        Keep custom-property names out of favicon.svg's comment. */}
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -130,7 +171,14 @@ const ogImageUrl = new URL(ogImage, Astro.site);
     <a href="#main" class="skip-link">Skip to content</a>
     <SiteHeader />
     <!-- tabindex=-1: skip-link focus lands IN main, not just scrolls (WCAG 2.4.1). -->
-    <main id="main" tabindex="-1" class="mx-auto w-full max-w-container px-4 md:px-6">
+    <main
+      id="main"
+      tabindex="-1"
+      class:list={[
+        'mx-auto w-full px-4 md:px-6',
+        wide ? 'max-w-shell' : 'max-w-container',
+      ]}
+    >
       <slot />
     </main>
     <SiteFooter />

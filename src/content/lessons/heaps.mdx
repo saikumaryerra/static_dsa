@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -85,6 +86,17 @@ class MaxHeap {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="heap-operations"
+  renderer="heap"
+  input="[5,9,3,12,8,15]"
+  showTarget={false}
+  inputLabel="Values"
+/>
+
 ## Intuition
 
 Picture a tournament bracket flipped upside down: the champion sits at the top, and everyone below is someone that player beat. You do not know the exact ordering of the losers, and you do not care — you only need to know who is on top. That is the deal a **[heap](/glossary#heap)** makes.
@@ -110,23 +122,19 @@ To **insert** a value:
 
 Removing the max works in mirror image (move the last leaf to the root and **sift down**), but insert and sift-up are enough to see the whole idea.
 
-## Visualizer
-
-<Visualizer
-  algorithm="heap-operations"
-  renderer="heap"
-  input="[5,9,3,12,8,15]"
-  showTarget={false}
-  inputLabel="Values"
-/>
-
 Press **Play**, or **Step forward** to insert each value and watch it sift up. Every comparison and swap lights up in **both** the tree and the array at once — notice how swapping two tree nodes is the same as swapping two array cells. When the build finishes, the largest value has climbed to the root. Try your own list of numbers.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 A single insert appends in constant time, then sifts up at most the **height** of a complete tree, which is about `log n` — so insert is **O(log n)**, and the best case is **O(1)** when the new value is already smaller than its parent and no swaps happen. Reading the maximum is always **O(1)**: it is the root. The heap lives inside the array you already have, so a swap-based sift needs only **O(1)** extra space. (Building a heap by inserting `n` values is `O(n log n)`; a bottom-up heapify can do it in `O(n)`, a nice bonus worth knowing.)
+
+</Bench>
 
 ## Code
 

@@ -156,8 +156,8 @@ if (missingClasses.length > 0) {
      have, which is the same rule M7.1 CMP-3 applies to disabled controls.
 
      The keyline is `--border`, NOT `--brand-border`: tokens.css declares that
-     token decorative (1.49:1 on `--surface`) and it was the only thing drawing
-     this panel's edge. `--border` is decorative too (1.18:1 light / 1.81:1 dark
+     token decorative (1.36:1 on `--surface`) and it was the only thing drawing
+     this panel's edge. `--border` is decorative too (1.32:1 light / 1.36:1 dark
      against the canvas) and that is the right job for it here — the panel is
      identified by its tinted fill and its shadow, exactly as `.track-card` is,
      with the keyline as the finish rather than the boundary. */
@@ -211,7 +211,7 @@ if (missingClasses.length > 0) {
   /* The one delta from the lesson's stylesheet, and the reason is this frame:
      the search has collapsed, so EVERY cell is `is-eliminated` and the lesson's
      whole-cell `opacity: 0.42` would paint the entire drawing at 42% — the
-     numerals landing at 2.77:1 light / 3.32:1 dark against their own cells and
+     numerals landing at 2.87:1 light / 3.74:1 dark against their own cells and
      the piece reading as a disabled or half-loaded widget rather than a
      flourish. A uniform wash also carries no information: dimming is only
      meaningful when something ELSE is live, which is why the home hero (a
@@ -219,10 +219,12 @@ if (missingClasses.length > 0) {
 
      So the same 0.42 is scoped to the box: `fill-opacity` washes out the cell's
      FILL and leaves its stroke and its text alone. The cells still read as
-     ruled out, and everything stays legible — `--text` numerals 16.74:1 light /
-     11.85:1 dark on the washed fill, `--text-muted` index labels 7.11:1 /
-     5.70:1, and the `--border-strong` cell edge 4.46:1 / 3.07:1, so the
-     boundary clears 1.4.11's 3:1 in both themes too.
+     ruled out, and everything stays legible — `--text` numerals 16.23:1 light /
+     13.81:1 dark on the washed fill, `--text-muted` index labels 5.43:1 /
+     6.21:1 on the panel behind them, and the `--border-strong` cell edge 3.60:1
+     / 3.17:1, so the boundary still clears 1.4.11's 3:1 in both themes — by 0.17
+     in dark after the achromatic repaint, which is the tightest figure on this
+     page and the one to re-measure first if the dark scale moves again.
 
      Picking a mid-run step with a live cell instead was the other way out, and
      it was rejected: the collapsed frame IS the joke, the caption quotes that

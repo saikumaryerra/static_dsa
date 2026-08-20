@@ -16,6 +16,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -51,6 +52,17 @@ export const codeTabs = [
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="recursion-callstack"
+  renderer="callStack"
+  input="4"
+  inputLabel="n"
+  showTarget={false}
+/>
+
 ## Intuition
 
 Imagine you are standing in a long line and want to know your position, but you can only see the person directly in front of you. So you ask them: "What number are you?" They do not know either, so they ask the person in front of _them_, and so on. Eventually the question reaches the very first person, who can answer without asking anyone — "I am number one." That answer travels back down the line, each person adding one, until it reaches you.
@@ -72,25 +84,21 @@ The piece that makes recursion tick is the **[call stack](/glossary#call-stack)*
 
 The visualization makes this concrete: watch the frames pile up as `factorial` calls itself, pause at the base case, then unwind — each frame filling in its return value on the way out.
 
-## Visualizer
-
-<Visualizer
-  algorithm="recursion-callstack"
-  renderer="callStack"
-  input="4"
-  inputLabel="n"
-  showTarget={false}
-/>
-
 Press **Play**, or **Step forward** one call at a time. The top card is the current (innermost) call. New calls are pushed with a **+**; when a call returns, its frame is marked with **✕** and popped, and its value flows into the frame below. Try a different `n` in the input box to see the stack grow taller.
+
+</Bench>
 
 <Challenge id="recursion/base-case-only" />
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
+
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
 
 `factorial(n)` makes one call per value from `n` down to `1`, so it does **O(n)** work — the same as a loop would. The catch is space: at the base case, `n` frames are stacked up at once, so recursion uses **O(n)** memory for the call stack, where an equivalent loop would use **O(1)**. That hidden stack cost is the price of recursion's clarity, and the reason very deep recursion can overflow the stack.
+
+</Bench>
 
 ## Code
 
@@ -127,6 +135,15 @@ The recursive `factorial` in three languages. Notice how tiny it is — two line
 
 ## Practice
 
+<Bench>
+
+<FinalRun
+  slot="stage"
+  slug="recursion"
+  algorithm="recursion-callstack"
+  metric="calls"
+/>
+
 Work each one out before opening the answer.
 
 **1. What are the two required parts of any recursive function, and what goes wrong if the base case is missing?**
@@ -155,4 +172,4 @@ Work each one out before opening the answer.
   space.
 </PracticeCheck>
 
-<FinalRun slug="recursion" algorithm="recursion-callstack" metric="calls" />
+</Bench>

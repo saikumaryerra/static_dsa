@@ -8,8 +8,10 @@
  * name highlight targets with `cellId` from `core/ids` so the two layers agree
  * without sharing structure.
  *
- * Honored highlights (via `core/highlight`): `range` (live window, lo/hi
- * bracket), `active` (probe, named caret — default "mid"), `found` (✓), plus the
+ * Honored highlights (via `core/highlight`): `range` (underbar bracket, with end
+ * labels only where the algorithm named them via `meta.startLabel`/`endLabel` —
+ * eight algorithms draw a range here and only binary search has a `lo`/`hi`
+ * window), `active` (probe, named caret — default "mid"), `found` (✓), plus the
  * general `compare` (tie-line), `swap` (↔), `insert` (+), `delete` (✕), `pointer`
  * (named caret) so Search + Sorting + plain-array lessons all reuse this family.
  *
@@ -21,10 +23,17 @@
  * SAME class + marker logic through `core/svg`, so still == hydrated step 0.
  * Reduced motion is inherited from the token layer — no `matchMedia` here.
  */
-import type { Renderer, RendererModule, RenderOpts, Step } from '../core/types';
+import type {
+  Extent,
+  Renderer,
+  RendererModule,
+  RenderOpts,
+  Step,
+} from '../core/types';
 import { cellId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { esc, group, line, svgRoot, text } from '../core/svg';
+import { metaLabel, metaRangeLabels } from './shared';
 
 /** SVG namespace for `createElementNS` (client DOM path). */
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -66,7 +75,37 @@ const cellX = (i: number): number => PAD_X + i * (CELL + GAP);
 const cellCenterX = (i: number): number => cellX(i) + CELL / 2;
 const viewWidth = (n: number): number =>
   Math.max(PAD_X * 2 + Math.max(n, 1) * (CELL + GAP) - GAP, 1);
-const viewBoxOf = (n: number): string => `0 0 ${viewWidth(n)} ${HEIGHT}`;
+/**
+ * The natural box for one step, and the ONLY place either drawing path reads
+ * its geometry from — both `renderArrayStatic` and `ArrayDomRenderer.render`
+ * build their `viewBox` string from this, so the still and the hydrated drawing
+ * cannot drift. Geometry only: a caller reduces it over a trace to freeze one
+ * box for the whole run (`core/extent`).
+ */
+const measure = (step: Step<ArrayWindowState>): Extent => ({
+  w: viewWidth(step.state.array.length),
+  h: HEIGHT,
+});
+
+/**
+ * The frozen box widened to fit this step's natural one, as a `viewBox` string.
+ *
+ * This family draws its own root `<svg>` rather than going through
+ * `renderers/shared`'s `fitToExtent`, so the clamp rule lives here instead —
+ * same rule, stated once for both of this module's paths: an extent may only
+ * WIDEN the box, so a stale measurement can never clip the drawing. No
+ * transform is ever needed, because the array is top-left anchored and only
+ * ever varies in width — the viewBox alone carries the reservation.
+ */
+const viewBoxFor = (
+  step: Step<ArrayWindowState>,
+  extent: Extent | undefined,
+): string => {
+  const natural = measure(step);
+  const w = Math.max(extent?.w ?? 0, natural.w);
+  const h = Math.max(extent?.h ?? 0, natural.h);
+  return `0 0 ${w} ${h}`;
+};
 
 /** Index behind a `cellId` string (`"i3"` → 3). */
 const idIndex = (id: string): number => Number(id.slice(1));
@@ -162,11 +201,13 @@ function markersMarkup(step: Step<ArrayWindowState>): string {
   const highlights = step.highlights ?? [];
   let out = '';
 
-  // range → underbar bracket + lo/hi labels across the window span.
-  const rangeIds = highlights
-    .filter((h) => h.kind === 'range')
-    .flatMap((h) => h.ids)
-    .map(idIndex);
+  // range → underbar bracket ALWAYS (it is the non-color cue for the kind,
+  // design §3.2), plus END LABELS only where the algorithm supplied them. Eight
+  // algorithms emit a range through this one renderer and exactly one of them
+  // has a `lo`/`hi` window; naming the other seven's ranges from here printed a
+  // search-window vocabulary their own prose disowns.
+  const ranges = highlights.filter((h) => h.kind === 'range');
+  const rangeIds = ranges.flatMap((h) => h.ids).map(idIndex);
   if (rangeIds.length > 0) {
     const lo = Math.min(...rangeIds);
     const hi = Math.max(...rangeIds);
@@ -177,14 +218,18 @@ function markersMarkup(step: Step<ArrayWindowState>): string {
       y1: BRACKET_Y,
       y2: BRACKET_Y,
     });
-    out += text('lo', {
-      class: 'viz-marker',
-      x: cellCenterX(lo),
-      y: MARKER_Y,
-      'text-anchor': 'middle',
-    });
-    if (hi !== lo) {
-      out += text('hi', {
+    const { start, end } = metaRangeLabels(ranges[0]!);
+    if (start !== null) {
+      out += text(start, {
+        class: 'viz-marker',
+        x: cellCenterX(lo),
+        y: MARKER_Y,
+        'text-anchor': 'middle',
+      });
+    }
+    // A one-cell window is a single position, so its two ends would collide.
+    if (end !== null && hi !== lo) {
+      out += text(end, {
         class: 'viz-marker',
         x: cellCenterX(hi),
         y: MARKER_Y,
@@ -195,13 +240,12 @@ function markersMarkup(step: Step<ArrayWindowState>): string {
 
   for (const h of highlights) {
     if (h.kind === 'active' || h.kind === 'pointer') {
-      // Named caret above each cell (default "mid" keeps M2's binary-search cue).
+      // Named caret above each cell (default "mid" keeps M2's binary-search
+      // cue). Unlike a range end, a single-target marker keeps its fallback:
+      // every kind here draws exactly one caret whose position IS the meaning,
+      // so an unnamed one is still a correct, if generic, cue.
       const label =
-        typeof h.meta?.['label'] === 'string'
-          ? (h.meta['label'] as string)
-          : h.kind === 'active'
-            ? 'mid'
-            : 'p';
+        h.kind === 'active' ? metaLabel(h, 'mid') : metaLabel(h, 'p');
       const cls = h.kind === 'active' ? 'viz-mid-label' : 'viz-caret';
       for (const id of h.ids) {
         out += text(label, {
@@ -277,11 +321,10 @@ function renderArrayStatic(
   opts: RenderOpts,
   variant: Variant,
 ): string {
-  const n = step.state.array.length;
   const idBase = opts.idBase ?? 'viz';
   return svgRoot(
     {
-      viewBox: viewBoxOf(n),
+      viewBox: viewBoxFor(step, opts.extent),
       title: opts.title ?? '',
       desc: step.explanation,
       titleId: `${idBase}-t`,
@@ -305,10 +348,13 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
   private markersGroup: SVGGElement | null = null;
   private descEl: SVGDescElement | null = null;
   private builtLength = -1;
+  /** The whole trace's frozen box; `undefined` draws each step naturally. */
+  private extent: Extent | undefined;
   private readonly uid = `ar${(domInstance += 1)}`;
   constructor(private readonly variant: Variant) {}
 
   mount(container: HTMLElement, opts: RenderOpts = {}): void {
+    this.extent = opts.extent;
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('role', 'img');
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -337,9 +383,19 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
     this.markersGroup = markersGroup;
   }
 
+  setExtent(next: Extent | undefined): void {
+    this.extent = next;
+  }
+
   render(step: Step<ArrayWindowState>): void {
     if (!this.svg || !this.cellsGroup || !this.markersGroup) return;
     const { array } = step.state;
+
+    // Written EVERY step rather than only when the cell count changes: after a
+    // `setExtent` the box has to change while the array length does not (a
+    // custom run of the same length against a differently-sized trace), and a
+    // length-driven write would leave that run on the previous trace's box.
+    this.svg.setAttribute('viewBox', viewBoxFor(step, this.extent));
 
     if (this.builtLength !== array.length) {
       this.buildCells(array);
@@ -367,12 +423,13 @@ class ArrayDomRenderer implements Renderer<ArrayWindowState> {
     this.markersGroup = null;
     this.descEl = null;
     this.builtLength = -1;
+    this.extent = undefined;
   }
 
   private buildCells(array: number[]): void {
     const groupEl = this.cellsGroup!;
     groupEl.replaceChildren();
-    this.svg!.setAttribute('viewBox', viewBoxOf(array.length));
+    // (the viewBox write lives in render(), which runs on every step.)
     // Reuse the pure string builder for one geometry source, then adopt nodes.
     groupEl.innerHTML = array
       .map((v, i) =>
@@ -405,6 +462,7 @@ export const arrayRenderer: RendererModule<ArrayWindowState> = {
   create: () => new ArrayDomRenderer('cells'),
   renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
     renderArrayStatic(step, opts, 'cells'),
+  measure,
 };
 
 /** Value-scaled bars renderer (`renderer="bars"`); same ids/geometry (§4.1). */
@@ -412,4 +470,5 @@ export const barsRenderer: RendererModule<ArrayWindowState> = {
   create: () => new ArrayDomRenderer('bars'),
   renderStatic: (step: Step<ArrayWindowState>, opts: RenderOpts) =>
     renderArrayStatic(step, opts, 'bars'),
+  measure,
 };

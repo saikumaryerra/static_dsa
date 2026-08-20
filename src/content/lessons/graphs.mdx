@@ -15,6 +15,7 @@ published: true
 ---
 
 import Visualizer from '../../viz/Visualizer.astro';
+import Bench from '../../components/Bench.astro';
 import ComplexityTable from '../../components/ComplexityTable.astro';
 import CodeTabs from '../../components/CodeTabs.astro';
 import Collapsible from '../../components/Collapsible.astro';
@@ -85,6 +86,17 @@ class Graph {
   },
 ];
 
+<Bench id="visualizer">
+
+<Visualizer
+  slot="stage"
+  algorithm="graph-representations"
+  renderer="graph"
+  input="0>1:4, 0>2:1, 2>1:2, 1>3:5, 2>3:8"
+  showTarget={false}
+  inputLabel="Edges"
+/>
+
 ## Intuition
 
 Almost anything made of things and connections is a **[graph](/glossary#graph)**: cities joined by roads, people joined by friendships, web pages joined by links. The things are **vertices** (also called nodes); the connections are **edges**. That is the entire vocabulary, and it is astonishingly general — trees and linked lists are just special, restricted kinds of graphs.
@@ -117,23 +129,19 @@ The visualization builds a small **directed, weighted** graph one piece at a tim
 
 Notice the matrix is not symmetric — because the graph is directed. For an **undirected** graph you would store each edge in both directions, and the matrix would mirror across its diagonal.
 
-## Visualizer
-
-<Visualizer
-  algorithm="graph-representations"
-  renderer="graph"
-  input="0>1:4, 0>2:1, 2>1:2, 1>3:5, 2>3:8"
-  showTarget={false}
-  inputLabel="Edges"
-/>
-
 Press **Play**, or **Step forward** to add the vertices, then each edge in turn — the arrowheads show direction, the pills show weights. Type your own edge list: `A-B` for an undirected edge, `A>B` for a directed one, and add `:weight` for a weight, e.g. `0-1:5, 1-2, 2>0`.
+
+</Bench>
 
 ## Complexity
 
-<ComplexityTable complexity={frontmatter.complexity} />
+<Bench>
 
-The table above describes an adjacency **list**. Answering "is there an edge from `u` to `v`?" means scanning `u`'s neighbor list: **O(1)** if it is the first neighbor, up to **O(V)** if `u` connects to nearly every other vertex. Space is **O(V + E)** — one entry per vertex plus one per edge — which is small for sparse graphs. An adjacency **matrix** flips the trade: edge lookup is always **O(1)**, but space is **O(V²)** regardless of how few edges exist. Choose the list when the graph is sparse (usually), the matrix when it is dense or you need constant-time edge checks.
+<ComplexityTable slot="stage" complexity={frontmatter.complexity} />
+
+The table alongside describes an adjacency **list**. Answering "is there an edge from `u` to `v`?" means scanning `u`'s neighbor list: **O(1)** if it is the first neighbor, up to **O(V)** if `u` connects to nearly every other vertex. Space is **O(V + E)** — one entry per vertex plus one per edge — which is small for sparse graphs. An adjacency **matrix** flips the trade: edge lookup is always **O(1)**, but space is **O(V²)** regardless of how few edges exist. Choose the list when the graph is sparse (usually), the matrix when it is dense or you need constant-time edge checks.
+
+</Bench>
 
 ## Code
 

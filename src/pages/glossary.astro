@@ -138,7 +138,79 @@ for (const term of glossary) {
         </p>
       ) : (
         <>
-          <nav class="glossary__jump" aria-label="Jump to letter">
+          {/* FILTER (redesign 2026-08). Spec §19 left this open as an owner
+              decision — "Glossary search island (~1 KB)" — and forty-six terms
+              down a 10,000px page is exactly the case it was left open for: the
+              A–Z chips answer "take me to L", and nothing answered "where is
+              the thing I half-remember the name of".
+
+              It filters what is already on the page; it fetches nothing, indexes
+              nothing and stores nothing. It ships `hidden` and the island
+              reveals it, because a text field that cannot filter is worse than
+              no field — the same rule every M8 control follows. With JavaScript
+              off the complete A–Z list and its jump nav are untouched. */}
+          <form
+            class="glossary__search"
+            data-glossary-search
+            hidden
+            role="search"
+            onsubmit="return false"
+          >
+            <label class="glossary__search-label" for="glossary-filter">
+              Filter terms
+            </label>
+            <div class="glossary__search-field">
+              <svg
+                class="glossary__search-icon"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" />
+              </svg>
+              <input
+                id="glossary-filter"
+                type="search"
+                class="glossary__search-input"
+                placeholder="hash, traversal, O(n)…"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                data-glossary-input
+              />
+              <button
+                type="button"
+                class="glossary__search-clear"
+                data-glossary-clear
+                hidden
+              >
+                Clear
+              </button>
+            </div>
+            {/* Polite, not assertive: the reader is typing, and an assertive
+                region would interrupt them on every keystroke. Empty until a
+                filter is actually applied, so it never announces the resting
+                state of the page. */}
+            <p
+              class="glossary__search-status"
+              role="status"
+              data-glossary-status
+            />
+          </form>
+
+          <nav
+            class="glossary__jump"
+            aria-label="Jump to letter"
+            data-glossary-jump
+          >
             <ul>
               {ALPHABET.map((letter) =>
                 presentLetters.has(letter) ? (
@@ -161,10 +233,13 @@ for (const term of glossary) {
             </ul>
           </nav>
 
+          <p class="glossary__no-match" data-glossary-nomatch hidden />
+
           <div class="glossary__sections">
             {sections.map(({ letter, entries }) => (
               <section
                 id={sectionId(letter)}
+                data-glossary-section
                 aria-labelledby={`${sectionId(letter)}-h`}
               >
                 <h2 id={`${sectionId(letter)}-h`} class="glossary__letter">
@@ -172,7 +247,18 @@ for (const term of glossary) {
                 </h2>
                 <dl class="glossary__list">
                   {entries.map((entry) => (
-                    <div class="glossary__entry" id={termAnchor(entry.term)}>
+                    <div
+                      class="glossary__entry"
+                      id={termAnchor(entry.term)}
+                      data-glossary-entry
+                      data-haystack={[
+                        entry.term,
+                        ...(entry.aliases ?? []),
+                        entry.definition,
+                      ]
+                        .join(' ')
+                        .toLowerCase()}
+                    >
                       <dt class="glossary__term">{entry.term}</dt>
                       <dd class="glossary__def">
                         <p>{entry.definition}</p>
@@ -206,7 +292,12 @@ for (const term of glossary) {
 <style>
   .glossary {
     padding-block: var(--space-12) var(--space-16);
-    max-width: var(--measure);
+    /* The PAGE is no longer capped at --measure (redesign 2026-08). It was, and
+       that cap is what squeezed the new two-column layout into 750px — half a
+       shell — making each column narrower than a single column had been. The
+       measure belongs to the things that are prose: the page head below, and
+       each definition (`.glossary__def`), which inside a ~550px column never
+       reaches the cap anyway. */
 
     /* Height of the sticky A–Z strip, spelled out so every scroll offset below
        can derive from it: the chip rows (2rem each) + the <ul>'s focus-ring
@@ -223,6 +314,11 @@ for (const term of glossary) {
          for why the wrapped strip is provably two rows and never three. */
       --jump-bar-h: calc(2 * 2rem + 5 * var(--space-1) + var(--space-px));
     }
+  }
+
+  /* The head is the only prose that spans the page, so it carries the measure. */
+  .glossary__head {
+    max-width: var(--measure);
   }
 
   .glossary__intro {
@@ -341,31 +437,43 @@ for (const term of glossary) {
     min-width: 2rem;
     min-height: 2rem;
     padding-inline: var(--space-2);
+    /* Reserved, not drawn: the hover below paints into this 1px so 26 chips
+       never reflow under the pointer. Costs nothing at rest — box-sizing is
+       border-box site-wide and the chip sits at its 2rem minimum either way,
+       since its content is a single letter. */
+    border: 1px solid transparent;
     border-radius: var(--radius-control);
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--text);
     transition:
       background-color var(--duration-fast) var(--ease-standard),
-      color var(--duration-fast) var(--ease-standard);
+      border-color var(--duration-fast) var(--ease-standard);
   }
 
-  /* Hover, on the same idiom every other filled-control hover in M7.3 uses
+  /* Hover, now on the same idiom every other filled-control hover in M7.3 uses
      (`.btn-secondary` in global.css, `.viz-btn` in Visualizer.astro): a
-     `--brand-soft` fill plus a brand-coloured edge. The fill it replaced was
-     `--surface`: in light that is white on this `--bg` bar, 1.05:1, which is no
-     perceptible feedback at all on 26 targets (1.28:1 in dark).
-     `--brand-soft` alone would barely be better as a LUMINANCE move (1.07:1
-     light / 1.29:1 dark on the bar; it is a hue shift that does the work), so
-     the letter takes the brand as well — the chip has no border to carry the
-     other half of the idiom the way those two controls do. `--brand` on
-     `--brand-soft` is 5.62:1 light / 4.88:1 dark, so the label stays AA while
-     hovered, as it is at rest (`--text` on `--bg`, 17.06:1 / 15.19:1).
+     `--brand-soft` fill plus a `--brand` edge.
+     The edge is the half this chip used to lack. It hovered the LETTER to
+     `--brand` instead, which was a signal only while `--brand` was a hue; Plan B
+     made `--brand` byte-identical to `--text`, so that half silently became a
+     no-op and left the fill carrying 26 targets by itself at 1.20:1 light /
+     1.26:1 dark on the bar. That is under the 1.28:1 this comment already called
+     barely-better when it rejected an earlier `--surface` fill as "no
+     perceptible feedback at all" (that fill measured 1.05:1 / 1.28:1 on the
+     pre-repaint palette and measures 1.03:1 / 1.08:1 on this one, so the
+     judgement only got safer). The fill is therefore the reinforcement now and
+     the border is the signal.
+     `--brand`, not `--border-strong`: the latter measures 2.96:1 on the dark
+     hover fill, below the 3:1 a keyline owes, while `--brand` is 14.86:1 light /
+     12.90:1 dark against the fill and 17.77:1 / 16.20:1 against the bar behind
+     it. The label does not move at all now and does not need to — `--text` is
+     those same 17.77:1 / 16.20:1 at rest and 14.86:1 / 12.90:1 hovered.
      Scoped to `a.` on purpose: the empty letters are non-interactive `<span>`s
      and must never preview an affordance they do not have. */
   a.glossary__chip:hover {
     background-color: var(--brand-soft);
-    color: var(--brand);
+    border-color: var(--brand);
   }
 
   /* Empty letters: dimmed, non-interactive, non-focusable (aria-disabled + span,
@@ -376,9 +484,132 @@ for (const term of glossary) {
     cursor: default;
   }
 
+  /* ---- Filter (redesign 2026-08) ---- */
+  .glossary__search {
+    margin-top: var(--space-6);
+    max-width: 30rem;
+  }
+
+  .glossary__search-label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+
+  /* The border lives on the WRAPPER, not the input, so the icon and the clear
+     button sit inside one control-shaped box and `:focus-within` can ring the
+     whole thing — a ring around the bare input would cut through both. */
+  .glossary__search-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding-inline: var(--space-3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    background-color: var(--surface);
+  }
+
+  .glossary__search-field:focus-within {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  .glossary__search-icon {
+    flex: none;
+    color: var(--text-muted);
+  }
+
+  .glossary__search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    padding-block: var(--space-2);
+  }
+
+  .glossary__search-input:focus {
+    outline: none; /* the wrapper carries the ring — see :focus-within above */
+  }
+
+  /* Chrome and Safari draw their own clear affordance on type=search; ours is a
+     real button with a label, and two of them side by side is one too many. */
+  .glossary__search-input::-webkit-search-cancel-button {
+    display: none;
+  }
+
+  .glossary__search-clear {
+    flex: none;
+    min-height: 32px;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--text-muted);
+  }
+
+  .glossary__search-clear:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .glossary__search-status {
+    margin-top: var(--space-2);
+    min-height: 1.5em; /* reserved, so a result count never shifts the list */
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .glossary__no-match {
+    margin-top: var(--space-8);
+    max-width: var(--measure);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* The strip keeps the reading measure even though the page no longer does.
+     Its height is DECLARED (`--jump-bar-h` above) and every scroll offset on this
+     page derives from that number, so how many rows the 26 chips wrap onto is
+     load-bearing, not cosmetic: let them span 1152px and they collapse to one row,
+     the token over-reports by 36px, and every in-page jump lands 36px low. Capping
+     the nav is a one-line way to keep the declaration true — and a single hairline
+     row of 26 letters spanning the full shell reads as a rule with letters on it
+     rather than as an index. */
+  .glossary__jump {
+    max-width: var(--measure);
+  }
+
   /* ---- Sections ---- */
   .glossary__sections {
     margin-top: var(--space-10);
+  }
+
+  /* TWO COLUMNS from 900px (redesign 2026-08). Forty-six definitions in one
+     column made a 10,900px page whose right half was empty at every scroll
+     position — a reference a reader scans rather than reads straight through,
+     laid out as if they would read it straight through.
+
+     Multi-column rather than grid, because a dictionary flows: grid rows would
+     align every letter group to the tallest one in its row and open gaps between
+     them. Column order is top-of-column-1 to bottom, then column 2, which is the
+     order the A–Z already implies. `break-inside: avoid` keeps a letter group
+     whole, so no heading is ever orphaned from its first term. */
+  @media (min-width: 900px) {
+    .glossary__sections {
+      columns: 2;
+      column-gap: var(--space-12);
+    }
+
+    .glossary__sections > section {
+      break-inside: avoid;
+      /* A column break resets nothing about margins, so the first group in
+         column 2 would otherwise start with the top margin the flow gave it. */
+      margin-top: 0;
+    }
   }
 
   /* Every in-page jump target parks below the sticky chrome (design §1.4): the
@@ -458,3 +689,110 @@ for (const term of glossary) {
     text-underline-offset: 2px;
   }
 </style>
+
+<script>
+  /**
+   * Glossary filter (redesign 2026-08) — spec §19's deferred "glossary search
+   * island", resolved.
+   *
+   * It filters MARKUP THAT IS ALREADY ON THE PAGE. There is no index, no fetch,
+   * no store and no debounce timer: forty-six `data-haystack` strings are
+   * compared with `includes` on every keystroke, which is well inside a frame,
+   * and building an index would be more code than the search it serves.
+   *
+   * Progressive enhancement, in the site's usual shape: the form ships `hidden`
+   * and this script reveals it, so a reader with JavaScript off — or with this
+   * chunk still in flight — never meets a text field that cannot filter. The
+   * complete A–Z list and its jump nav are what the page IS; the filter only
+   * ever hides parts of it, and clearing the field restores every one.
+   *
+   * WHAT IT MATCHES: the term, its aliases, and its definition — composed at
+   * build time into `data-haystack`, lowercased there so this runs no per-key
+   * normalisation. Matching the definition is deliberate: a reader who half
+   * remembers "the one about wrapping around" finds `Circular buffer`, which is
+   * the case a term-only match would fail.
+   *
+   * The A–Z nav is HIDDEN while a filter is active, because its chips jump to
+   * letters that may now be empty — a control that cannot do what it says is the
+   * thing every kill-switch on this site exists to prevent.
+   */
+  const form = document.querySelector<HTMLElement>('[data-glossary-search]');
+  const input = document.querySelector<HTMLInputElement>(
+    '[data-glossary-input]',
+  );
+  const clear = document.querySelector<HTMLButtonElement>(
+    '[data-glossary-clear]',
+  );
+  const status = document.querySelector<HTMLElement>('[data-glossary-status]');
+  const noMatch = document.querySelector<HTMLElement>(
+    '[data-glossary-nomatch]',
+  );
+  const jump = document.querySelector<HTMLElement>('[data-glossary-jump]');
+  const sections = [
+    ...document.querySelectorAll<HTMLElement>('[data-glossary-section]'),
+  ];
+  const entries = [
+    ...document.querySelectorAll<HTMLElement>('[data-glossary-entry]'),
+  ];
+
+  if (form && input && clear && status && noMatch && entries.length > 0) {
+    // The one thing that makes the control real. Everything below assumes it.
+    form.hidden = false;
+
+    /** "1 term" / "12 terms" — a count in words, never a ratio (calm invariant). */
+    const termCount = (n: number): string => `${n} term${n === 1 ? '' : 's'}`;
+
+    function apply(): void {
+      const query = input!.value.trim().toLowerCase();
+      clear!.hidden = query === '';
+
+      if (query === '') {
+        for (const entry of entries) entry.hidden = false;
+        for (const section of sections) section.hidden = false;
+        if (jump) jump.hidden = false;
+        noMatch!.hidden = true;
+        // Empty, not "46 terms": the resting state of the page is not news, and
+        // announcing it on every clear would talk over the reader.
+        status!.textContent = '';
+        return;
+      }
+
+      let shown = 0;
+      for (const entry of entries) {
+        const hit = (entry.dataset['haystack'] ?? '').includes(query);
+        entry.hidden = !hit;
+        if (hit) shown += 1;
+      }
+      // A letter with nothing left to show goes too, heading and all.
+      for (const section of sections) {
+        section.hidden = !section.querySelector(
+          '[data-glossary-entry]:not([hidden])',
+        );
+      }
+      if (jump) jump.hidden = true;
+
+      status!.textContent = `${termCount(shown)} matching “${input!.value.trim()}”`;
+      noMatch!.hidden = shown > 0;
+      if (shown === 0) {
+        noMatch!.textContent = `Nothing matches “${input!.value.trim()}”. Try a shorter word — the filter looks at each term, its other names, and its definition.`;
+      }
+    }
+
+    input.addEventListener('input', apply);
+    clear.addEventListener('click', () => {
+      input!.value = '';
+      apply();
+      input!.focus();
+    });
+    // Escape clears rather than blurring, which is what a reader who has filtered
+    // themselves into a corner reaches for. `type="search"` gives Escape this
+    // meaning natively in some browsers and not others; this makes it uniform.
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && input!.value !== '') {
+        event.preventDefault();
+        input!.value = '';
+        apply();
+      }
+    });
+  }
+</script>

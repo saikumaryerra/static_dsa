@@ -1,0 +1,300 @@
+---
+/**
+ * `<StepLink>` — a prose link to one step of a lesson's run (Plan C §7).
+ *
+ * The ledger gave every step a durable id (`${uid}-row-${n}`) and Task 1 gave
+ * every instrument a durable `uid`, which together make a sentence able to point
+ * at the exact row it is describing: *"…that is step 2 in the run below."* This
+ * is that pointer, and it is an ordinary `<a href="#…">` — so it works with
+ * JavaScript off, it can be middle-clicked, and the address bar keeps it.
+ *
+ * HOW IT RESOLVES THE INSTRUMENT. `claimInstrumentId` MINTS: asking it for
+ * binary-search's id a second time returns `…-2`, the id of a second instrument
+ * that does not exist. So this component derives the id instead, through
+ * `instrumentIdFor` — the read-only half of the same function. The alternative,
+ * an authored `id="viz-binary-search-3f0k1p"` prop, would paste an opaque hash
+ * into prose that silently stops resolving the moment the lesson's path,
+ * algorithm or renderer changes. Deriving it means the link follows all three.
+ *
+ * WHAT IT COSTS THE AUTHOR: repeating the `algorithm` and `renderer` of the
+ * `<Visualizer>` being pointed at. Both are checked against the registry here,
+ * so a typo fails the BUILD rather than shipping a dead link (the same rule
+ * `<Visualizer>` and `<FinalRun>`'s anchor already follow), and
+ * `tests/e2e/plan-c-ledger.spec.ts` walks every published lesson asserting that
+ * each `[data-step-link]` resolves to a row that exists — which is the half a
+ * build-time check cannot see, because this component does not know the input
+ * the instrument was authored with and therefore cannot know how long its run is.
+ *
+ * THE SCROLL is the interesting part, and it is documented at the `<script>`.
+ */
+import { instrumentIdFor } from '../viz/core/instrument-id';
+import { algorithms, renderers } from '../viz/registry';
+
+interface Props {
+  /** Registry id of the instrument's algorithm, e.g. `'binary-search'`. */
+  algorithm: string;
+  /** Registry id of its renderer, e.g. `'array'`. */
+  renderer: string;
+  /** 1-based step number — the `#` the reader sees in the table. */
+  step: number;
+  /**
+   * Which instrument of that algorithm+renderer on this page, 1-based. Only
+   * needed if a page ever mounts two of the same pair; none does today.
+   */
+  nth?: number;
+}
+
+const { algorithm, renderer, step, nth = 1 } = Astro.props;
+
+// Fail the build, not the reader. An unknown id here is a link to nowhere, and
+// a link to nowhere in prose is worse than no link at all: it reads as a
+// promise the page then refuses to keep.
+if (!(algorithm in algorithms)) {
+  throw new Error(
+    `<StepLink>: unknown algorithm "${algorithm}". It must be one of the ids in src/viz/registry.ts, and must match the <Visualizer> this link points at.`,
+  );
+}
+if (!(renderer in renderers)) {
+  throw new Error(
+    `<StepLink>: unknown renderer "${renderer}" (algorithm "${algorithm}"). It must match the <Visualizer> this link points at, not just be a real renderer.`,
+  );
+}
+if (!Number.isInteger(step) || step < 1) {
+  throw new Error(
+    `<StepLink>: step must be a whole number from 1 (the table's own "#" column). Got ${String(step)}.`,
+  );
+}
+
+const uid = instrumentIdFor(Astro.url.pathname, algorithm, renderer, nth);
+const rowId = `${uid}-row-${step}`;
+
+// Whether the author supplied their own words. With none, the link names the
+// step itself, so the default can never be a link whose text says nothing about
+// where it goes; with some, the step number moves into the hidden half instead
+// of being lost.
+//
+// The two suffixes differ by a dash and nothing else, and that is deliberate: an
+// accessible name concatenates adjacent inline text WITH A SPACE, so a suffix
+// that opened with a comma came out as "step 2 , in the run…" — visible in the
+// aria baseline, which is how it was caught. A word or a dash reads correctly
+// after that space; punctuation does not.
+const authored = Astro.slots.has('default');
+---
+
+{
+  /* `data-step-link` carries the INSTRUMENT id, not the row's: the script needs
+     somewhere to land when the row cannot be shown — Predict mode hides the
+     whole table, and `showLedger={false}` means there is no table — and the
+     instrument is the honest destination in both cases. The href stays the row,
+     because that is what a browser with no script should do with it. */
+}
+<a class="step-link" href={`#${rowId}`} data-step-link={uid}
+  ><slot>step {step}</slot><span class="sr-only"
+    >{
+      authored
+        ? `— step ${step} in the run written out below`
+        : 'in the run written out below'
+    }</span
+  ></a
+>
+
+<style>
+  /* A glossary link leaves the lesson; this one moves down the page to a row of
+     the table, and the reader should be able to tell which before clicking. The
+     dotted underline is the ledger's own seek-button affordance
+     (`.viz-ledger__seek`), so the link and the control it lands on read as the
+     same thing — and the STYLE of the underline is the whole signal, not a
+     colour, so it survives forced-colors and is not a 1.4.1 colour-only cue.
+
+     It has to be the underline, in fact: the palette is achromatic since Plan B
+     and `--brand` is byte-identical to `--text` in both themes, so colour cannot
+     tell two kinds of link apart on this site any more. `color: inherit` says
+     that out loud rather than writing `var(--brand)` and quietly painting
+     nothing. The prose face is inherited for the same reason the label is a
+     slot: an author may point at a step with words rather than a number. */
+  /* QUALIFIED BY `:any-link`, and measured rather than guessed. Astro scopes a
+     component rule to `.step-link[data-astro-cid-…]` — (0,2,0) — while the
+     lesson body's link rule compiles to `.lesson-body[data-astro-cid-…] a`,
+     which is (0,2,1) and wins: the first build of this component shipped a
+     SOLID underline, caught in the pixel baseline. `:any-link` adds a
+     pseudo-class, taking this to (0,3,0), which beats it outright instead of
+     tying and depending on which stylesheet the bundler emits last. Ledger.astro
+     documents the same arithmetic for the same reason. */
+  .step-link:any-link {
+    color: inherit;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+  }
+
+  .step-link:any-link:hover {
+    text-decoration-style: solid;
+  }
+</style>
+
+<script>
+  /**
+   * Landing a prose jump on a table row that three things are sitting on top of.
+   *
+   * A `<StepLink>` is a DOCUMENT jump into a row that lives inside a scrollable
+   * well inside a collapsed `<details>`, under a sticky page header and (below
+   * 1024px) a sticky mini-ToC bar. Measured on the built site, at 900x800 with
+   * the ledger's own `<tr>` carrying no offset, the target row landed at y=18.7
+   * with the header ending at 64 and the ToC bar at 109 — the row was entirely
+   * behind the chrome — and the well's sticky header ROW was sitting on it as
+   * well. Two occluders, and the browser's own behaviour is not consistent
+   * enough to build on: the same jump scrolled the well on one page and left it
+   * at 0 on another, so which row you arrive at was luck.
+   *
+   * So the offset is declared TWICE, on purpose, and neither copy is redundant:
+   *
+   *   - `scroll-margin-top` on the row (Ledger.astro) is the whole fix for a
+   *     reader with no JavaScript, and it is the SOURCE OF TRUTH — this script
+   *     reads it back with `getComputedStyle` rather than restating the
+   *     arithmetic, exactly as the lesson scroll-spy reads the same property off
+   *     a heading so the highlight and the jump cannot disagree.
+   *   - this handler takes over the click so the sequence is deterministic:
+   *     open the disclosure, correct the WELL first (its scroll changes where
+   *     the row is), then scroll the document, then put focus on the step's own
+   *     seek button so the arrival is announced and visible.
+   *
+   * The well is corrected by adjusting `scrollTop`, never `scrollIntoView`,
+   * which is the rule `markLedgerRow` already follows: `scrollIntoView` walks
+   * EVERY scrollable ancestor and would drag the page away from the drawing the
+   * row describes.
+   *
+   * WHAT IT NEVER DOES: seek the player. The link is navigation — it takes you
+   * to where the step is written down, and the row's own button (now focused)
+   * is what moves the drawing. Making one link do both would give it a
+   * behaviour its JS-off self cannot have.
+   */
+  const SELECTOR = 'a[data-step-link]';
+
+  /** The sticky offset the CSS already declares for this element, in px. */
+  function stickyOffset(element: Element): number {
+    return parseFloat(getComputedStyle(element).scrollMarginTop) || 0;
+  }
+
+  /**
+   * Scrolls the ledger's well so `row` is clear of its sticky header row.
+   *
+   * Centred rather than aligned to the top, which is what `markLedgerRow` does
+   * for the same reason: the header row is sticky at the top of the well, so a
+   * top-aligned row lands underneath it.
+   */
+  function revealInWell(row: HTMLElement): void {
+    const well = row.closest<HTMLElement>('[data-ledger-well]');
+    if (!well) return;
+    const head = well.querySelector<HTMLElement>('thead th');
+    const rowBox = row.getBoundingClientRect();
+    const wellBox = well.getBoundingClientRect();
+    // The band the sticky header row occupies is unusable space at the top.
+    const usableTop = wellBox.top + (head?.getBoundingClientRect().height ?? 0);
+    if (rowBox.top >= usableTop && rowBox.bottom <= wellBox.bottom) return;
+    well.scrollTop +=
+      rowBox.top - wellBox.top - (wellBox.height - rowBox.height) / 2;
+  }
+
+  /** Opens every `<details>` between `element` and the document. */
+  function openAncestors(element: Element): void {
+    let details = element.closest('details');
+    while (details) {
+      details.open = true;
+      details = details.parentElement?.closest('details') ?? null;
+    }
+  }
+
+  document.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button !== 0) return;
+    // Let the browser keep its own affordances: a modified click opens a tab.
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>(SELECTOR);
+    if (!link) return;
+
+    const rowId = decodeURIComponent(link.getAttribute('href')?.slice(1) ?? '');
+    const row = document.getElementById(rowId);
+    const instrument = document.getElementById(link.dataset['stepLink'] ?? '');
+    // Nothing to land on: leave the browser to it rather than swallowing the
+    // click. The e2e suite is what makes sure this branch is unreachable.
+    if (!row && !instrument) return;
+
+    const ledger = row?.closest<HTMLElement>('[data-ledger]');
+    // Predict mode hides the ledger, because the table is its answer key — so
+    // the row exists but must not be shown. The reader still gets an answer to
+    // "where is that step written down?": the instrument's own note, which is
+    // visible only while the mode is on and says why the table is gone. A link
+    // that quietly did nothing here would be the worst of the three options.
+    const shown = !!row && !!ledger && !ledger.hidden;
+    const fallback =
+      instrument?.querySelector<HTMLElement>(
+        '[data-viz-predict-note]:not([hidden])',
+      ) ?? instrument;
+    const destination = shown ? row! : fallback;
+    if (!destination) return;
+
+    event.preventDefault();
+    if (shown) {
+      openAncestors(row!);
+      revealInWell(row!);
+    }
+
+    // The offset lives on the row (or on the instrument, for the fallback) —
+    // read, never restated. Measured AFTER the well moved, because that is what
+    // decides where the row now is.
+    const offsetSource = row ?? instrument!;
+    const top =
+      window.scrollY +
+      destination.getBoundingClientRect().top -
+      stickyOffset(offsetSource);
+    // No `behavior`, so this inherits `scroll-behavior` from the page: smooth
+    // where motion is welcome, instant under `prefers-reduced-motion: reduce`.
+    window.scrollTo({ top: Math.max(0, top) });
+
+    // Native anchors push a history entry, and losing that would make the back
+    // button leave the lesson instead of returning the reader to the sentence
+    // they clicked from. Guarded because a rejected pushState must not take the
+    // scroll with it.
+    try {
+      history.pushState(null, '', link.getAttribute('href'));
+    } catch {
+      /* A blocked history write costs the address bar, nothing else. */
+    }
+
+    // Arrival, said twice: a visible focus ring and an announced control.
+    //
+    // The seek button is `disabled` until the island enables it, and a disabled
+    // control cannot take focus — so the well (a named, reachable scroll region
+    // since Task 3) takes it instead, and it is never nothing. That fallback is
+    // the COMMON case, not an edge: the island mounts from an
+    // `IntersectionObserver`, so an instrument the reader has never scrolled to
+    // is still inert at the moment its link is clicked — this jump is what
+    // brings it into view and starts it. The button branch is for the reader who
+    // has already been down there and come back to the prose.
+    const seek = shown
+      ? row!.querySelector<HTMLButtonElement>('[data-ledger-seek]')
+      : null;
+
+    // AND DRIVE THE DRAWING (redesign 2026-08). The link has always been able to
+    // put the reader in front of the row; with the instrument pinned beside the
+    // prose at ≥1200px, the drawing that row describes is now ON SCREEN while
+    // they read the sentence — so landing on the row and leaving the picture at
+    // whatever step it happened to be showing is a half-kept promise.
+    //
+    // This clicks the row's own seek button rather than calling the player,
+    // because that button is the one path the island already owns: it declines
+    // while Predict is on (scrubbing past a question is what the mode exists to
+    // prevent), it marks the row, and it keeps the current row inside the well.
+    // Re-implementing any of that here would be a second definition of "go to
+    // step n". It is `disabled` until the island enables it, which is exactly
+    // the condition under which there is no player to drive yet.
+    if (seek && !seek.disabled) seek.click();
+
+    const focusTarget =
+      seek && !seek.disabled
+        ? seek
+        : (row?.closest<HTMLElement>('[data-ledger-well]') ?? null);
+    focusTarget?.focus({ preventScroll: true });
+  });
+</script>

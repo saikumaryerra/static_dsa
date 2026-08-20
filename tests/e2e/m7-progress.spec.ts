@@ -156,30 +156,55 @@ test.describe('/learn resume CTA', () => {
  * The home hero's continue line — the resume rewrite's second surface, and the
  * one with the most to lose: it sits above the fold on the site's most-visited
  * page, and it personalises a hero that must stay stable for first-time
- * visitors. The primary "Start learning" CTA is therefore asserted UNTOUCHED in
- * every state below.
+ * visitors. The primary CTA is therefore asserted UNTOUCHED in every state
+ * below.
+ *
+ * REDESIGN AMENDMENT H-2 moved the line's default. It used to ship visible and
+ * server-rendered pointing at lesson 01, back when the primary CTA read "Start
+ * learning" and went to the index. The CTA now says exactly what the line said —
+ * "Start with lesson 01", straight to the lesson — so on a first visit the two
+ * were the same sentence twice, one under the other. The line now ships `hidden`
+ * and the island reveals it ONLY once it can see a completed lesson on this
+ * device, which makes "hidden vs revealed" the behaviour under test here.
+ *
+ * That has a trap in it, and every test below is written around it: Playwright's
+ * `toHaveText` and `toHaveAttribute` read `textContent` and attributes, so they
+ * pass on a `hidden` element. A returning-reader assertion that checked only the
+ * wording would still pass if the reveal never fired, so the reveal is asserted
+ * with `toBeVisible()` FIRST and the wording second.
  */
 test.describe('home hero continue line', () => {
   /** The hero's primary CTA — deliberately never rewritten by the island. */
-  const startLearning = (page: Page) =>
-    page.getByRole('link', { name: 'Start learning' });
+  const startLesson01 = (page: Page) =>
+    page.getByRole('link', { name: 'Start with lesson 01', exact: true });
+  /** The whole line, which is what H-2 hides — not merely the link inside it. */
+  const resumeRoot = (page: Page) => page.locator('[data-resume-root]');
 
-  test('a first-time visitor gets the server-rendered "start" wording', async ({
+  test('a first-time visitor gets no continue line, and the CTA is the way in', async ({
     page,
   }) => {
     await page.goto(HOME);
 
-    await expect(resumeLabel(page)).toHaveText(
-      `Start with 01 · ${FIRST_LESSON.title}`,
-    );
-    await expect(resumeLink(page)).toHaveAttribute(
+    // Nothing finished on this device: there is nothing to continue, so the
+    // whole line stays down. Asserted on the ROOT, because H-2's claim is "no
+    // continue line at all" rather than "no link".
+    await expect(resumeRoot(page)).toBeHidden();
+    await expect(page.locator('[data-resume-done]')).toBeHidden();
+
+    // The single way in for this reader, and it is a real server-rendered link
+    // to the first lesson itself — not to the index, as it was before H-2.
+    await expect(startLesson01(page)).toBeVisible();
+    await expect(startLesson01(page)).toHaveAttribute(
       'href',
       `/learn/${FIRST_LESSON.slug}`,
     );
-    await expect(page.locator('[data-resume-done]')).toBeHidden();
-    // The hero itself is unchanged for someone with no history: same primary
-    // CTA, same destination, one clear starting point.
-    await expect(startLearning(page)).toHaveAttribute('href', '/learn');
+
+    // The anti-flash property the old visible-by-default test owned, kept: the
+    // hidden line already carries the REAL wording from `resumeLabel`, so the
+    // reveal can never swap one sentence for another in front of the reader.
+    await expect(resumeLabel(page)).toHaveText(
+      `Start with 01 · ${FIRST_LESSON.title}`,
+    );
   });
 
   test('a returning reader is pointed at their own next lesson', async ({
@@ -188,6 +213,10 @@ test.describe('home hero continue line', () => {
     await seedComplete(page, [FIRST_LESSON.slug]);
     await page.goto(HOME);
 
+    // The reveal itself, before any wording: with one lesson complete this
+    // reader is the only person the line has anything to tell (H-2).
+    await expect(resumeRoot(page)).toBeVisible();
+    await expect(resumeLink(page)).toBeVisible();
     await expect(resumeLabel(page)).toHaveText(
       `Continue: 02 · ${SECOND_LESSON.title}`,
     );
@@ -195,7 +224,12 @@ test.describe('home hero continue line', () => {
       'href',
       `/learn/${SECOND_LESSON.slug}`,
     );
-    await expect(startLearning(page)).toHaveAttribute('href', '/learn');
+    // The hero above it is untouched: the island rewrites one line and nothing
+    // else, so the CTA still offers lesson 01 to anyone who wants to restart.
+    await expect(startLesson01(page)).toHaveAttribute(
+      'href',
+      `/learn/${FIRST_LESSON.slug}`,
+    );
   });
 
   test('with everything complete the line stands down instead of linking somewhere arbitrary', async ({
@@ -218,16 +252,22 @@ test.describe('home hero continue line', () => {
   }) => {
     // The mechanism this exercises is the fragile one: a back/forward-cache
     // restore replays no script, so without the `pageshow` hook the reader
-    // returns to a hero still naming the lesson they just finished. Whether
-    // Chromium actually serves this navigation from bfcache is not the test's
-    // business — either way the line must be true when it is on screen.
+    // returns to a hero still in the state they left it. Whether Chromium
+    // actually serves this navigation from bfcache is not the test's business —
+    // either way the line must be true when it is on screen.
+    //
+    // Under H-2 that got MORE to prove, not less. The restore no longer just
+    // rewords a line that was always there: it has to bring the line into
+    // existence, because the reader left with nothing complete (line hidden) and
+    // comes back with one (line revealed, naming lesson 02). A `pageshow` hook
+    // that reran only the wording would leave a hero that still shows no
+    // continue line to a reader who has now finished something.
     await page.goto(HOME);
-    await expect(resumeLabel(page)).toHaveText(
-      `Start with 01 · ${FIRST_LESSON.title}`,
-    );
+    await expect(resumeRoot(page)).toBeHidden();
 
-    // Followed through the hero's own link, i.e. the real reader path.
-    await resumeLink(page).click();
+    // Entered through the hero's own primary CTA, i.e. the real path for a
+    // first-time visitor now that the CTA is the one way in.
+    await startLesson01(page).click();
     await expect(page).toHaveURL(new RegExp(`/learn/${FIRST_LESSON.slug}`));
     await page.locator('[data-mark-complete]').click();
     await expect(page.locator('[data-mark-complete]')).toHaveAttribute(
@@ -236,6 +276,8 @@ test.describe('home hero continue line', () => {
     );
 
     await page.goBack();
+    await expect(resumeRoot(page)).toBeVisible();
+    await expect(resumeLink(page)).toBeVisible();
     await expect(resumeLabel(page)).toHaveText(
       `Continue: 02 · ${SECOND_LESSON.title}`,
     );
@@ -622,26 +664,35 @@ test.describe("What's next — prev/next", () => {
 test.describe('JavaScript disabled', () => {
   test.use({ javaScriptEnabled: false });
 
-  test('the home hero keeps a real continue link, and its primary CTA', async ({
+  test('the home hero keeps a real way in, and offers no line it cannot fill', async ({
     page,
   }) => {
     await page.goto(HOME);
 
-    // Server-rendered, so the secondary line is a true and useful link even
-    // though the island that personalises it never runs.
-    await expect(resumeLabel(page)).toHaveText(
-      `Start with 01 · ${FIRST_LESSON.title}`,
-    );
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
-      `/learn/${FIRST_LESSON.slug}`,
-    );
-    // The all-complete line is JS-only and unknowable at build time: it must
-    // stay hidden rather than appear empty under the link.
+    // Nothing about the reader is knowable with no script, so under H-2 the
+    // continue line stays exactly where the build left it: down. This is the
+    // whole JS-off contract for it now — the line used to be server-rendered
+    // VISIBLE so a scriptless reader still had a true link, and it no longer
+    // needs to be, because the primary CTA below is that same link and says so
+    // in words. Both halves of the line are asserted hidden, so a regression
+    // that shipped an unfilled line — or an empty all-complete sentence under
+    // it — fails here rather than showing a stranger a resume prompt for a
+    // history that does not exist.
+    await expect(page.locator('[data-resume-root]')).toBeHidden();
     await expect(page.locator('[data-resume-done]')).toBeHidden();
+
+    // Nothing is lost by that: the CTA is server-rendered, goes to the same
+    // lesson the line would have offered, and needs no island to be true.
+    const cta = page.getByRole('link', {
+      name: 'Start with lesson 01',
+      exact: true,
+    });
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute('href', `/learn/${FIRST_LESSON.slug}`);
+    // …and the index is still one link away for a reader who wants to choose.
     await expect(
-      page.getByRole('link', { name: 'Start learning' }),
-    ).toBeVisible();
+      page.getByRole('link', { name: 'See all 15 lessons', exact: true }),
+    ).toHaveAttribute('href', LEARN);
   });
 
   test('/learn still points somewhere useful and exposes no dead control', async ({

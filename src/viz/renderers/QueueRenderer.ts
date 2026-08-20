@@ -12,7 +12,7 @@
  * (✕), `pointer` = front/rear (named carets), `active`, `range` = occupied run
  * (band; dimmed empties are the paired non-color cue).
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { slotId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, path, rect, text } from '../core/svg';
@@ -49,6 +49,17 @@ const ARC_Y = INDEX_Y + 12;
 const widthOf = (cap: number): number =>
   PAD * 2 + Math.max(cap, 1) * (SLOT + GAP) - GAP;
 const HEIGHT = ARC_Y + 26;
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup. A queue's
+ * capacity is fixed for a run, so this is constant across a trace — measured,
+ * not assumed (`npm run audit:frames`).
+ */
+const measure = (step: Step<QueueState>): Extent => ({
+  w: widthOf(step.state.slots.length),
+  h: HEIGHT,
+});
 
 function draw(step: Step<QueueState>): Canvas {
   const { slots, circular, head, size } = step.state;
@@ -142,8 +153,9 @@ function draw(step: Step<QueueState>): Canvas {
     }
   }
 
+  const box = measure(step);
   return {
-    viewBox: `0 0 ${widthOf(cap)} ${HEIGHT}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -154,4 +166,5 @@ function draw(step: Step<QueueState>): Canvas {
 export const queueRenderer: RendererModule<QueueState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

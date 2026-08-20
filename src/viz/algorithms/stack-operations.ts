@@ -99,12 +99,12 @@ function run(input: StackOperationsInput): Trace<StackOperationsState> {
     if (items.length > 0) {
       const newTop = items.length - 1;
       push(
-        `${value} is gone. ${items[newTop]} is now the top — the value pushed just before it.`,
+        `${value} is gone — ${items[newTop]} is now the top, the value pushed just before it.`,
         [topPointer(newTop)],
       );
     } else {
       // Popping the last item ends the trace, so state the totals here.
-      push(`${value} is gone. The stack is empty again. ${tally()}.`, []);
+      push(`${value} is gone — the stack is empty again. ${tally()}.`, []);
     }
   }
 

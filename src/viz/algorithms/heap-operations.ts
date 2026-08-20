@@ -113,7 +113,7 @@ function run(input: HeapOperationsInput): Trace<HeapOperationsState> {
 
   push(
     heap.length > 0
-      ? `Done. The max-heap is complete: every parent is ≥ its children, and the largest value (${heap[0]}) sits at the root. ${tally()}.`
+      ? `Done — the max-heap is complete: every parent is ≥ its children, and the largest value (${heap[0]}) sits at the root. ${tally()}.`
       : 'Done. The heap is empty.',
     heap.length > 0 ? [{ kind: 'active', ids: [cellId(0)] }] : [],
   );
