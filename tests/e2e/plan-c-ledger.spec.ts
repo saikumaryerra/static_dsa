@@ -33,7 +33,7 @@ test.describe('stable instrument ids', () => {
   test('instrument ids are stable and name their algorithm', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const ids = await instrumentIds(page);
 
     expect(ids).toHaveLength(2);
@@ -50,7 +50,7 @@ test.describe('stable instrument ids', () => {
   test('three instruments on one lesson get three clean, distinct ids', async ({
     page,
   }) => {
-    await page.goto('/learn/sorting-basics');
+    await page.goto('/learn/sorting-basics/');
     const ids = await instrumentIds(page);
 
     expect(ids).toEqual([
@@ -70,7 +70,7 @@ test.describe('stable instrument ids', () => {
   test('the derived control ids hang off the instrument id', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = page.locator('[data-viz]').first();
     const uid = await viz.getAttribute('id');
 
@@ -86,7 +86,7 @@ test.describe('stable instrument ids', () => {
 // Task 3 — the ledger's markup, server-rendered and inert until the island wakes
 // ---------------------------------------------------------------------------
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 
 /** The first instrument on the binary-search lesson, and its ledger. */
 function ledgerOf(viz: Locator): Locator {
@@ -251,7 +251,7 @@ test.describe('the ledger, server-rendered', () => {
   test('no authored run is capped, so no run claims to be', async ({
     page,
   }) => {
-    for (const path of [LESSON, '/learn/sorting-basics']) {
+    for (const path of [LESSON, '/learn/sorting-basics/']) {
       await page.goto(path);
       await expect(page.locator('.viz-ledger__cap')).toHaveCount(0);
     }
@@ -286,7 +286,7 @@ test.describe('showLedger, and the prop it must not contradict', () => {
    * else's run is not what either page is showing.
    */
   test('/about hosts an instrument and no ledger', async ({ page }) => {
-    await page.goto('/about');
+    await page.goto('/about/');
     await expect(page.locator('[data-viz]')).toHaveCount(1);
     await expect(page.locator('[data-ledger]')).toHaveCount(0);
   });
@@ -338,7 +338,7 @@ test.describe('showLedger, and the prop it must not contradict', () => {
       'comparisons',
     ]);
 
-    await page.goto('/learn/trees-bst');
+    await page.goto('/learn/trees-bst/');
     expect(await headersOf(page.locator('[data-ledger]').first())).toEqual([
       '#',
       'what happened',
@@ -411,7 +411,7 @@ test.describe('axe, with every ledger opened', () => {
       );
       // Three instruments, the longest authored runs on the site (29/33/31
       // rows), and therefore the widest and tallest wells.
-      await page.goto('/learn/sorting-basics');
+      await page.goto('/learn/sorting-basics/');
       const roots = page.locator('[data-viz]');
       const count = await roots.count();
       for (let i = 0; i < count; i += 1) {
@@ -443,7 +443,7 @@ test.describe('axe, with every ledger opened', () => {
 // ---------------------------------------------------------------------------
 
 /** The bubble-sort instrument on `sorting-basics`, and its authored run. */
-const SORTING = '/learn/sorting-basics';
+const SORTING = '/learn/sorting-basics/';
 const BUBBLE = {
   authored: 29,
   custom: '[9,8,7,6,5,4,3,2,1]',
@@ -1294,7 +1294,7 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
     let found = 0;
 
     for (const lesson of lessons) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       const targets = await page
         .locator('a[data-step-link]')
         .evaluateAll((links) =>

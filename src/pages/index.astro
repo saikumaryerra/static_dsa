@@ -158,7 +158,7 @@ const num = (order: number) => String(order).padStart(2, '0');
       </p>
       <div class="hero__actions">
         <a
-          href={firstLesson ? `/learn/${firstLesson.slug}` : '/learn'}
+          href={firstLesson ? `/learn/${firstLesson.slug}/` : '/learn/'}
           class="btn-primary"
         >
           Start with lesson 01
@@ -169,7 +169,7 @@ const num = (order: number) => String(order).padStart(2, '0');
              (M5 design §3.3). Arrow in its own span so translations never bake
              it into the label. */
         }
-        <a href="/learn" class="hero__secondary">
+        <a href="/learn/" class="hero__secondary">
           See all {totalLessons} lessons <span aria-hidden="true">→</span>
         </a>
       </div>
@@ -197,7 +197,7 @@ const num = (order: number) => String(order).padStart(2, '0');
             hidden
           >
             <a
-              href={`/learn/${firstLesson.slug}`}
+              href={`/learn/${firstLesson.slug}/`}
               class="hero__resume-link"
               data-resume-link
             >
@@ -234,7 +234,7 @@ const num = (order: number) => String(order).padStart(2, '0');
       />
       <p class="hero__stage-note">
         The real lesson visualization, running here. <a
-          href="/learn/binary-search"
+          href="/learn/binary-search/"
           >Open the lesson <span aria-hidden="true">→</span></a
         >
       </p>
@@ -275,7 +275,7 @@ const num = (order: number) => String(order).padStart(2, '0');
         tracks.map((track) => (
           <div class="track">
             <h3 class="track__title">
-              <a href={`/learn#track-${track.id}`}>{track.heading}</a>
+              <a href={`/learn/#track-${track.id}`}>{track.heading}</a>
             </h3>
             <p class="track__meta tabular-nums">
               {track.count} lessons · ~{track.totalMinutes} min · {track.spread}
@@ -283,7 +283,7 @@ const num = (order: number) => String(order).padStart(2, '0');
             <ol class="track__list" role="list">
               {track.lessons.map((lesson) => (
                 <li>
-                  <a href={`/learn/${lesson.data.slug}`} class="track__lesson">
+                  <a href={`/learn/${lesson.data.slug}/`} class="track__lesson">
                     <span class="track__num tabular-nums" aria-hidden="true">
                       {num(lesson.data.order)}
                     </span>
@@ -343,7 +343,7 @@ const num = (order: number) => String(order).padStart(2, '0');
     <h2 class="close__title">Start where the rest of it builds from.</h2>
     {
       firstLesson && (
-        <a href={`/learn/${firstLesson.slug}`} class="btn-primary">
+        <a href={`/learn/${firstLesson.slug}/`} class="btn-primary">
           Begin: {num(firstLesson.order)} · {firstLesson.title}
         </a>
       )
@@ -692,7 +692,7 @@ const num = (order: number) => String(order).padStart(2, '0');
 
     const text = resumeLabel(next, completed, list.length);
     if (next) {
-      link.href = `/learn/${next.slug}`;
+      link.href = `/learn/${next.slug}/`;
       label.textContent = text;
       done.hidden = true;
       link.hidden = false;

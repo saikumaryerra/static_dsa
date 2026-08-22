@@ -135,14 +135,17 @@ const THEMES = ['light', 'dark'] as const;
 /** Routes captured with JS enabled (the full, hydrated page). */
 const ROUTES: { name: string; path: string; hydrates: boolean }[] = [
   { name: 'home', path: '/', hydrates: false },
-  { name: 'learn-index', path: '/learn', hydrates: false },
+  { name: 'learn-index', path: '/learn/', hydrates: false },
   {
     name: 'lesson-binary-search',
-    path: '/learn/binary-search',
+    path: '/learn/binary-search/',
     hydrates: true,
   },
-  { name: 'glossary', path: '/glossary', hydrates: false },
-  { name: 'not-found', path: '/404', hydrates: false },
+  { name: 'glossary', path: '/glossary/', hydrates: false },
+  // `/404/`, not `/404`: the slashless form serves Astro preview's own error
+  // page under `trailingSlash: 'always'`, which would re-seed this baseline
+  // against a document the site does not ship.
+  { name: 'not-found', path: '/404/', hydrates: false },
 ];
 
 /**

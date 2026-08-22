@@ -108,7 +108,7 @@ function expectFrozen(frames: Frame[], expected: string): void {
 
 test.describe('one viewBox per trace', () => {
   test('the BST canvas does not resize while stepping', async ({ page }) => {
-    await page.goto('/learn/trees-bst');
+    await page.goto('/learn/trees-bst/');
     const viz = await hydrateViz(page);
     // The worst offender in the audit: the tree opened at 40x66 (an "empty tree"
     // label) and finished at 380x222, an 825px swing on a desktop viewport.
@@ -116,7 +116,7 @@ test.describe('one viewBox per trace', () => {
   });
 
   test('the array canvas does not resize while stepping', async ({ page }) => {
-    await page.goto('/learn/arrays');
+    await page.goto('/learn/arrays/');
     const viz = await hydrateViz(page);
     // ArrayRenderer is the one family that draws its own root `<svg>` instead of
     // going through `renderers/shared`'s `createRenderer`/`fitToExtent`, so its
@@ -128,7 +128,7 @@ test.describe('one viewBox per trace', () => {
   test('the stack grows upward from a ground line that stays put', async ({
     page,
   }) => {
-    await page.goto('/learn/stacks');
+    await page.goto('/learn/stacks/');
     const viz = await hydrateViz(page);
     const canvas = viz.locator('[data-viz-canvas]');
     const forward = viz.locator('[data-viz-forward]');
@@ -186,7 +186,7 @@ test.describe('a new trace brings its own box', () => {
   test('a custom run and "Restore example" both refreeze the canvas', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = await hydrateViz(page, VIZ);
     const svg = viz.locator('[data-viz-canvas] svg');
     // The authored run is six cells wide.
@@ -242,7 +242,7 @@ test.describe('the legibility floor under a frozen extent', () => {
   test('--viz-natural-w holds still across a run on the renderer that grows most', async ({
     page,
   }) => {
-    await page.goto('/learn/trees-bst');
+    await page.goto('/learn/trees-bst/');
     const viz = await hydrateViz(page);
     const canvas = viz.locator('[data-viz-canvas]');
     const forward = viz.locator('[data-viz-forward]');
@@ -276,7 +276,7 @@ test.describe('the legibility floor under a frozen extent', () => {
   test('a horizontally overflowing canvas is still a reachable scroll region', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = await hydrateViz(page, VIZ);
     const canvas = viz.locator('[data-viz-canvas]');
 
@@ -313,7 +313,7 @@ test.describe('the legibility floor under a frozen extent', () => {
   test('the 6-cell default array still fits without scrolling at 390px', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = await hydrateViz(page, VIZ);
     // This is the 0.75's own documented rationale — it was chosen over the
     // intrinsic 100% because "a 6-cell default would otherwise start scrolling
@@ -354,7 +354,7 @@ test.describe('custom input accepts the advertised format', () => {
   test('a bare comma-separated list runs on binary search', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = await hydrateViz(page, VIZ);
     const svg = viz.locator('[data-viz-canvas] svg');
     // The authored run is six cells wide (`viewWidth(6)` = 384).
@@ -374,7 +374,7 @@ test.describe('custom input accepts the advertised format', () => {
   test('an unsorted bare list reaches the sorted-precondition message', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = await hydrateViz(page, VIZ);
 
     // The exact reproduction. Before the fix the bare list never got past the
@@ -405,7 +405,7 @@ test.describe('custom input accepts the advertised format', () => {
   test('the rewritten fallback still blames the array field', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const viz = await hydrateViz(page, VIZ);
 
     // An empty first field is the branch the fallback message survives for: the
@@ -428,7 +428,7 @@ test.describe('custom input accepts the advertised format', () => {
   });
 
   test('a graph instrument is unaffected by the wrap', async ({ page }) => {
-    await page.goto('/learn/graph-traversal');
+    await page.goto('/learn/graph-traversal/');
     // Two visualizers on this lesson (BFS then DFS); `.first()` is BFS.
     const viz = await hydrateViz(page);
     const canvas = viz.locator('[data-viz-canvas]');
@@ -451,7 +451,7 @@ test.describe('custom input accepts the advertised format', () => {
   test('a DP instrument with no target field is unaffected by the wrap', async ({
     page,
   }) => {
-    await page.goto('/learn/dynamic-programming');
+    await page.goto('/learn/dynamic-programming/');
     // Two visualizers (tabulation then memoization); `.first()` is tabulation.
     // It renders NO target field, so the composer's second argument is `''` —
     // the case where a wrapped `[8]` would have been read as a list, not an `n`.

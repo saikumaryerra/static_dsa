@@ -39,8 +39,8 @@ import {
 } from './utils/mastery';
 
 const LESSON = 'arrays';
-const LESSON_URL = `/learn/${LESSON}`;
-const LEARN = '/learn';
+const LESSON_URL = `/learn/${LESSON}/`;
+const LEARN = '/learn/';
 
 /** Accessible names of every button a reader can actually see and press. */
 async function visibleButtonNames(page: Page): Promise<string[]> {

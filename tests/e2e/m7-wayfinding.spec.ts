@@ -31,7 +31,7 @@ import {
   waitForAnchorScroll,
 } from './utils/scroll';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 
@@ -535,7 +535,7 @@ test.describe('"Builds on:" prerequisites', () => {
     for (const href of await links.evaluateAll((els) =>
       els.map((el) => (el as HTMLAnchorElement).getAttribute('href')),
     )) {
-      expect(href).toMatch(/^\/learn\/[a-z-]+$/);
+      expect(href).toMatch(/^\/learn\/[a-z-]+\/$/);
       // A chip pointing at a 404 would be worse than no chip: the build guard
       // in [slug].astro exists to prevent it, and this proves it holds in the
       // shipped output.
@@ -546,7 +546,7 @@ test.describe('"Builds on:" prerequisites', () => {
   test('a lesson with no prerequisites shows no empty row', async ({
     page,
   }) => {
-    await page.goto('/learn/complexity-big-o');
+    await page.goto('/learn/complexity-big-o/');
     await expect(page.locator('.lesson__prereqs')).toHaveCount(0);
   });
 

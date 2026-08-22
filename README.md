@@ -124,6 +124,13 @@ if it looks like an improvement.
   prefix, and there is **no behavioral tracking** — only explicit clicks and self-reports are stored.
   Never infer progress from scroll depth or time on page. It is also **per-device with no sync**: a
   reader's progress lives in one browser profile and nothing ever leaves it.
+- **Every internal page link carries a trailing slash.** The site builds as directories
+  (`trailingSlash: 'always'`), so `/learn/binary-search/` is the published URL and the slashless
+  spelling is **not served** — it 404s rather than redirecting, which is what makes a missed slash
+  fail loudly instead of quietly costing a redirect. The slash goes on the _path_, before any query
+  or fragment (`/learn/#track-arrays`, never `/learn#track-arrays/`). Canonical, `og:url` and every
+  sitemap `<loc>` must name the exact URL the page is served at; `tests/e2e/url-shape.spec.ts` fails
+  the run when one disagrees. Asset URLs (`/favicon.svg`, `/_astro/…`) are files and take no slash.
 - **WCAG 2.1 AA.** Real buttons and inputs, full keyboard operability, `aria-live="polite"` step
   explanations, never colour as the only signal, and `prefers-reduced-motion` respected. Motion
   durations come only from the `--duration-*` tokens (reduced motion collapses them in one place);

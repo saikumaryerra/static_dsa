@@ -14,7 +14,7 @@ import { getCollection } from 'astro:content';
  * Static, non-lesson routes to list. Kept in one place so a new top-level page is
  * a single-line edit here (arch §4.1 trade-off). `/404` is deliberately excluded.
  */
-const STATIC_PATHS = ['/', '/learn', '/glossary', '/about'] as const;
+const STATIC_PATHS = ['/', '/learn/', '/glossary/', '/about/'] as const;
 
 export const GET: APIRoute = async ({ site }) => {
   // `site` comes from astro.config.mjs and is guaranteed set at build time.
@@ -24,7 +24,7 @@ export const GET: APIRoute = async ({ site }) => {
     'lessons',
     ({ data }) => data.published,
   );
-  const lessonPaths = published.map((l) => `/learn/${l.data.slug}`);
+  const lessonPaths = published.map((l) => `/learn/${l.data.slug}/`);
 
   const urls = [...STATIC_PATHS, ...lessonPaths]
     .map((path) => `  <url><loc>${toLoc(path)}</loc></url>`)

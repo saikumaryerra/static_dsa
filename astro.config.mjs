@@ -29,10 +29,25 @@ const site =
 export default defineConfig({
   site,
   output: 'static',
-  // C1: emit `about.html` (served at /about, no redirect) instead of
-  // `about/index.html` (served at /about/), so the no-slash canonicals + sitemap
-  // are literally correct and consistent across every route.
-  build: { format: 'file' },
+  // D1 (docs/superpowers/plans/2026-08-21-plan-d-portable-artifact.md §5.1/§5.2).
+  // These two constants are ONE decision and are kept adjacent for that reason.
+  //
+  // REVERSES C1, which emitted `about.html` and relied on the host resolving
+  // `/about` to it. Cloudflare, Netlify, Vercel and GitHub Pages all do that —
+  // plain static servers do NOT: `python -m http.server` and an S3 website
+  // endpoint both 404 on `/about`. `about/index.html` served at `/about/` is the
+  // shape EVERY one of those hosts serves natively, which is why R2 ("any host,
+  // including a plain static server") forces directory format. It is also the
+  // precondition for D2's relative-URL pass: a relative link resolves against the
+  // DOCUMENT url, so `../glossary/` is only correct from `/learn/binary-search/`.
+  //
+  // `trailingSlash: 'always'` makes the slash the single PUBLISHED shape.
+  // Astro's own preview 404s the slashless form rather than redirecting it
+  // (measured: `/about` → 404, `/about/` → 200), so every authored internal link,
+  // every canonical/og:url and every sitemap <loc> carries the slash — which is
+  // what stops a page self-canonicalizing at a URL the host would 301.
+  build: { format: 'directory' },
+  trailingSlash: 'always',
   integrations: [mdx()],
   markdown: {
     // Dual-theme Shiki (spec §12/§13 AA): emit CSS-variable tokens so code blocks

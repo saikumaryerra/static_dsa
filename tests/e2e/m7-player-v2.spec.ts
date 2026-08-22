@@ -16,7 +16,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { openCustomInput } from './utils/disclosure';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 // The lesson hosts two array visualizers; scope to the binary-search one, as
 // every other binary-search spec does.
 const VIZ = '#viz-binary-search';

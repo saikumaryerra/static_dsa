@@ -4,6 +4,8 @@ How to build and deploy LearnDSA to production. The site is a **fully static, pr
 
 > **Re-audited against the repo after M7 (UX overhaul) and M8 (mastery loop) shipped.** Every command, path and claim below was re-checked against the working tree and a built `dist/` rather than carried forward — §2.3 (the OG card), §3 (the gate and the shape of `dist/`), §5 (the workflow that is actually committed), §6 (`public/_headers`) and §7 (what M7/M8 added to the post-deploy list) all changed as a result. The one check that stays a manual judgement is Lighthouse (§7): there is no Lighthouse tooling in this repo.
 
+> **Corrected again after Plan D stage D1 — the URL shape.** Every page is now published at a trailing-slash URL (`/about/`, `/learn/binary-search/`); the amendment and its reasoning are in `docs/redesign-2026-08/03-amendments.md` (U-1). §0, §2.2, §3.2, §3.3, §4.4, §7, §9 and the appendix were corrected against a real directory-format build. **§2.1 is unchanged and still current** — the origin is still resolved at build time from `astro.config.mjs`.
+
 > **The one thing you must not skip:** the production origin. It already resolves correctly for the `*.pages.dev` deployment with no action from you (§2.1) — but canonicals, Open Graph/Twitter tags, `sitemap.xml`, `robots.txt` and JSON-LD all derive from it, and **pointing a custom domain at the site does not update it**. Add a domain ⇒ do §2.1's one-line change and rebuild, or every page keeps advertising the `pages.dev` origin.
 
 ---
@@ -13,7 +15,7 @@ How to build and deploy LearnDSA to production. The site is a **fully static, pr
 **Primary: Cloudflare Pages building from the git integration, with GitHub Actions running the full DoD gate on every push and PR. Runner-up: Netlify** (near-identical fit — pick it if you're already in that ecosystem). §4 documents every host generically; this is the recommended pick for *this* repo, and two facts in the repo drive it:
 
 1. **`public/_headers` already exists** — that format is honored by **Cloudflare Pages and Netlify only**; GitHub Pages silently ignores it, so the security headers this project ships would not take effect there.
-2. **`build.format: 'file'`** produces clean, no-trailing-slash URLs (`/about`, `/learn/binary-search`) that match the canonicals + sitemap exactly; Cloudflare/Netlify serve them natively.
+2. **`build.format: 'directory'` + `trailingSlash: 'always'`** publish every page at a slash URL (`/about/`, `/learn/binary-search/`) — the one shape *every* static host serves natively, plain ones included. This used to be the second reason to prefer Cloudflare/Netlify (`format: 'file'` needed a host that resolves `/about` → `about.html`); it is **no longer a differentiator at all**, so the tiebreak now rests on point 1 and on bandwidth. See amendment U-1 in `docs/redesign-2026-08/03-amendments.md`.
 
 Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — ideal for an educational site that may get bursty traffic — at **$0**. Explicitly **not** recommended for this workload: Kubernetes/containers, Terraform/Bicep/IaC, an SSR adapter, or S3+CloudFront — there is no server, state, or runtime secret, so heavier infra adds cost and attack surface with zero benefit.
 
@@ -87,24 +89,21 @@ grep -o '<link rel="canonical"[^>]*>' dist/index.html
 grep -o '<meta property="og:image"[^>]*>' dist/index.html
 ```
 
-### 2.2 Sub-path vs. root domain (affects GitHub Pages "project" sites)
+### 2.2 Sub-path hosting is **not supported** — and `base` does not fix it
 
-The site is currently configured for a **root deployment** (served at `/`). If — and only if — you deploy to a URL with a **base path** (e.g. GitHub Pages *project* site `https://user.github.io/repo/`), you must **also** set `base`:
+The site is built for a **root deployment** (served at `/`). Deploying it under a base path — a GitHub Pages *project* site `https://user.github.io/repo/`, or `https://example.com/learndsa` — does not work today, and **setting Astro's `base` does not make it work.** This section previously said it did; that was wrong, and the mistake is expensive because it fails *silently*.
 
-```js
-export default defineConfig({
-  site: 'https://user.github.io',
-  base: '/repo/',            // required ONLY for sub-path hosting
-  output: 'static',
-});
-```
+**Why `base` is not enough.** Astro rewrites only the URLs **it** generates — its own `/_astro/…` script and style tags. Every hand-written internal URL in the source stays root-absolute and is untouched: the nav and footer hrefs, the breadcrumb, prev/next, lesson-card links, the 40 `](/glossary/#…)` links written in lesson prose, and the two `url("/fonts/…")` references in `src/styles/tokens.css`. Under `example.com/learndsa` the assets would resolve and every one of those links would point at `example.com/…` — so the page renders correctly and the navigation is dead. That is the worst shape a failure can take.
 
-Astro then prefixes internal asset/link URLs with `base`. **You do not need `base`** for:
+**So: never set `base`.** None of the supported deployments need it —
+
 - a custom domain (`https://your-domain.com`)
 - a GitHub Pages **user/org** site (`https://user.github.io/`)
 - Netlify / Vercel / Cloudflare Pages (they serve at root)
 
-Leaving a stray `base` set on a root deployment breaks all asset paths, so only add it when the host truly serves under a sub-path.
+— and a stray `base` on a root deployment breaks asset paths for nothing in return.
+
+**The real fix is designed and tracked, not shipped.** `docs/superpowers/plans/2026-08-21-plan-d-portable-artifact.md` (§3–§4) carries it: internal URLs have to become **document-relative**, and that cannot be done in config at all, because `base` is root-absolute by contract and `assetsPrefix` is one fixed string for pages at three different depths. Stage **D1 has shipped** and is the precondition — a relative URL resolves against the document URL, so `../glossary/` is only correct from `/learn/binary-search/`, which is why the trailing slash came first. The relative pass itself (stage D2) has not shipped. Until it does, host at a root.
 
 ### 2.3 The OG card — generated, not a placeholder (nothing to do before launch)
 
@@ -145,8 +144,8 @@ npm ci                 # clean, lockfile-exact install
 npm run build          # astro check (type-check) + astro build → dist/
 npm run lint           # ESLint
 npm run format:check   # Prettier
-npm run test           # Vitest unit suite  (48 spec files, node env — no DOM, no localStorage)
-npm run test:e2e       # Playwright + axe   (32 spec files; needs: npx playwright install chromium)
+npm run test           # Vitest unit suite  (60 spec files, node env — no DOM, no localStorage)
+npm run test:e2e       # Playwright + axe   (35 spec files; needs: npx playwright install chromium)
 ```
 
 `npm run build` is `astro check && astro build` — **type errors fail the build**, which is intended (it's a real gate, not just an editor nicety).
@@ -165,16 +164,20 @@ npm run preview        # serves dist/ locally, defaults to http://localhost:4321
 
 ### 3.2 What a correct `dist/` looks like
 
-`build.format: 'file'` means routes are emitted as **files, not directories** — `about.html` served at `/about`. Expect exactly:
+`build.format: 'directory'` means routes are emitted as **directories, not files** — `about/index.html` served at `/about/`, and with `trailingSlash: 'always'` that slash URL is the only form the site publishes (§2.2, amendment U-1). Expect exactly:
 
 ```
 dist/
-├─ index.html  404.html  about.html  glossary.html  learn.html
-├─ learn/<slug>.html            × 15 lessons
-├─ dev/renderers.html           dev-only gallery — prod-gated, noindex, no renderer JS
-├─ sitemap.xml  robots.txt      19 <loc> entries: 4 static routes + 15 lessons
+├─ index.html                   the home page, served at /
+├─ 404.html                     stays at the ROOT — directory format does not move it,
+│                               because a 404 is not a page with an address
+├─ about/index.html  glossary/index.html  learn/index.html
+├─ learn/<slug>/index.html      × 15 lessons
+├─ dev/renderers/index.html     dev-only gallery — prod-gated, noindex, no renderer JS
+├─ sitemap.xml  robots.txt      19 <loc> entries: 4 static routes + 15 lessons, every one slashed
 ├─ favicon.svg  favicon-32.png  apple-touch-icon.png
 ├─ og-default.png  og-source.svg
+├─ fonts/                       the two committed IBM Plex subsets, preloaded by BaseLayout
 ├─ _headers                     consumed by the host, never served (§6)
 └─ _astro/                      content-hashed CSS + JS chunks
 ```
@@ -188,7 +191,7 @@ Cheap greps that catch the mistakes that are expensive to catch in production. R
 grep -rhoE 'https?://[a-zA-Z0-9.-]+' --include=*.html --include=*.js --include=*.css dist/ | sort -u
 
 # The 404 must not be indexable, and the dev gallery must not be either.
-grep -o '<meta name="robots"[^>]*>' dist/404.html dist/dev/renderers.html
+grep -o '<meta name="robots"[^>]*>' dist/404.html dist/dev/renderers/index.html
 
 # No runtime network calls anywhere in the shipped JS (spec §4). Expect no output.
 grep -rlE '\bfetch\(|XMLHttpRequest|navigator\.sendBeacon' dist/_astro/
@@ -196,6 +199,8 @@ grep -rlE '\bfetch\(|XMLHttpRequest|navigator\.sendBeacon' dist/_astro/
 # Sitemap: 19 URLs, all on your origin, and NO /dev/renderers entry.
 grep -c '<loc>' dist/sitemap.xml && grep -c 'dev/renderers' dist/sitemap.xml   # → 19, then 0
 ```
+
+> **The URL shape needs no grep here** — `tests/e2e/url-shape.spec.ts` (part of `npm run test:e2e`, §3.1) asserts it against the running preview: every page's canonical and `og:url` match the URL it is served at, every `<loc>` returns 200 with no redirect hop, and no built page links to a slashless page URL. A missing trailing slash is a red suite, not a manual check.
 
 > **`/dev/renderers`:** the developer-only renderer gallery is **prod-gated** (`import.meta.env.DEV`) — in a production build none of its islands render, so no renderer chunk is referenced, and it is excluded from the sitemap. It carries `<meta name="robots" content="noindex">`, which is the right control: a `robots.txt` `Disallow` would *stop* crawlers reading that tag and can leave a URL-only entry in the index. Leave `robots.txt` alone.
 
@@ -274,7 +279,7 @@ Cloudflare Pages serves `404.html` for not-found routes automatically. **`public
 
 ### 4.4 GitHub Pages (via GitHub Actions)
 
-GitHub Pages needs a build step (it won't run `npm run build` for you). Use the official Pages Actions. **If this is a project site** (`user.github.io/repo`), set `base: '/repo/'` per §2.2 first.
+GitHub Pages needs a build step (it won't run `npm run build` for you). Use the official Pages Actions. **This must be a user/org site** (`user.github.io`) or a custom domain: a *project* site serves under `/repo/`, which this build does not support — and `base` does not fix it (§2.2).
 
 Create **`.github/workflows/deploy.yml`**:
 
@@ -322,7 +327,7 @@ jobs:
 
 Then in the repo: **Settings → Pages → Source = "GitHub Actions."** For a custom domain, add it there and drop a `CNAME` file in `public/`.
 
-> **GitHub Pages ignores `public/_headers` and offers no way to set response headers**, so every security header and both cache rules in §6 are silently lost — that, plus the `base` sub-path complication above, is why §0 does not recommend it for this repo.
+> **GitHub Pages ignores `public/_headers` and offers no way to set response headers**, so every security header and both cache rules in §6 are silently lost — that, plus the project-site sub-path limitation above, is why §0 does not recommend it for this repo.
 
 ---
 
@@ -438,8 +443,8 @@ The e2e suite already proves the behavior against a local build; this list is fo
 
 **Origin, SEO and social**
 
-- [ ] **Canonical/OG use the deployed origin:** view-source on the home + a lesson → `<link rel="canonical">`, `og:url` and `og:image` all carry your domain. A wrong origin here is the §2.1 mistake and is worth catching before anything gets indexed.
-- [ ] **Sitemap:** `https://your-domain/sitemap.xml` lists **19 URLs** — 4 static routes + 15 lessons — every `<loc>` on your domain, and **no `/dev/renderers`**.
+- [ ] **Canonical/OG use the deployed origin:** view-source on the home + a lesson → `<link rel="canonical">`, `og:url` and `og:image` all carry your domain. A wrong origin here is the §2.1 mistake and is worth catching before anything gets indexed. (The *path* half — canonical == the URL it was served at — is already covered by `url-shape.spec.ts`; only the origin is deploy-specific.)
+- [ ] **Sitemap:** `https://your-domain/sitemap.xml` lists **19 URLs** — 4 static routes + 15 lessons — every `<loc>` on your domain, **trailing-slashed** (`/learn/binary-search/`), and **no `/dev/renderers`**. Click one: it must return 200 directly, not a redirect.
 - [ ] **Robots:** `https://your-domain/robots.txt` → `Allow: /` plus a `Sitemap:` line on your domain.
 - [ ] **404:** a bad URL serves the friendly page and it carries `<meta name="robots" content="noindex">`. `/dev/renderers` does too.
 - [ ] **The OG card renders in a real link preview.** Paste the home URL into whatever your audience uses (Slack, X, LinkedIn, Discord) and confirm the branded 1200×630 card appears — not a blank frame or a cropped logo. This is the one §2.3 check a local build cannot make: scrapers fetch the **absolute** `og:image` URL over the public internet. If a scraper shows a stale card after regenerating, that is its own cache, not yours (§6 keeps the asset revalidating hourly).
@@ -452,8 +457,8 @@ The e2e suite already proves the behavior against a local build; this list is fo
 - [ ] **Lighthouse (mobile) meets §14 targets** on home + a lesson + glossary — Perf ≥ 95, A11y 100, Best-Practices ≥ 95, SEO ≥ 95. There is no Lighthouse tooling in the repo, so this stays a manual run:
   ```bash
   npx lighthouse https://your-domain/ --view
-  npx lighthouse https://your-domain/learn/binary-search --view
-  npx lighthouse https://your-domain/glossary --view
+  npx lighthouse https://your-domain/learn/binary-search/ --view
+  npx lighthouse https://your-domain/glossary/ --view
   ```
   (At M5 a local build scored 97/100/100/100 and 100/100/100/100. Re-confirm on the real origin — CDN headers and the resolved canonical both move these numbers.)
 - [ ] **Both themes:** toggle light/dark on a lesson; code blocks and diagrams stay legible, and the browser chrome colour follows (`theme-color`).
@@ -500,8 +505,8 @@ Every deploy is an immutable static bundle, so rollback is instant and total —
 |---|---|---|
 | Canonical/OG/sitemap show `static-dsa.pages.dev` after moving to a custom domain | `CF_PAGES_URL` does not change for custom domains, so the fallback `PRODUCTION_URL` is what shipped | §2.1 — set a `SITE_URL` build variable in the Cloudflare dashboard (or edit `PRODUCTION_URL`), then redeploy. |
 | Canonical/OG show a **preview** URL | Someone set `SITE_URL` on a preview build, or `CF_PAGES_BRANCH` is not `main` on the production branch | §2.1 — previews deliberately canonicalize to production. Unset the override; check the Pages project's production branch really is `main`. |
-| CSS/JS 404s, unstyled page on GitHub Pages project site | Missing `base` for the sub-path | §2.2 — set `base: '/repo/'`, rebuild. |
-| Assets 404 on a root domain after adding `base` | Stray `base` on a root deploy | Remove `base`; it's only for sub-path hosts. |
+| CSS/JS 404s, unstyled page on a GitHub Pages **project** site | The site is built for root hosting; a project site serves it under `/repo/` | §2.2 — sub-path hosting is not supported, and `base` does **not** fix it (it leaves every hand-written link root-absolute). Use a user/org site or a custom domain. |
+| Every link goes to the origin root on a sub-path deploy — page renders fine, navigation is dead | Someone set `base` expecting it to relocate the whole site | §2.2 — remove `base`; this repo never sets it. The relative-URL pass that would make sub-paths work is Plan D stage D2 and has not shipped. |
 | Build fails in CI but works locally | Type error caught by `astro check`, or Node below the 22.12.0 floor | Fix the type error; ensure the runner reads `.nvmrc` (Node 24). Astro 7 refuses to build on Node 20 with "Node.js vX is not supported by Astro!". |
 | `npm run test:e2e` fails in CI with "browser not found" | Playwright browsers not installed | Add `npx playwright install --with-deps chromium` before the e2e step. |
 | `npm run test:e2e` fails locally with a port/server error | It builds and previews on **4321**; something else holds the port | Free port 4321 (or stop the dev server) and re-run. On CI it previews the already-built `dist/`. |
@@ -510,18 +515,19 @@ Every deploy is an immutable static bundle, so rollback is instant and total —
 | A reader sees no pips, no review cards, no trials | JavaScript is disabled (or blocked) in that browser | By design: every gamification component ships a `<noscript>` kill-switch, so no dead controls appear. Prose, code and navigation still work. |
 | Security headers missing in production | The host does not read `public/_headers` | Expected on Vercel and GitHub Pages (§4.2/§6). On Cloudflare/Netlify, confirm the file reached `dist/` — it is copied verbatim from `public/`. |
 | A replaced favicon or OG card keeps serving the old image | A CDN/browser/scraper cache, not the build | §6 keeps those unhashed assets on a 1-hour revalidating cache; purge the host cache if you cannot wait, and remember social scrapers keep their own copy. |
-| Duplicate/trailing-slash URL mismatch between canonical and sitemap | Host forces trailing slashes | `astro.config.mjs` sets `build.format: 'file'` — pages emit as `about.html` served at `/about` (no trailing slash), matching the no-slash canonicals + sitemap. Deploy to a host that serves `about.html` at `/about` without a 301 (Cloudflare Pages / Netlify do). If a host forces trailing slashes, either switch to `build.format: 'directory'` and add trailing slashes to the canonicals + sitemap, or pick a host that respects the file format. |
+| A link, canonical or `<loc>` names `/about` and gets a 301 in production — or a hard **404** under `astro preview` | An internal URL authored without the trailing slash. `astro.config.mjs` sets `trailingSlash: 'always'`, so `/about/` is the only published form, and Astro's preview **refuses** the slashless one rather than redirecting it (measured: `/about` → 404) | Add the slash — on the **path**, before any `?query` or `#fragment`: `/glossary/#array`, never `/glossary#array/`. `tests/e2e/url-shape.spec.ts` fails on a slashless internal link, on a `<loc>` that is not served, and on a canonical that disagrees with the URL it was served at, so this shows up in the gate rather than in production. |
+| Every URL 404s on `python -m http.server`, an S3 website endpoint or a default nginx | An old `format: 'file'` build (`about.html`), which needs a host that guesses `/about` → `about.html` | Rebuild: `build.format: 'directory'` emits `about/index.html`, which every one of those serves natively at `/about/`. That is what amendment U-1 changed. |
 | Code-block comments look low-contrast | An old single-theme Shiki config | Already fixed — dual-theme (`github-light`/`github-dark-default`) in `astro.config.mjs`; don't revert it (WCAG AA). |
 
 ---
 
 ## Appendix — deployment facts at a glance
 
-- **Framework/output:** Astro `output: 'static'` → `dist/` (prerendered HTML/CSS/JS), `build.format: 'file'` (`/about`, no trailing slash).
+- **Framework/output:** Astro `output: 'static'` → `dist/` (prerendered HTML/CSS/JS), `build.format: 'directory'` + `trailingSlash: 'always'` — every page is `<route>/index.html` published at `/about/`, `/learn/binary-search/`. `dist/404.html` is the one file that stays at the root.
 - **Build:** `npm run build` = `astro check && astro build`. **Install:** `npm ci`. **Node:** 24 via `.nvmrc` (floor ≥ 22.12.0 — Astro 7 will not build on Node 20).
 - **Publish dir:** `dist`. **Server/adapter:** none. **Runtime secrets/env:** none. **Deploy-time secrets:** none in the committed topology (git integration); two Cloudflare secrets only in §5.3's Direct Upload alternative.
-- **Single build-time config:** `site` in `astro.config.mjs`, resolved `SITE_URL` → `CF_PAGES_URL` (on `main`) → `PRODUCTION_URL` (+ `base` only for sub-path hosts).
-- **Pages built:** 21 — home, `/learn`, glossary, about, 404, 15 lessons, and the prod-gated `/dev/renderers`. **Sitemap:** 19 `<loc>` entries (the 404 and the dev gallery are excluded and both carry `noindex`).
+- **Single build-time config:** `site` in `astro.config.mjs`, resolved `SITE_URL` → `CF_PAGES_URL` (on `main`) → `PRODUCTION_URL`. **`base` is never set** — sub-path hosting is unsupported and `base` would not deliver it (§2.2).
+- **Pages built:** 21 — home, `/learn/`, `/glossary/`, `/about/`, 404, 15 lessons, and the prod-gated `/dev/renderers/`. **Sitemap:** 19 `<loc>` entries, all slashed (the 404 and the dev gallery are excluded and both carry `noindex`).
 - **SEO artifacts (auto-generated):** `dist/sitemap.xml`, `dist/robots.txt`, per-page canonical/OG/Twitter, `Course`/`WebSite` JSON-LD. **OG card:** `public/og-source.svg` + `public/og-default.png`, both regenerated by `npm run og` from `scripts/build-og.mjs` — never hand-edited (§2.3).
 - **Headers/caching:** `public/_headers` — security headers on `/*`, `immutable` on `/_astro/*`, 1-hour revalidating cache on the four unhashed root assets, host default on HTML. No CSP, for the reason in §6.
 - **JS budget:** ≤ 60 KB gz per page, **enforced** by `tests/e2e/js-budget.spec.ts`, which prints the per-page figure on every e2e run. Renderer/algorithm chunks are lazy-loaded per lesson. **No runtime network calls.**

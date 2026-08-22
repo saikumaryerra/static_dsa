@@ -130,6 +130,7 @@ Definition of Done for any change (spec §18): `npm run build`, `npm run lint`, 
 - Conventional Commits.
 - JSDoc on public functions; inline "why" comments; no `console.log` or dead code in production.
 - Renderer elements get stable ids (e.g. `i0`, `n5`) so highlights and CSS transitions can target them.
+- **Every internal page link carries a trailing slash** — `/learn/binary-search/`, `/glossary/#array` (the slash goes on the path, *before* any `?query` or `#fragment`). `trailingSlash: 'always'` makes the slashless form a hard 404 under `astro preview`, not a redirect, and `tests/e2e/url-shape.spec.ts` fails on a slashless internal link, on a canonical that disagrees with the URL it is served at, and on an unserved sitemap `<loc>`. Asset URLs (`/og-default.png`, `/fonts/…`) keep their extension and are untouched by the rule. See `docs/redesign-2026-08/03-amendments.md` (U-1).
 - `opencode.json` contains an API key and is gitignored — never commit it.
 - `README.md` is the human entry point (this file is the agent one). If a change alters how the project is run, tested or constrained, update it in the same PR; docs that describe the plan instead of the product are a review failure.
 

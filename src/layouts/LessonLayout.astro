@@ -111,7 +111,7 @@ const explainPrompt = entry.data.explainPrompt;
 <BaseLayout
   title={`${title} · LearnDSA`}
   description={summary}
-  canonicalPath={`/learn/${slug}`}
+  canonicalPath={`/learn/${slug}/`}
   ogType="article"
   wide
 >
@@ -193,7 +193,7 @@ const explainPrompt = entry.data.explainPrompt;
                 >
                   {prerequisites.map((p) => (
                     <li>
-                      <a class="lesson__prereq" href={`/learn/${p.slug}`}>
+                      <a class="lesson__prereq" href={`/learn/${p.slug}/`}>
                         {p.title}
                       </a>
                     </li>

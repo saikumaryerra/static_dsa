@@ -11,7 +11,7 @@
  * Lesson titles for the "Introduced in …" links are resolved from the collection
  * (never hardcoded in glossary.ts). M7.2 adds the mirror guard for the other
  * direction: per-term `id`s must be unique and must not clash with a structural id,
- * because lesson prose now hard-links `/glossary#{term}` (spec §8).
+ * because lesson prose now hard-links `/glossary/#{term}` (spec §8).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
  * <h1>, an <h2> per present letter, a labelled jump <nav>, and <dl>/<dt>/<dd>
@@ -120,7 +120,7 @@ for (const term of glossary) {
 <BaseLayout
   title="Glossary · LearnDSA"
   description="A–Z reference of the data-structure and algorithm terms used across LearnDSA, each linked to the lesson that introduces it."
-  canonicalPath="/glossary"
+  canonicalPath="/glossary/"
 >
   <div class="glossary">
     <header id="top" class="glossary__head">
@@ -270,7 +270,7 @@ for (const term of glossary) {
                         <p class="glossary__xref-line">
                           <a
                             class="glossary__xref"
-                            href={`/learn/${entry.lessonSlug}`}
+                            href={`/learn/${entry.lessonSlug}/`}
                           >
                             Introduced in {entry.lessonTitle}{' '}
                             <span aria-hidden="true">→</span>

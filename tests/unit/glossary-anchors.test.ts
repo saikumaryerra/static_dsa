@@ -9,7 +9,7 @@
  *    permanently unreachable, and send every deep link to the wrong definition.
  *    `glossary.astro` also throws on this at build time; this test is the fast
  *    feedback loop and pins the exact slugs the lessons hardcode.
- * 2. Every `/glossary#…` link written in lesson prose must resolve to a real
+ * 2. Every `/glossary/#…` link written in lesson prose must resolve to a real
  *    term. Those 40 anchors are hand-authored strings — renaming a term (say
  *    "Quick sort" → "Quicksort") is a one-word edit that quietly breaks them,
  *    exactly the dead-cross-link class the glossary's own build guard exists to
@@ -39,9 +39,19 @@ function readLessons(): Array<{ file: string; source: string }> {
     }));
 }
 
-/** The anchor of every markdown link into the glossary, in document order. */
+/**
+ * The anchor of every markdown link into the glossary, in document order.
+ *
+ * The pattern tracks the SHIPPED link shape, which D1 moved: `trailingSlash:
+ * 'always'` made `/glossary/#term` the authored form, and this extractor kept
+ * matching the retired `/glossary#term` — a change that turns both tests below
+ * green by matching nothing at all. `the extractor cannot go vacuous` exists
+ * precisely so that failure mode is loud instead of silent.
+ */
 function glossaryLinksIn(source: string): string[] {
-  return [...source.matchAll(/\]\(\/glossary#([^)\s]+)\)/g)].map((m) => m[1]!);
+  return [...source.matchAll(/\]\(\/glossary\/#([^)\s]+)\)/g)].map(
+    (m) => m[1]!,
+  );
 }
 
 describe('termAnchor', () => {
@@ -74,7 +84,22 @@ describe('termAnchor', () => {
 describe('lesson → glossary cross-links', () => {
   const anchors = new Set(glossary.map((t) => termAnchor(t.term)));
 
-  it('every /glossary# link in a lesson resolves to a real term', () => {
+  /**
+   * The guard on the other two: both of them assert that a list is EMPTY, so an
+   * extractor that matches nothing passes them without reading a single link.
+   * A floor rather than the exact count (40 at the time of writing) so adding a
+   * cross-link is not a test edit, while a regex that stops matching the
+   * authored shape still fails here.
+   */
+  it('the extractor cannot go vacuous — lesson prose really does link out', () => {
+    const total = readLessons().reduce(
+      (n, { source }) => n + glossaryLinksIn(source).length,
+      0,
+    );
+    expect(total).toBeGreaterThanOrEqual(30);
+  });
+
+  it('every /glossary/# link in a lesson resolves to a real term', () => {
     const dead: string[] = [];
     for (const { file, source } of readLessons()) {
       for (const anchor of glossaryLinksIn(source)) {

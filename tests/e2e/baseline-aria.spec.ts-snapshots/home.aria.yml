@@ -7,22 +7,22 @@
     - list:
       - listitem:
         - link "Learn":
-          - /url: /learn
+          - /url: /learn/
       - listitem:
         - link "Glossary":
-          - /url: /glossary
+          - /url: /glossary/
       - listitem:
         - link "About":
-          - /url: /about
+          - /url: /about/
       - listitem:
         - button "Switch to dark theme"
 - main:
   - heading "See data structures and algorithms in motion" [level=1]
   - paragraph: Fifteen lessons that teach the core of computer science by showing you the algorithm running. Every swap, pointer move and recursive call, one step at a time — on your own input, in your own browser.
   - link /Start with lesson \d+/:
-    - /url: /learn/complexity-big-o
+    - /url: /learn/complexity-big-o/
   - link /See all \d+ lessons/:
-    - /url: /learn
+    - /url: /learn/
   - region "Binary search on a sorted array visualization":
     - figure:
       - img "Binary search on a sorted array Ready — searching for 7 in a sorted array of 6 items. The whole array is the search window.": /1 0 3 1 5 2 7 3 9 4 \d+ 5 lo hi/
@@ -96,7 +96,7 @@
   - paragraph:
     - text: The real lesson visualization, running here.
     - link "Open the lesson":
-      - /url: /learn/binary-search
+      - /url: /learn/binary-search/
   - region "What a lesson actually does":
     - heading "What a lesson actually does" [level=2]
     - heading "Step it, forwards and back" [level=3]
@@ -110,59 +110,59 @@
     - paragraph: Work through them in order, or start at whichever one you came for — nothing is locked, and every lesson names what it builds on.
     - heading "Foundations & Data Structures" [level=3]:
       - link "Foundations & Data Structures":
-        - /url: /learn#track-foundations
+        - /url: /learn/#track-foundations
     - paragraph: /9 lessons · ~\d+ min · All beginner/
     - list:
       - listitem:
         - link "Complexity & Big-O 9 min":
-          - /url: /learn/complexity-big-o
+          - /url: /learn/complexity-big-o/
       - listitem:
         - link "Arrays 8 min":
-          - /url: /learn/arrays
+          - /url: /learn/arrays/
       - listitem:
         - link "Linked Lists 9 min":
-          - /url: /learn/linked-lists
+          - /url: /learn/linked-lists/
       - listitem:
         - link "Stacks 7 min":
-          - /url: /learn/stacks
+          - /url: /learn/stacks/
       - listitem:
         - link "Queues 8 min":
-          - /url: /learn/queues
+          - /url: /learn/queues/
       - listitem:
         - link /Hash Tables \d+ min/:
-          - /url: /learn/hash-tables
+          - /url: /learn/hash-tables/
       - listitem:
         - link /Trees & Binary Search Trees \d+ min/:
-          - /url: /learn/trees-bst
+          - /url: /learn/trees-bst/
       - listitem:
         - link /Heaps \d+ min/:
-          - /url: /learn/heaps
+          - /url: /learn/heaps/
       - listitem:
         - link /Graphs \d+ min/:
-          - /url: /learn/graphs
+          - /url: /learn/graphs/
     - heading "Algorithms" [level=3]:
       - link "Algorithms":
-        - /url: /learn#track-algorithms
+        - /url: /learn/#track-algorithms
     - paragraph: /6 lessons · ~\d+ min · 4 beginner · 2 intermediate/
     - list:
       - listitem:
         - link /Recursion \d+ min/:
-          - /url: /learn/recursion
+          - /url: /learn/recursion/
       - listitem:
         - link /Linear & Binary Search \d+ min/:
-          - /url: /learn/binary-search
+          - /url: /learn/binary-search/
       - listitem:
         - 'link /Sorting I: Bubble, Selection, Insertion \d+ min/':
-          - /url: /learn/sorting-basics
+          - /url: /learn/sorting-basics/
       - listitem:
         - 'link /Sorting II: Merge & Quick \d+ min/':
-          - /url: /learn/sorting-efficient
+          - /url: /learn/sorting-efficient/
       - listitem:
         - 'link /Graph Traversal: BFS & DFS \d+ min/':
-          - /url: /learn/graph-traversal
+          - /url: /learn/graph-traversal/
       - listitem:
         - link /Intro to Dynamic Programming \d+ min/:
-          - /url: /learn/dynamic-programming
+          - /url: /learn/dynamic-programming/
   - region "What it costs you":
     - heading "What it costs you" [level=2]
     - term: No account, no paywall
@@ -175,18 +175,18 @@
     - definition: A loaded lesson keeps working with no connection. With scripts blocked the prose, the code and the written-out run are all still there.
   - heading "Start where the rest of it builds from." [level=2]
   - 'link /Begin: \d+ · Complexity & Big-O/':
-    - /url: /learn/complexity-big-o
+    - /url: /learn/complexity-big-o/
 - contentinfo:
   - paragraph: LearnDSA — see data structures and algorithms in motion.
   - navigation "Footer":
     - list:
       - listitem:
         - link "Learn":
-          - /url: /learn
+          - /url: /learn/
       - listitem:
         - link "Glossary":
-          - /url: /glossary
+          - /url: /glossary/
       - listitem:
         - link "About":
-          - /url: /about
+          - /url: /about/
   - paragraph: /Free and open source\. © \d+ LearnDSA/

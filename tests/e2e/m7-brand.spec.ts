@@ -54,7 +54,7 @@ import {
   tokenStyle,
 } from './utils/color';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 /** ≥1024px, where the hero is two columns, and past the lesson's 1200px split. */
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
@@ -239,9 +239,11 @@ test.describe('home hero instrument', () => {
     const href = (await note.getAttribute('href')) ?? '';
     expect(href).toBeTruthy();
 
-    // A real request against the BUILT site: `build.format: 'file'` emits
-    // `learn/binary-search.html`, so a link that works in `astro dev` can still
-    // 404 in production. Only an HTTP check catches that.
+    // A real request against the BUILT site: the URL shape is a build-time
+    // contract (`build.format: 'directory'` + `trailingSlash: 'always'`, D1), and
+    // under it the slashless form is a 404 rather than a redirect — so a link
+    // that looks right in source can still 404 in production. Only an HTTP check
+    // catches that.
     const response = await request.get(href);
     expect(response.status()).toBe(200);
 
@@ -374,7 +376,7 @@ test.describe('lesson cards', () => {
   test('state the "Start lesson" affordance on every card', async ({
     page,
   }) => {
-    await page.goto('/learn');
+    await page.goto('/learn/');
     const cards = page.locator('[data-lesson-card]');
     const count = await cards.count();
     expect(count).toBeGreaterThan(0);
@@ -387,7 +389,7 @@ test.describe('lesson cards', () => {
   });
 
   test('rest at elevation 1 and rise on hover', async ({ page }) => {
-    await page.goto('/learn');
+    await page.goto('/learn/');
     const card = page.locator('[data-lesson-card]').first();
     const title = card.locator('.lesson-card__title');
 
@@ -473,7 +475,7 @@ test('the warning callout keyline outranks note and tip (CMP-11)', async ({
 }) => {
   // The one lesson that ships both variants, so the comparison is same-page and
   // same-theme.
-  await page.goto('/learn/dynamic-programming');
+  await page.goto('/learn/dynamic-programming/');
   const warning = page.locator('.callout--warning').first();
   const tip = page.locator('.callout--tip').first();
   await expect(warning).toBeVisible();
@@ -584,7 +586,13 @@ for (const theme of ['light', 'dark'] as const) {
         '--surface',
       );
 
-      await page.goto('/404');
+      // D1: `/404` (no slash) no longer reaches the site's own 404 document — under
+      // `trailingSlash: 'always'` the preview server rejects the slashless form BEFORE
+      // the file lookup and answers with Astro's built-in error page, which carries
+      // none of the site's chrome. `/404/` resolves to the same `dist/404.html` that a
+      // genuinely unknown URL is served (verified byte-identical), so the slash is what
+      // keeps this pointed at the product instead of at the harness.
+      await page.goto('/404/');
       await expectLevelOne(
         page,
         page.locator('.notfound__demo'),

@@ -1591,7 +1591,7 @@ describe('the review strip copy (the vocabulary ban, read off the exports)', () 
 describe('reviewHref', () => {
   it('deep-links to the practice section with predict on for one visit', () => {
     expect(reviewHref('binary-search')).toBe(
-      '/learn/binary-search?review=1#practice',
+      '/learn/binary-search/?review=1#practice',
     );
   });
 });

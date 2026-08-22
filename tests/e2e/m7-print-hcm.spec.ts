@@ -37,7 +37,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { computed, contrast, luminance, PAPER, parseRgb } from './utils/color';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 /** Wide enough for the two-column lesson and the one-row control bar. */
 const DESKTOP = { width: 1280, height: 1000 };
 
@@ -534,7 +534,7 @@ test.describe('forced colors', () => {
   test('a live trace paints the pens the table promises', async ({ page }) => {
     // Bubble sort, because binary search emits no `compare` highlight at all —
     // its probe is `active`. This is the lesson that shows both states.
-    await page.goto('/learn/sorting-basics');
+    await page.goto('/learn/sorting-basics/');
     const viz = page.locator('[data-viz][data-algorithm="bubble-sort"]');
     await viz.scrollIntoViewIfNeeded();
     await expect(viz).toHaveAttribute('data-viz-ready', 'true', {
@@ -657,7 +657,7 @@ test.describe('forced colors', () => {
   test('the 404 still drops its wash rather than fading into the palette', async ({
     page,
   }) => {
-    await page.goto('/404');
+    await page.goto('/404/');
     const rect = page
       .locator('.notfound__canvas .viz-cell.is-eliminated .viz-cell__rect')
       .first();

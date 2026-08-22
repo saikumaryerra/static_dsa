@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 
 import { openCustomInput } from './utils/disclosure';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 
 // M4 lesson-11 expansion: the page now hosts TWO array visualizers (binary
 // search + a linear-search contrast). Every viz assertion below is scoped to the

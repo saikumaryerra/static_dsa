@@ -38,7 +38,7 @@ export function courseJsonLd(
   siteUrl: string | URL,
 ): string {
   const origin = new URL(siteUrl).origin;
-  const url = new URL(`/learn/${entry.data.slug}`, siteUrl).href;
+  const url = new URL(`/learn/${entry.data.slug}/`, siteUrl).href;
 
   return serializeJsonLd({
     '@context': 'https://schema.org',

@@ -12,32 +12,16 @@
  * see the style block below.
  */
 import ThemeToggle from './ThemeToggle.astro';
-import { NAV_ITEMS } from '../lib/nav';
+import { NAV_ITEMS, navCurrent } from '../lib/nav';
 
-// Normalize the URL shape before matching, so the nav marks the same item in dev
-// and in the built site. `build.format: 'file'` (astro.config.mjs) emits /learn as
-// `learn.html`, so at BUILD time `Astro.url.pathname` is `/learn.html` while the
-// dev server serves `/learn` — without stripping the suffix the exact match below
-// never fires in production and no top-level route is ever marked (M7.1 IA-9).
-// The optional `/index` also covers a future `format: 'directory'` (`/learn/index.html`),
-// and the trailing-slash strip keeps `/learn/` matching "Learn".
-const currentPath =
-  Astro.url.pathname.replace(/(\/index)?\.html$/, '').replace(/\/+$/, '') ||
-  '/';
-
-/**
- * The `aria-current` value for a nav destination, or `undefined` when the item
- * is unrelated to the current URL.
- *
- * M7.1 IA-9: lesson pages (`/learn/binary-search`) previously left every nav
- * item unmarked, so the header could not say where you were. A descendant is
- * marked "true" ("this is the current item in its set") rather than "page",
- * which stays reserved for the exact URL.
- */
-function navCurrent(href: string): 'page' | 'true' | undefined {
-  if (currentPath === href) return 'page';
-  return currentPath.startsWith(`${href}/`) ? 'true' : undefined;
-}
+// The matching rule moved to `nav.ts` in D1. `NAV_ITEMS` now carries the shipped
+// trailing-slash href, so BOTH sides of the comparison have to be normalized —
+// and normalization that lives beside the hrefs it normalizes cannot drift from
+// them. It is also the only shape the rule can be a Vitest test in: this
+// frontmatter is not importable and the harness has no DOM. Dev, preview and the
+// build all hand it the slashed pathname now (measured), so what its `.html`
+// strip still buys is `/learn/index.html` — a URL a directory build genuinely
+// serves — plus the retired `format: 'file'` shape.
 ---
 
 <header class="site-header sticky top-0 z-40 border-b border-border bg-bg">
@@ -51,7 +35,7 @@ function navCurrent(href: string): 'page' | 'true' | undefined {
               <a
                 href={item.href}
                 class="nav-link"
-                aria-current={navCurrent(item.href)}
+                aria-current={navCurrent(Astro.url.pathname, item.href)}
               >
                 {item.label}
               </a>

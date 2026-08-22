@@ -295,6 +295,103 @@ the CTA above is the same destination.
 
 ---
 
+## U-1 · Every published URL carries a trailing slash
+
+**Not from this redesign.** This entry records **Plan D, stage D1**
+(`docs/superpowers/plans/2026-08-21-plan-d-portable-artifact.md` §5.1/§5.2, shipped 2026-08-21). It
+lands in this file because this is where the repo keeps *what moved, why, and which test moved with
+it* — the ledger outgrew the redesign that started it.
+
+**Was** `build.format: 'file'` with no `trailingSlash` setting. Routes were emitted as
+`about.html` and `learn/binary-search.html` and served at `/about` and `/learn/binary-search` by
+hosts that resolve the extension for you. The config comment labelled the decision **C1** and gave
+its reason — *"emit `about.html` (served at /about, no redirect) instead of `about/index.html`
+(served at /about/), so the no-slash canonicals + sitemap are literally correct"* — and
+`deployment.md` §0 carried it forward as a reason to prefer Cloudflare or Netlify. **This amendment
+reverses a decision that was documented as deliberate**, which is why it is written down rather than
+flipped quietly.
+
+**Now** `build.format: 'directory'` and `trailingSlash: 'always'`. Every route is a directory with an
+`index.html`, published at a slash URL — `/about/`, `/learn/binary-search/` — with the home page
+`dist/index.html` served at `/`. Of the 21 pages built, `dist/404.html` is the one that does not move
+(measured): directory format leaves it at the root, correctly, because a 404 is not a page with an
+address — it is the document a host serves *instead of* whatever was asked for.
+
+**Why — requirement R2, "any host, including a plain static server."** `format: 'file'` does not
+serve `/about`; it *asks the host to guess* that `/about` means `about.html`. Cloudflare, Netlify,
+Vercel and GitHub Pages all guess right. `python -m http.server`, a default nginx and an S3 website
+endpoint all 404. `about/index.html` served at `/about/` is the shape **every** one of those hosts
+serves natively with no configuration, so directory format is simply what "runs anywhere" costs. The
+slash is load-bearing for what comes after it, too: a relative URL resolves against the **document**
+URL, so `../glossary/` is correct from `/learn/binary-search/` and lands one level wrong from
+`/learn/binary-search`.
+
+**The defect the stage exists to close.** Flipping the two constants alone leaves the site serving
+`/learn/binary-search/` while every URL it *declares* — `<link rel="canonical">`, `og:url`, all 19
+sitemap `<loc>`s — still names `/learn/binary-search`. A page self-canonicalizing at a URL its own
+host redirects away from is invisible in a green test run: nothing 404s for a reader, the site just
+tells every crawler its real address is somewhere else. Closing that is the substance of D1; the
+config flip is two lines of it.
+
+**Measured, and it is why this is not tidiness:** `astro preview` answers the slashless form with a
+**404, not a 301** (`/about` → 404, `/about/` → 200). So every authored internal link had to gain
+the slash — a hard requirement, enforced by the suite rather than by review.
+
+**What moved with it.** `NAV_ITEMS` hrefs (`/learn/`, `/glossary/`, `/about/`), the breadcrumb,
+prev/next and lesson cards, the three page-level `canonicalPath` props that have a path
+(`/about/`, `/glossary/`, `/learn/`) plus `LessonLayout`'s `` `/learn/${slug}/` ``,
+`sitemap.xml.ts`'s `STATIC_PATHS` and lesson paths, the `Course` JSON-LD `url`, and **41
+hand-authored internal links in lesson prose** across 32 lines in 15 MDX files — 40 into the
+glossary (`](/glossary/#array)`) plus one lesson-to-lesson (`](/learn/recursion/)`), with the slash
+on the path *before* the fragment, never after it.
+
+**One thing churned that the artifact does not show.** `instrumentIdFor`
+(`src/viz/core/instrument-id.ts`) hashes `Astro.url.pathname`, and the build-time pathname moved
+from `/learn/binary-search.html` to `/learn/binary-search/` — so every generated instrument id
+(`viz-<algorithm>-<hash>`) changed once. Nothing is broken: every anchor and `<StepLink>` target was
+re-verified to resolve, because the ids are derived on both sides from the same pathname. It is
+recorded because Plan C's guarantee is that ids are *stable*, and this is the one event that moved
+them. D2 and D3 will not move them again — the relative-URL pass rewrites emitted links, and the
+origin stamp touches metadata; neither changes `Astro.url.pathname` at build time.
+
+**What deliberately did not move.** Internal links stayed **root-absolute** — making them relative is
+stage D2 and has not shipped. The origin is still a build-time constant resolved in
+`astro.config.mjs` (`SITE_URL` → `CF_PAGES_URL` on `main` → `PRODUCTION_URL`); moving it to a
+deploy-time input is stage D3 and has not shipped either. `/` and `/404`'s canonicals are unchanged:
+both are already `/`, and the 404 pointing at the home page is the design, not an oversight.
+
+**The landmine, and why it became a unit test.** `SiteHeader` decided "which nav item is current" by
+normalizing the *pathname* and comparing it to a raw `NAV_ITEMS` href. Slash the hrefs and **both**
+comparisons break at once: `'/learn' === '/learn/'` is false, and the descendant probe asks for
+`startsWith('/learn//')`, which no path satisfies. The second failure is silent — no 404, no console
+error, just a header that stops saying where you are, which is the M7.1 IA-9 defect returning by the
+back door. So the rule moved out of `.astro` frontmatter into `src/lib/nav.ts` as an exported pure
+function that normalizes **both** sides, beside the hrefs it normalizes, where it cannot drift from
+them — and where the Vitest harness (`environment: 'node'`, no DOM) can actually test it.
+
+**Now is the only cheap moment.** No custom domain is live, so there is no URL to redirect, no index
+to migrate and no inbound link to break. The same change after launch costs a redirect map and a
+re-crawl.
+
+**Tests.**
+
+- `tests/e2e/url-shape.spec.ts` is **new** and is the invariant this amendment moved: for every page
+  walked out of `dist/`, the URL the document declares is the URL it was fetched from (canonical and
+  `og:url`, compared on pathname, fetched with `maxRedirects: 0` so a redirect hop cannot hide);
+  every sitemap `<loc>` is slashed and returns 200 directly; **no built page links to a slashless
+  page URL** — a class check over the built HTML, which is what catches the 40 prose links that no
+  survey of `.astro` files would have seen; and the slashless form is confirmed *not* served. The
+  page list is walked, not typed, so a page added tomorrow is covered tomorrow.
+- `tests/unit/nav.test.ts` is **new**: pins `NAV_ITEMS` to slashed hrefs and `navCurrent` across the
+  shapes a static host really serves (`/learn/`, `/learn`, `/learn/index.html`, `/learn.html`),
+  including the property no single case can state — at most one nav item is ever marked.
+- **Five aria baselines re-seeded and the diff read**, per §18's own blind spot: `toMatchAriaSnapshot`
+  matches a subset, so a green run would not have shown the nav's hrefs moving. Every changed line
+  in those five files is a `/url:` line — nothing else in the accessibility tree moved, which is the
+  evidence that this stage changed addresses and not structure.
+
+---
+
 ## Not reopened, and why
 
 - **The achromatic chrome.** Not deference — it is the best idea in the system. "Colour belongs to

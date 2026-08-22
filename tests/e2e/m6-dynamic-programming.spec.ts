@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
  * glyph in the canvas plus the aria-live / <desc> wording).
  */
 
-const LESSON = '/learn/dynamic-programming';
+const LESSON = '/learn/dynamic-programming/';
 
 /** Scroll every visualizer into view and wait for it to hydrate; returns count. */
 async function hydrateAllViz(page: Page): Promise<number> {

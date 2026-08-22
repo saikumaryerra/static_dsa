@@ -115,7 +115,7 @@ async function openTrialLesson(
   lesson: string,
   algorithm: string,
 ): Promise<Locator> {
-  await page.goto(`/learn/${lesson}`);
+  await page.goto(`/learn/${lesson}/`);
   return hydrateViz(page.locator(`[data-viz][data-algorithm="${algorithm}"]`));
 }
 
@@ -134,7 +134,7 @@ async function track(page: Page, name: string): Promise<LessonRef[]> {
  */
 async function findFinalRunLesson(page: Page): Promise<string> {
   for (const lesson of await track(page, 'algorithms')) {
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     if ((await page.locator(FINAL).count()) > 0) return lesson.slug;
   }
   throw new Error(
@@ -150,7 +150,7 @@ test.describe('the trials reached the lessons they were written for', () => {
     const seen: string[] = [];
 
     for (const lesson of lessons) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       const ids = await page.evaluate(() =>
         [...document.querySelectorAll('[data-challenge]')].map(
           (card) => card.getAttribute('data-challenge-id') ?? '',
@@ -189,7 +189,7 @@ test.describe('the trials reached the lessons they were written for', () => {
     page,
   }) => {
     const readIntervals = await trackIntervals(page);
-    await page.goto(`/learn/${WORST_CASE.lesson}`);
+    await page.goto(`/learn/${WORST_CASE.lesson}/`);
     const card = page.locator(`[data-challenge-id="${WORST_CASE.id}"]`);
     await expect(card, `${WORST_CASE.id} must be on its lesson`).toHaveCount(1);
 
@@ -232,7 +232,7 @@ test.describe('the trials reached the lessons they were written for', () => {
   }) => {
     // Binary search's trial pins the array and asks for a target, so the reader
     // has to be able to reproduce the array exactly.
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const card = page.locator('[data-challenge-id="binary-search/two-probes"]');
     await expect(card).toHaveCount(1);
     await expect(card.locator('code')).toHaveText(
@@ -662,7 +662,7 @@ test.describe('the reset control clears the enrichment keys too', () => {
       [FINAL_RUN_KEY]: JSON.stringify({ [WORST_CASE.lesson]: { c: 1 } }),
       theme: 'dark',
     });
-    await page.goto('/learn');
+    await page.goto('/learn/');
 
     const toggle = page.locator('[data-reset-toggle]');
     await expect(toggle).toHaveAttribute('aria-disabled', 'false');
@@ -687,7 +687,7 @@ test.describe('degraded — no JS, no store', () => {
       // Both are JS-only by construction — a trial needs the run event and a
       // Final Run needs the check — so a JS-off visitor would otherwise meet a
       // puzzle and a question that can never be finished.
-      await page.goto(`/learn/${WORST_CASE.lesson}`);
+      await page.goto(`/learn/${WORST_CASE.lesson}/`);
       await expect(page.locator(`${TRIAL}:visible`)).toHaveCount(0);
       await expect(page.locator(`${FINAL}:visible`)).toHaveCount(0);
       const text = await page.locator('body').innerText();
@@ -733,7 +733,7 @@ test.describe('degraded — no JS, no store', () => {
     const errors = trackPageErrors(page);
     const slug = await findFinalRunLesson(page);
     await blockStorage(page);
-    await page.goto(`/learn/${slug}`);
+    await page.goto(`/learn/${slug}/`);
 
     const card = page.locator(FINAL);
     const answer = (await card.getAttribute('data-answer'))!;

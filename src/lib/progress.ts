@@ -1425,8 +1425,8 @@ export const REVIEW_COPY = {
  * (The lesson island reads the parameter; nothing writes it.)
  *
  * @param slug - Lesson slug.
- * @returns The deep link, e.g. `/learn/binary-search?review=1#practice`.
+ * @returns The deep link, e.g. `/learn/binary-search/?review=1#practice`.
  */
 export function reviewHref(slug: string): string {
-  return `/learn/${slug}?review=1#practice`;
+  return `/learn/${slug}/?review=1#practice`;
 }

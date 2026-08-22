@@ -8,7 +8,7 @@
  * 1. The A–Z strip is now sticky at EVERY breakpoint, as a single scrollable
  *    row. The old static bar sat at the top of the page, so after any scroll the
  *    jump nav was gone — it stopped existing exactly where it earns its keep.
- * 2. Per-term `id`s: lesson prose hard-links `/glossary#{term}`, so a term
+ * 2. Per-term `id`s: lesson prose hard-links `/glossary/#{term}`, so a term
  *    anchor has to land its `<dt>` clear of BOTH the header and that sticky
  *    strip. Clearing only the header parks the definition underneath the strip,
  *    which is what the old hardcoded ≥768px offset did (measured ~26px under).
@@ -22,7 +22,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { scrollToInstant, waitForAnchorScroll } from './utils/scroll';
 
-const GLOSSARY = '/glossary';
+const GLOSSARY = '/glossary/';
 /** A term deep in the page, so a jump to it is a real scroll. */
 const DEEP_TERM = { anchor: 'quick-sort', text: 'Quick sort' };
 

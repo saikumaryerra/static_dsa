@@ -22,7 +22,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 const SLUG = 'binary-search';
 // The lesson hosts two array visualizers; scope to the binary-search one, as
 // the other binary-search specs do.

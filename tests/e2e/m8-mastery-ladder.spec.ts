@@ -45,7 +45,7 @@ import {
 
 /** A Foundations lesson with the standard three Practice questions. */
 const LESSON = 'arrays';
-const LEARN = '/learn';
+const LEARN = '/learn/';
 
 /** The `data-total` its Practice section declares — read, never assumed. */
 async function questionCount(page: Page): Promise<number> {
@@ -56,7 +56,7 @@ test.describe('the ladder, one rung at a time', () => {
   test('a lesson with nothing recorded shows no stage at all', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
 
     // "Nothing recorded" and "not read yet" are the same state, and neither is
     // a thing to display: hidden is more honest than an empty three-pip row,
@@ -78,7 +78,7 @@ test.describe('the ladder, one rung at a time', () => {
   }) => {
     // Through the real button, not a seeded key: this is what proves M8 reads
     // the same `lesson:{slug}:complete` M7 writes, with no migration step.
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await page.locator('[data-mark-complete]').click();
 
     await expect(headerStage(page)).toBeVisible();
@@ -118,7 +118,7 @@ test.describe('the ladder, one rung at a time', () => {
     // (the reader may always correct themselves), a stage derived from one
     // check could go DOWN, which no stage here may ever do. Retrieval has its
     // own rung: Practiced, which needs the whole set.
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await gradeQuestion(page, 0, 'had');
 
     // The grade IS recorded — it just earns no stage yet.
@@ -132,7 +132,7 @@ test.describe('the ladder, one rung at a time', () => {
   test('grading every question "I had it" earns Practiced — pips, label and the /learn counts', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     const total = await questionCount(page);
     expect(total, 'the lesson must ship Practice questions').toBeGreaterThan(0);
 
@@ -172,7 +172,7 @@ test.describe('the ladder, one rung at a time', () => {
   test('a partial pass is not a pass — two of three leaves Learned', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     // Marked complete first, so the lesson is genuinely at Learned and the
     // question under test is whether a PARTIAL set of grades promotes it.
     await page.locator('[data-mark-complete]').click();
@@ -191,7 +191,7 @@ test.describe('the 3-day gate — Mastered cannot be ground out in one sitting',
   test('re-meeting the bar in the SAME visit does not promote', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await gradeAll(page, 'had');
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'practiced');
     const first = await readRecord(page, LESSON);
@@ -220,7 +220,7 @@ test.describe('the 3-day gate — Mastered cannot be ground out in one sitting',
       masteredAt: null,
       checks: [1, 1, 1],
     });
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
 
     // The reader arrives already Practiced, and the questions remember their
     // grades — the record is the source of truth for what is on screen.
@@ -248,7 +248,7 @@ test.describe('the 3-day gate — Mastered cannot be ground out in one sitting',
       masteredAt: null,
       checks: [1, 1, 1],
     });
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await gradeAll(page, 'had');
 
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'practiced');
@@ -265,7 +265,7 @@ test.describe('the 3-day gate — Mastered cannot be ground out in one sitting',
     // Written once, with no init script: an init script re-runs on EVERY
     // navigation and would restore `masteredAt: null` on the way to /learn,
     // silently un-doing the very promotion this test navigates to check.
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await writeStorage(page, {
       [masteryKey(LESSON)]: JSON.stringify({
         practicedAt: daysAgo(5),
@@ -298,7 +298,7 @@ test.describe('the 3-day gate — Mastered cannot be ground out in one sitting',
       masteredAt: null,
       checks: [1, 1, 1],
     });
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     for (let i = 0; i < 5; i += 1) await gradeQuestion(page, 0, 'had');
 
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'practiced');
@@ -318,7 +318,7 @@ test.describe('the 3-day gate — Mastered cannot be ground out in one sitting',
       masteredAt: null,
       checks: [1, 1, 1],
     });
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     const total = await questionCount(page);
     await gradeQuestion(page, 0, 'had');
     await gradeQuestion(page, 1, 'not');
@@ -338,7 +338,7 @@ test.describe('nothing decays, nothing demotes', () => {
   test('a Practiced lesson keeps its stage across a reload and a bfcache Back', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await gradeAll(page, 'had');
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'practiced');
 
@@ -360,7 +360,7 @@ test.describe('nothing decays, nothing demotes', () => {
   test('un-marking completion never takes an EARNED stage away', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await page.locator('[data-mark-complete]').click();
     await gradeAll(page, 'had');
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'practiced');
@@ -381,7 +381,7 @@ test.describe('nothing decays, nothing demotes', () => {
   test('un-marking completion DOES retire a stage that was only Learned', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await page.locator('[data-mark-complete]').click();
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'learned');
 
@@ -506,11 +506,11 @@ test.describe('the surfaces agree with each other', () => {
       (typeof lessons)[0],
     ];
 
-    await page.goto(`/learn/${target.slug}`);
+    await page.goto(`/learn/${target.slug}/`);
     await gradeAll(page, 'had');
     await expect(headerPips(page)).toHaveAttribute('data-stage', 'practiced');
 
-    await page.goto(`/learn/${neighbour.slug}`);
+    await page.goto(`/learn/${neighbour.slug}/`);
     await expect(headerStage(page)).toBeHidden();
     expect(await readRecord(page, neighbour.slug)).toBeNull();
 

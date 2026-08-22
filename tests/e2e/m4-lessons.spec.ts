@@ -54,7 +54,7 @@ test.describe('every lesson page is a clean, hydrating page', () => {
       });
       page.on('pageerror', (e) => consoleErrors.push(e.message));
 
-      await page.goto(`/learn/${slug}`);
+      await page.goto(`/learn/${slug}/`);
 
       // Exactly one <h1> (the lesson title) — §12 heading order.
       await expect(page.locator('h1')).toHaveCount(1);
@@ -91,7 +91,7 @@ test.describe('all seven authored sections are present in order', () => {
   ];
   for (const slug of LESSONS) {
     test(`${slug}: has the six required section headings`, async ({ page }) => {
-      await page.goto(`/learn/${slug}`);
+      await page.goto(`/learn/${slug}/`);
       for (const name of REQUIRED_H2) {
         await expect(
           page.getByRole('heading', { level: 2, name }),
@@ -106,7 +106,7 @@ test.describe('three-language code is present and unmangled', () => {
     test(`${slug}: Python + JavaScript + Java code tabs render`, async ({
       page,
     }) => {
-      await page.goto(`/learn/${slug}`);
+      await page.goto(`/learn/${slug}/`);
       // CodeTabs renders one tab per language; a code-heavy lesson may have
       // several tab groups, so assert at least one of each language label.
       for (const lang of ['Python', 'JavaScript', 'Java']) {
@@ -147,7 +147,7 @@ for (const [renderer, slug] of Object.entries(RENDERER_SAMPLE)) {
       await page.addInitScript((value) => {
         localStorage.setItem('theme', value);
       }, theme);
-      await page.goto(`/learn/${slug}`);
+      await page.goto(`/learn/${slug}/`);
       await hydrateAllViz(page);
 
       const results = await new AxeBuilder({ page }).analyze();
@@ -180,7 +180,7 @@ for (const [renderer, slug] of Object.entries(RENDERER_SAMPLE)) {
 test.describe('viz is fully keyboard-operable (non-array renderer)', () => {
   // Drives the trees-bst tree renderer purely with the keyboard to prove the
   // §12 requirement holds beyond the array renderer the binary-search spec covers.
-  const LESSON = '/learn/trees-bst';
+  const LESSON = '/learn/trees-bst/';
 
   test('transport buttons and slider operate with keyboard only', async ({
     page,

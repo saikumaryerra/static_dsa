@@ -121,7 +121,7 @@ const firstLesson = lessonRefs[0];
 /**
  * Build guard for the review strip's deep link (M8.2).
  *
- * Every review card points at `/learn/{slug}?review=1#practice`, and that
+ * Every review card points at `/learn/{slug}/?review=1#practice`, and that
  * fragment is the id Astro derives from the lesson's `## Practice` heading. A
  * heading renamed to anything else — "## Practice questions", or spec §7's own
  * long form "Practice / check yourself" — keeps the page valid and silently
@@ -155,7 +155,7 @@ const resumeFallback = firstLesson
 
 <BaseLayout
   title="Learn · LearnDSA"
-  canonicalPath="/learn"
+  canonicalPath="/learn/"
   description="The full LearnDSA curriculum: interactive data-structure and algorithm lessons, grouped into two tracks. Work through them in order or jump to any topic."
 >
   <div class="learn">
@@ -173,7 +173,7 @@ const resumeFallback = firstLesson
           <div class="learn__resume">
             <a
               class="btn-primary learn__resume-link"
-              href={`/learn/${firstLesson.slug}`}
+              href={`/learn/${firstLesson.slug}/`}
               data-resume-link
             >
               <span data-resume-label>{resumeFallback}</span>
@@ -747,7 +747,7 @@ const resumeFallback = firstLesson
     const next = nextIncomplete(list);
     const text = resumeLabel(next, completed, list.length);
     if (next) {
-      link.href = `/learn/${next.slug}`;
+      link.href = `/learn/${next.slug}/`;
       label.textContent = text;
       done.hidden = true;
       link.hidden = false;

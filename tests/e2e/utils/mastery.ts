@@ -243,7 +243,7 @@ export function trackPageErrors(page: Page): string[] {
  * @returns Every published lesson in global `order`.
  */
 export async function curriculum(page: Page): Promise<LessonRef[]> {
-  await page.goto('/learn');
+  await page.goto('/learn/');
   return page.evaluate(() => {
     const host = document.querySelector<HTMLElement>('[data-lessons]');
     const parsed = JSON.parse(host?.dataset['lessons'] ?? '[]') as {

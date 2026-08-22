@@ -48,7 +48,7 @@ import {
   storageFingerprint,
 } from './utils/predict';
 
-const LEARN = '/learn';
+const LEARN = '/learn/';
 const STRIP = '[data-review-strip]';
 
 /**
@@ -246,7 +246,7 @@ test.describe('at most two cards, the longest-waiting first', () => {
     await expect(card).toHaveJSProperty('tagName', 'A');
     await expect(card).toHaveAttribute(
       'href',
-      `/learn/${lesson.slug}?review=1#practice`,
+      `/learn/${lesson.slug}/?review=1#practice`,
     );
     // Its visible text IS its accessible name — an aria-label here would
     // replace the title and the size of the ask with a shorter, poorer string.
@@ -356,7 +356,9 @@ test.describe('following an invitation', () => {
     const before = await storageFingerprint(page);
 
     await page.locator(`[data-review-card="${slug}"]`).click();
-    await expect(page).toHaveURL(/\/learn\/binary-search\?review=1#practice$/);
+    await expect(page).toHaveURL(
+      /\/learn\/binary-search\/\?review=1#practice$/,
+    );
 
     const viz = await hydrateViz(page.locator('#viz-binary-search'));
     await expect(predictToggle(viz)).toHaveAttribute('aria-pressed', 'true');
@@ -506,7 +508,7 @@ test.describe('the strip keeps up with the device', () => {
 
     // The home page injects the same `[data-lessons]` list for its own resume
     // link, so "no strip here" is a real risk rather than a hypothetical one.
-    for (const path of ['/', `/learn/${slug}`]) {
+    for (const path of ['/', `/learn/${slug}/`]) {
       await page.goto(path);
       await expect(page.locator(STRIP)).toHaveCount(0);
       await expect(page.locator('[data-review-card]')).toHaveCount(0);

@@ -30,9 +30,11 @@ import { waitForAnchorScroll } from './utils/scroll';
 //    code blocks — m4-lessons.spec.ts), so anything serious here is a real defect.
 // ---------------------------------------------------------------------------
 const AXE_PAGES: { path: string; name: string }[] = [
-  { path: '/glossary', name: 'glossary' },
-  { path: '/about', name: 'about' },
-  { path: '/404', name: '404' },
+  { path: '/glossary/', name: 'glossary' },
+  { path: '/about/', name: 'about' },
+  // `/404/` — the slashless form does not reach this site's 404 document under
+  // `trailingSlash: 'always'`, so axe would scan Astro's error page instead.
+  { path: '/404/', name: '404' },
 ];
 
 for (const { path, name } of AXE_PAGES) {
@@ -71,7 +73,7 @@ test.describe('glossary page', () => {
   test('renders all terms grouped A–Z with a labelled jump nav', async ({
     page,
   }) => {
-    await page.goto('/glossary');
+    await page.goto('/glossary/');
 
     // Exactly one h1; every present letter has an <h2> section.
     await expect(page.locator('h1')).toHaveCount(1);
@@ -99,7 +101,7 @@ test.describe('glossary page', () => {
     page,
     request,
   }) => {
-    await page.goto('/glossary');
+    await page.goto('/glossary/');
     const hrefs = await page
       .locator('.glossary__xref')
       .evaluateAll((els) =>
@@ -111,7 +113,10 @@ test.describe('glossary page', () => {
       );
     expect(hrefs.length).toBeGreaterThan(0);
     for (const href of hrefs) {
-      expect(href).toMatch(/^\/learn\/[a-z-]+$/);
+      // Anchored on the trailing slash (D1): `trailingSlash: 'always'` makes the
+      // slashless form a 404, so a glossary cross-link that lost its slash must
+      // fail HERE, on the shape, rather than as a confusing 404 two lines down.
+      expect(href).toMatch(/^\/learn\/[a-z-]+\/$/);
       const res = await request.get(href!);
       expect(res.status(), `${href} should be reachable`).toBe(200);
     }
@@ -129,7 +134,7 @@ test.describe('glossary page', () => {
       page,
     }) => {
       await page.setViewportSize({ width: bp.width, height: bp.height });
-      await page.goto('/glossary');
+      await page.goto('/glossary/');
 
       // Jump to "S" (always populated — Stack, Sort, Search, …).
       await page.locator('a.glossary__chip[href="#letter-s"]').click();
@@ -166,7 +171,7 @@ test.describe('glossary with JavaScript disabled', () => {
   test('renders terms and working anchor/xref links without JS', async ({
     page,
   }) => {
-    await page.goto('/glossary');
+    await page.goto('/glossary/');
     expect(
       await page.locator('.glossary__term').count(),
     ).toBeGreaterThanOrEqual(40);
@@ -176,7 +181,7 @@ test.describe('glossary with JavaScript disabled', () => {
     ).toHaveAttribute('href', '#letter-a');
     // A cross-link is a real <a href> into a lesson.
     const firstXref = page.locator('.glossary__xref').first();
-    await expect(firstXref).toHaveAttribute('href', /^\/learn\/[a-z-]+$/);
+    await expect(firstXref).toHaveAttribute('href', /^\/learn\/[a-z-]+\/$/);
   });
 });
 
@@ -211,11 +216,13 @@ test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
   // Both track headings link into the /learn track anchors.
   await expect(
     page.locator(
-      '.curriculum .track__title a[href="/learn#track-foundations"]',
+      '.curriculum .track__title a[href="/learn/#track-foundations"]',
     ),
   ).toHaveCount(1);
   await expect(
-    page.locator('.curriculum .track__title a[href="/learn#track-algorithms"]'),
+    page.locator(
+      '.curriculum .track__title a[href="/learn/#track-algorithms"]',
+    ),
   ).toHaveCount(1);
 
   // The strongest form of "never hardcoded" the old shape could not express:
@@ -229,11 +236,11 @@ test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
       links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
     );
   expect(homeHrefs).toHaveLength(15);
-  expect(homeHrefs.every((href) => /^\/learn\/[a-z0-9-]+$/.test(href))).toBe(
+  expect(homeHrefs.every((href) => /^\/learn\/[a-z0-9-]+\/$/.test(href))).toBe(
     true,
   );
 
-  await page.goto('/learn');
+  await page.goto('/learn/');
   const learnHrefs = await page
     .locator('[data-lesson-card]')
     .evaluateAll((links) =>
@@ -246,7 +253,7 @@ test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
 // 4. About — the trimmed live demo hydrates and is keyboard-reachable.
 // ---------------------------------------------------------------------------
 test('about live demo hydrates and is operable', async ({ page }) => {
-  await page.goto('/about');
+  await page.goto('/about/');
   await expect(page.locator('h1')).toHaveCount(1);
   await expect(page.locator('h2')).toHaveCount(3);
 
@@ -272,7 +279,7 @@ test.describe('about with JavaScript disabled', () => {
   test('prose renders and the viz degrades to its static fallback', async ({
     page,
   }) => {
-    await page.goto('/about');
+    await page.goto('/about/');
     await expect(page.locator('h1')).toHaveCount(1);
     // The Visualizer root is still present (SSR), just never hydrates.
     await expect(page.locator('[data-viz]').first()).toBeVisible();
@@ -302,8 +309,12 @@ test('sitemap.xml + robots.txt are served and cross-referenced', async ({
   // Four static routes + the 15 published lessons = 19 <loc> entries; no /404, /dev.
   const locs = xml.match(/<loc>/g) ?? [];
   expect(locs.length).toBe(19);
-  expect(xml).toContain('/glossary</loc>');
-  expect(xml).toContain('/learn/binary-search</loc>');
+  // D1: the <loc>s carry the trailing slash, because that is the URL the site
+  // actually serves. A slashless <loc> would point every crawler at a redirect
+  // (a 404 under `astro preview`), which is the defect D1 exists to close —
+  // tests/e2e/url-shape.spec.ts asserts it for all 19 entries, not just these two.
+  expect(xml).toContain('/glossary/</loc>');
+  expect(xml).toContain('/learn/binary-search/</loc>');
   expect(xml).not.toContain('/404');
   expect(xml).not.toContain('/dev');
 });

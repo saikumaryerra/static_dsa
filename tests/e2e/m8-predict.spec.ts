@@ -55,7 +55,7 @@ import {
   storageFingerprint,
 } from './utils/predict';
 
-const BINARY = '/learn/binary-search';
+const BINARY = '/learn/binary-search/';
 const BINARY_SLUG = 'binary-search';
 /** The lesson hosts binary search AND linear search; scope to the one with a predictor. */
 const BINARY_VIZ = '#viz-binary-search';
@@ -147,7 +147,7 @@ test.describe('the toggle exists exactly where a predictor does', () => {
     expect(lessons.length).toBeGreaterThanOrEqual(15);
 
     for (const lesson of lessons) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       const vizzes = await page.locator('[data-viz]').count();
       // Every lesson ships at least one visualization, so "no toggle" below is
       // never just "no visualizer on this page".
@@ -189,7 +189,7 @@ test.describe('the toggle exists exactly where a predictor does', () => {
     // DISCRIMINATOR: absence has to be a decision, not a dead island. Merge and
     // quick sort both run here, so the island is provably alive — it simply has
     // no question to ask.
-    await page.goto('/learn/sorting-efficient');
+    await page.goto('/learn/sorting-efficient/');
     const viz = await hydrateViz(
       page.locator('[data-viz][data-algorithm="quick-sort"]'),
     );
@@ -669,7 +669,7 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     // record: the same wording survives a reload, and the index counts it once.
     await page.reload();
     await expect(headerLabel(page)).toHaveText('Practiced on this device');
-    await page.goto('/learn');
+    await page.goto('/learn/');
     await expect(trackMastery(page, 'algorithms')).toHaveText(
       'Practiced 1 · Mastered 0',
     );

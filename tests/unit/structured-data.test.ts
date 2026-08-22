@@ -42,7 +42,12 @@ describe('courseJsonLd', () => {
     expect(parsed.description).toBe(
       'Find an item in a sorted array in logarithmic time.',
     );
-    expect(parsed.url).toBe('https://learndsa.example.com/learn/binary-search');
+    // Trailing slash: D1 made `/learn/<slug>/` the URL the site serves, and the
+    // JSON-LD `url` has to name the same one the canonical does or the two
+    // machine-readable declarations of "this page" disagree.
+    expect(parsed.url).toBe(
+      'https://learndsa.example.com/learn/binary-search/',
+    );
     expect(parsed.inLanguage).toBe('en');
     expect(parsed.isAccessibleForFree).toBe(true);
     expect(parsed.educationalLevel).toBe('beginner');
@@ -58,7 +63,9 @@ describe('courseJsonLd', () => {
 
   it('accepts a URL instance for siteUrl', () => {
     const parsed = JSON.parse(courseJsonLd(makeEntry(), new URL(SITE)));
-    expect(parsed.url).toBe('https://learndsa.example.com/learn/binary-search');
+    expect(parsed.url).toBe(
+      'https://learndsa.example.com/learn/binary-search/',
+    );
   });
 
   it('escapes "<" so the JSON-LD is safe to inline in a <script>', () => {

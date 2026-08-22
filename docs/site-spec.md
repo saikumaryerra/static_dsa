@@ -111,12 +111,16 @@ Ship these lessons in v1, grouped into two tracks. Each lesson gets its own page
 
 ```
 /                       Home / landing (value prop + track overview + CTA)
-/learn                  Curriculum index (all lessons grouped by track, with progress-ish checkmarks stored locally)
-/learn/[slug]           A single lesson (e.g. /learn/binary-search)
-/glossary               A-Z terms, each linking to the lesson that introduces it
-/about                  What this is, who it's for, how visualizations work
-/404                    Friendly not-found
+/learn/                 Curriculum index (all lessons grouped by track, with progress-ish checkmarks stored locally)
+/learn/[slug]/          A single lesson (e.g. /learn/binary-search/)
+/glossary/              A-Z terms, each linking to the lesson that introduces it
+/about/                 What this is, who it's for, how visualizations work
+/404                    Friendly not-found (served from dist/404.html, not a directory)
 ```
+
+Every route above carries its **trailing slash**, and that is the published form — the slashless
+spelling is not served at all (it 404s, it does not redirect). See §14's URL-shape note; the
+reversed decision is recorded in `docs/redesign-2026-08/03-amendments.md`, U-1.
 
 - **Global nav:** logo → Home; "Learn"; "Glossary"; "About"; a light/dark theme toggle.
 - **In-lesson nav:** breadcrumb (Learn / Track / Lesson), prev/next lesson, and an on-page table of contents (sticky on desktop).
@@ -596,6 +600,7 @@ Define as CSS custom properties + Tailwind theme extension. Support light & dark
 - Prerender everything; ship JS only for islands. Meet the JS budget in §4.
 - Lighthouse targets (mobile): Performance ≥ 95, Accessibility ≥ 100, Best-Practices ≥ 95, SEO ≥ 95.
 - Per-page `<title>` + meta description (from frontmatter `summary`); Open Graph + Twitter card tags; canonical URLs.
+- **URL shape (amended by Plan D stage D1):** the site builds as directories with `trailingSlash: 'always'`, so every page is published at a **trailing-slash** URL (`/learn/binary-search/`) and its canonical, `og:url` and sitemap `<loc>` must carry that exact form — `tests/e2e/url-shape.spec.ts` fails when a declared URL disagrees with the URL the page is served at. (Reasoning and the reversed decision: `docs/redesign-2026-08/03-amendments.md`, U-1.)
 - Generate `sitemap.xml` and `robots.txt`. JSON-LD `Course`/`LearningResource` structured data on lesson pages (nice-to-have).
 - Self-host fonts; preload the primary font; no layout shift (set dimensions on SVG/media).
 

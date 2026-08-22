@@ -22,7 +22,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-const LEARN = '/learn';
+const LEARN = '/learn/';
 const HOME = '/';
 const FIRST_LESSON = { slug: 'complexity-big-o', title: 'Complexity & Big-O' };
 const SECOND_LESSON = { slug: 'arrays', title: 'Arrays' };
@@ -89,7 +89,7 @@ test.describe('/learn resume CTA', () => {
     );
     await expect(resumeLink(page)).toHaveAttribute(
       'href',
-      `/learn/${FIRST_LESSON.slug}`,
+      `/learn/${FIRST_LESSON.slug}/`,
     );
     await expect(page.locator('[data-resume-done]')).toBeHidden();
   });
@@ -99,7 +99,7 @@ test.describe('/learn resume CTA', () => {
   }) => {
     // Through the real UI, not a seeded key: this is the one test that proves
     // MarkComplete's write and the /learn read agree on the key format.
-    await page.goto(`/learn/${FIRST_LESSON.slug}`);
+    await page.goto(`/learn/${FIRST_LESSON.slug}/`);
     await page.locator('[data-mark-complete]').click();
     await expect(page.locator('[data-mark-complete]')).toHaveAttribute(
       'aria-pressed',
@@ -112,7 +112,7 @@ test.describe('/learn resume CTA', () => {
     );
     await expect(resumeLink(page)).toHaveAttribute(
       'href',
-      `/learn/${SECOND_LESSON.slug}`,
+      `/learn/${SECOND_LESSON.slug}/`,
     );
   });
 
@@ -129,11 +129,16 @@ test.describe('/learn resume CTA', () => {
     await expect(resumeLabel(page)).toContainText('Continue: 10 ·');
     await expect(resumeLink(page)).toHaveAttribute(
       'href',
-      /^\/learn\/[a-z-]+$/,
+      /^\/learn\/[a-z-]+\/$/,
     );
     // The CTA links into the OTHER track, which is the whole point.
     const href = await resumeLink(page).getAttribute('href');
-    expect(slugs).not.toContain(href!.replace('/learn/', ''));
+    // The href is `/learn/<slug>/` since D1, so the trailing slash comes off too —
+    // without it every comparison against a bare slug silently succeeds and the
+    // assertion stops testing anything.
+    expect(slugs).not.toContain(
+      href!.replace('/learn/', '').replace(/\/$/, ''),
+    );
   });
 
   test('with everything complete the CTA stands down instead of linking somewhere arbitrary', async ({
@@ -196,7 +201,7 @@ test.describe('home hero continue line', () => {
     await expect(startLesson01(page)).toBeVisible();
     await expect(startLesson01(page)).toHaveAttribute(
       'href',
-      `/learn/${FIRST_LESSON.slug}`,
+      `/learn/${FIRST_LESSON.slug}/`,
     );
 
     // The anti-flash property the old visible-by-default test owned, kept: the
@@ -222,13 +227,13 @@ test.describe('home hero continue line', () => {
     );
     await expect(resumeLink(page)).toHaveAttribute(
       'href',
-      `/learn/${SECOND_LESSON.slug}`,
+      `/learn/${SECOND_LESSON.slug}/`,
     );
     // The hero above it is untouched: the island rewrites one line and nothing
     // else, so the CTA still offers lesson 01 to anyone who wants to restart.
     await expect(startLesson01(page)).toHaveAttribute(
       'href',
-      `/learn/${FIRST_LESSON.slug}`,
+      `/learn/${FIRST_LESSON.slug}/`,
     );
   });
 
@@ -268,7 +273,7 @@ test.describe('home hero continue line', () => {
     // Entered through the hero's own primary CTA, i.e. the real path for a
     // first-time visitor now that the CTA is the one way in.
     await startLesson01(page).click();
-    await expect(page).toHaveURL(new RegExp(`/learn/${FIRST_LESSON.slug}`));
+    await expect(page).toHaveURL(new RegExp(`/learn/${FIRST_LESSON.slug}/`));
     await page.locator('[data-mark-complete]').click();
     await expect(page.locator('[data-mark-complete]')).toHaveAttribute(
       'aria-pressed',
@@ -283,7 +288,7 @@ test.describe('home hero continue line', () => {
     );
     await expect(resumeLink(page)).toHaveAttribute(
       'href',
-      `/learn/${SECOND_LESSON.slug}`,
+      `/learn/${SECOND_LESSON.slug}/`,
     );
   });
 });
@@ -495,7 +500,7 @@ test.describe("What's next — the saved note", () => {
     // The total comes from the injected curriculum, never a hardcoded 15: the
     // note's whole point is that it counts the lessons the BUILD ships.
     const total = (await curriculum(page)).length;
-    await page.goto(`/learn/${SECOND_LESSON.slug}`);
+    await page.goto(`/learn/${SECOND_LESSON.slug}/`);
 
     const button = page.locator('[data-mark-complete]');
     const note = page.locator('[data-mark-complete-note]');
@@ -536,7 +541,7 @@ test.describe("What's next — the saved note", () => {
     const [seedA, target, seedB] = lessons as [LessonRef, LessonRef, LessonRef];
     await seedComplete(page, [seedA.slug, seedB.slug]);
 
-    await page.goto(`/learn/${target.slug}`);
+    await page.goto(`/learn/${target.slug}/`);
     await page.locator('[data-mark-complete]').click();
     await expect(page.locator('[data-mark-complete-count]')).toHaveText(
       `Saved — 3 of ${lessons.length} complete`,
@@ -567,7 +572,7 @@ test.describe("What's next — prev/next", () => {
   }) => {
     const lessons = await curriculum(page);
     const [prev, current, next] = lessons as [LessonRef, LessonRef, LessonRef];
-    await page.goto(`/learn/${current.slug}`);
+    await page.goto(`/learn/${current.slug}/`);
 
     const links = navLinks(page);
     await expect(links).toHaveCount(2);
@@ -576,8 +581,8 @@ test.describe("What's next — prev/next", () => {
     // screen-reader user must meet the recommended branch BEFORE the way back.
     const nextLink = links.nth(0);
     const prevLink = links.nth(1);
-    await expect(nextLink).toHaveAttribute('href', `/learn/${next.slug}`);
-    await expect(prevLink).toHaveAttribute('href', `/learn/${prev.slug}`);
+    await expect(nextLink).toHaveAttribute('href', `/learn/${next.slug}/`);
+    await expect(prevLink).toHaveAttribute('href', `/learn/${prev.slug}/`);
 
     // Next is a card: the shared `.track-card` affordance, an overline, the
     // lesson's title and an explicit CTA.
@@ -601,34 +606,34 @@ test.describe("What's next — prev/next", () => {
   }) => {
     const lessons = await curriculum(page);
     const first = lessons[0]!;
-    await page.goto(`/learn/${first.slug}`);
+    await page.goto(`/learn/${first.slug}/`);
 
     const links = navLinks(page);
     await expect(links).toHaveCount(1);
     await expect(links.first()).toHaveAttribute(
       'href',
-      `/learn/${lessons[1]!.slug}`,
+      `/learn/${lessons[1]!.slug}/`,
     );
   });
 
   test('the last lesson is not a dead end', async ({ page }) => {
     const lessons = await curriculum(page);
     const last = lessons[lessons.length - 1]!;
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
 
     // The synthetic card keeps the same treatment as a real "next", so the end
     // of the curriculum reads as an ending rather than as missing markup.
     const links = navLinks(page);
     await expect(links).toHaveCount(2);
     const card = links.nth(0);
-    await expect(card).toHaveAttribute('href', '/learn');
+    await expect(card).toHaveAttribute('href', '/learn/');
     await expect(card).toHaveClass(/track-card/);
     await expect(card).toContainText("That's the whole curriculum");
     await expect(card).toContainText('Back to all lessons');
     // …and the way back is still there.
     await expect(links.nth(1)).toHaveAttribute(
       'href',
-      `/learn/${lessons[lessons.length - 2]!.slug}`,
+      `/learn/${lessons[lessons.length - 2]!.slug}/`,
     );
   });
 
@@ -649,12 +654,12 @@ test.describe("What's next — prev/next", () => {
     const after = lessons[index]!;
 
     // Entering the new track: the card says which track it is.
-    await page.goto(`/learn/${before.slug}`);
+    await page.goto(`/learn/${before.slug}/`);
     await expect(navLinks(page).nth(0)).toContainText('Next track: Algorithms');
 
     // Leaving it again: the demoted link names the track it goes back to, so
     // the crossing is explicit from both sides instead of silent.
-    await page.goto(`/learn/${after.slug}`);
+    await page.goto(`/learn/${after.slug}/`);
     await expect(navLinks(page).nth(1)).toContainText(
       'Previous track: Foundations',
     );
@@ -688,7 +693,7 @@ test.describe('JavaScript disabled', () => {
       exact: true,
     });
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute('href', `/learn/${FIRST_LESSON.slug}`);
+    await expect(cta).toHaveAttribute('href', `/learn/${FIRST_LESSON.slug}/`);
     // …and the index is still one link away for a reader who wants to choose.
     await expect(
       page.getByRole('link', { name: 'See all 15 lessons', exact: true }),
@@ -706,7 +711,7 @@ test.describe('JavaScript disabled', () => {
     );
     await expect(resumeLink(page)).toHaveAttribute(
       'href',
-      `/learn/${FIRST_LESSON.slug}`,
+      `/learn/${FIRST_LESSON.slug}/`,
     );
 
     // JS-only controls hide behind the <noscript> kill-switch rather than
@@ -730,7 +735,7 @@ test.describe('JavaScript disabled', () => {
   test('a lesson keeps its "What\'s next" section, minus the JS-only button', async ({
     page,
   }) => {
-    await page.goto(`/learn/${SECOND_LESSON.slug}`);
+    await page.goto(`/learn/${SECOND_LESSON.slug}/`);
 
     // Server-rendered and therefore EXPECTED to be readable without script.
     await expect(
@@ -809,7 +814,7 @@ test.describe('storage blocked (private mode)', () => {
   }) => {
     const errors = trackPageErrors(page);
     await blockStorage(page);
-    await page.goto(`/learn/${SECOND_LESSON.slug}`);
+    await page.goto(`/learn/${SECOND_LESSON.slug}/`);
 
     const button = page.locator('[data-mark-complete]');
     await expect(button).toHaveAttribute('aria-pressed', 'false');
