@@ -2,18 +2,18 @@
   - /url: "#main"
 - banner:
   - link "LearnDSA":
-    - /url: /
+    - /url: ../../
   - navigation "Main":
     - list:
       - listitem:
         - link "Learn":
-          - /url: /learn/
+          - /url: ../../learn/
       - listitem:
         - link "Glossary":
-          - /url: /glossary/
+          - /url: ../../glossary/
       - listitem:
         - link "About":
-          - /url: /about/
+          - /url: ../../about/
       - listitem:
         - button "Switch to dark theme"
 - main:
@@ -22,10 +22,10 @@
       - list:
         - listitem:
           - link "Learn":
-            - /url: /learn/
+            - /url: ../../learn/
         - listitem:
           - link "Algorithms":
-            - /url: /learn/#track-algorithms
+            - /url: ../../learn/#track-algorithms
         - listitem: Linear & Binary Search
     - heading "Linear & Binary Search" [level=1]
     - paragraph: "Find an element in an array two ways: linear search scans every item in O(n); binary search halves a sorted range in O(log n)."
@@ -33,10 +33,10 @@
     - list "Builds on:":
       - listitem:
         - link "Complexity & Big-O":
-          - /url: /learn/complexity-big-o/
+          - /url: ../../learn/complexity-big-o/
       - listitem:
         - link "Arrays":
-          - /url: /learn/arrays/
+          - /url: ../../learn/arrays/
     - group: On this page How it works
     - separator
     - heading "Intuition" [level=2]
@@ -44,7 +44,7 @@
     - paragraph:
       - strong:
         - link "Binary search":
-          - /url: /glossary/#binary-search
+          - /url: ../../glossary/#binary-search
       - text: is exactly that idea for a
       - strong: sorted
       - text: "list. Because the values are in order, checking the middle one tells you which half your target could be in — so you can discard the other half every single time. Halving again and again is astonishingly fast: a sorted list of a million items is found in about twenty checks."
@@ -57,7 +57,7 @@
       - text: "Before binary search, there is the obvious way to find something: start at the first item and check each one in turn until you hit the target or run out of items. That is"
       - strong:
         - link "linear search":
-          - /url: /glossary/#linear-search
+          - /url: ../../glossary/#linear-search
       - text: . It is dead simple and it works on
       - strong: any
       - text: "array — sorted or not — but it has no shortcut: in the worst case it inspects every element, so searching a million items can take a million comparisons. Binary search exists precisely to beat that steady one-at-a-time march, and the price of admission is that the data must already be sorted. Keep both in mind as you read on: linear search trades speed for zero requirements; binary search demands order and repays you with logarithmic speed."
@@ -427,20 +427,20 @@
       - status
       - navigation "Lesson navigation":
         - 'link "Next Sorting I: Bubble, Selection, Insertion Start lesson"':
-          - /url: /learn/sorting-basics/
+          - /url: ../../learn/sorting-basics/
         - link "Previous Recursion":
-          - /url: /learn/recursion/
+          - /url: ../../learn/recursion/
 - contentinfo:
   - paragraph: LearnDSA — see data structures and algorithms in motion.
   - navigation "Footer":
     - list:
       - listitem:
         - link "Learn":
-          - /url: /learn/
+          - /url: ../../learn/
       - listitem:
         - link "Glossary":
-          - /url: /glossary/
+          - /url: ../../glossary/
       - listitem:
         - link "About":
-          - /url: /about/
+          - /url: ../../about/
   - paragraph: /Free and open source\. © \d+ LearnDSA/

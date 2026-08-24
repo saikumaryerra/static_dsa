@@ -1,10 +1,23 @@
 # Plan D — the portable artifact
 
-**Status:** **D1 shipped** (2026-08-21, working tree — not committed). D2, D3, D4 not started.
+**Status:** **D1 shipped** (2026-08-21, committed as `94eb611`). **D2 shipped** (2026-08-25) —
+`scripts/portablize.mjs`, its build-time assertions and the sub-path Playwright project; §4.6 records
+the one design decision it added. **D3 shipped** (2026-08-25) — `src/lib/deployment-url.ts` (the
+join every declared URL goes through), `SITE_URL` → sentinel with no heuristic tier and a build that
+fails rather than ship the sentinel from Cloudflare, and `npm run rehost <url>`. **D3 review found
+two defects and both are repaired** (2026-08-25): the 404's base path is now applied by whichever
+path knows the deployment — see §4.4 — and the stamp refuses a half-written artifact instead of
+prefixing it twice (§4.3). **D4 shipped** (2026-08-25): `docs/deployment.md` is reorganized around
+"the artifact is portable; the origin is a deploy-time input" — §2.1 rewritten with real command
+output, §2.2 corrected for the repaired 404, §2.4 added for §6's three limitations, §4.4 corrected
+(a GitHub Pages *project* site is now supported), §4.5 added for plain static servers, §5.3's
+Direct-Upload workflow given the `SITE_URL` the `CF_PAGES` guard cannot supply there, and §7/§9
+extended. §6's limitations also land in spec §6/§14, and D2+D3 are recorded as amendment **U-2** in
+`docs/redesign-2026-08/03-amendments.md`. **This plan is complete.**
 **§5's spec amendment is spent.** Both build-contract constants (`build.format: 'directory'`,
 `trailingSlash: 'always'`) are live, every published URL now carries a trailing slash, and the
-change is recorded in `docs/redesign-2026-08/03-amendments.md` U-1. What remains — the relative-URL
-pass (D2), the origin stamp (D3), the deployment-doc rewrite (D4) — needs no further amendment.
+change is recorded in `docs/redesign-2026-08/03-amendments.md` U-1. What remains — the origin stamp
+(D3) and the deployment-doc rewrite (D4) — needs no further amendment.
 
 ---
 
@@ -164,6 +177,19 @@ and the 404's links — never a navigational URL, which is already relative and 
 Two assertions before it reports success, both of them `deployment.md` §2.1's manual grep made
 executable: **zero sentinels remain**, and **exactly one distinct origin** is present in the output.
 
+**It refuses a half-stamped artifact, not just a stamped one** (repaired 2026-08-25). The 404
+prefixing is incremental, so the command must run at most once over a `dist/`; the original guard
+was "no sentinel anywhere means already stamped", and that misses the state that actually costs
+something. A run that dies between two writes — an unwritable file, a full disk, a Ctrl-C — leaves
+`404.html` written and `sitemap.xml` not, the total is still non-zero, and the operator's natural
+fix-and-re-run therefore passed the guard, prefixed the 404 a **second** time
+(`/learndsa/learndsa/about/`) and **exited 0**. The post-conditions could not see it either: they
+read declared URLs, and those are correct in both halves. So the precondition is now per file —
+every stampable file carries a sentinel (`unstamped`), none does (`stamped`), or the artifact is
+`partial` and the answer is a rebuild — every write is atomic (temp file + rename in the same
+directory, so no file is ever caught torn), and a write that fails says which state `dist/` was left
+in rather than throwing a stack trace.
+
 ### 4.4 The 404 carve-out
 
 A 404 page is served *at the URL the reader typed*, not at its own path. Relative links on it
@@ -176,6 +202,22 @@ same step, defaulting to `/` when unstamped. That degraded state — a sub-path 
 links point at the origin root — is acceptable and documented. On GitHub Pages, where `404.html` is
 served for every unmatched path under the repo, the stamped base is exactly what makes those links
 work.
+
+**Both stamping paths apply it, through one function** (repaired 2026-08-25). As first built, only
+`rehost` did — so a sub-path deployment built by a host WITH a build step got no base path at all,
+and because `rehost` refuses a stamped artifact there was then no way to supply one. That is
+precisely GitHub Pages via Actions, the host this section cites: it shipped a 404 that was unstyled
+(its stylesheet, fonts and icons were requested from the origin root) and whose every escape link
+left the deployment, with nothing printed anywhere to say so. `prefixRootAbsolute` now lives in
+`scripts/portablize.mjs` beside the carve-out, and the build calls it with the base path read out of
+the artifact's OWN canonical — `dist/index.html`'s, written by `deploymentUrl`, so it cannot
+disagree with the URLs the same build published, and the pass still knows the deployment when it is
+run by hand. Reading it fails loudly rather than defaulting to `''`, because a silent root default
+is the defect itself. Verified by diff: `SITE_URL=https://sample.com/learndsa npm run build` and
+`npm run build && npm run rehost https://sample.com/learndsa` produce a byte-identical `404.html`,
+`index.html` and `sitemap.xml`. The pass also refuses to run twice over one `dist/` (a second run
+would prefix the 404 again), using the one signal that cannot be faked: a fresh build has hundreds
+of root-absolute URLs to rewrite, an already-portablized one has none.
 
 ### 4.5 Canonical under a sub-path — a pure function
 
@@ -201,6 +243,34 @@ is a chance to publish a canonical that points at a 301:
 
 So the join function strips a trailing `(/index)?\.html` and enforces the trailing slash, and its
 unit test carries a case for each bullet above. One place to be right, one place to test.
+
+### 4.6 The links no HTML pass can reach — the site-root anchor
+
+**Added during D2, and it is the difference between "R3 is delivered" and "R3 is delivered for a
+first-time visitor".** Three hrefs are built at runtime inside client chunks, where a post-build pass
+over `dist/` cannot rewrite a template literal: the resume CTA on `/` and on `/learn/`, and the
+review cards (`src/lib/progress.ts`, rendered by `ReviewStrip.astro`). Written as `/learn/${slug}/`
+they leave a sub-path deployment and 404 at the origin — and because every one of them is
+conditional on stored progress, the reader who meets them first is a **returning** one, i.e. exactly
+the person a portability test with a fresh profile never simulates.
+
+They were briefly pinned as an accepted gap (`KNOWN_RUNTIME_ABSOLUTE`, with the build failing if a
+fourth appeared). That was the wrong call twice over: it left four visible, clickable links broken on
+the site's two highest-traffic pages, and it recorded the deferral in code comments only while §9
+claimed D2 "delivers R3". The pin is deleted.
+
+**The fix is one reference point.** `SiteHeader`'s wordmark is already `<a href="/">` on every page,
+so the pass rewrites it to that page's own way back to the site root — `./` at the home page,
+`../../` on a lesson. It carries `data-site-root`, and `siteRoot()` reads its resolved href;
+`lessonHref(slug, root)` and `reviewHref(slug, root)` are pure joins over it, unit-testable in the
+node harness. No depth arithmetic exists in any island, and the pass stays the single source of truth
+for what "the root" means at each depth.
+
+Guarded at both ends, because an intention is not a test: the build fails if **any** chunk contains a
+root-absolute URL literal (the rule has no exceptions now) and if any page ships without exactly one
+`[data-site-root]` anchor whose href is its own depth's prefix; `tests/e2e/portable.spec.ts` sweeps
+the live DOM after hydration with **no carve-out**, and seeds progress so the returning reader's two
+links are clicked under a real sub-path rather than merely inspected.
 
 ---
 
@@ -292,8 +362,10 @@ through. That is the requirement in its rawest form, and it takes two minutes.
 **New:** `scripts/portablize.mjs`, `scripts/rehost.mjs`, `src/lib/deployment-url.ts`,
 `tests/unit/deployment-url.test.ts`, `tests/e2e/portable.spec.ts` (+ its static-server fixture).
 
-**Changed:** `astro.config.mjs` (format, trailingSlash, `site` resolution), `package.json` (build
-chain + `rehost`), `playwright.config.ts` (new project), `BaseLayout.astro`, `sitemap.xml.ts`,
+**Changed:** `astro.config.mjs` (format, trailingSlash, `site` resolution, and D2's
+`renderBuiltUrl`), `package.json` (build chain + `rehost`), `playwright.config.ts` (new project),
+`SiteHeader.astro` + `src/lib/progress.ts` + the three islands that build a link (§4.6),
+`BaseLayout.astro`, `sitemap.xml.ts`,
 `robots.txt.ts`, `structured-data.ts`, `LessonLayout.astro`, the 33 internal-link sites *only where a trailing slash is
 now wanted* (the relative rewrite itself is post-build and needs no source edit), `public/_headers`,
 73 `goto()` calls, aria baselines.
@@ -312,7 +384,9 @@ Repo culture is smallest-shippable-batch and vertical-slice-first, and this spli
   across links, tests and baselines. Ships alone, verifiable alone, no new machinery. This is the
   spec-amendment commit.
 - **D2 — the relative pass.** `portablize.mjs` + build-time assertions + the sub-path Playwright
-  project. This is the commit that delivers R3.
+  project, **plus §4.6's site-root anchor** for the three links client JS builds — without that half
+  it would deliver R3 for a first-time visitor and not for a returning one. This is the commit that
+  delivers R3.
 - **D3 — the stamp.** `deployment-url.ts` + the four callers + `rehost.mjs` + retiring the
   `CF_PAGES_URL` tier. Delivers R1 for hosts with no build step.
 - **D4 — docs.** Rewrite `deployment.md` §2 around "the artifact is portable; the origin is a

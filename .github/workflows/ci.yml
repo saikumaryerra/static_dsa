@@ -67,7 +67,7 @@ jobs:
 
       - run: npm ci # lockfile-exact, reproducible
 
-      - run: npm run build # astro check (type gate) + astro build
+      - run: npm run build # astro check (type gate) + astro build + portablize (Plan D §4.2)
 
       - run: npm run lint
 

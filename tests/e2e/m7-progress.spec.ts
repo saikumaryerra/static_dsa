@@ -21,6 +21,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { linkTarget, resolveFrom } from './utils/urls';
 
 const LEARN = '/learn/';
 const HOME = '/';
@@ -87,8 +88,7 @@ test.describe('/learn resume CTA', () => {
     await expect(resumeLabel(page)).toHaveText(
       `Start with 01 · ${FIRST_LESSON.title}`,
     );
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, resumeLink(page)).toBe(
       `/learn/${FIRST_LESSON.slug}/`,
     );
     await expect(page.locator('[data-resume-done]')).toBeHidden();
@@ -110,8 +110,7 @@ test.describe('/learn resume CTA', () => {
     await expect(resumeLabel(page)).toHaveText(
       `Continue: 02 · ${SECOND_LESSON.title}`,
     );
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, resumeLink(page)).toBe(
       `/learn/${SECOND_LESSON.slug}/`,
     );
   });
@@ -127,17 +126,16 @@ test.describe('/learn resume CTA', () => {
 
     await page.goto(LEARN);
     await expect(resumeLabel(page)).toContainText('Continue: 10 ·');
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
-      /^\/learn\/[a-z-]+\/$/,
-    );
+    await linkTarget(page, resumeLink(page)).toMatch(/^\/learn\/[a-z-]+\/$/);
     // The CTA links into the OTHER track, which is the whole point.
-    const href = await resumeLink(page).getAttribute('href');
-    // The href is `/learn/<slug>/` since D1, so the trailing slash comes off too —
-    // without it every comparison against a bare slug silently succeeds and the
-    // assertion stops testing anything.
+    const href = (await resumeLink(page).getAttribute('href')) ?? '';
+    // Resolved, not read: the island builds this href against the deployment
+    // root (D2), so the attribute is an absolute URL rather than the path. The
+    // trailing slash comes off too — without it every comparison against a bare
+    // slug silently succeeds and the assertion stops testing anything.
+    const target = resolveFrom(page.url(), href);
     expect(slugs).not.toContain(
-      href!.replace('/learn/', '').replace(/\/$/, ''),
+      target.replace('/learn/', '').replace(/\/$/, ''),
     );
   });
 
@@ -199,8 +197,7 @@ test.describe('home hero continue line', () => {
     // The single way in for this reader, and it is a real server-rendered link
     // to the first lesson itself — not to the index, as it was before H-2.
     await expect(startLesson01(page)).toBeVisible();
-    await expect(startLesson01(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, startLesson01(page)).toBe(
       `/learn/${FIRST_LESSON.slug}/`,
     );
 
@@ -225,14 +222,12 @@ test.describe('home hero continue line', () => {
     await expect(resumeLabel(page)).toHaveText(
       `Continue: 02 · ${SECOND_LESSON.title}`,
     );
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, resumeLink(page)).toBe(
       `/learn/${SECOND_LESSON.slug}/`,
     );
     // The hero above it is untouched: the island rewrites one line and nothing
     // else, so the CTA still offers lesson 01 to anyone who wants to restart.
-    await expect(startLesson01(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, startLesson01(page)).toBe(
       `/learn/${FIRST_LESSON.slug}/`,
     );
   });
@@ -286,8 +281,7 @@ test.describe('home hero continue line', () => {
     await expect(resumeLabel(page)).toHaveText(
       `Continue: 02 · ${SECOND_LESSON.title}`,
     );
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, resumeLink(page)).toBe(
       `/learn/${SECOND_LESSON.slug}/`,
     );
   });
@@ -581,8 +575,8 @@ test.describe("What's next — prev/next", () => {
     // screen-reader user must meet the recommended branch BEFORE the way back.
     const nextLink = links.nth(0);
     const prevLink = links.nth(1);
-    await expect(nextLink).toHaveAttribute('href', `/learn/${next.slug}/`);
-    await expect(prevLink).toHaveAttribute('href', `/learn/${prev.slug}/`);
+    await linkTarget(page, nextLink).toBe(`/learn/${next.slug}/`);
+    await linkTarget(page, prevLink).toBe(`/learn/${prev.slug}/`);
 
     // Next is a card: the shared `.track-card` affordance, an overline, the
     // lesson's title and an explicit CTA.
@@ -610,10 +604,7 @@ test.describe("What's next — prev/next", () => {
 
     const links = navLinks(page);
     await expect(links).toHaveCount(1);
-    await expect(links.first()).toHaveAttribute(
-      'href',
-      `/learn/${lessons[1]!.slug}/`,
-    );
+    await linkTarget(page, links.first()).toBe(`/learn/${lessons[1]!.slug}/`);
   });
 
   test('the last lesson is not a dead end', async ({ page }) => {
@@ -626,13 +617,12 @@ test.describe("What's next — prev/next", () => {
     const links = navLinks(page);
     await expect(links).toHaveCount(2);
     const card = links.nth(0);
-    await expect(card).toHaveAttribute('href', '/learn/');
+    await linkTarget(page, card).toBe('/learn/');
     await expect(card).toHaveClass(/track-card/);
     await expect(card).toContainText("That's the whole curriculum");
     await expect(card).toContainText('Back to all lessons');
     // …and the way back is still there.
-    await expect(links.nth(1)).toHaveAttribute(
-      'href',
+    await linkTarget(page, links.nth(1)).toBe(
       `/learn/${lessons[lessons.length - 2]!.slug}/`,
     );
   });
@@ -693,11 +683,12 @@ test.describe('JavaScript disabled', () => {
       exact: true,
     });
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute('href', `/learn/${FIRST_LESSON.slug}/`);
+    await linkTarget(page, cta).toBe(`/learn/${FIRST_LESSON.slug}/`);
     // …and the index is still one link away for a reader who wants to choose.
-    await expect(
+    await linkTarget(
+      page,
       page.getByRole('link', { name: 'See all 15 lessons', exact: true }),
-    ).toHaveAttribute('href', LEARN);
+    ).toBe(LEARN);
   });
 
   test('/learn still points somewhere useful and exposes no dead control', async ({
@@ -709,8 +700,7 @@ test.describe('JavaScript disabled', () => {
     await expect(resumeLabel(page)).toHaveText(
       `Start with 01 · ${FIRST_LESSON.title}`,
     );
-    await expect(resumeLink(page)).toHaveAttribute(
-      'href',
+    await linkTarget(page, resumeLink(page)).toBe(
       `/learn/${FIRST_LESSON.slug}/`,
     );
 
@@ -729,7 +719,7 @@ test.describe('JavaScript disabled', () => {
     // The curriculum itself is fully usable: every card is a real link.
     const cards = page.locator('[data-lesson-card]');
     expect(await cards.count()).toBeGreaterThanOrEqual(15);
-    await expect(cards.first()).toHaveAttribute('href', /^\/learn\//);
+    await linkTarget(page, cards.first()).toMatch(/^\/learn\//);
   });
 
   test('a lesson keeps its "What\'s next" section, minus the JS-only button', async ({

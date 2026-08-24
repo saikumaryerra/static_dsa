@@ -200,6 +200,7 @@
     REVIEW_COPY,
     reviewHref,
     selectDueReviews,
+    siteRoot,
     type LessonRef,
   } from '../lib/progress';
 
@@ -219,13 +220,18 @@
    * One card: the whole thing is the link, its text is its accessible name —
    * followed, where the reader left one, by their own note as a sibling of that
    * link rather than a child of it (see the note-replay paragraph above).
+   *
+   * `site` is the deployment root the href is resolved against, threaded in
+   * from `render` rather than read here: one DOM read per redraw, and the
+   * decision "can this strip place a link at all?" is taken once, before any
+   * node is made (see `siteRoot` in `src/lib/progress.ts`).
    */
-  function card(lesson: LessonRef): HTMLLIElement {
+  function card(lesson: LessonRef, site: string): HTMLLIElement {
     const item = document.createElement('li');
 
     const link = document.createElement('a');
     link.className = 'track-card review-strip__card';
-    link.href = reviewHref(lesson.slug);
+    link.href = reviewHref(lesson.slug, site);
     link.setAttribute('data-review-card', lesson.slug);
 
     const text = document.createElement('span');
@@ -265,7 +271,7 @@
   }
 
   /** The whole strip for a non-empty queue. */
-  function build(due: LessonRef[]): HTMLElement {
+  function build(due: LessonRef[], site: string): HTMLElement {
     const strip = document.createElement('section');
     strip.className = 'review-strip';
     strip.setAttribute('data-review-strip', '');
@@ -286,7 +292,7 @@
     // list, and the count of what is on offer is the one thing this strip
     // genuinely owes a screen-reader user.
     list.setAttribute('role', 'list');
-    for (const lesson of due) list.append(card(lesson));
+    for (const lesson of due) list.append(card(lesson, site));
 
     strip.append(heading, note, list);
     return strip;
@@ -300,6 +306,11 @@
   function render(): void {
     const host = document.querySelector<HTMLElement>('[data-lessons]');
     if (!host) return; // not `/learn` (or no injected list): leave the page alone
+    // Every card IS a link this file builds, so a document with no site-root
+    // anchor has nothing honest to offer here (see `siteRoot`). Absence is
+    // already this strip's empty state, so standing down costs no new shape.
+    const site = siteRoot();
+    if (!site) return;
     const due = selectDueReviews(parseLessonRefs(host.dataset['lessons']));
     // The note is part of the signature, not just the slug: a reader who writes
     // or deletes one on a lesson page and comes Back lands on this page from the
@@ -316,7 +327,7 @@
     rendered = signature;
     if (due.length === 0) return;
 
-    host.insertAdjacentElement('afterend', build(due));
+    host.insertAdjacentElement('afterend', build(due, site));
   }
 
   render();

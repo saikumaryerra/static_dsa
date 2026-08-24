@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 // It cannot live in a spec file: importing one spec from another makes
 // Playwright register the imported tests twice.
 import { waitForAnchorScroll } from './utils/scroll';
+import { linkTarget, resolveFrom } from './utils/urls';
 
 /**
  * M5 independent QA (spec §17 M5 acceptance + §14 SEO + §12 a11y; arch/design docs
@@ -113,12 +114,15 @@ test.describe('glossary page', () => {
       );
     expect(hrefs.length).toBeGreaterThan(0);
     for (const href of hrefs) {
-      // Anchored on the trailing slash (D1): `trailingSlash: 'always'` makes the
-      // slashless form a 404, so a glossary cross-link that lost its slash must
-      // fail HERE, on the shape, rather than as a confusing 404 two lines down.
-      expect(href).toMatch(/^\/learn\/[a-z-]+\/$/);
-      const res = await request.get(href!);
-      expect(res.status(), `${href} should be reachable`).toBe(200);
+      // Resolved against the glossary page, because D2 made the attribute
+      // document-relative (`../learn/graphs/`). Anchored on the trailing slash
+      // (D1): `trailingSlash: 'always'` makes the slashless form a 404, so a
+      // glossary cross-link that lost its slash must fail HERE, on the shape,
+      // rather than as a confusing 404 two lines down.
+      const target = resolveFrom(page.url(), href!);
+      expect(target).toMatch(/^\/learn\/[a-z-]+\/$/);
+      const res = await request.get(target);
+      expect(res.status(), `${target} should be reachable`).toBe(200);
     }
   });
 
@@ -181,7 +185,7 @@ test.describe('glossary with JavaScript disabled', () => {
     ).toHaveAttribute('href', '#letter-a');
     // A cross-link is a real <a href> into a lesson.
     const firstXref = page.locator('.glossary__xref').first();
-    await expect(firstXref).toHaveAttribute('href', /^\/learn\/[a-z-]+\/$/);
+    await linkTarget(page, firstXref).toMatch(/^\/learn\/[a-z-]+\/$/);
   });
 });
 
@@ -213,39 +217,51 @@ test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
   expect(joined).toMatch(/6 lessons/);
   expect(joined).toMatch(/All beginner/);
   expect(joined).toMatch(/beginner · \d+ intermediate|intermediate/);
-  // Both track headings link into the /learn track anchors.
-  await expect(
-    page.locator(
-      '.curriculum .track__title a[href="/learn/#track-foundations"]',
-    ),
-  ).toHaveCount(1);
-  await expect(
-    page.locator(
-      '.curriculum .track__title a[href="/learn/#track-algorithms"]',
-    ),
-  ).toHaveCount(1);
+  // Both track headings link into the /learn track anchors. Matched on the
+  // RESOLVED target rather than on the attribute: D2 made these relative
+  // (`./learn/#track-foundations` from home), and the fragment surviving the
+  // rewrite in one piece is half of what this assertion is now worth.
+  const trackTargets = (
+    await page
+      .locator('.curriculum .track__title a')
+      .evaluateAll((links) =>
+        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+      )
+  ).map((href) => resolveFrom(page.url(), href));
+  expect(trackTargets).toEqual([
+    '/learn/#track-foundations',
+    '/learn/#track-algorithms',
+  ]);
 
   // The strongest form of "never hardcoded" the old shape could not express:
   // the fifteen rows are the SAME fifteen lessons /learn renders, in the same
   // order, because both derive from the published collection sorted by `order`
   // within TRACK_ORDER. A hand-typed list here would have to be edited twice to
   // keep this passing, which is the drift the derivation exists to prevent.
-  const homeHrefs = await page
-    .locator('.curriculum .track__lesson')
-    .evaluateAll((links) =>
-      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
-    );
+  // Compared as RESOLVED targets, which is now the only way the comparison can
+  // be made at all: the two pages sit at different depths, so the same lesson is
+  // `./learn/arrays/` on home and `../learn/arrays/` on the index. Their
+  // destinations are what must agree, and that is the claim this test makes.
+  const homeHrefs = (
+    await page
+      .locator('.curriculum .track__lesson')
+      .evaluateAll((links) =>
+        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+      )
+  ).map((href) => resolveFrom(page.url(), href));
   expect(homeHrefs).toHaveLength(15);
   expect(homeHrefs.every((href) => /^\/learn\/[a-z0-9-]+\/$/.test(href))).toBe(
     true,
   );
 
   await page.goto('/learn/');
-  const learnHrefs = await page
-    .locator('[data-lesson-card]')
-    .evaluateAll((links) =>
-      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
-    );
+  const learnHrefs = (
+    await page
+      .locator('[data-lesson-card]')
+      .evaluateAll((links) =>
+        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+      )
+  ).map((href) => resolveFrom(page.url(), href));
   expect(homeHrefs).toEqual(learnHrefs);
 });
 

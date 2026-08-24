@@ -1425,8 +1425,50 @@ export const REVIEW_COPY = {
  * (The lesson island reads the parameter; nothing writes it.)
  *
  * @param slug - Lesson slug.
- * @returns The deep link, e.g. `/learn/binary-search/?review=1#practice`.
+ * @param root - The deployment root from {@link siteRoot}.
+ * @returns The deep link, e.g. `https://host/learn/binary-search/?review=1#practice`.
  */
-export function reviewHref(slug: string): string {
-  return `/learn/${slug}/?review=1#practice`;
+export function reviewHref(slug: string, root: string): string {
+  return new URL(`learn/${slug}/?review=1#practice`, root).href;
+}
+
+/**
+ * Where the resume CTA points: a lesson, wherever this deployment lives.
+ *
+ * @param slug - Lesson slug.
+ * @param root - The deployment root from {@link siteRoot}.
+ * @returns The lesson URL, e.g. `https://host/learndsa/learn/arrays/`.
+ */
+export function lessonHref(slug: string, root: string): string {
+  return new URL(`learn/${slug}/`, root).href;
+}
+
+/**
+ * This deployment's own root, read off the site-root anchor in the header.
+ *
+ * WHY A DOM READ RATHER THAN A `/learn/…` LITERAL: the artifact is deployable
+ * at any origin AND any sub-path (Plan D R3), which `scripts/portablize.mjs`
+ * delivers by rewriting every internal URL in `dist/` to a document-relative one
+ * after the build. That pass can rewrite an attribute; it cannot reach a
+ * template literal inside a minified chunk. A link this file BUILT as
+ * `/learn/${slug}/` would therefore stay root-absolute, and under
+ * `sample.com/learndsa/` the two surfaces that use one — the resume CTA and the
+ * review cards, both of which only a RETURNING reader ever sees — would leave
+ * the deployment and 404 at the origin. So the runtime half resolves against
+ * something the pass did rewrite: `SiteHeader`'s wordmark, which carries
+ * `data-site-root` and points at the site root from every depth. The build fails
+ * if a page ships without it, and fails again if any chunk regains a
+ * root-absolute literal.
+ *
+ * Kept beside the two joiners above so one module owns "where a progress
+ * surface links to"; the JOIN is pure and takes the root as an argument so the
+ * node harness can test it, and only this function touches the DOM.
+ *
+ * @returns The absolute URL of the deployment root, or `null` when the document
+ * has no site-root anchor — the caller then leaves the server-rendered DOM
+ * alone rather than writing a link it cannot place.
+ */
+export function siteRoot(): string | null {
+  const anchor = document.querySelector<HTMLAnchorElement>('[data-site-root]');
+  return anchor === null ? null : anchor.href;
 }

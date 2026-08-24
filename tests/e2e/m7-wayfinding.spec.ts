@@ -30,6 +30,7 @@ import {
   scrollToInstant,
   waitForAnchorScroll,
 } from './utils/scroll';
+import { resolveFrom } from './utils/urls';
 
 const LESSON = '/learn/binary-search/';
 const DESKTOP = { width: 1280, height: 900 };
@@ -535,11 +536,14 @@ test.describe('"Builds on:" prerequisites', () => {
     for (const href of await links.evaluateAll((els) =>
       els.map((el) => (el as HTMLAnchorElement).getAttribute('href')),
     )) {
-      expect(href).toMatch(/^\/learn\/[a-z-]+\/$/);
+      // Resolved against this lesson, because D2 made the chip's href
+      // document-relative (`../../learn/complexity-big-o/` from depth 2).
+      const target = resolveFrom(page.url(), href ?? '');
+      expect(target).toMatch(/^\/learn\/[a-z-]+\/$/);
       // A chip pointing at a 404 would be worse than no chip: the build guard
       // in [slug].astro exists to prevent it, and this proves it holds in the
       // shipped output.
-      expect((await request.get(href!)).status()).toBe(200);
+      expect((await request.get(target)).status()).toBe(200);
     }
   });
 

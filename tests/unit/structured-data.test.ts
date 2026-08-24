@@ -3,6 +3,8 @@ import type { CollectionEntry } from 'astro:content';
 import { courseJsonLd, webSiteJsonLd } from '../../src/lib/structured-data';
 
 const SITE = 'https://learndsa.example.com';
+/** The R3 shape: one artifact served from a sub-path of someone else's domain. */
+const SUBPATH_SITE = 'https://sample.com/learndsa';
 
 /** Minimal lesson entry — only the fields the serializers read (arch §3.1). */
 function makeEntry(
@@ -52,10 +54,17 @@ describe('courseJsonLd', () => {
     expect(parsed.isAccessibleForFree).toBe(true);
     expect(parsed.educationalLevel).toBe('beginner');
     expect(parsed.keywords).toBe('search, arrays');
+    // D3: the provider URL is the HOME CANONICAL, slash included, not a bare
+    // origin. Deferred from the D1 review to here on purpose — `<link
+    // rel=canonical>` on `/` says `https://…/`, and two machine-readable
+    // declarations of the same site that disagree about a character are the
+    // defect a mismatched canonical is, wearing a different tag name. This is a
+    // corrected expectation, not a relaxed one: the string is longer and more
+    // specific than the one it replaces.
     expect(parsed.provider).toEqual({
       '@type': 'Organization',
       name: 'LearnDSA',
-      url: 'https://learndsa.example.com',
+      url: 'https://learndsa.example.com/',
     });
     // SPEC-GAP (arch §3.1): hasCourseInstance is intentionally omitted.
     expect(parsed.hasCourseInstance).toBeUndefined();
@@ -66,6 +75,18 @@ describe('courseJsonLd', () => {
     expect(parsed.url).toBe(
       'https://learndsa.example.com/learn/binary-search/',
     );
+  });
+
+  /**
+   * Both fields used to be built with `new URL(path, site)` and `.origin`, and
+   * both DROP a sub-path — so a `sample.com/learndsa` deployment declared a
+   * course at `sample.com/learn/…` and a provider at `sample.com`, neither of
+   * which is this site (Plan D §4.5).
+   */
+  it('keeps the deployment sub-path in both URLs it emits', () => {
+    const parsed = JSON.parse(courseJsonLd(makeEntry(), SUBPATH_SITE));
+    expect(parsed.url).toBe('https://sample.com/learndsa/learn/binary-search/');
+    expect(parsed.provider.url).toBe('https://sample.com/learndsa/');
   });
 
   it('escapes "<" so the JSON-LD is safe to inline in a <script>', () => {
@@ -95,8 +116,15 @@ describe('webSiteJsonLd', () => {
     const parsed = JSON.parse(webSiteJsonLd(SITE));
     expect(parsed['@type']).toBe('WebSite');
     expect(parsed.name).toBe('LearnDSA');
-    expect(parsed.url).toBe('https://learndsa.example.com');
+    // Same correction as `provider.url` above: the home canonical, slash and all.
+    expect(parsed.url).toBe('https://learndsa.example.com/');
     expect(parsed.inLanguage).toBe('en');
+  });
+
+  it('keeps the deployment sub-path', () => {
+    expect(JSON.parse(webSiteJsonLd(SUBPATH_SITE)).url).toBe(
+      'https://sample.com/learndsa/',
+    );
   });
 
   it('escapes "<" in its output', () => {

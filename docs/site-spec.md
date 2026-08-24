@@ -142,6 +142,12 @@ reversed decision is recorded in `docs/redesign-2026-08/03-amendments.md`, U-1.
   (private mode). No behavioral tracking of any kind — store only explicit user acts and
   self-reports. The M8 Predict toggle is deliberately **not** persisted at all.
 
+  **Storage is scoped to the ORIGIN, not the path.** Since the artifact is deployable under a
+  sub-path (§14's build contract), two deployments on one origin — `sample.com/learndsa` and
+  `sample.com/learndsa-v2` — share every key above and each other's resets. That is a browser rule,
+  not a choice, and there is no path-scoped alternative that is still `localStorage`; the
+  consequence is recorded in `docs/deployment.md` §2.4.
+
 ---
 
 ## 7. Content authoring model
@@ -601,6 +607,9 @@ Define as CSS custom properties + Tailwind theme extension. Support light & dark
 - Lighthouse targets (mobile): Performance ≥ 95, Accessibility ≥ 100, Best-Practices ≥ 95, SEO ≥ 95.
 - Per-page `<title>` + meta description (from frontmatter `summary`); Open Graph + Twitter card tags; canonical URLs.
 - **URL shape (amended by Plan D stage D1):** the site builds as directories with `trailingSlash: 'always'`, so every page is published at a **trailing-slash** URL (`/learn/binary-search/`) and its canonical, `og:url` and sitemap `<loc>` must carry that exact form — `tests/e2e/url-shape.spec.ts` fails when a declared URL disagrees with the URL the page is served at. (Reasoning and the reversed decision: `docs/redesign-2026-08/03-amendments.md`, U-1.)
+- **The build contract: one artifact, any origin, any sub-path (amended by Plan D stages D2/D3).** Two classes of URL, handled differently and neither one negotiable:
+  - **Navigational** URLs (links, scripts, styles, fonts, icons) are **document-relative in the shipped artifact**. `npm run build` is `astro check && astro build && node scripts/portablize.mjs`, and that third command is what makes it so — Astro cannot emit relative URLs (`base` is root-absolute by contract, `assetsPrefix` is one fixed string for pages at three depths), so **`base` is never set**. The pass fails the build if a root-absolute URL survives in a page or stylesheet, if a JS chunk carries a root-absolute literal or assembles a root base at runtime, or if a page loses the `[data-site-root]` anchor that client-built links resolve against. `dist/404.html` is the single documented exception (it is served at the URL the reader typed), and it carries the deployment's base path instead.
+  - **Declared** URLs (canonical, `og:url`, `og:image`, `twitter:image`, sitemap `<loc>`, robots' `Sitemap:`, JSON-LD `url`) must stay absolute, and the deployment URL is a **deploy-time input, not a build-time constant**: `SITE_URL` (full URL, sub-path included) or the sentinel `https://learndsa.invalid`, joined by the one builder `src/lib/deployment-url.ts` — never `new URL(path, site)`, which discards a sub-path. A Cloudflare build without `SITE_URL` fails by design; `npm run rehost <url>` stamps a built `dist/` for hosts with no build step. Deployment consequences and the three accepted limitations are in `docs/deployment.md` §2; the amendment is `docs/redesign-2026-08/03-amendments.md`, U-2.
 - Generate `sitemap.xml` and `robots.txt`. JSON-LD `Course`/`LearningResource` structured data on lesson pages (nice-to-have).
 - Self-host fonts; preload the primary font; no layout shift (set dimensions on SVG/media).
 

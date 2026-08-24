@@ -258,13 +258,18 @@ test.describe('nothing gates on Learned', () => {
     // the curriculum is navigable in full from the first visit.
     const lessons = await curriculum(page);
     const allLinks = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-lesson-card]')].every(
-        (card) =>
+      [...document.querySelectorAll('[data-lesson-card]')].every((card) => {
+        // Resolved against the page: since D2 the card's href is relative
+        // (`../learn/arrays/`), and where it GOES is what "not locked" means.
+        const href = card.getAttribute('href') ?? '';
+        const path = new URL(href, location.href).pathname;
+        return (
           card.tagName === 'A' &&
-          (card.getAttribute('href') ?? '').startsWith('/learn/') &&
+          path.startsWith('/learn/') &&
           !card.hasAttribute('aria-disabled') &&
-          card.getAttribute('tabindex') !== '-1',
-      ),
+          card.getAttribute('tabindex') !== '-1'
+        );
+      }),
     );
     expect(allLinks, 'every card must be a real, enabled link').toBe(true);
     await expect(page.locator('[data-lesson-card]')).toHaveCount(

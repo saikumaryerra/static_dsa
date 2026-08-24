@@ -354,11 +354,12 @@ recorded because Plan C's guarantee is that ids are *stable*, and this is the on
 them. D2 and D3 will not move them again — the relative-URL pass rewrites emitted links, and the
 origin stamp touches metadata; neither changes `Astro.url.pathname` at build time.
 
-**What deliberately did not move.** Internal links stayed **root-absolute** — making them relative is
-stage D2 and has not shipped. The origin is still a build-time constant resolved in
-`astro.config.mjs` (`SITE_URL` → `CF_PAGES_URL` on `main` → `PRODUCTION_URL`); moving it to a
-deploy-time input is stage D3 and has not shipped either. `/` and `/404`'s canonicals are unchanged:
-both are already `/`, and the 404 pointing at the home page is the design, not an oversight.
+**What deliberately did not move — in D1.** Internal links stayed **root-absolute**, and the origin
+stayed a build-time constant resolved in `astro.config.mjs` (`SITE_URL` → `CF_PAGES_URL` on `main` →
+`PRODUCTION_URL`). **Both of those moved afterwards, in stages D2 and D3 — see U-2**, which is where
+the relative-URL pass and the deploy-time origin are recorded. `/` and `/404`'s canonicals are
+unchanged by either stage: both are already `/`, and the 404 pointing at the home page is the
+design, not an oversight.
 
 **The landmine, and why it became a unit test.** `SiteHeader` decided "which nav item is current" by
 normalizing the *pathname* and comparing it to a raw `NAV_ITEMS` href. Slash the hrefs and **both**
@@ -389,6 +390,117 @@ re-crawl.
   matches a subset, so a green run would not have shown the nav's hrefs moving. Every changed line
   in those five files is a `/url:` line — nothing else in the accessibility tree moved, which is the
   evidence that this stage changed addresses and not structure.
+
+---
+
+## U-2 · The artifact is portable; the origin is a deploy-time input
+
+**Not from this redesign either.** This entry records **Plan D, stages D2 and D3**
+(`docs/superpowers/plans/2026-08-21-plan-d-portable-artifact.md` §4.2–§4.6, both shipped
+2026-08-25), the two stages U-1's trailing slash was the precondition for. It sits beside U-1 for
+the same reason U-1 sits here: this file is where the repo keeps what moved, why, and which test
+moved with it.
+
+**Was** every internal URL root-absolute (`/glossary/`, `/_astro/…`, `url("/fonts/…")`), and the
+production origin a build-time constant resolved by a three-tier heuristic — `SITE_URL` →
+`CF_PAGES_URL` on `main` → a `PRODUCTION_URL` literal in `astro.config.mjs`. One `dist/` therefore
+worked at exactly one place: the root of whatever origin that literal named. `deployment.md` §2.2
+advertised Astro's `base` as the way to deploy under a sub-path.
+
+**Now** one artifact runs at **any origin and any sub-path**, and the deployment URL is supplied
+when you deploy rather than when you build:
+
+- `npm run build` ends in **`scripts/portablize.mjs`**, which rewrites every root-absolute
+  navigational URL in `dist/` to a document-relative one — `href`, `src`, `srcset`, `action`, plus
+  `url(/fonts/…)` in the built CSS — using the page's own depth (`./` at `/`, `../../` on a lesson).
+  Measured on the shipped build: 519 `href` + 102 `src` values across 20 pages, 2 CSS `url()`s.
+- **`src/lib/deployment-url.ts`** is the one builder for every *declared* URL (canonical, `og:url`,
+  `og:image`, `twitter:image`, sitemap `<loc>`, robots' `Sitemap:`, JSON-LD `url`).
+- **`astro.config.mjs` reads `SITE_URL` and nothing else**, falling back to the sentinel
+  `https://learndsa.invalid`; a Cloudflare build (`CF_PAGES` set) without it **throws**.
+- **`npm run rehost <deployment-url>`** stamps a built `dist/` for hosts with no build step.
+
+**Why — requirements R1 and R3** ("one artifact, any origin, no rebuild"; "any sub-path"). U-1's R2
+made the artifact serveable by any host; these two make it serveable at any *address*.
+
+**The finding that shaped it: Astro cannot emit relative URLs, so this could not be done in
+config.** `base` is root-absolute by contract and has no `'./'` mode; `assetsPrefix` is one fixed
+string while this site has pages at three depths. Worse, `base` would have moved only what Astro
+itself generates — every hand-authored link (nav, breadcrumbs, lesson cards, the 40 glossary links
+in lesson prose) would have stayed root-absolute and broken **silently**, rendering a correct-looking
+page with dead navigation. A post-build pass over `dist/` catches Astro's URLs and the hand-written
+ones uniformly, and it can be proved by one assertion instead of by reviewer vigilance across every
+call site.
+
+**Three defects this stage found by building it, each invisible from a green run.**
+
+1. **Vite's preload helper assembled a root-absolute base at runtime.** The plan measured "0
+   root-absolute refs inside built JS chunks" — true of *literals*, and wrong about behaviour: the
+   helper emitted `function(dep){return"/"+dep}`, so every lazily imported chunk's `modulepreload`
+   was fetched from the origin root — six 404s per lesson page under a sub-path, while the dynamic
+   `import()` beside it resolved relatively and the island hydrated fine. `vite.experimental
+   .renderBuiltUrl` is the only lever for it; the build now pins it.
+2. **Three links are built at runtime inside client chunks**, where no HTML pass can rewrite a
+   template literal: the resume CTA on `/` and `/learn/`, and the review cards. Written as
+   `/learn/${slug}/` they leave a sub-path deployment — and every one of them is conditional on
+   stored progress, so the reader who meets them is a **returning** one, i.e. exactly the person a
+   fresh-profile portability test never simulates. They now resolve against `SiteHeader`'s wordmark
+   (`[data-site-root]`), whose href the pass rewrites per depth; `siteRoot()`, `lessonHref()` and
+   `reviewHref()` in `src/lib/progress.ts` are the whole of it, and no island does depth arithmetic.
+3. **`new URL('/learn/x/', 'https://sample.com/learndsa')` is `https://sample.com/learn/x/`** — a
+   root-absolute path *replaces* a base path — and `new URL(site).origin` throws the sub-path away by
+   definition. Both shapes were live in the code. That is why `deploymentUrl` exists and why it also
+   normalizes: it strips a stray `(/index)?.html` (`BaseLayout`'s `canonicalPath ?? Astro.url
+   .pathname` default is a live path on `/dev/renderers/`) and enforces U-1's trailing slash, while
+   leaving `/og-default.png` and `/sitemap.xml` slashless.
+
+**The one carve-out: `dist/404.html` keeps root-absolute links.** A 404 is served at the URL the
+reader typed, so a relative link on it would resolve against an arbitrary path; there is no JS-off
+fix (a `<base>` tag breaks every fragment link on the site, and a script violates spec §13). Instead
+its links get the deployment's **base path** prefixed — by the build when `SITE_URL` carries one, by
+`rehost` when a sentinel artifact is stamped later, through **one** function. When only `rehost` had
+it, a host with a build step *and* a sub-path (GitHub Pages via Actions) shipped a 404 that was
+unstyled and whose every escape link left the deployment, with nothing printed to say so.
+
+**What deliberately did not move.** `base` is still never set. The 404 stays root-absolute. Declared
+URLs stay absolute — "zero hostnames in the artifact" is not reachable, because the sitemap protocol
+and OG scrapers both require an absolute URL — so the artifact carries exactly one hostname, in
+metadata, and knows it is a placeholder until stamped. And `rehost` has no `--noindex` flag; making
+a mirror non-public is a ten-line addition if it is ever wanted.
+
+**Three limitations accepted with it**, documented in `docs/deployment.md` §2.4: a sub-path
+deployment's `robots.txt` is never read (the standard makes it origin-root-only), `localStorage` is
+origin-scoped so two deployments on one origin share every progress key, and self-canonicalizing
+means two *public* mirrors compete in search.
+
+**Tests.**
+
+- **The build asserts its own output** — this is the half that cannot rot. `portablize.mjs` exits 1
+  if a root-absolute URL survives in any page or stylesheet, if a JS chunk carries a `/_astro/`
+  literal, a root-absolute link literal or a runtime-assembled root base, or if any page ships
+  without exactly one `[data-site-root]` anchor pointing at its own depth's root. It also refuses to
+  run twice over one `dist/` (the 404 prefix is incremental), using the signal that cannot be faked:
+  a fresh build has hundreds of URLs to rewrite, a portablized one has none.
+- `tests/e2e/portable.spec.ts` is **new** and is the claim itself: a ~90-line `node:http` fixture
+  (no new dependency) serves the same `dist/` under a two-segment prefix on port 4322 as a
+  deliberately dumb host — no extension guessing, no redirects — and the spec walks home → `/learn/`
+  → a lesson watching the **network**, because a stylesheet or chunk requested at the wrong path
+  does not throw, it 404s quietly. It seeds progress so the two runtime-built links are clicked, and
+  it never spells the prefix out, so a hardcoded path cannot pass it.
+- `tests/unit/portablize.test.ts`, `tests/unit/deployment-url.test.ts` and `tests/unit/rehost.test.ts`
+  are **new** (the pure halves: depth arithmetic, skip rules, query/fragment reattachment, the join
+  and its normalization, the stamp's precondition states). One of them reads `astro.config.mjs` and
+  asserts its `SENTINEL` literal equals `rehost`'s — a silent disagreement there would mean the
+  stamp finds nothing to replace on a perfectly normal build.
+- `tests/e2e/url-shape.spec.ts` was **strengthened, not relaxed.** Its old form read `href="/…"` and
+  would have gone vacuous the moment links became relative; it now *resolves* every internal link
+  against the page that carries it and requires the target to exist in the build — which also
+  catches a prefix one level off, a failure the old rule could not see. A second test pins the
+  pipeline: zero root-absolute URLs in any page, and `404.html` proven to still carry them.
+- **Four aria baselines re-seeded and the diff read**, per §18's blind spot: 236 changed lines, 118
+  insertions against 118 deletions, and **every one of them a `/url:` line** — the evidence that
+  this stage changed addresses and not structure. `not-found.aria.yml` did not change at all, which
+  is the 404 carve-out confirming itself.
 
 ---
 

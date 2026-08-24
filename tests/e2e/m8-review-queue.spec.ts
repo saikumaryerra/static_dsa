@@ -47,6 +47,7 @@ import {
   runCustomInput,
   storageFingerprint,
 } from './utils/predict';
+import { linkTarget } from './utils/urls';
 
 const LEARN = '/learn/';
 const STRIP = '[data-review-strip]';
@@ -244,8 +245,10 @@ test.describe('at most two cards, the longest-waiting first', () => {
 
     const card = page.locator(`[data-review-card="${lesson.slug}"]`);
     await expect(card).toHaveJSProperty('tagName', 'A');
-    await expect(card).toHaveAttribute(
-      'href',
+    // Resolved rather than read: the island builds this href against the
+    // deployment root (D2), so the attribute is an absolute URL — and where the
+    // card GOES is what this test has always meant.
+    await linkTarget(page, card).toBe(
       `/learn/${lesson.slug}/?review=1#practice`,
     );
     // Its visible text IS its accessible name — an aria-label here would

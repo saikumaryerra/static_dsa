@@ -29,7 +29,7 @@
  * that adding links is not a test edit while a sweep that stops matching still
  * fails.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -101,8 +101,9 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
    * the URL the document was fetched from are the same URL.
    *
    * Compared on the PATHNAME only, deliberately. The origin in a canonical comes
-   * from `astro.config.mjs`'s `site` (a deploy-time input — `CF_PAGES_URL` on a
-   * preview build), while the test fetches `localhost:4321`; asserting on the
+   * from `astro.config.mjs`'s `site` (a deploy-time input — `SITE_URL`, or the
+   * sentinel `https://learndsa.invalid` when it is unset), while the test fetches
+   * `localhost:4321`; asserting on the
    * full URL would fail for a reason that has nothing to do with URL shape. The
    * path is the part D1 moved and the part a redirect would change.
    */
@@ -183,26 +184,65 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
    * href a future page invents — the thing reviewer vigilance across 30-odd call
    * sites cannot do.
    *
-   * The rule: an internal URL whose final segment has no extension addresses a
-   * PAGE, and every page address ends in `/`. Assets (`/og-default.png`,
-   * `/fonts/plex-sans.woff2`, `/_astro/*.js`, `/sitemap.xml`) are files and are
-   * left alone by the same rule that identifies them.
+   * D2 MOVED THE GROUND UNDER IT, AND THAT IS WHY IT IS WRITTEN THIS WAY.
+   * `scripts/portablize.mjs` now rewrites every internal URL to a
+   * document-relative one, so the old form of this sweep — which read
+   * `href="/…"` out of the HTML — would have found NOTHING and passed forever.
+   * A shape test that silently stops matching is worse than one that fails.
+   *
+   * So the invariant is asserted after RESOLUTION instead: every internal link
+   * is resolved against the URL of the page that carries it, and the result must
+   * be a URL this build actually serves. That is strictly stronger than the
+   * old check, because a relative link has a second way to be wrong — a prefix
+   * one level off resolves to `/learn/glossary/`, which ends in a slash and is a
+   * 404. Only "resolves to a file that exists" catches that.
+   *
+   * The rule that sorts the two kinds: an internal URL whose final segment has
+   * no extension addresses a PAGE, and every page address ends in `/` and has an
+   * `index.html`. Assets (`/og-default.png`, `/fonts/plex-sans.woff2`,
+   * `/_astro/*.js`) are files and must exist as files.
    */
-  test('no built page links to a slashless page URL', async () => {
-    const found = new Map<string, string[]>(); // url -> pages that carry it
-    const files = [
-      ...builtPages(),
-      join(DIST, NOT_A_PAGE), // the 404 document's own links count too
-    ];
+  test('every internal link resolves to something this build serves', async () => {
+    const pages = builtPages();
+    // The 404 document's own links count too — it is exempt from being relative
+    // (see the carve-out test below), never from pointing somewhere real.
+    const files = [...pages, join(DIST, NOT_A_PAGE)];
+    const resolvedPages = new Set<string>();
+    const dead: string[] = [];
+
     for (const file of files) {
       const html = readFileSync(file, 'utf8');
       const where = relative(DIST, file);
-      for (const m of html.matchAll(/\b(?:href|src)="(\/[^"]*)"/g)) {
-        const url = m[1]!.replace(/[?#].*$/, '');
-        if (url === '' || url === '/') continue;
-        const last = url.slice(url.lastIndexOf('/') + 1);
-        if (last.includes('.')) continue; // an asset, not a page
-        found.set(url, [...(found.get(url) ?? []), where]);
+      // `dist/404.html` is served at whatever URL was typed; its links are
+      // root-absolute by design, so any base resolves them identically.
+      const base = where === NOT_A_PAGE ? '/' : servedPathOf(file);
+      for (const match of html.matchAll(/\b(?:href|src)="([^"]*)"/g)) {
+        const value = match[1]!;
+        // External, protocol-relative, non-navigational, or a bare fragment —
+        // the last one is this site's ToC, scroll-spy and <StepLink>.
+        if (value === '' || value.startsWith('#')) continue;
+        if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) continue;
+
+        const resolved = new URL(value, `https://resolve.test${base}`);
+        const path = resolved.pathname;
+        const last = path.slice(path.lastIndexOf('/') + 1);
+        if (last.includes('.')) {
+          // An asset: the file itself must be on disk.
+          if (!existsSync(join(DIST, path.slice(1)))) {
+            dead.push(`${value} → ${path}  (in ${where})`);
+          }
+          continue;
+        }
+        resolvedPages.add(path);
+        // A page: the slash is the published shape (D1), and there must be a
+        // document behind it. `!path.endsWith('/')` is kept as its own clause
+        // so the failure message still names the original defect class.
+        if (
+          !path.endsWith('/') ||
+          !existsSync(join(DIST, path, 'index.html'))
+        ) {
+          dead.push(`${value} → ${path}  (in ${where})`);
+        }
       }
     }
 
@@ -210,8 +250,8 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
     // distinct page URLs. A regex that stopped matching would report zero
     // offenders and pass, which is exactly how a shape test rots.
     expect(
-      found.size,
-      'distinct internal page URLs found in the built HTML',
+      resolvedPages.size,
+      'distinct internal page URLs reached from the built HTML',
     ).toBeGreaterThanOrEqual(15);
 
     // No allowlist, deliberately — not even for `/404`. Under `trailingSlash:
@@ -220,12 +260,66 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
     // (the preview server answers the slashless form with Astro's built-in error
     // page before it ever looks for a file). An exception here would be a hole
     // large enough for a real dead link to hide in.
-    const slashless = [...found]
-      .filter(([url]) => !url.endsWith('/'))
-      .map(([url, pages]) => `${url}  (in ${pages.slice(0, 3).join(', ')})`);
     expect(
-      slashless,
-      'internal links pointing at a page URL without its trailing slash — each one is a redirect on a real host and a 404 under `astro preview`',
+      dead,
+      'internal links that resolve to nothing this build serves — a missing trailing slash (a 404 under `astro preview`), or a relative prefix one level off',
+    ).toEqual([]);
+  });
+
+  /**
+   * THE PIPELINE GUARD (Plan D §4.2/§4.4). `scripts/portablize.mjs` asserts its
+   * own output, but that assertion lives inside the very step someone can drop:
+   * `npm run build` is `astro check && astro build && node
+   * scripts/portablize.mjs`, and an artifact built without the third command is
+   * indistinguishable from a portable one to the sweep above — root-absolute
+   * hrefs resolve to slash-terminated paths that exist, so every assertion there
+   * still passes. This test is what notices.
+   *
+   * Its second half is the carve-out, exercised rather than merely excused: a
+   * 404 document is served AT THE URL THE READER TYPED, so a relative link on it
+   * resolves against an arbitrary path (`../glossary/` from `/learn/typo/deep`
+   * is nonsense). `dist/404.html` therefore KEEPS root-absolute links, and a
+   * pass that "helpfully" relativized them would break the one page whose links
+   * cannot be relative.
+   */
+  test('the relative pass ran, and the 404 kept its root-absolute links', async () => {
+    const rootAbsolute = (file: string): string[] =>
+      [
+        ...readFileSync(file, 'utf8').matchAll(
+          /\b(?:href|src)="(\/[^"/][^"]*)"/g,
+        ),
+      ]
+        .map((match) => match[1]!)
+        .filter((url) => !url.startsWith('//'));
+
+    const leftBehind: string[] = [];
+    for (const file of builtPages()) {
+      for (const url of rootAbsolute(file)) {
+        leftBehind.push(`${url}  (in ${relative(DIST, file)})`);
+      }
+    }
+    expect(
+      leftBehind,
+      'root-absolute internal URLs in a built page — under a sub-path deployment every one of them points at the origin root. Did `npm run build` run `node scripts/portablize.mjs`?',
+    ).toEqual([]);
+
+    // …and the exception really is exceptional. The nav alone gives the 404 four
+    // internal links; a floor rather than a count, so the page's content can
+    // change without editing this test, while a 404 that lost them (or was
+    // relativized) fails.
+    const notAPage = join(DIST, NOT_A_PAGE);
+    expect(
+      rootAbsolute(notAPage).length,
+      '404.html keeps root-absolute links (plan §4.4)',
+    ).toBeGreaterThanOrEqual(4);
+    const relativized = [
+      ...readFileSync(notAPage, 'utf8').matchAll(
+        /\b(?:href|src)="(\.{1,2}\/[^"]*)"/g,
+      ),
+    ].map((match) => match[1]!);
+    expect(
+      relativized,
+      'document-relative links on 404.html — they resolve against the URL the reader typed, not against the document',
     ).toEqual([]);
   });
 

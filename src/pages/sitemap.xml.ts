@@ -5,10 +5,12 @@
  * `@astrojs/sitemap`): total control of inclusion and no new package. Enumerates
  * the four static routes plus every PUBLISHED lesson, excluding `/404` and any
  * unpublished lesson. Each `<loc>` is absolute, derived from `Astro.site` so the
- * placeholder-domain swap propagates from one config value.
+ * origin swap propagates from one config value — and from ONE joiner, so a
+ * sub-path deployment's `<loc>`s stay inside the sub-path (D3, plan §4.5).
  */
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
+import { deploymentUrl } from '../lib/deployment-url';
 
 /**
  * Static, non-lesson routes to list. Kept in one place so a new top-level page is
@@ -18,7 +20,9 @@ const STATIC_PATHS = ['/', '/learn/', '/glossary/', '/about/'] as const;
 
 export const GET: APIRoute = async ({ site }) => {
   // `site` comes from astro.config.mjs and is guaranteed set at build time.
-  const toLoc = (path: string) => new URL(path, site).href;
+  // `new URL(path, site)` would discard a deployment sub-path and promise every
+  // crawler 19 URLs the host does not serve.
+  const toLoc = (path: string) => deploymentUrl(site!, path);
 
   const published = await getCollection(
     'lessons',

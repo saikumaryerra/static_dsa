@@ -662,11 +662,13 @@ const num = (order: number) => String(order).padStart(2, '0');
    * store simply leaves the server-rendered line in place.
    */
   import {
+    lessonHref,
     nextIncomplete,
     onRestore,
     parseLessonRefs,
     readCompleted,
     resumeLabel,
+    siteRoot,
   } from '../lib/progress';
 
   function render(): void {
@@ -681,6 +683,14 @@ const num = (order: number) => String(order).padStart(2, '0');
     const done = document.querySelector<HTMLElement>('[data-resume-done]');
     if (!root || !link || !label || !done) return;
 
+    // Where this deployment lives, read BEFORE anything is written: the line's
+    // wording and its destination are one statement, and a document with no
+    // site-root anchor cannot place the second half. Standing down leaves the
+    // server-rendered state — hidden, with the CTA above still offering lesson
+    // 01 — instead of revealing "Continue: 02" over a link nobody can follow.
+    const site = siteRoot();
+    if (!site) return;
+
     const next = nextIncomplete(list);
     const completed = readCompleted(list).length;
     // Nothing finished on this device: there is nothing to resume, and the
@@ -692,7 +702,7 @@ const num = (order: number) => String(order).padStart(2, '0');
 
     const text = resumeLabel(next, completed, list.length);
     if (next) {
-      link.href = `/learn/${next.slug}/`;
+      link.href = lessonHref(next.slug, site);
       label.textContent = text;
       done.hidden = true;
       link.hidden = false;
