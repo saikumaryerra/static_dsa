@@ -82,8 +82,30 @@ Lessons may state these; anything else version-specific must be re-verified befo
 - **1.36 graduated to GA**: User Namespaces, MutatingAdmissionPolicy, Declarative Validation,
   PSI metrics, Volume Group Snapshots, fine-grained kubelet API authorization, SELinux volume
   label changes.
-- **1.36 removed/deprecated**: Service `externalIPs` (deprecated and removed);
-  kube-proxy **IPVS** mode removed.
+- **1.36 removed/deprecated**: kube-proxy **IPVS** mode removed. Service
+  `externalIPs` is **deprecated but still accepted** — an earlier version of this entry said
+  "deprecated and removed", and a live 1.36.3 server applies the field, printing
+  `Warning: spec.externalIPs is deprecated and may no longer be implemented in some clusters`
+  and showing the address in `EXTERNAL-IP`. The failure a reader meets is a manifest that
+  applies and does nothing, not a rejection.
+- **EndpointSlices list every matching Pod, ready or not.** Each endpoint carries
+  `conditions.ready`, and only ready ones receive traffic — but the `kubectl get
+  endpointslices` table does not show readiness at all, so "an empty slice means readiness is
+  failing" is wrong twice over. Read it with `-o yaml` or
+  `-o jsonpath='{.items[*].endpoints[*].conditions.ready}'`. The controller is
+  `endpointslice-controller.k8s.io`; the separate `endpoint-controller` maintains the legacy
+  `Endpoints` object, which is where the `notReadyAddresses` mental model comes from.
+- **Headless is not a Service type.** `service.spec.type` is
+  `ClusterIP | NodePort | LoadBalancer | ExternalName`; headless is `type: ClusterIP` with
+  `clusterIP: None`.
+
+> **Where the errors in this entry came from.** Four of these were originally written from
+> documentation summaries and were wrong: the init-container `restartPolicy`, the
+> local-path access modes (in a brief rather than here), `externalIPs`, and the
+> EndpointSlice readiness behaviour. Every one was caught by a reviewer applying the claim
+> to a live cluster, and every one had already been copied into a lesson. **Prefer a claim
+> you have executed over a claim you have read**, and when neither is available, write the
+> lesson without the version-specific sentence.
 - **Ingress-NGINX** is being retired by the project; Gateway API is the recommended long-term
   replacement for Ingress. Lessons say this rather than recommending Ingress-NGINX for new work.
 - **dockershim** was removed in 1.24; no lesson mentions Docker as a runtime except to say

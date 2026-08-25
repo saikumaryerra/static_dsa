@@ -1,0 +1,277 @@
+---
+title: 'Ingress and the Gateway API'
+slug: 'k8s-ingress-and-gateway'
+course: 'kubernetes'
+track: 'k8s-networking'
+order: 15
+summary: 'One front door, many hostnames and paths: Ingress made HTTP routing a Kubernetes object, and the Gateway API is the project answer to everything Ingress could only express in vendor annotations.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-services']
+estimatedMinutes: 8
+tags: ['kubernetes', 'ingress', 'gateway-api', 'http', 'routing']
+explainPrompt: 'Why did every non-trivial Ingress rule end up in a vendor annotation instead of the spec?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Write an Ingress with host, path and TLS rules, and say what actually enforces
+  it.
+- Explain the two structural problems Ingress has, and how the Gateway API
+  answers each.
+- Choose between the two for a new cluster, knowing where the project is heading.
+
+## Intuition
+
+You have twelve HTTP services and the previous lesson has already told you not to
+give each one a LoadBalancer. What you want is one external address that reads
+the incoming request and decides where it goes — routing by hostname and path,
+terminating TLS once, and sending the result to the ClusterIP Services you
+already have.
+
+**An Ingress is a rulebook, and the rulebook is all Kubernetes gives you.** The
+object holds hostnames, paths and certificate references, and the API server
+stores it exactly as it stores a ConfigMap. Nothing in the control plane routes a
+single request. A separate **ingress controller** — a proxy you install, running
+as Pods, usually behind one LoadBalancer Service — watches for Ingress objects
+and reconfigures itself to match.
+
+That is why an Ingress applied to a cluster with no controller produces no error
+and no effect. The object is valid. Nobody is reading it.
+
+## How it works
+
+An Ingress names a class, a set of host rules, and the Services to send matching
+requests to:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+spec:
+  ingressClassName: external
+  tls:
+    - hosts:
+        - shop.example.com
+      secretName: shop-tls
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+```
+
+`ingressClassName` refers to an IngressClass object and decides **which**
+controller handles this Ingress — necessary as soon as a cluster runs more than
+one, for example an internal and an external front door. `pathType` is `Prefix`,
+`Exact` or `ImplementationSpecific`; the first two are portable and the third is
+an explicit admission that the controller decides. The `secretName` is a Secret
+of type `kubernetes.io/tls`, and it must live in the **same namespace as the
+Ingress**, which is the constraint most often discovered the hard way.
+
+Requests then take the path you already know: the controller's proxy resolves the
+backend Service and sends the request to a ready Pod behind it. Ingress adds a
+layer in front of Services; it does not replace them, and an empty EndpointSlice
+still means a 503 regardless of how correct the routing rules are.
+
+**Now the two problems.** First, the spec covers hostnames, paths and TLS and
+essentially nothing else. Header rewriting, timeouts, redirects, rate limits,
+request mirroring and traffic splitting for a canary all live in annotations
+whose keys are the controller's own, so an Ingress with real behaviour is not
+portable between controllers and cannot be validated by the API server. Second,
+one object mixes two audiences: the load balancer, its address and its
+certificate belong to whoever runs the cluster, while the paths belong to the
+team shipping the application — and there is no way to let the second edit their
+half without the first.
+
+The **Gateway API** answers both by splitting the object along the same line the
+organisation already splits.
+
+<Callout variant="note">
+  The Gateway API is an **ecosystem CRD**, not core Kubernetes. Its
+  `gateway.networking.k8s.io/v1` types are installed into the cluster along with
+  an implementation that enforces them; a cluster with neither will reject the
+  manifests below outright, which is a different failure from an Ingress that is
+  accepted and ignored.
+</Callout>
+
+A **Gateway** is the infrastructure half — listeners, ports, protocols,
+certificates — owned by whoever runs the cluster. `gatewayClassName` picks the
+implementation, the way `ingressClassName` picks a controller:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external
+  namespace: infra
+spec:
+  gatewayClassName: cloud-lb
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: shop.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: shop-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+```
+
+An **HTTPRoute** is the application half, and it lives in the application's own
+namespace, attaching itself to a Gateway that has said it will accept it:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: shop-api
+  namespace: shop
+spec:
+  parentRefs:
+    - name: external
+      namespace: infra
+  hostnames:
+    - shop.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: api
+          port: 80
+          weight: 90
+        - name: api-next
+          port: 80
+          weight: 10
+```
+
+Look at `weight`. A canary split is a typed field with a schema, not a string in
+an annotation — and so are header matching, method matching, redirects and
+rewrites. `GRPCRoute` does the same for gRPC. Two teams can now hold different
+permissions on different objects, and `allowedRoutes` is the cluster operator's
+control over which namespaces may attach at all.
+
+## Trade-offs
+
+**Ingress is smaller and it is everywhere.** For one hostname, a couple of paths
+and a certificate, it is three fewer concepts and every controller supports it.
+Everything past that is an annotation, and each annotation is a bet on one
+implementation.
+
+**The Gateway API is more objects for the simple case.** A single-service cluster
+gains a GatewayClass, a Gateway and an HTTPRoute where an Ingress would have
+done. What it buys is expressiveness that survives changing implementation, and a
+split that matches who is allowed to change what.
+
+**The direction of travel is settled.** The project recommends the Gateway API as
+the long-term replacement for Ingress, and it is **retiring Ingress-NGINX** —
+long the default suggestion — so that controller is not the answer for new work.
+Existing Ingress objects keep working and the API is stable; a new cluster,
+though, is choosing between a controller with a stated end and an API with a
+stated future.
+
+**Neither is HTTP-agnostic.** Both route by reading the request, so a protocol
+with no hostname or path in it — a database wire protocol, a custom TCP
+service — needs a LoadBalancer Service instead. That is the one case where
+one balancer per workload is the right answer.
+
+## Common pitfalls
+
+- **Applying an Ingress with no controller installed.** It is tempting to read a
+  clean `kubectl apply` as success. There is no error, no event and no routing,
+  and `kubectl get ingress` will show an empty address column indefinitely.
+- **Omitting `ingressClassName` in a cluster with two controllers.** Either both
+  claim it or neither does, and which one you get is not something the manifest
+  told you.
+- **Expecting `pathType: Prefix` to strip the prefix.** It matches `/api`; it
+  does not remove it, so the backend receives `/api/orders`. Rewriting is an
+  annotation on Ingress and a typed filter on an HTTPRoute.
+- **Putting the TLS Secret in the wrong namespace.** The certificate looks
+  correct and the Ingress looks correct, and the controller serves a default
+  certificate because it cannot read the one you named.
+- **Debugging routing when the Service has no endpoints.** A 503 from the front
+  door is usually the back end. Check the EndpointSlice before the rules.
+
+## Key takeaways
+
+- An Ingress is **configuration for a controller you install**; with no
+  controller, the object is accepted and does nothing.
+- `ingressClassName` selects the controller, `pathType` decides matching, and the
+  TLS Secret must be **in the Ingress's own namespace**.
+- Ingress's limits are structural: **behaviour lives in vendor annotations**, and
+  one object mixes infrastructure and application ownership.
+- The Gateway API splits that into **GatewayClass, Gateway and HTTPRoute**, with
+  traffic weights, header matches and rewrites as typed fields. It is an
+  **ecosystem CRD plus an implementation**, not core Kubernetes.
+- The project recommends the **Gateway API as the long-term replacement for
+  Ingress** and is retiring Ingress-NGINX, so new work should not start there.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You apply an Ingress to a fresh cluster. `kubectl get ingress shop` shows the object with an empty address column, and the hostname does not resolve anywhere. What is the most likely explanation, and why was there no error?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  No ingress controller is installed. The API server validated the Ingress
+  against its schema and stored it, which is the entire extent of core
+  Kubernetes' involvement — routing is done by a proxy you deploy separately,
+  and the address column is filled in by that controller once it has claimed the
+  object and provisioned a front door. With nothing watching, the object sits
+  there, correct and inert. The check is to look for a controller's Pods and for
+  an IngressClass; the fix is to install one, and to make sure the Ingress names
+  its class.
+</PracticeCheck>
+
+**2. Your team wants to send 5% of traffic for one path to a new version. On Ingress this is a controller-specific annotation. What does the Gateway API change about that, beyond the syntax?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  On an HTTPRoute the split is `backendRefs` with a `weight` on each — a typed
+  field in the API, so the API server validates it, `kubectl explain` documents
+  it, and every conforming implementation interprets it the same way. The
+  annotation version is an opaque string that the API server cannot check and
+  that means nothing to a different controller, so the routing behaviour is
+  locked to the product you happened to install. The deeper change is
+  portability and reviewability: a weight in the spec is part of the contract,
+  while an annotation is a private extension that survives only as long as you
+  keep the same implementation.
+</PracticeCheck>
+
+**3. A cluster operator wants to own the external address and the certificates, while three application teams own their own routes. Sketch how each API handles that.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  With Ingress it does not decompose. Hostnames, paths and the TLS Secret
+  reference all live in one object, so either the operator writes and owns every
+  Ingress and the teams file requests, or the teams get write access to objects
+  that carry the certificate reference. There is no seam in the API to put an
+  RBAC boundary on. The Gateway API puts the seam exactly where the organisation
+  already has one: the operator owns a Gateway in an infrastructure namespace,
+  holding the listener, the port and the `certificateRefs`, and each team owns
+  an HTTPRoute in its own namespace with `parentRefs` pointing at that Gateway.
+  `allowedRoutes` on the listener is the operator's control over which
+  namespaces may attach, so delegation is explicit rather than implied by who
+  has edit rights.
+</PracticeCheck>

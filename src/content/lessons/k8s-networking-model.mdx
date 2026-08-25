@@ -1,0 +1,209 @@
+---
+title: 'The Networking Model'
+slug: 'k8s-networking-model'
+course: 'kubernetes'
+track: 'k8s-networking'
+order: 12
+summary: 'Kubernetes ships no networking implementation at all — it states three rules any implementation must satisfy, and every Service, DNS name and NetworkPolicy you will meet is built on top of them.'
+difficulty: 'beginner'
+prerequisites: ['k8s-pods']
+estimatedMinutes: 9
+tags: ['kubernetes', 'networking', 'cni', 'pod-network']
+explainPrompt: 'Why does Kubernetes give every Pod its own IP address instead of mapping ports on the node?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- State the three rules the Kubernetes network model requires of any
+  implementation.
+- Explain why Pod-to-Pod traffic needs no port mapping and no address
+  translation.
+- Say what a CNI plugin is responsible for, and what Kubernetes itself provides.
+
+## Intuition
+
+On a single machine, containers share one address. That is why `docker run -p
+8080:80` exists: the container has no address of its own that anyone else can
+use, so you borrow a port on the host and translate. Two containers that both
+want port 8080 cannot both have it, and every container has to know which
+_published_ port it ended up behind rather than the port it is actually
+listening on.
+
+Kubernetes deletes that entire problem by refusing the premise.
+
+**The cluster network is one flat room, not a building with corridors.** Every
+Pod gets its own IP address, on every node, and that address behaves like a small
+machine's address on one large local network. The Pod sees that address as its
+own. Every other Pod uses the same address to reach it. Nothing rewrites anything
+in between.
+
+The consequences are worth spelling out, because they are the reason the rest of
+the module is shaped the way it is. Two Pods can both listen on port 8080,
+because they are different addresses. A process inside a Pod that asks the
+operating system "what is my address?" gets an answer other Pods can dial. And
+any Pod can reach any other Pod, in any namespace, on any node, by default —
+which is a convenience and, until the last lesson of this module, a security
+problem.
+
+## How it works
+
+The model is three requirements, and Kubernetes states them rather than
+implementing them:
+
+1. **Every Pod gets its own unique cluster-wide IP address.**
+2. **Pods can reach all other Pods on any node without address translation**, and
+   the address a Pod sees for itself is the address others use to reach it.
+3. **Agents on a node** — the kubelet, node daemons — **can reach all Pods on
+   that node.**
+
+Containers inside one Pod are the case underneath all three: they share a network
+namespace, so they reach each other on `localhost` and cannot both bind the same
+port. That is a property of the Pod, not of the cluster network.
+
+Nothing in the control plane satisfies those requirements. The work is done by a
+**CNI plugin** — an implementation of the Container Network Interface
+specification, installed into the cluster rather than shipped with it. Calico, Cilium,
+flannel and each cloud provider's own plugin are all CNI plugins. A cluster with
+none is a cluster whose Pods sit permanently in `ContainerCreating`.
+
+Three jobs make up the contract the plugin has to keep:
+
+- **Address allocation.** Hand each Pod an address out of the cluster's Pod CIDR,
+  usually a per-node slice of it, and give it back when the Pod dies.
+- **Plumbing the Pod.** Create the Pod's network namespace, connect it to the
+  node with a virtual interface pair, and write the routes inside it.
+- **Getting packets between nodes.** Either the underlying network is taught
+  where each node's Pod range lives — cloud route tables, or BGP on hardware you
+  control — or the plugin wraps each packet inside a node-to-node packet, which
+  is what an overlay such as VXLAN or Geneve does.
+
+You can see the result without knowing which plugin is installed:
+
+```bash
+kubectl get pods -o wide
+kubectl exec client -- curl -s --max-time 5 http://10.244.2.15:8080/healthz
+```
+
+The first prints each Pod's address and node. The second dials one Pod's address
+directly from inside another, with no Service, no name and no published port
+anywhere — which is exactly what rule 2 promises.
+
+A cluster therefore has **three separate address ranges**, and confusing them is
+the source of a lot of wasted debugging. Nodes have addresses on your real
+network. Pods have addresses from the Pod CIDR, which the CNI plugin owns.
+Services have addresses from the Service CIDR, which is **virtual**: no interface
+anywhere in the cluster holds a ClusterIP, and the next lesson is about what
+makes those addresses work anyway.
+
+<Callout variant="note">
+  `containerPort` in a Pod spec publishes nothing and opens nothing. It is
+  documentation — a note that this container is expected to listen there, useful
+  to humans and to a named-port reference. Remove it and the container is still
+  reachable on that port. Nothing about the Pod network is opt-in.
+</Callout>
+
+## Trade-offs
+
+**A flat network is simple and permissive, and those are the same property.** No
+port bookkeeping, no translation to reason about, and no boundary either: a
+compromised Pod running in one namespace can open a connection to a database Pod
+in another. The model does not defend anything, which is why NetworkPolicies
+exist and why the last lesson in this module argues for turning them on early.
+
+**Overlay or routed is the plugin's central trade.** An overlay works on any
+underlying network, including one you do not administer, because it only ever
+needs node-to-node reachability — but every packet carries extra headers, which
+costs throughput and lowers the usable MTU. A routed setup has no encapsulation
+overhead and is easier to packet-capture, and it requires that the network
+already knows where Pod addresses live. Managed clusters usually route inside
+the provider's virtual network; clusters on hardware you own more often overlay.
+
+**Pod CIDR sizing is close to irreversible.** The range and the per-node slice
+are chosen at cluster creation, and together they cap both the Pods per node and
+the nodes in the cluster. Changing either later generally means a new cluster,
+so it is worth an hour up front rather than a migration later.
+
+**A Pod's address is real but temporary.** It is genuinely routable while the Pod
+lives, and a replacement Pod gets a different one. Everything in the next three
+lessons exists to give you something stable to point at instead.
+
+## Common pitfalls
+
+- **Reaching for port mapping.** It is the reflex a single host teaches, and
+  there is nothing to map: the Pod already has an address. `hostPort` and
+  `hostNetwork: true` do exist, and both trade the model away, differently:
+  `hostPort` reserves a port on the node and brings back the scheduling collision
+  the flat network removed, while the Pod keeps its own address;
+  `hostNetwork: true` goes further and replaces that address with the node's.
+- **Writing a Pod IP into configuration.** It works when tested and fails the
+  first time the Pod is rescheduled. This is tempting mostly because the address
+  is real and dialling it succeeds immediately.
+- **Assuming internal means safe.** "It is only reachable inside the cluster" is
+  true and much weaker than it sounds when every workload in the cluster is
+  inside it.
+- **An MTU mismatch, misread as an application bug.** With an overlay whose MTU
+  was not accounted for, small requests succeed and large ones hang — which looks
+  like a slow handler rather than a network setting.
+
+## Key takeaways
+
+- Kubernetes defines a network **contract**, not a network: IP-per-Pod, no
+  address translation between Pods, and node agents able to reach local Pods.
+- A **CNI plugin** implements that contract by allocating addresses, plumbing
+  each Pod's namespace, and either routing or encapsulating traffic between
+  nodes. It is installed, not built in.
+- **Containers in one Pod share a network namespace** and talk over `localhost`;
+  everything else in the cluster is Pod-to-Pod over real addresses.
+- A cluster carries **three address ranges** — node, Pod and Service — and only
+  the first two belong to something with an interface.
+- The default posture is **any Pod may reach any Pod**. Nothing about the model
+  restricts traffic; restriction is a separate object you have to add.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Two Deployments in the same namespace both run containers listening on port 8080. Is there a conflict, and what would the answer be for two containers in the same Pod?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  No conflict between the Deployments. Every Pod has its own address and its own
+  network namespace, so port 8080 on one Pod's address and port 8080 on
+  another's are two different sockets — there is no shared host port to contend
+  for and nothing to map. Inside a single Pod the answer flips: the containers
+  share one network namespace, so the second one's process fails to bind and the
+  container crashes — `CrashLoopBackOff`, with an address-in-use line in
+  `kubectl logs` — exactly as two processes on one machine would. That is the
+  clearest statement of where the boundary sits — the Pod is the unit that owns
+  an address.
+</PracticeCheck>
+
+**2. A colleague says the cluster's network "is basically a private VPN, so we do not need to lock anything down". Which part of the network model makes that reasoning unsafe?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Rule 2 — Pods reach all other Pods on any node without translation — is
+  cluster-wide and unconditional. It is not scoped by namespace, by team or by
+  application, so "inside the network" includes every workload anyone has
+  deployed, including one that is running a dependency with a known
+  vulnerability. The perimeter your colleague is describing is real, but it has
+  exactly one thing inside it, and the model draws no line anywhere within that
+  space. Restricting traffic requires a NetworkPolicy, and the policy has to
+  come from you, because the default is allow.
+</PracticeCheck>
+
+**3. You deploy a cluster's control plane successfully, but every Pod you create stays in `ContainerCreating` and none is ever given an address. What class of problem is this?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  No working CNI plugin. Kubernetes states the network contract and implements
+  none of it, so until a plugin is installed and healthy there is nothing to
+  allocate a Pod an address or to plumb its network namespace, and the kubelet
+  will not report the Pod running without one. The API server, scheduler and
+  controllers are all doing their jobs — the Pod exists and has been assigned a
+  node — which is why the symptom is a Pod stuck part-way rather than an error
+  on `kubectl apply`. The first things to check are that the plugin's own Pods
+  are running, and that the Pod CIDR it was configured with matches the one the
+  cluster was created with.
+</PracticeCheck>

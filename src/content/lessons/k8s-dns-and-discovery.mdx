@@ -1,0 +1,220 @@
+---
+title: 'DNS and Service Discovery'
+slug: 'k8s-dns-and-discovery'
+course: 'kubernetes'
+track: 'k8s-networking'
+order: 14
+summary: 'Cluster DNS turns a Service name into an address and stops there; the dataplane turns that address into a Pod. Most "DNS problems" are one half working perfectly while the other half has nothing to deliver to.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-services']
+estimatedMinutes: 8
+tags: ['kubernetes', 'dns', 'coredns', 'service-discovery', 'networking']
+explainPrompt: 'Why can a Service name resolve correctly while every connection to it times out?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Trace a Service name through the search path to a ClusterIP and then to a Pod.
+- Name the records cluster DNS publishes for a normal Service and for a headless
+  one.
+- Separate a name failure from a routing failure from the symptom alone.
+
+## Intuition
+
+You have a stable address from the last lesson. Nobody wants to type it, and
+nothing should hardcode it, so applications address each other by name — and the
+name resolution is a completely separate system from the delivery.
+
+**A name and a route fail separately, and the failure looks identical from the
+application.** Your code calls `http://payments/`, gets a connection error, and
+that one error covers two very different worlds: nothing answered the question
+"what address is `payments`?", or something answered it and the address goes
+nowhere. Almost every hour lost to cluster networking is an hour spent debugging
+the half that was already working.
+
+Hold the split as two named owners. **Cluster DNS resolves the name.**
+**kube-proxy programs the dataplane** so the resulting address reaches a Pod.
+Neither knows the other exists, and either can be healthy while the other is not.
+
+## How it works
+
+Creating a Service creates DNS records for it. The full name is built from four
+parts:
+
+```text
+web.default.svc.cluster.local
+│   │       │   └── the cluster's DNS domain
+│   │       └────── "svc": this is a Service, not a Pod
+│   └────────────── the namespace
+└────────────────── the Service name
+```
+
+An A record for a normal Service resolves to its **ClusterIP** — one address, no
+matter how many Pods are behind it, because the load balancing happens after
+resolution rather than during it. A **headless** Service has no ClusterIP, so
+its record resolves to the addresses of every ready Pod instead. A StatefulSet's
+governing headless Service goes one further and publishes a name per Pod, which
+is what makes `db-0` individually addressable.
+
+Named ports get **SRV** records too: `_http._tcp.web.default.svc.cluster.local`
+returns the port along with the target, which is how a client can discover a port
+number it was not told.
+
+You almost never write the long form, because the kubelet gives every Pod a
+resolver configuration built for this:
+
+```text
+search default.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+```
+
+Now `web` resolves. The resolver has fewer than five dots in the name, so it
+tries the search suffixes in order: `web.default.svc.cluster.local` matches on
+the first attempt. `payments.billing` works the same way and reaches the
+`payments` Service in the `billing` namespace — cross-namespace calls need the
+namespace in the name, and nothing else.
+
+The `nameserver` address is a Service like any other, usually called `kube-dns`,
+in front of **CoreDNS** Pods running in `kube-system`. Cluster DNS is not
+infrastructure sitting outside the cluster; it is a Deployment, subject to
+everything that happens to a Deployment.
+
+```bash
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+kubectl exec client -- cat /etc/resolv.conf
+kubectl exec client -- nslookup web.default.svc.cluster.local
+kubectl get endpointslices -l kubernetes.io/service-name=web
+```
+
+Those last two commands are the diagnostic pair, and running both is the whole
+technique. If `nslookup` returns a ClusterIP, DNS is fine and the problem is
+downstream. If the EndpointSlice is then empty, you have found it: the name
+resolved to an address whose rule set has no Pod to send anything to.
+
+<Callout variant="warning">
+  A resolving name proves only that a Service object exists with that name in
+  that namespace. It says nothing about whether any Pod is behind it, whether
+  those Pods are ready, or whether they listen on the port you asked for. Treat
+  a successful lookup as the first half of the answer, never the whole one.
+</Callout>
+
+**The failure modes, and what each one looks like.**
+
+- **Resolves, then times out or is refused.** Almost always empty endpoints — a
+  selector that matches nothing, or matching Pods that are not ready. Sometimes
+  a `targetPort` pointing at a port nothing is listening on.
+- **`NXDOMAIN` for a name you are sure exists.** Usually the namespace: a bare
+  name only ever resolves inside the caller's own namespace, so a client in
+  `web` calling `payments` needs `payments.billing`.
+- **Everything intermittently fails to resolve.** Look at CoreDNS itself. It is
+  Pods; they can be evicted, throttled by a low CPU limit, or overwhelmed.
+- **External names are slow.** `ndots:5` means `api.example.com` — two dots — is
+  tried against all three search suffixes first, so one external lookup becomes
+  four queries. A trailing dot (`api.example.com.`) skips the search path, or set
+  `dnsConfig.options` to a lower `ndots` for that Pod.
+- **A Pod on the host network cannot resolve cluster names.** It inherits the
+  node's resolver, which knows nothing of `cluster.local`, unless you set
+  `dnsPolicy: ClusterFirstWithHostNet`.
+
+## Trade-offs
+
+**Cluster DNS is a dependency you cannot see in any manifest.** Nothing in your
+Deployment mentions CoreDNS, and every call your application makes goes through
+it. It is worth treating it as a tier-zero service: give it resource requests,
+run more than one replica, and put it on your dashboard before you need it.
+
+**Caching helps and lies.** A NodeLocal DNS cache — an optional add-on, not part
+of a default cluster — removes a network hop per lookup and takes real load off
+CoreDNS. It also means a record can be stale for its time-to-live after you
+change something. The same applies inside your application: a runtime that caches
+a resolved address indefinitely will keep dialling an address that has been
+reassigned. A ClusterIP is stable for the life of the Service, so this bites when
+a Service is deleted and recreated rather than during normal operation.
+
+**Name or address is a real choice for a client.** A normal Service gives one
+address and lets the dataplane balance, which is simple and per-connection. A
+headless Service gives every Pod address and asks the client to choose, which is
+what a per-request balancer or a clustered database needs. Discovery through DNS
+is the same mechanism in both cases; what differs is who does the choosing.
+
+## Common pitfalls
+
+- **Debugging the resolver when the endpoints are empty.** The application error
+  says "cannot connect", so DNS gets the blame. Run the lookup first; if it
+  answers, stop looking at DNS.
+- **Using a bare name across namespaces.** It is tempting because it works
+  everywhere in development, where everything is in `default`, and then silently
+  becomes an `NXDOMAIN` in an environment that separates namespaces.
+- **Hardcoding `.svc.cluster.local` in application config.** The cluster domain
+  is configurable, and the short form is portable across every cluster you will
+  ever run this in.
+- **Giving CoreDNS a tight CPU limit.** It looks like a small workload. Throttle
+  it and the symptom is not "DNS is slow" but "everything in the cluster is
+  intermittently broken", which is much harder to attribute.
+- **Trusting a lookup from your laptop.** Cluster names resolve inside Pods,
+  because the resolver configuration lives in the Pod. Test from a Pod.
+
+## Key takeaways
+
+- **Cluster DNS resolves the name; kube-proxy makes the address reach a Pod.**
+  Two systems, two failure modes, one error message in your application.
+- A Service's A record is `<name>.<namespace>.svc.<cluster-domain>` and resolves
+  to the **ClusterIP** — or to the ready **Pod addresses** when the Service is
+  headless.
+- The `search` path plus `ndots:5` is why `web` and `payments.billing` work, and
+  why external lookups cost extra queries.
+- **A name that resolves proves the Service exists, nothing more.** The
+  EndpointSlice is what proves anything is behind it.
+- CoreDNS is a **Deployment in your cluster**, not external infrastructure, and
+  deserves the resourcing and monitoring of a critical dependency.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. `nslookup payments` from a Pod returns a ClusterIP, and the EndpointSlice for `payments` lists two addresses with `conditions.ready: true`. Which half of the path have you proved, and which have you not?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  You have proved **discovery**, twice over: CoreDNS answered, so the Service
+  object exists and the search path reached it, and the slice has ready
+  endpoints, so the selector matches real Pods that pass their readiness probes.
+  What you have not touched is the **data path**. A ClusterIP is a rule
+  kube-proxy programs, and the rule can be right while the connection still
+  fails: `targetPort` may name a port nothing in the container listens on, a
+  NetworkPolicy may drop the packet, or the container may be listening only on
+  `127.0.0.1`. That is the split worth carrying — a name that resolves and a
+  slice that is populated are both facts about *bookkeeping*, and neither one
+  sends a byte.
+</PracticeCheck>
+
+**2. A Pod in namespace `web` calls `http://payments/` and gets `NXDOMAIN`. The `payments` Service exists and is healthy in namespace `billing`. Why, and what should the caller use?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The caller's search path starts with `web.svc.cluster.local` — its own
+  namespace — so the bare name `payments` is expanded to
+  `payments.web.svc.cluster.local`, which does not exist. The remaining suffixes
+  do not name a namespace at all, so no expansion ever reaches `billing` and the
+  resolver correctly reports that the name does not exist. The caller should use
+  `payments.billing`, which the second search suffix completes to
+  `payments.billing.svc.cluster.local`. This is a good argument for always
+  qualifying cross-namespace calls in configuration, since a bare name is
+  correct only by accident of where the caller happens to be deployed.
+</PracticeCheck>
+
+**3. A Pod runs with `hostNetwork: true` and cannot resolve any cluster Service name, though it reaches external sites without trouble. What is happening?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A Pod on the host network shares the node's network namespace, and with the
+  default DNS policy it also inherits the node's resolver configuration — which
+  points at whatever nameserver the node uses and has no `cluster.local` search
+  path and no route to CoreDNS. External names work because the node's resolver
+  handles those perfectly well; cluster names fail because that resolver has
+  never heard of them. Setting `dnsPolicy: ClusterFirstWithHostNet` on the Pod
+  restores the cluster resolver configuration while keeping host networking,
+  which is exactly the case that policy exists for.
+</PracticeCheck>
