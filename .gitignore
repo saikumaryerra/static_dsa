@@ -23,3 +23,22 @@ CLAUDE.local.md
 
 # Playwright MCP scratch output (audit screenshots, a11y snapshots)
 .playwright-mcp/
+
+# Impeccable tool state and the docs it generates.
+#
+# `.impeccable/` is machine state, not source: hook caches, live-session locks
+# and accept-receipts. `DESIGN.md` and `PRODUCT.md` are its generated summaries,
+# and they drift from the code the moment the code moves — at the time this rule
+# was added DESIGN.md still specified an indigo `brand: '#4F46E5'`, which the
+# achromatic repaint had already deleted (`--brand` is byte-identical to
+# `--text`), and PRODUCT.md still listed the license and the production domain as
+# undecided after both had shipped.
+#
+# That drift is why they are ignored rather than committed: CLAUDE.md tells
+# contributors to CHECK THE DESIGN DOCS before "fixing" something that looks
+# off, so a stale one in the repo would send someone to reintroduce exactly what
+# a milestone removed. The authoritative documents are `docs/` and
+# `src/styles/tokens.css`, which the test suite holds to the code.
+.impeccable/
+DESIGN.md
+PRODUCT.md
