@@ -1,0 +1,305 @@
+---
+title: 'Injecting Configuration'
+slug: 'k8s-injecting-configuration'
+course: 'kubernetes'
+track: 'k8s-config'
+order: 19
+summary: 'Environment variables are read once when a process starts and mounted files are updated in place — which is why the injection you choose decides what happens the next time the configuration changes.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-secrets', 'k8s-deployments']
+estimatedMinutes: 9
+tags: ['kubernetes', 'configmaps', 'secrets', 'configuration', 'rollout']
+explainPrompt: 'Why does editing a ConfigMap reach a mounted file but never reach an environment variable?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Inject a ConfigMap or Secret four ways, and read each form in a manifest.
+- Explain why a mounted file changes under a running process and an environment
+  variable never does.
+- Make a configuration change actually roll a Deployment.
+- Decide when to mark an object immutable, and what that commits you to.
+
+## Intuition
+
+There are two doors into a container. The kubelet can resolve values and hand
+them to the process as **environment variables** when it creates the container,
+or it can project them into the container's filesystem as **files in a volume**
+and keep that directory current.
+
+**An environment variable is a photograph; a mounted file is a window.** The
+photograph is taken once, at the instant the process starts, and nothing that
+happens afterwards can alter it. The window shows whatever is on the other side
+right now — which is worth something only if somebody is looking.
+
+That difference decides the rest of this lesson: what an edit to a ConfigMap
+actually does, and why the manifests that survive production make the restart
+explicit rather than hoping the window was watched.
+
+## How it works
+
+Environment variables come in two forms, and both appear here:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+      annotations:
+        checksum/config: 'a3f1c9e2'
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          envFrom:
+            - configMapRef:
+                name: web-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+```
+
+`envFrom` takes every key in the object and makes a variable of the same name —
+convenient, and it means you cannot see from the manifest what the container
+receives. `env` with `valueFrom` takes one key and lets you rename it, which is
+how you feed a container that insists on `DATABASE_PASSWORD` from a key called
+`password`. Keys pass through unchanged, which is a reason to be careful with
+`envFrom` on an object holding file-shaped keys: `app.properties` becomes an
+environment variable literally called `app.properties`, silently, rather than
+being dropped.
+
+Files come from a volume, and the same two shapes exist — the whole object, or
+selected keys:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: web
+      image: nginx:1.29
+      volumeMounts:
+        - name: config
+          mountPath: /etc/web
+        - name: db
+          mountPath: /etc/db
+  volumes:
+    - name: config
+      configMap:
+        name: web-config
+        items:
+          - key: app.properties
+            path: app.properties
+    - name: db
+      secret:
+        secretName: db-credentials
+        defaultMode: 0400
+```
+
+Mount a ConfigMap or Secret without `items` and you get a directory containing
+one file per key: the key is the filename, the value is the contents. With
+`items` you choose which keys appear and what each is called. `defaultMode` is
+the octal permission on those files — `0400` here, readable by the container's
+user and nobody else.
+
+**A reference that does not resolve fails late.** Nothing validates the
+relationship between a Pod template and the objects it names, so a missing
+ConfigMap, or a key that was renamed, is accepted at apply time and surfaces
+when the kubelet tries to start the container: a container stuck in `Waiting`
+with the reason `CreateContainerConfigError` for environment variables, or a
+`FailedMount` event for a volume. Adding `optional: true` makes the container
+start without the value, which is right for a genuinely optional setting and a
+way of hiding a real bug otherwise.
+
+### The difference that matters
+
+Environment variables are resolved by the kubelet at container creation and
+passed to the process. From that moment the process's environment is fixed for
+its whole life. Edit the ConfigMap and nothing reaches it — not immediately, not
+after a sync, not ever. Only a **new container** carries a new value.
+
+A mounted volume is the opposite. The kubelet keeps the projected directory in
+step with the object, so an edit reaches the file without anything restarting.
+It is not instant: the delay is bounded by the kubelet's sync period — one
+minute by default — plus a cache propagation delay. The replacement is atomic,
+so a reader sees either the complete old contents or the complete new contents,
+never a half-written file.
+
+Two exceptions are worth memorising, because both look like bugs. A volume
+mounted with `subPath` — used to place one file into a directory that already
+has others — **never** receives updates. And an immutable object is never
+updated, because it cannot change.
+
+<Callout variant="warning">
+  A file that changes under a running process is only useful if that process
+  re-reads it. Most do not: they parse their configuration at startup and never
+  look again. Unless your application watches the file, or reloads on a signal
+  the way nginx does on SIGHUP, a mounted file behaves exactly like an
+  environment variable — with a delay, and a false sense of being live.
+</Callout>
+
+### Nothing here rolls your Deployment
+
+The Deployment controller compares `spec.template`. A ConfigMap is not part of
+the template — only a reference to it is — so changing the ConfigMap creates no
+new ReplicaSet and starts no rollout, whichever injection you chose. Teams close
+that gap in one of two ways.
+
+**A hash in the Pod template's annotations.** Whatever renders your manifests
+computes a checksum of the ConfigMap's contents and stamps it into
+`spec.template.metadata.annotations`, as `checksum/config` does above. Kubernetes
+attaches no meaning to the annotation; its only job is to be different when the
+configuration is different, which changes the template and starts an ordinary
+rolling update.
+
+**A new object name.** Call the object `web-config-a3f1c9e2` and change the name
+in the template whenever the contents change. The template change starts the
+rollout, and because the previous object still exists, a rollback restores the
+old configuration along with the old image — which the hash approach does not
+do.
+
+By hand, `kubectl rollout restart deployment/web` gives you the same rolling
+update. It is a reasonable thing to run during an incident and a poor thing to
+depend on: it lives in a shell history rather than the repository.
+
+### Immutable ConfigMaps and Secrets
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config-a3f1c9e2
+immutable: true
+data:
+  LOG_LEVEL: 'info'
+  MAX_CONNECTIONS: '200'
+```
+
+`immutable: true` promises the data will never change. The API server then
+refuses any edit to `data`, and refuses to clear the flag — the only way to
+change the contents is to delete the object and create another, which in
+practice means creating a differently named one and rolling to it.
+
+The reason it exists is scale. Every node running a Pod that consumes a
+ConfigMap or Secret holds an open watch on that object so the kubelet can keep
+the projection current. Across thousands of Pods those watches are a real load
+on the API server, and an immutable object needs none: nothing can change, so
+there is nothing to watch. The second benefit is the accident it prevents — an
+edit that reaches running Pods before anyone meant it to.
+
+The cost is that it forces the rename-and-roll workflow above, which is mostly
+the point.
+
+## Trade-offs
+
+|                              | Environment variable            | Mounted file                                  |
+| ---------------------------- | ------------------------------- | --------------------------------------------- |
+| Updated in place             | never                           | after the kubelet syncs                       |
+| Inherited by child processes | yes                             | no                                            |
+| Permissions                  | none                            | `defaultMode`, per file                       |
+| Suits                        | short scalars, hostnames, flags | whole config files, certificates, credentials |
+| Requires                     | nothing                         | a process that re-reads, to be worth it       |
+
+The security row is the one people skip. An environment variable sits in
+`/proc`, is inherited by every child process the container spawns, and is
+faithfully included by crash reporters and debug endpoints. A mounted file is
+readable only by whoever the mode allows. For a password, prefer the file.
+
+## Common pitfalls
+
+- **Expecting `envFrom` to rename anything.** It is the shorter form, so it
+  looks like the default choice, and it copies key names verbatim. If your
+  container wants a different name, you need the longer `env` form.
+- **Mounting with `subPath` and waiting for an update.** `subPath` is the
+  natural way to drop one file into `/etc` beside others, and it is precisely
+  the mount that never refreshes. Mount the directory instead, or accept that
+  the change needs a restart.
+- **Reading "atomic" as "noticed".** The kubelet guarantees the file swap is
+  consistent. It guarantees nothing about your application having read it.
+- **Editing a ConfigMap during an incident.** Nothing visible happens, so the
+  next move is often to edit it again. Check how the value is injected before
+  concluding the edit did not work.
+- **Reaching for `optional: true` to clear an error.** It converts "this Pod
+  will not start" into "this Pod starts without the setting", which is the same
+  bug arriving later and quieter.
+
+## Key takeaways
+
+- **Environment variables are read once, at process start.** A ConfigMap or
+  Secret change never reaches one; only a new container does.
+- **Mounted files are updated in place**, bounded by the kubelet's sync period
+  plus cache propagation, and swapped atomically — except under `subPath`, and
+  except when the object is immutable.
+- A live file is only an advantage if the process **re-reads it**. Otherwise it
+  is a slower environment variable.
+- **A ConfigMap or Secret change does not roll a Deployment.** Change the Pod
+  template — a content hash in its annotations, or a new object name — or
+  nothing happens.
+- `immutable: true` lets the kubelet **stop watching the object**, which matters
+  at cluster scale, and forces a rename-and-roll workflow you cannot opt out of.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your application reads `LOG_LEVEL` from an environment variable sourced from a ConfigMap. You set it to `debug` and wait five minutes. Nothing changes. What is happening, and what are your options?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The ConfigMap really did change; the running containers cannot see it. Their
+  environment was resolved by the kubelet when each container was created and
+  handed to the process at exec time, and a process's environment is fixed for
+  its lifetime — there is no mechanism by which a later edit could reach it, so
+  waiting longer will never help. The options are all forms of "make a new
+  container": `kubectl rollout restart deployment/web` for an immediate fix, or
+  the durable version where the rendered manifest carries a checksum annotation
+  or a content-addressed ConfigMap name so that changing the configuration
+  changes the Pod template and rolls the Deployment by itself.
+</PracticeCheck>
+
+**2. A teammate switches the same setting from an environment variable to a mounted file, saying it will now update without a restart. Under what conditions is that true?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Three things all have to hold. The volume must be mounted as a directory, not
+  with `subPath`, because a `subPath` mount never receives updates. The
+  ConfigMap must not be immutable, since an immutable object cannot change in
+  the first place. And — the one that actually decides it — the application must
+  re-read the file after startup, by watching it, polling it, or reloading on a
+  signal. If it parses its configuration once at boot like most programs do, the
+  file on disk will be current and the behaviour will not, which is worse than
+  the environment variable because nothing looks wrong. There is also a delay
+  either way: up to the kubelet's sync period plus cache propagation before the
+  new contents appear at all.
+</PracticeCheck>
+
+**3. You mark a ConfigMap `immutable: true` and a week later need to change one value. Walk through what you do, and say what you have gained for the trouble.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  You cannot edit it and you cannot remove the flag, so you create a *new*
+  ConfigMap — in practice with a new name carrying a hash of its contents — and
+  change the Deployment's Pod template to reference it. That template change is
+  itself the rollout: new Pods come up with the new configuration under the
+  usual rolling-update budget, and the old ConfigMap stays around, so `kubectl
+  rollout undo` restores the old template pointing at the old object and the
+  configuration rolls back with the image. What you gained is that every kubelet
+  running a consumer stopped watching the object, which is a measurable saving
+  on the API server at cluster scale, and that no edit can ever surprise a
+  running Pod — the change is a rollout you can see, pause and reverse.
+</PracticeCheck>

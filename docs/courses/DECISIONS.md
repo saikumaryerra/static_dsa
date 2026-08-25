@@ -88,6 +88,23 @@ Lessons may state these; anything else version-specific must be re-verified befo
   replacement for Ingress. Lessons say this rather than recommending Ingress-NGINX for new work.
 - **dockershim** was removed in 1.24; no lesson mentions Docker as a runtime except to say
   the kubelet talks to a CRI runtime (containerd, CRI-O).
+- **`RelaxedEnvironmentVariableValidation` is GA on 1.36.** A ConfigMap or Secret key consumed
+  through `envFrom` reaches the container verbatim — including a file-shaped key like
+  `app.properties`. There is no skip-and-record-an-event path any more; that was pre-1.31
+  behaviour. (Verified on a live 1.36.3 server: the Pod ran and no event was recorded.)
+- **`volumeClaimTemplates` is immutable after a StatefulSet is created.** The API rejects an
+  edit with `updates to statefulset spec for fields other than 'replicas', 'ordinals',
+  'template', 'updateStrategy', 'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy'
+  and 'minReadySeconds' are forbidden`. Growing existing volumes means patching each PVC;
+  changing the template at all means `kubectl delete statefulset <name> --cascade=orphan` and
+  recreating it, which leaves the Pods and claims in place.
+- **Rancher's local-path-provisioner** — the default on kind and k3s — supports
+  `ReadWriteOnce` **and `ReadWriteOncePod`**, and refuses `ReadWriteMany` and `ReadOnlyMany`
+  with `NodePath only supports ReadWriteOnce and ReadWriteOncePod (1.22+) access modes`.
+  **A brief written for this expansion said "refuses any claim that is not ReadWriteOnce",
+  which is wrong**, and the lesson written from it repeated the error three times — the third
+  time a wrong fact in a *brief* rather than in a lesson has cost a module a review cycle.
+  Verified facts belong here, where one correction reaches every author, not in a prompt.
 
 **Why.** SPEC §5 forbids presenting unverified specifics as fact. These came from
 `kubernetes.io` and the release-note coverage of 1.36 fetched on 2026-08-26.

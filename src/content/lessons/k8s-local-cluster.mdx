@@ -177,13 +177,13 @@ Pod sits in `ImagePullBackOff`.
   reach a workload in these exercises. Storage: the default StorageClass is a
   directory on one node, so nothing you learn here about durability, or about
   detaching a volume and reattaching it elsewhere, transfers — and a
-  PersistentVolumeClaim asking for `ReadWriteMany` is refused outright, because
-  a node-local path cannot be shared, so a design that needs a shared volume
-  cannot be tested locally at all. Machines: extra nodes are containers on one
-  kernel sharing one CPU budget, so anti-affinity and topology spread appear to
-  work without having been tested. And scale: your laptop has a couple of cores,
-  so nothing you observe about scheduling under contention transfers to two
-  hundred nodes.
+  PersistentVolumeClaim asking for `ReadWriteMany` or `ReadOnlyMany` is refused
+  outright, because a node-local path cannot be shared, so a design that needs a
+  shared volume cannot be tested locally at all. Machines: extra nodes are
+  containers on one kernel sharing one CPU budget, so anti-affinity and topology
+  spread appear to work without having been tested. And scale: your laptop has a
+  couple of cores, so nothing you observe about scheduling under contention
+  transfers to two hundred nodes.
 </Callout>
 
 ## Trade-offs

@@ -1,0 +1,275 @@
+---
+title: 'StatefulSets with Persistent Data'
+slug: 'k8s-stateful-data'
+course: 'kubernetes'
+track: 'k8s-storage'
+order: 24
+summary: 'A volumeClaimTemplate stamps out one claim per replica and names it after the ordinal, which is what lets a replica come back to its own data — and what leaves a row of disks behind every time you scale down.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-statefulsets', 'k8s-storage-classes']
+estimatedMinutes: 8
+tags: ['kubernetes', 'storage', 'statefulsets', 'persistence']
+explainPrompt: 'Why does scaling a StatefulSet down leave its PersistentVolumeClaims behind instead of deleting them?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Derive the exact name of the claim a given replica will use, and say why the
+  name is the mechanism.
+- Predict what scale-down, scale-up and deletion do to the storage.
+- Configure `persistentVolumeClaimRetentionPolicy`, and choose each value on
+  purpose.
+- Resize a set's volumes, and replace one replica's data without disturbing the
+  others.
+
+## Intuition
+
+[StatefulSets](/learn/k8s-statefulsets/) gave replicas stable names, ordered
+rollouts and per-Pod DNS. This lesson is about the third guarantee, now that you
+know what a claim and a StorageClass are: the name is also the address of a disk.
+
+**A `volumeClaimTemplate` is a cookie cutter, and the ordinal is the label on the
+tin.** A Deployment has one template and any number of interchangeable Pods, so
+if it mounts a claim, every replica mounts the _same_ one. A StatefulSet stamps
+out one claim per replica instead, and names each one deterministically from the
+template name, the set's name and the ordinal:
+
+```text
+<template>-<statefulset>-<ordinal>   →   data-db-0, data-db-1, data-db-2
+```
+
+That derivation is the whole trick. The link between "replica 2" and "replica 2's
+data" is a string that anything can recompute, not a pointer that has to be kept
+somewhere. Delete `db-2`, reschedule it onto another node, restore the cluster
+from a manifest in Git — the controller derives `data-db-2` again and the replica
+comes back to its own files.
+
+Which is also why those claims are not litter. They are the only record in the
+system of which replica owned which data.
+
+## How it works
+
+The storage-relevant half of a StatefulSet is the claim template plus, if you
+want to change the default, the retention policy:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db
+  replicas: 3
+  persistentVolumeClaimRetentionPolicy:
+    whenScaled: Retain
+    whenDeleted: Retain
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        storageClassName: fast
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+The controller creates each claim before the Pod that needs it. With
+`WaitForFirstConsumer` on the class, the binding happens where the scheduler put
+the Pod — and from then on the relationship reverses. `data-db-0`
+is a zonal disk in one zone, so `db-0` can only ever run in that zone. A
+StatefulSet cannot be rebalanced across zones after the fact; its first placement
+is its permanent one.
+
+### Scale-down keeps the disks
+
+Scale from three replicas to two and `db-2` is deleted. `data-db-2` is not. It
+stays bound, holding the data, and the storage system keeps charging for it.
+Scale back to three and `db-2` returns, the controller derives `data-db-2`, finds
+it already exists, and the replica starts with everything it had.
+
+That is deliberate: an operator's fat-fingered `--replicas=1` should not be a
+data-loss event, and a scale-down is often a temporary measure during an
+incident. It is also a bill nobody notices, because nothing on the dashboard says
+"you are paying for three disks that no Pod has touched in eight months".
+
+```bash
+kubectl get statefulset db
+kubectl get pvc -l app=db
+```
+
+Run the second command after any scale-down you did not intend to reverse.
+`persistentVolumeClaimRetentionPolicy` is the field that changes the default, and
+it has two independent knobs:
+
+| Field         | `Retain`                                    | `Delete`                            |
+| ------------- | ------------------------------------------- | ----------------------------------- |
+| `whenScaled`  | Claims for removed ordinals stay            | They are deleted as the set shrinks |
+| `whenDeleted` | Claims survive `kubectl delete statefulset` | They go with it                     |
+
+Both default to `Retain`. `whenScaled: Delete` suits something elastic whose
+replicas hold a rebuildable cache — otherwise every autoscaling event leaves
+sediment. `whenDeleted: Retain` is the one to keep for a database, because it is
+what stops a single `kubectl delete statefulset db` from being irreversible.
+
+<Callout variant="warning">
+  Deleting the claim is not the same as deleting the data. Whether the disk
+  itself is destroyed depends on the reclaim policy of the volume — which, for a
+  dynamically provisioned one, came from the StorageClass and defaults to
+  `Delete`. Two settings in two objects have to agree before you can say what
+  `whenScaled: Delete` will actually cost you.
+</Callout>
+
+### Growing and replacing storage
+
+`volumeClaimTemplates` is **immutable once the StatefulSet exists**. You cannot
+edit it at all — the API server refuses with `updates to statefulset spec for
+fields other than 'replicas', 'ordinals', 'template', 'updateStrategy',
+'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy' and
+'minReadySeconds' are forbidden`. So growing a running set means editing each
+claim directly, which needs `allowVolumeExpansion: true` on its StorageClass:
+
+```bash
+for i in 0 1 2; do
+  kubectl patch pvc data-db-$i --type=merge \
+    -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+done
+```
+
+Replacing one replica's data is the opposite operation, and the order matters.
+Delete the claim first — it sits in `Terminating`, held by its finalizer because
+the Pod still mounts it — then delete the Pod. The claim finalizes, the
+controller recreates the Pod, the template provisions a fresh empty claim under
+the same name, and the replica rejoins:
+
+```bash
+kubectl delete pvc data-db-2
+kubectl delete pod db-2
+```
+
+That last step only produces a working replica if the application replicates.
+Kubernetes has given `db-2` an empty disk with the right name; catching up from
+`db-0` and `db-1` is the database's job, exactly as the StatefulSets lesson said
+about clustering in general.
+
+## Trade-offs
+
+**Retention costs money to save you from yourself.** The conservative default is
+right for anything whose contents you could not rebuild in an afternoon, and it
+is pure waste for a set of replicas holding a warm cache. Choose per workload
+rather than once for the cluster.
+
+**Per-replica volumes against one shared volume.** N disks means N times the
+capacity, N times the snapshot schedule and N restores to rehearse — but no
+coordination problem at all, because no two processes ever touch the same bytes.
+A single `ReadWriteMany` volume shared by every replica inverts that trade and
+usually loses: shared access is not the same as safe concurrent writes.
+
+**Names are a recovery path and a trap.** Because claim names are derived, a
+StatefulSet recreated with the same name and template adopts the claims that are
+already there. That is how you restore a set from its manifest — and how a
+"clean" redeploy silently comes up on a stale dataset from months ago.
+
+## Common pitfalls
+
+- **Scaling to zero to save money.** The Pods go, every claim stays, and the
+  storage bill is unchanged. Only the compute stopped.
+- **Reaching for `volumeClaimTemplates` to resize.** The edit is rejected
+  outright — the field is immutable — so nothing happens at all. Patch the
+  claims. Changing the template itself means
+  `kubectl delete statefulset db --cascade=orphan` and recreating it, which
+  leaves the Pods and the claims in place.
+- **Assuming `whenDeleted: Delete` is tidy.** Combined with a `Delete` reclaim
+  policy it makes deleting one object destroy every replica's data, with no
+  intermediate state to recover from.
+- **Deleting a Pod to fix corruption.** The replacement re-derives the same claim
+  name and mounts the same corrupt files. The claim is what has to go.
+- **Forgetting the volume pins the Pod.** A `db-1` that will not schedule is
+  often a zone or node constraint inherited from its disk, not a resource
+  shortage.
+- **Leaving orphaned claims after deleting a set.** They keep their names, keep
+  their bill, and are invisible unless you look for them.
+
+## Key takeaways
+
+- Claim names are **derived**, not stored: `<template>-<set>-<ordinal>`, which is
+  what reconnects a recreated replica to its own data.
+- **Scale-down deletes Pods and keeps claims** by default, so scaling back up
+  restores the data and scaling to zero saves no storage cost.
+- `persistentVolumeClaimRetentionPolicy` has two knobs, `whenScaled` and
+  `whenDeleted`, and both default to `Retain`.
+- Deleting a claim only destroys data if the **reclaim policy** says so — two
+  objects decide together.
+- A bound zonal volume **pins its replica** to that zone permanently; binding mode
+  only controls the first choice.
+- Replacing a replica's data means deleting the claim and then the Pod, and
+  rejoining the cluster is the application's job.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team scales a three-replica StatefulSet down to one during a quiet weekend to save money. On Monday the storage bill is unchanged. What did they actually save, and what would they have to set to save the rest?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  They saved compute: two Pods stopped, so their CPU and memory requests are no
+  longer held on any node. They saved nothing on storage, because `data-db-1`
+  and `data-db-2` are still there — `whenScaled` defaults to `Retain`, so the
+  claims outlive the Pods and stay bound to their volumes. That is the behaviour
+  that lets them scale back to three on Monday and get both replicas' data back.
+  To release the disks they would set
+  `persistentVolumeClaimRetentionPolicy.whenScaled` to `Delete`, and they should
+  only do that if the data on those replicas is genuinely rebuildable, because
+  deleting a claim whose class has the usual `Delete` reclaim policy destroys
+  the volume as well.
+</PracticeCheck>
+
+**2. `db-1` has a corrupted data directory. Someone deletes the Pod and it comes back exactly as broken. What did the deletion actually do, and what is the sequence that works?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Deleting the Pod deleted only the Pod. The controller recreated `db-1`,
+  re-derived the claim name `data-db-1`, found the existing claim, and mounted
+  the same volume with the same corrupt files — the identity guarantee working
+  exactly as designed. The corruption lives in the volume, so the volume is what
+  has to go. Delete the claim first: it enters `Terminating` and waits, because
+  the running Pod still mounts it. Then delete the Pod. The claim finalizes and
+  is removed, the controller recreates the Pod, the `volumeClaimTemplate`
+  provisions a fresh empty claim under the same name, and `db-1` starts clean.
+  Whether it becomes a useful replica after that depends on the database
+  resynchronising from its peers, which is the application's responsibility
+  rather than Kubernetes'.
+</PracticeCheck>
+
+**3. A StatefulSet's three volumes need to grow from 10Gi to 50Gi. Raising the size in `volumeClaimTemplates` will not grow them. Why not, and what is the working approach and its precondition?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  `volumeClaimTemplates` is the mould used when a claim is first created. All
+  three claims were stamped out at 10Gi when the set was first scaled up, and a
+  template is read only at that moment — existing claims are never re-stamped
+  from it, however the template changes afterwards. The working approach is to
+  patch each existing claim's `spec.resources.requests.storage` directly, one
+  per ordinal, and let the CSI driver expand the device and then the filesystem.
+  The precondition is `allowVolumeExpansion: true` on the StorageClass those
+  claims used; without it the API server rejects the change. You cannot also
+  update `volumeClaimTemplates` to match — it is immutable — so a replica
+  created later comes up at the *original* size, and squaring that means
+  recreating the StatefulSet with `--cascade=orphan` and a new template.
+</PracticeCheck>

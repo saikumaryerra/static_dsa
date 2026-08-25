@@ -194,10 +194,10 @@ directory and exactly wrong as a way to share files between replicas.
 - **Expecting high availability from the object.** Three Pods with stable names
   is not a highly available database; it is three databases unless the software
   is configured to replicate.
-- **Trying to grow a volume by editing `volumeClaimTemplates`.** The claims
-  already exist and were created from the old template. Growing them means
-  editing the PersistentVolumeClaims themselves, where the storage class supports
-  it.
+- **Trying to grow a volume by editing `volumeClaimTemplates`.** The field is
+  immutable once the StatefulSet exists, so the edit is rejected and nothing
+  changes. Growing storage means editing the PersistentVolumeClaims themselves,
+  where the storage class allows expansion.
 
 ## Key takeaways
 

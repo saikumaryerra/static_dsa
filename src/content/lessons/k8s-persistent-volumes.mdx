@@ -1,0 +1,272 @@
+---
+title: 'PersistentVolumes and Claims'
+slug: 'k8s-persistent-volumes'
+course: 'kubernetes'
+track: 'k8s-storage'
+order: 22
+summary: 'A claim is what an application asks for and a PersistentVolume is what the cluster supplies — a split that keeps disk identifiers out of your manifests, and puts the reclaim policy in charge of whether your data survives.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-volumes']
+estimatedMinutes: 9
+tags: ['kubernetes', 'storage', 'persistentvolume', 'pvc']
+explainPrompt: 'Why does a Pod reference a claim rather than referencing the volume itself?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Explain what the claim/volume split buys, and which side each role owns.
+- Read a claim's phase and a volume's, and say what each one means.
+- Choose a reclaim policy deliberately, and recognise a `Released` volume.
+- Diagnose a claim that will not leave `Pending`.
+
+## Intuition
+
+The previous lesson ended at the boundary: `emptyDir` has the Pod's lifetime, and
+some data has to outlive every Pod that touches it. Kubernetes solves that with
+two objects rather than one, and the reason is worth understanding before the
+mechanics.
+
+**A PersistentVolumeClaim is a purchase order; a PersistentVolume is what
+arrives.** The person writing the workload states requirements — this much space,
+this access mode, this class of storage — and never names a disk, a device path
+or a cloud volume id. Somebody else supplies: an administrator who created
+volumes in advance, or a provisioner that makes one on demand.
+
+Two things follow from the split. The first is **portability**: the same
+Deployment applies unchanged on a laptop cluster, a managed cloud cluster and a
+bare-metal one, because nothing in it is specific to any of them. The second is
+**identity for the data**. A claim is a namespaced object with a name, so the
+data has a name too — one that outlives every Pod that ever mounted it, and one
+you can look at with `kubectl get pvc` long after the workload is gone.
+
+## How it works
+
+The claim is the object you write, and it is short:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+A Pod then mounts it exactly like any other volume — the `persistentVolumeClaim`
+source replaces `emptyDir`, and nothing else about the container changes:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+spec:
+  containers:
+    - name: app
+      image: nginx:1.29
+      volumeMounts:
+        - name: uploads
+          mountPath: /srv/uploads
+  volumes:
+    - name: uploads
+      persistentVolumeClaim:
+        claimName: uploads
+```
+
+A control loop inside the control plane does the matching. It looks for a
+PersistentVolume that is at least as large as the request, offers the access
+modes asked for, and carries the same `storageClassName`. Binding is **exclusive
+and one-to-one**: once a claim and a volume are bound, neither is available to
+anything else, and a 100Gi volume bound to a 10Gi claim gives that claim all
+100Gi and wastes the rest.
+
+Where does the volume come from? Usually a provisioner makes it, which is the
+next lesson. The other half is a volume somebody wrote by hand — a disk that
+already exists, on a machine you have chosen:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: uploads-local
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  local:
+    path: /mnt/disks/uploads
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ['worker-1']
+```
+
+A `local` volume is a disk mounted on one node, and the `nodeAffinity` block is
+not optional decoration: it is what tells the scheduler that a Pod using this
+volume can only run on `worker-1`. For the claim above to bind to it, the claim
+must also say `storageClassName: manual` — an empty or absent class does not
+match a volume that has one.
+
+### Phases, and what they are telling you
+
+`kubectl get pv` and `kubectl get pvc` both show a phase, and the two vocabularies
+are not the same.
+
+| Object | Phase       | Meaning                                                                        |
+| ------ | ----------- | ------------------------------------------------------------------------------ |
+| PVC    | `Pending`   | Nothing has satisfied it yet — no matching volume, or it is waiting on purpose |
+| PVC    | `Bound`     | Matched to a volume, and usable                                                |
+| PV     | `Available` | Exists, matches nothing yet                                                    |
+| PV     | `Bound`     | Claimed                                                                        |
+| PV     | `Released`  | Its claim was deleted; the data is still here and nothing may bind to it       |
+| PV     | `Failed`    | Automatic reclamation ran and did not succeed                                  |
+
+`Released` is the phase worth memorising, because it is the one people read as a
+bug. It means the claim is gone, the reclaim policy said `Retain`, and the volume
+is deliberately parked: still holding the data, still refusing to bind to
+anything else. It stays that way until an administrator either copies the data
+off and deletes it, or clears `spec.claimRef` so it can go back to `Available`.
+
+```bash
+kubectl get pvc uploads
+kubectl describe pvc uploads
+kubectl patch pv uploads-local --type=merge -p '{"spec":{"claimRef":null}}'
+```
+
+### The reclaim policy decides whether the data survives
+
+`persistentVolumeReclaimPolicy` has two values you will use:
+
+- **`Retain`** — deleting the claim leaves the volume and its contents alone, in
+  `Released`. Recovery is manual, and that is the point.
+- **`Delete`** — deleting the claim deletes the PersistentVolume **and the
+  underlying storage**. The disk in the cloud provider goes with it.
+
+The defaults are not the same on both paths, and this is where data gets
+destroyed accidentally. A PersistentVolume you write by hand defaults to
+`Retain`. A **dynamically provisioned** one takes its policy from its
+StorageClass, and that field's default is `Delete` — so on most clusters, on the
+path almost everyone uses, deleting a claim destroys the data.
+
+<Callout variant="warning">
+  Deleting a Namespace deletes the PersistentVolumeClaims inside it. With the
+  usual `Delete` policy that destroys the volumes too, with no second
+  confirmation and no undo. "Let me clean up that old Namespace" is one of the
+  more expensive sentences in Kubernetes operations.
+</Callout>
+
+Kubernetes does defend the live case. A finalizer keeps a claim that is still
+mounted by a running Pod from actually going away: `kubectl delete pvc` returns,
+the object sits in `Terminating`, and the deletion completes when the last Pod
+using it stops. The same protection keeps a bound volume from being deleted out
+from under its claim.
+
+## Trade-offs
+
+**Static volumes give control and cost attention.** Pre-creating volumes is the
+right answer when the storage already exists, when a specific machine's NVMe
+drive is the whole point, or when the data was loaded before Kubernetes ever saw
+it. The cost is a human in the provisioning loop and a class of failure where a
+claim waits forever because nobody made its volume.
+
+**The claim's request is a floor, not a quota.** It tells the provisioner how
+much to make and the matcher how much is enough. Nothing enforces that your
+application stays inside it — you get a filesystem, and filling a filesystem is
+an application problem that Kubernetes will not report as a storage event.
+
+**The indirection costs one more thing to look at.** When a Pod is `Pending`, the
+answer may be two objects away: the Pod waits on the claim, the claim waits on a
+volume, and only `kubectl describe pvc` says which.
+
+## Common pitfalls
+
+- **Deleting a Namespace to tidy up.** It takes the claims, and the default
+  reclaim policy takes the data. Check `kubectl get pvc -n <namespace>` first, and
+  check the reclaim policy of what they are bound to.
+- **Reading `Pending` as broken.** A claim can be pending because nothing
+  matches, because no default class exists, or entirely on purpose while it waits
+  for a Pod to be scheduled. The events on the claim distinguish them.
+- **Expecting a `Released` volume to rebind.** It never does on its own, however
+  correct the new claim looks. Clearing `claimRef` is a deliberate act, and it
+  hands the old data to the new claim — which is sometimes what you want and
+  sometimes a leak.
+- **Removing a finalizer to force a stuck deletion.** The claim is stuck because
+  something is still using it. Stripping the finalizer deletes the object while
+  the mount is live, and the outcome ranges from a hung node to a corrupted
+  filesystem.
+- **Trusting the size on the claim.** Matching is "at least as large", so a claim
+  may be bound to a much larger volume — and on a dynamic path, to exactly the
+  size the driver rounds you up to.
+
+## Key takeaways
+
+- The claim/volume split keeps **disk identity out of workload manifests**, which
+  is what makes the same manifest portable across clusters.
+- Binding is **exclusive and one-to-one**, and matching is on size, access modes
+  and `storageClassName`.
+- A **hand-written PersistentVolume defaults to `Retain`; a StorageClass defaults
+  to `Delete`** — the common path is the destructive one.
+- `Released` means the data is intact and deliberately unbindable. It requires a
+  human decision, not a retry.
+- Deleting a claim that a Pod still mounts leaves it `Terminating` until the Pod
+  stops. That is protection working, not a stuck object to force.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A claim asks for 10Gi and binds to a volume whose capacity is 100Gi. How much space does the Pod get, and what happened to the other 90Gi?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The Pod gets the whole 100Gi filesystem, and the other 90Gi is wasted — bound
+  exclusively to this claim and unavailable to anything else. Matching is "at
+  least as large as the request", not "equal to it", and binding is one-to-one,
+  so an oversized volume is not shared out. This is mostly a static-provisioning
+  hazard: a pool of pre-created large volumes will happily satisfy small claims
+  and burn the difference. It is also why the request should be read as an
+  instruction to the provisioner rather than as a promise about what the
+  application will see.
+</PracticeCheck>
+
+**2. A team deletes a Namespace containing a database's claim. The volume was dynamically provisioned on a cloud cluster with the usual settings. What is the state of the data, and which single field would have changed the outcome?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The data is gone, and gone at the cloud provider — not merely detached.
+  Deleting the Namespace deletes the claim inside it; a dynamically provisioned
+  volume inherits its reclaim policy from its StorageClass; and that field
+  defaults to `Delete`, which deletes the PersistentVolume and the underlying
+  disk with it. The field is `reclaimPolicy` on the StorageClass (or
+  `persistentVolumeReclaimPolicy` patched onto the volume itself). Set to
+  `Retain`, the same deletion would have left the volume in `Released` with the
+  data intact, recoverable by clearing its `claimRef`. This is exactly why a
+  snapshot or backup is not optional for data you care about — the next lessons
+  return to it.
+</PracticeCheck>
+
+**3. `kubectl get pvc` shows `Terminating` for a claim you deleted five minutes ago. A colleague suggests editing the object to remove its finalizer. What is actually happening, and why is that the wrong move?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The claim is held by the `kubernetes.io/pvc-protection` finalizer because at
+  least one running Pod still mounts it. The deletion is real and queued; it
+  completes as soon as the last such Pod stops, so the fix is to find that Pod
+  and remove it — scale the workload down, or let the rollout finish. Removing
+  the finalizer deletes the API object while the volume is still mounted and
+  being written to, which detaches storage from underneath a live process: at
+  best a hung mount on the node, at worst a corrupted filesystem, and in either
+  case the claim is gone while the volume is left in an inconsistent state. The
+  finalizer is the protection, not the problem.
+</PracticeCheck>
