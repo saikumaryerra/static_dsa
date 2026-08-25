@@ -1,0 +1,29 @@
+---
+/**
+ * Course page — `/learn/kubernetes/` (course expansion, decision D-05).
+ *
+ * Four lines of page and one shared component: Astro cannot host a second
+ * dynamic segment beside `[slug].astro`, which owns `/learn/{slug}/`, so each
+ * course gets a static file rather than the route being renamed — renaming it
+ * would move fifteen published lesson URLs, their canonicals and their sitemap
+ * entries for no reader's benefit. `[slug].astro` fails the build if a lesson
+ * ever takes a course's slug, so the two cannot collide silently.
+ */
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import CourseIndex from '../../components/CourseIndex.astro';
+import { COURSE_COPY, coursePath } from '../../lib/courses';
+
+const course = 'kubernetes' as const;
+const copy = COURSE_COPY[course];
+const lessons = await getCollection('lessons', ({ data }) => data.published);
+---
+
+<BaseLayout
+  title={`${copy.title} · LearnDSA`}
+  canonicalPath={coursePath(course)}
+  description={copy.description}
+  wide
+>
+  <CourseIndex course={course} lessons={lessons} />
+</BaseLayout>

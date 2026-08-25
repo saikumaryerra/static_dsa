@@ -26,6 +26,7 @@
 import MarkComplete from './MarkComplete.astro';
 import PrevNext from './PrevNext.astro';
 import type { LessonRef } from '../lib/progress';
+import type { CourseId } from '../lib/courses';
 
 interface Adjacent {
   slug: string;
@@ -39,16 +40,18 @@ interface Props {
   lessons: LessonRef[];
   prev: Adjacent | null;
   next: Adjacent | null;
+  /** Forwarded to `PrevNext` for the end-of-course card. */
+  course: CourseId;
 }
 
-const { slug, lessons, prev, next } = Astro.props;
+const { slug, lessons, prev, next, course } = Astro.props;
 ---
 
 <section class="whats-next" aria-labelledby="whats-next">
   <h2 id="whats-next" class="whats-next__heading">What's next</h2>
   <MarkComplete slug={slug} lessons={lessons} />
   <div class="whats-next__nav">
-    <PrevNext prev={prev} next={next} />
+    <PrevNext prev={prev} next={next} course={course} />
   </div>
 </section>
 

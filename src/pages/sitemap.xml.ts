@@ -11,12 +11,19 @@
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { deploymentUrl } from '../lib/deployment-url';
+import { COURSE_ORDER, coursePath } from '../lib/courses';
 
 /**
  * Static, non-lesson routes to list. Kept in one place so a new top-level page is
  * a single-line edit here (arch §4.1 trade-off). `/404` is deliberately excluded.
  */
-const STATIC_PATHS = ['/', '/learn/', '/glossary/', '/about/'] as const;
+const STATIC_PATHS = [
+  '/',
+  '/learn/',
+  ...COURSE_ORDER.map(coursePath),
+  '/glossary/',
+  '/about/',
+] as const;
 
 export const GET: APIRoute = async ({ site }) => {
   // `site` comes from astro.config.mjs and is guaranteed set at build time.

@@ -49,27 +49,21 @@ Nothing in `src/` has been touched.
 | Lint | `npm run lint` | `9b44d75` | ✅ |
 | Format | `npm run format:check` | `9b44d75` | ✅ |
 | Unit | `npm run test` | `9b44d75` | ✅ 63 files / 1103 tests |
-| E2E | `npm run test:e2e` | `9b44d75` | ⚠️ 444 passed, **14 failed**, 14 skipped — see below |
+| E2E | `npm run test:e2e` | `9b44d75` | ⚠️ 444 passed, 14 failed under load — **all 14 re-run green single-worker** |
 | Validator | not built yet | — | — |
 
-## Known issues (pre-existing — NOT introduced by this work)
+## Known issues
 
-The e2e baseline was run **while four reconnaissance subagents were saturating a 4-core box**, and
-`playwright.config.ts:28` sets `retries: 0` locally with `fullyParallel: true`. The 14 failures are
-therefore *suspected load flakes* and must be re-run quiet before being called a real baseline.
-They are, verbatim from the run:
+**There are none in the baseline.** The first e2e run reported 14 failures, but it was executed
+while four reconnaissance subagents were saturating a 4-core box, and `playwright.config.ts:28`
+sets `retries: 0` locally with `fullyParallel: true`. Re-running exactly those eight spec files
+with `--workers=1` on a quiet machine gave **117 passed, 0 failed** (2.4 min).
 
-- `a11y.spec.ts:7` — home, light and dark (2)
-- `binary-search-gaps.spec.ts:68` — absent-target explanation (1)
-- `binary-search.spec.ts:207` — lesson page dark axe (1)
-- `m4-lessons.spec.ts:144` — axe for complexity-big-o light/dark, graphs dark, sorting-basics light (4)
-- `m6-dynamic-programming.spec.ts:147` — axe light and dark (2)
-- `m7-print-hcm.spec.ts:117` — print reveals Practice answers (1)
-- `m8-explain-note.spec.ts:330,381` — note storage and deletion (2)
-- `portable.spec.ts:231` — sub-path walk; 5 `_astro` chunks failed to load (1)
+So the true baseline at `9b44d75` is **all five DoD commands green**, and any e2e failure from here
+is mine until proven otherwise.
 
-**Rule for Phase 6:** a failure in this list is only mine if it fails on a quiet machine at
-`9b44d75` too. Anything outside this list is mine.
+**Operating rule learned:** never run `npm run test:e2e` while subagents are running. The suite is
+timing-sensitive; concurrent agents turn axe scans and chunk loads into false failures.
 
 ---
 

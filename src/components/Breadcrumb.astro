@@ -3,31 +3,39 @@
  * Breadcrumb — static context nav (design §6.1, site spec §9).
  *
  * Props:
- * - `track` the lesson's `Track`; rendered as the label `src/lib/tracks.ts` owns,
- *   linking to that track's section on /learn.
+ * - `course` the lesson's `CourseId`; rendered as the short label
+ *   `src/lib/courses.ts` owns, linking to that course's page.
+ * - `track` the lesson's `Track`; the fragment the course link lands on.
  * - `title` the current lesson title (last crumb; plain text, `aria-current`).
  *
- * Inline `Learn / Track / Lesson`, muted, wraps (never truncates) for long/i18n
- * titles. Every crumb but the last is a link (M7.1 IA-6): the track crumb
- * targets `/learn/#track-{track}`, the anchor the /learn index puts on each
- * track section heading and the home track cards already link to.
+ * Inline `Learn / Course / Lesson`, muted, wraps (never truncates) for long/i18n
+ * titles. Every crumb but the last is a link (M7.1 IA-6).
+ *
+ * The middle crumb names the COURSE, not the track (course expansion, decision
+ * D-05): `/learn/` is the catalogue of courses now, so the course is the page's
+ * real parent, and three courses each own a module called "Foundations" — the
+ * track label alone would no longer say where you are. It still lands the reader
+ * on their own module, because the href carries `#track-{track}`, the anchor the
+ * course page puts on every module heading.
  */
-import { trackLabel, type Track } from '../lib/tracks';
+import type { Track } from '../lib/tracks';
+import { courseLabel, coursePath, type CourseId } from '../lib/courses';
 
 interface Props {
+  course: CourseId;
   track: Track;
   title: string;
 }
 
-const { track, title } = Astro.props;
-const label = trackLabel(track);
+const { course, track, title } = Astro.props;
+const label = courseLabel(course);
 ---
 
 <nav aria-label="Breadcrumb" class="breadcrumb">
   <ol>
     <li><a href="/learn/">Learn</a></li>
     <li aria-hidden="true" class="sep">/</li>
-    <li><a href={`/learn/#track-${track}`}>{label}</a></li>
+    <li><a href={`${coursePath(course)}#track-${track}`}>{label}</a></li>
     <li aria-hidden="true" class="sep">/</li>
     <li><span aria-current="page">{title}</span></li>
   </ol>

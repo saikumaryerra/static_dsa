@@ -70,13 +70,12 @@
  * level, since it is a section of this page and not part of a track.
  */
 import { getCollection } from 'astro:content';
-import type { CollectionEntry } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import Collapsible from '../../components/Collapsible.astro';
-import LessonCard from '../../components/LessonCard.astro';
+import CourseCard from '../../components/CourseCard.astro';
 import ReviewStrip from '../../components/ReviewStrip.astro';
-import TrackArc from '../../components/TrackArc.astro';
-import { TRACK_COPY, TRACK_ORDER } from '../../lib/tracks';
+import { COURSE_ORDER } from '../../lib/courses';
+import { tracksForCourse } from '../../lib/tracks';
 import {
   MASTERY_GATE_DAYS,
   resumeLabel,
@@ -84,21 +83,27 @@ import {
 } from '../../lib/progress';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
-const byOrder = (
-  a: CollectionEntry<'lessons'>,
-  b: CollectionEntry<'lessons'>,
-) => a.data.order - b.data.order;
 
 /**
- * The curriculum tracks in site-map order (§8), each with its lessons. Order,
- * headings and blurbs all come from `src/lib/tracks.ts`, so this page states no
- * track copy of its own — a rename lands in one place.
+ * The catalogue: every course in `COURSE_ORDER`, with the counts its card
+ * states. Titles, blurbs, prerequisites and outcomes all come from
+ * `src/lib/courses.ts`, so this page states no course copy of its own — a
+ * rename lands in one place. The counts are DERIVED from the collection, so a
+ * lesson added tomorrow moves the number without anyone editing this file.
  */
-const sections = TRACK_ORDER.map((id) => ({
-  id,
-  ...TRACK_COPY[id],
-  lessons: published.filter((l) => l.data.track === id).sort(byOrder),
-}));
+const courses = COURSE_ORDER.map((id) => {
+  const lessons = published.filter((l) => l.data.course === id);
+  return {
+    id,
+    lessonCount: lessons.length,
+    // Modules that actually have a published lesson — an empty module is a plan,
+    // not something to count on a catalogue card.
+    moduleCount: tracksForCourse(id).filter((track) =>
+      lessons.some((l) => l.data.track === track),
+    ).length,
+    totalMinutes: lessons.reduce((sum, l) => sum + l.data.estimatedMinutes, 0),
+  };
+});
 
 /**
  * The lesson list the progress island reads (M7.2), in global order. Injected
@@ -112,10 +117,16 @@ const lessonRefs: LessonRef[] = published
     title: data.title,
     order: data.order,
     track: data.track,
+    course: data.course,
   }))
-  .sort((a, b) => a.order - b.order);
+  .sort(
+    (a, b) =>
+      COURSE_ORDER.indexOf(a.course as (typeof COURSE_ORDER)[number]) -
+        COURSE_ORDER.indexOf(b.course as (typeof COURSE_ORDER)[number]) ||
+      a.order - b.order,
+  );
 
-/** First lesson in global order — the JS-off / nothing-stored resume target. */
+/** First lesson in catalogue order — the JS-off / nothing-stored resume target. */
 const firstLesson = lessonRefs[0];
 
 /**
@@ -156,16 +167,16 @@ const resumeFallback = firstLesson
 <BaseLayout
   title="Learn · LearnDSA"
   canonicalPath="/learn/"
-  description="The full LearnDSA curriculum: interactive data-structure and algorithm lessons, grouped into two tracks. Work through them in order or jump to any topic."
+  description="Every LearnDSA course: data structures and algorithms, Kubernetes, and system design — interactive lessons you work through at your own pace, free and without an account."
 >
   <div class="learn">
     <header class="learn__head" data-lessons={JSON.stringify(lessonRefs)}>
-      <h1>Curriculum</h1>
+      <h1>Courses</h1>
       <p class="learn__intro">
-        {published.length} core lessons across two tracks. Work through them in order,
-        or jump to any topic — each one is built around a visualization you can play,
-        pause, and run on your own input. Lessons you finish are checked off on this
-        device.
+        {courses.length} courses, {published.length} lessons. Pick one and work through
+        it in order, or jump to whichever topic you came for — nothing is locked,
+        and every lesson names what it builds on. Lessons you finish are checked off
+        on this device.
       </p>
 
       {
@@ -353,44 +364,20 @@ const resumeFallback = firstLesson
     }
     <ReviewStrip />
 
-    {
-      sections.map((section) => (
-        <section class="learn__section" aria-labelledby={`track-${section.id}`}>
-          <div class="learn__section-head">
-            <div class="learn__section-titles">
-              <h2 id={`track-${section.id}`}>{section.heading}</h2>
-              <p class="learn__section-blurb">{section.blurb}</p>
-            </div>
-
-            {/* Empty until the island fills it: "0 of 9" rendered server-side
-                would be a claim about a device the build cannot see. Its SPACE
-                is reserved all the same, and every rule about what this block
-                says, reserves and hides lives in the component. An empty track
-                gets none: there is no progress to report on zero lessons. */}
-            {section.lessons.length > 0 && <TrackArc track={section.id} />}
-          </div>
-
-          {section.lessons.length > 0 ? (
-            <ul class="learn__grid" role="list">
-              {section.lessons.map((lesson) => (
-                <li>
-                  <LessonCard
-                    slug={lesson.data.slug}
-                    order={lesson.data.order}
-                    title={lesson.data.title}
-                    summary={lesson.data.summary}
-                    difficulty={lesson.data.difficulty}
-                    estimatedMinutes={lesson.data.estimatedMinutes}
-                  />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p class="learn__empty">Lessons for this track are coming soon.</p>
-          )}
-        </section>
-      ))
-    }
+    <ul class="learn__courses" role="list">
+      {
+        courses.map((course) => (
+          <li>
+            <CourseCard
+              course={course.id}
+              lessonCount={course.lessonCount}
+              moduleCount={course.moduleCount}
+              totalMinutes={course.totalMinutes}
+            />
+          </li>
+        ))
+      }
+    </ul>
   </div>
 </BaseLayout>
 
@@ -535,66 +522,28 @@ const resumeFallback = firstLesson
     margin-top: 0;
   }
 
-  .learn__section {
-    margin-top: var(--space-12);
-  }
-
-  .learn__section-head {
-    margin-bottom: var(--space-6);
-  }
-
-  /* From 640px the counter sits beside the heading block rather than under it;
-     below that it stacks, which is why it reserves its own height. TrackArc
-     carries the `flex: none` half of that arrangement — it is the item, and a
-     scoped rule here could not reach it. */
-  @media (min-width: 640px) {
-    .learn__section-head {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: var(--space-6);
-    }
-  }
-
-  /* The track heading is an anchor target — the lesson breadcrumb (M7.1 IA-6)
-     and the home track cards both jump to `#track-{id}` — so it must clear the
-     sticky header or the heading and its blurb land underneath it. --header-h
-     (M7.2) is now the single source for that height, replacing the hardcoded
-     4.5rem/5.5rem pair this rule used to carry: the gap below the header is a
-     flat --space-4 at every breakpoint instead of 16px/24px. */
-  .learn__section-titles h2 {
-    scroll-margin-top: calc(var(--header-h) + var(--space-4));
-  }
-
-  .learn__section-blurb {
-    margin-top: var(--space-1);
-    color: var(--text-muted);
-  }
-
-  .learn__grid {
+  /* The catalogue grid. One column on a phone, two from 640, three from 1024 —
+     the same ladder the lesson cards used when they lived on this page, so the
+     catalogue and the course pages share a rhythm. */
+  .learn__courses {
     display: grid;
     grid-template-columns: 1fr;
     gap: var(--space-6);
-    margin: 0;
+    margin: var(--space-12) 0 0;
     padding: 0;
     list-style: none;
   }
 
   @media (min-width: 640px) {
-    .learn__grid {
+    .learn__courses {
       grid-template-columns: repeat(2, 1fr);
     }
   }
 
   @media (min-width: 1024px) {
-    .learn__grid {
+    .learn__courses {
       grid-template-columns: repeat(3, 1fr);
     }
-  }
-
-  .learn__empty {
-    color: var(--text-muted);
-    font-style: italic;
   }
 </style>
 
@@ -618,41 +567,27 @@ const resumeFallback = firstLesson
    * use delegated listeners for the same reason.
    */
   import {
-    completeKey,
-    countComplete,
-    countMastery,
     countNotes,
     hasStoredProgress,
-    lessonHref,
-    masteryStage,
-    nextIncomplete,
     onRestore,
-    parseLessonRefs,
     PROGRESS_RESET_EVENT,
     readCompleted,
     resetProgress,
-    resumeLabel,
-    siteRoot,
     storedProgress,
     type LessonRef,
   } from '../../lib/progress';
+  import {
+    lessonsFromDom,
+    renderCards,
+    renderResume,
+    renderTracks,
+    storageReadable,
+  } from '../../lib/progress-paint';
   import {
     hasLearningDays,
     learningDaysLine,
     readLearningDays,
   } from '../../lib/learning-days';
-  import {
-    arcOffset,
-    masteryCountsText,
-    paintPips,
-    trackCountText,
-  } from '../../lib/mastery-ui';
-
-  /** Reads the build-injected lesson list; `[]` if the attribute is missing. */
-  function lessons(): LessonRef[] {
-    const host = document.querySelector<HTMLElement>('[data-lessons]');
-    return parseLessonRefs(host?.dataset['lessons']);
-  }
 
   /** "3 completed marks" / "1 completed mark" — used by the confirm and the announcement. */
   function marks(count: number): string {
@@ -738,166 +673,6 @@ const resumeFallback = firstLesson
     line.hidden = text === '';
   }
 
-  /** Points the CTA at the first unfinished lesson, or stands it down when all are done. */
-  function renderResume(list: LessonRef[], completed: number): void {
-    const link =
-      document.querySelector<HTMLAnchorElement>('[data-resume-link]');
-    const label = document.querySelector<HTMLElement>('[data-resume-label]');
-    const done = document.querySelector<HTMLElement>('[data-resume-done]');
-    if (!link || !label || !done) return;
-
-    // Where this deployment lives, read BEFORE anything is written: the CTA's
-    // wording and its destination are one statement (see `siteRoot`). Without
-    // the anchor this leaves the server-rendered "Start with 01 · …" in place —
-    // stale for a returning reader, but a link that works.
-    const site = siteRoot();
-    if (!site) return;
-
-    const next = nextIncomplete(list);
-    const text = resumeLabel(next, completed, list.length);
-    if (next) {
-      link.href = lessonHref(next.slug, site);
-      label.textContent = text;
-      done.hidden = true;
-      link.hidden = false;
-    } else {
-      done.textContent = text;
-      done.hidden = false;
-      link.hidden = true;
-    }
-  }
-
-  /**
-   * How many pips one lesson can fill — the three of `MasteryPips`, which the
-   * ring below sums across a track. Named rather than inlined because it is a
-   * fact about that component, not an arbitrary divisor.
-   */
-  const PIPS_PER_LESSON = 3;
-
-  /**
-   * Can this device's storage actually be read?
-   *
-   * Every helper in `src/lib/progress.ts` degrades a blocked store to "nothing
-   * recorded", which is the right answer for a checkmark and the WRONG one for a
-   * counter: rendered, "0 of 9 done on this device" states as fact something
-   * this page could not check, on a device that may well have nine marks in a
-   * store the browser is refusing to open. So the surfaces that would otherwise
-   * assert that zero ask this question first.
-   *
-   * The probe is a real read of a real spec §6 key (the first lesson's
-   * completion mark) — nothing is written, nothing is enumerated, and the two
-   * failure shapes both land in the catch: the global missing entirely (a
-   * ReferenceError) and the getter throwing (Safari's blocked-methods mode).
-   *
-   * @param list - The build-injected lesson list; its first entry is the probe.
-   * @returns True when a read completed without throwing.
-   */
-  function storageReadable(list: LessonRef[]): boolean {
-    const probe = list[0];
-    if (!probe) return false;
-    try {
-      localStorage.getItem(completeKey(probe.slug));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Fills each track's arc — count line, mastery counts, ring — and reveals it.
-   *
-   * @param list - The build-injected lesson list.
-   * @param readable - Whether storage answered a read (see {@link storageReadable}).
-   * With `false` the block states nothing at all and marks itself unreadable:
-   * absent, not broken, and never a number nobody could verify.
-   */
-  function renderTracks(list: LessonRef[], readable: boolean): void {
-    document
-      .querySelectorAll<HTMLElement>('[data-track-progress]')
-      .forEach((block) => {
-        const track = block.dataset['trackProgress'];
-        if (!track) return;
-        const inTrack = list.filter((lesson) => lesson.track === track);
-        if (inTrack.length === 0) return; // empty track keeps its "coming soon" note
-
-        if (!readable) {
-          // Both attributes move together: dropping `pending` is what proves the
-          // island ran (a block still pending is indistinguishable from a script
-          // that never executed), and `unreadable` is what hides it.
-          block.removeAttribute('data-track-pending');
-          block.setAttribute('data-track-unreadable', 'true');
-          return;
-        }
-        block.removeAttribute('data-track-unreadable');
-
-        const { done, total } = countComplete(inTrack);
-        const text = block.querySelector<HTMLElement>('[data-track-count]');
-        if (text) text.textContent = trackCountText(done, total);
-
-        // The self-reported completion count is never displayed alone: "Mark as
-        // complete" has no learning precondition, so the two EARNED counts are
-        // rendered beside it always (`docs/m8-gamification.md`). They are
-        // cumulative, so a lesson promoted to Mastered never makes the
-        // Practiced number fall — a demotion this system does not have.
-        const counts = countMastery(inTrack);
-        const mastery = block.querySelector<HTMLElement>(
-          '[data-track-mastery]',
-        );
-        if (mastery) {
-          mastery.textContent = masteryCountsText(
-            counts.practiced,
-            counts.mastered,
-          );
-        }
-
-        // The ring is the macro rendering of the MASTERY STATES, which is what
-        // the design calls it — not of the completion marks. Driven by `done` it
-        // sat at zero for a reader who had genuinely practised, displaying the
-        // one number in this system that is nobody's evidence of anything. The
-        // counts are cumulative, so summing them is the count of filled pips
-        // across the track (Mastered fills 3, Practiced 2, Learned 1) and the
-        // ring fills exactly as the cards below do. Only the offset is written —
-        // the dash array was baked at build time.
-        const ring = block.querySelector<SVGCircleElement>('[data-track-ring]');
-        const pips = counts.learned + counts.practiced + counts.mastered;
-        ring?.setAttribute(
-          'stroke-dashoffset',
-          String(arcOffset(pips, total * PIPS_PER_LESSON)),
-        );
-
-        // Drops `visibility: hidden`, not a `hidden` attribute: the block has
-        // been holding its own height since SSR so this reveal shifts nothing.
-        block.removeAttribute('data-track-pending');
-      });
-  }
-
-  /**
-   * Marks each card with its completion state and paints its mastery pips
-   * (§6 local completed state; M8.1's "the done-checkmark becomes pip 1").
-   *
-   * `data-complete` stays on the card and keeps its exact M7 meaning — the
-   * completion MARK, which is also the only thing the reset control counts —
-   * while `data-stage` carries the wider currency the pips draw. Both are
-   * written in this one synchronous pass over the same store (the stage costs a
-   * second read of the same key, deliberately: `masteryStage` is where the
-   * OR-win rule lives, and re-deriving it here would be a second definition),
-   * so the mark and the pips on a card can never contradict each other.
-   */
-  function renderCards(completed: string[]): void {
-    const done = new Set(completed);
-    document
-      .querySelectorAll<HTMLElement>('[data-lesson-card]')
-      .forEach((card) => {
-        const slug = card.dataset['slug'];
-        if (!slug) return;
-        if (done.has(slug)) card.setAttribute('data-complete', 'true');
-        else card.removeAttribute('data-complete');
-
-        const pips = card.querySelector<HTMLElement>('[data-mastery-pips]');
-        if (pips) paintPips(pips, masteryStage(slug));
-      });
-  }
-
   /**
    * Nothing stored = nothing to delete, so the control reads as unavailable.
    *
@@ -922,7 +697,7 @@ const resumeFallback = firstLesson
     // not to the curriculum, so it is the one surface here that still has
     // something true to say if the injected lesson list ever fails to parse.
     renderDays();
-    const list = lessons();
+    const list = lessonsFromDom();
     if (list.length === 0) return; // no injected list: leave every fallback alone
     const completed = readCompleted(list);
     renderResume(list, completed.length);
@@ -948,7 +723,7 @@ const resumeFallback = firstLesson
    * destructive button under a Space keypress the reader has not released yet.
    */
   function openPanel(toggle: HTMLElement, panel: HTMLElement): void {
-    const list = lessons();
+    const list = lessonsFromDom();
     const stored = storedProgress(list);
     const kinds = recordKinds(stored, countNotes(list), hasLearningDays());
     const warn = panel.querySelector<HTMLElement>('[data-reset-warn]');
@@ -984,7 +759,7 @@ const resumeFallback = firstLesson
 
   /** Confirm: clear the keys, redraw every surface in place, say what happened. */
   function confirmReset(): void {
-    const list = lessons();
+    const list = lessonsFromDom();
     // Read BEFORE the delete, and only then: `resetProgress` counts the
     // completion marks it removed and deliberately counts neither mastery
     // records nor the enrichment keys (neither a practice record nor a cleared

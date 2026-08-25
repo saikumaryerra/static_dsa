@@ -1,0 +1,133 @@
+---
+/**
+ * CourseCard — one course on the `/learn` catalogue (course expansion,
+ * `docs/courses/SPEC.md` §6, decision D-05).
+ *
+ * Props:
+ * - `course` the course id; every string on the card comes from
+ *   `src/lib/courses.ts`, so the catalogue states no course copy of its own.
+ * - `lessonCount` / `moduleCount` / `totalMinutes` — derived at build time from
+ *   the collection by the page, never authored, so a new lesson changes the card
+ *   without anyone remembering to.
+ *
+ * The whole card is one link, exactly as `LessonCard` is: a card with a "Start"
+ * button beside a separately-clickable title gives the reader two targets for
+ * one intent, and the M7 audit removed that pattern from the lesson cards for
+ * the same reason.
+ *
+ * DIFFICULTY IS A WORD IN THE META LINE, not a `DifficultyChip`. The chip's rule
+ * (amendment D-1) is to badge the exception — it appears on a lesson card only
+ * when the lesson is *not* `beginner`. Three cards, two of them intermediate,
+ * would make the exception the rule; and a catalogue card is the one place a
+ * reader is choosing between options, where the level should be stated for all
+ * three or for none. Colour is not carrying it either way: it is the word.
+ *
+ * PROGRESS: `TrackArc` is reused verbatim with the COURSE id as its group. The
+ * island's painter filters the injected lesson list by `track === group ||
+ * course === group`, and the two id sets are disjoint by construction (asserted
+ * in `tests/unit/courses.test.ts`), so one component and one painter serve both
+ * levels. Like every M8 surface it ships empty, holds its own height, and
+ * removes itself with JS off through its own kill-switch.
+ */
+import TrackArc from './TrackArc.astro';
+import { COURSE_COPY, coursePath, type CourseId } from '../lib/courses';
+
+interface Props {
+  course: CourseId;
+  lessonCount: number;
+  moduleCount: number;
+  totalMinutes: number;
+}
+
+const { course, lessonCount, moduleCount, totalMinutes } = Astro.props;
+const copy = COURSE_COPY[course];
+
+/** Rounded to the nearest five, like the home page's track totals. */
+const roundedMinutes = Math.round(totalMinutes / 5) * 5;
+---
+
+<a
+  href={coursePath(course)}
+  class="track-card course-card"
+  data-course-card
+  data-course={course}
+>
+  <span class="course-card__head">
+    <span class="course-card__titles">
+      <span class="course-card__title">{copy.title}</span>
+      <span class="course-card__blurb">{copy.blurb}</span>
+    </span>
+    <TrackArc track={course} />
+  </span>
+
+  <span class="course-card__meta">
+    {lessonCount} lessons <span aria-hidden="true">·</span>
+    {moduleCount} modules <span aria-hidden="true">·</span>
+    ~{roundedMinutes} min <span aria-hidden="true">·</span>
+    {copy.difficulty}
+  </span>
+
+  <span class="course-card__cta">
+    Open the course <span aria-hidden="true">→</span>
+  </span>
+</a>
+
+<style>
+  /* `.track-card` (global.css) owns the level-1 elevation and its five states;
+     this file adds only the internal layout, so the card cannot drift from the
+     lesson cards and the prev/next card that compose the same class. */
+  .course-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .course-card__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  /* A card is narrow, so the arc drops below the title on the smallest screens
+     rather than squeezing a two-line heading into half a column. */
+  @media (max-width: 419px) {
+    .course-card__head {
+      flex-direction: column;
+    }
+  }
+
+  .course-card__titles {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .course-card__title {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+    color: var(--text);
+    text-wrap: balance;
+  }
+
+  .course-card__blurb {
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    color: var(--text-muted);
+  }
+
+  .course-card__meta {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .course-card__cta {
+    margin-block-start: auto;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--text);
+  }
+</style>

@@ -78,18 +78,26 @@ import {
 
 /** Three lessons across both tracks, deliberately NOT in `order` sequence. */
 const LESSONS: LessonRef[] = [
-  { slug: 'stacks', title: 'Stacks', order: 4, track: 'foundations' },
+  {
+    slug: 'stacks',
+    title: 'Stacks',
+    order: 4,
+    track: 'foundations',
+    course: 'dsa',
+  },
   {
     slug: 'binary-search',
     title: 'Binary Search',
     order: 11,
     track: 'algorithms',
+    course: 'dsa',
   },
   {
     slug: 'complexity-big-o',
     title: 'Complexity & Big-O',
     order: 1,
     track: 'foundations',
+    course: 'dsa',
   },
 ];
 
@@ -159,6 +167,9 @@ describe('parseLessonRefs', () => {
       LESSONS[0],
       { slug: 'queues', title: 'Queues', order: '5', track: 'foundations' },
       { slug: 'heaps', title: 'Heaps', track: 'foundations' },
+      // Every pre-course-expansion field, but no `course` (decision D-04):
+      // without it the resume CTA cannot order two courses' lesson 1.
+      { slug: 'trees', title: 'Trees', order: 7, track: 'foundations' },
       null,
       'arrays',
     ]);
@@ -202,16 +213,36 @@ const CURRICULUM: LessonRef[] = [
     title: 'Complexity & Big-O',
     order: 1,
     track: 'foundations',
+    course: 'dsa',
   },
-  { slug: 'arrays', title: 'Arrays', order: 2, track: 'foundations' },
-  { slug: 'stacks', title: 'Stacks', order: 3, track: 'foundations' },
+  {
+    slug: 'arrays',
+    title: 'Arrays',
+    order: 2,
+    track: 'foundations',
+    course: 'dsa',
+  },
+  {
+    slug: 'stacks',
+    title: 'Stacks',
+    order: 3,
+    track: 'foundations',
+    course: 'dsa',
+  },
   {
     slug: 'binary-search',
     title: 'Binary Search',
     order: 4,
     track: 'algorithms',
+    course: 'dsa',
   },
-  { slug: 'sorting-basics', title: 'Sorting', order: 5, track: 'algorithms' },
+  {
+    slug: 'sorting-basics',
+    title: 'Sorting',
+    order: 5,
+    track: 'algorithms',
+    course: 'dsa',
+  },
 ];
 
 const FOUNDATIONS = CURRICULUM.filter((l) => l.track === 'foundations');
