@@ -7,7 +7,7 @@ order: 1
 summary: 'Kubernetes is a set of control loops over a declarative API: you write down the state you want, and controllers spend the rest of the cluster’s life making reality match it.'
 difficulty: 'beginner'
 prerequisites: []
-estimatedMinutes: 9
+estimatedMinutes: 10
 tags: ['kubernetes', 'orchestration', 'control-plane', 'declarative']
 explainPrompt: 'Why does Kubernetes ask you to describe the state you want instead of the steps to get there?'
 published: true
@@ -81,14 +81,15 @@ Four components matter at this stage:
   operational task.
 - **kube-scheduler** — finds Pods that exist but have no node, and picks one for
   each. That is all it does: it writes a node name into the Pod's spec.
-- **controller manager** — runs the control loops. The Deployment controller
+- **kube-controller-manager** — runs the control loops. The Deployment controller
   makes ReplicaSets match Deployments; the ReplicaSet controller makes Pods match
   ReplicaSets; a dozen others do the same for other resources.
 
 On each worker node the **kubelet** watches the API server for Pods assigned to
 its node and tells the container runtime — containerd or CRI-O — to start them,
 then reports back what is actually running. **kube-proxy** programs the node's
-networking so Service names reach running Pods.
+networking so traffic to a Service's cluster IP reaches a running Pod — the
+_name_ is resolved by cluster DNS, which the networking module covers.
 
 Notice what is missing: no component talks to any other. The scheduler does not
 call the kubelet; the kubelet does not call the controller manager. Everything
@@ -141,7 +142,7 @@ right. Delete one of those Pods and the third loop runs again by itself.
 Orchestration is not free, and Kubernetes is a large thing to adopt.
 
 **What it costs.** A real vocabulary before anything works, and the indirection
-that makes the system robust also makes it harder to debug: when your container
+that makes the system recoverable also makes it harder to debug: when your container
 is not running, the answer is somewhere in a chain of five loops rather than in
 one command's output. A cluster is infrastructure that itself needs upgrading,
 securing and paying for.
@@ -188,7 +189,7 @@ it, exactly as well as you have written it.
 
 Work each one out before opening the answer.
 
-**1. Why is describing the state you want more robust than listing the steps to get there?**
+**1. Why is describing the state you want more reliable than listing the steps to get there?**
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Because a controller that knows only "what I want" and "what is true right
@@ -221,6 +222,6 @@ Work each one out before opening the answer.
   is *placement* — a new Pod stays `Pending` with no node assigned, so a new
   Deployment creates Pods that never start and a crashed Pod's replacement is
   created but not placed. When the scheduler returns it works through the
-  backlog, because the queue it reads is just the set of unassigned Pods in
-  etcd, not anything it had to remember.
+  backlog, because the queue it reads is the set of unassigned Pods in etcd, not
+  anything it had to remember.
 </PracticeCheck>

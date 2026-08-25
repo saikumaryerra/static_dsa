@@ -77,13 +77,23 @@ Watch a scale-up and you can see the steps separate:
 ```bash
 kubectl scale deployment web --replicas=5
 kubectl get deployment web -o jsonpath='{.metadata.generation} {.status.observedGeneration}'
-kubectl get deployment web --watch
 ```
 
 The first command returns immediately, because all it did was change `spec`. The
 second prints the pair of numbers that tells you whether anyone has noticed yet:
 
+```text
+4 4
+```
+
+The whole picture is in the object, if you want it:
+
+```bash
+kubectl get deployment web -o yaml
+```
+
 ```yaml
+# excerpt
 metadata:
   generation: 4
 status:
@@ -100,10 +110,10 @@ seen you and is working — or cannot succeed. Those are two different problems,
 and this pair of numbers is how you tell them apart before reading a single log
 line.
 
-**Controllers chain, and none of them knows about the next.** The Deployment
-controller creates and scales ReplicaSets; it never creates a Pod. The ReplicaSet
-controller creates Pods and has never heard of Deployments. What connects them is
-written on the object itself:
+**Controllers chain, and none of them knows about the next.** You have already
+walked that chain in
+[What Kubernetes Is](/learn/k8s-what-kubernetes-is/); what that walk did not say
+is how the links are recorded. They are written on the object itself:
 
 ```yaml
 metadata:
@@ -204,7 +214,7 @@ Work each one out before opening the answer.
 <PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   `metadata.generation` and `status.observedGeneration`. If they differ, your
   change is stored but no controller has acted on it yet — wait, or find out why
-  the controller manager is unhealthy. If they match, the Deployment controller
+  kube-controller-manager is unhealthy. If they match, the Deployment controller
   has already processed the change and the delay is downstream: the ReplicaSet
   exists at five, and the new Pods are pending scheduling, pulling an image, or
   failing to start. That is the value of the pair — it splits "not yet seen"
@@ -212,15 +222,15 @@ Work each one out before opening the answer.
   different places.
 </PracticeCheck>
 
-**3. You scale a ReplicaSet that a Deployment owns to ten. Trace what happens, and say which field made it happen.**
+**3. A Deployment's `spec.replicas` is three. You scale the ReplicaSet it owns to ten. Trace what happens, and say which field made it happen.**
 
 <PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   The ReplicaSet controller obliges and creates seven more Pods. Within a pass
-  or two the Deployment controller reconciles: its `spec.replicas` is three, the
-  ReplicaSet it owns says ten, so it writes three back and the extra Pods are
-  deleted. The field that made the Deployment controller care is the
-  `ownerReferences` entry on the ReplicaSet with `controller: true` — it marks
-  that Deployment as the one controller responsible for this object. The lesson
-  is general: edit the object at the top of the ownership chain, because every
-  object below it is a controller's output, not your input.
+  or two the Deployment controller reconciles: its own `spec.replicas` still
+  says three, the ReplicaSet it owns says ten, so it writes three back and the
+  extra Pods are deleted. The field that made the Deployment controller care is
+  the `ownerReferences` entry on the ReplicaSet with `controller: true` — it
+  marks that Deployment as the one controller responsible for this object. The
+  lesson is general: edit the object at the top of the ownership chain, because
+  every object below it is a controller's output, not your input.
 </PracticeCheck>

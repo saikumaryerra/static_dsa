@@ -63,18 +63,32 @@ const WORD_CEILING = 1500;
  */
 const LONG_FORM_TRACKS = ['k8s-projects', 'k8s-troubleshooting'];
 
-/** Placeholder strings, matched case-insensitively (Appendix D item 3). */
+/**
+ * Placeholder markers (Appendix D item 3), as regexes rather than substrings.
+ *
+ * The naive version — case-insensitive `String.includes` on each phrase — reads
+ * "which is why it has to be written down" as unfinished content, and would have
+ * done the same to any sentence containing the word "placeholder". A guard that
+ * cries wolf gets switched off, so each phrase is matched in the shape a
+ * placeholder actually takes:
+ *
+ * - The acronyms are matched **uppercase, as whole words**. Nobody writes a
+ *   marker as "todo" in a sentence, and `TBD` cannot collide with prose.
+ * - `lorem ipsum`, `coming soon` and `[...]` are unambiguous in any case.
+ * - The three that are also ordinary English — "placeholder", "to be written",
+ *   "insert here" — count only when they are **bracketed, emphasised, or the
+ *   whole line**, which is how someone marks a hole they mean to come back to.
+ */
 const PLACEHOLDERS = [
-  'TODO',
-  'TBD',
-  'FIXME',
-  'lorem',
-  'coming soon',
-  'placeholder',
-  'to be written',
-  'insert here',
-  'xxx',
-  '[...]',
+  /\bTODO\b/,
+  /\bTBD\b/,
+  /\bFIXME\b/,
+  /\bXXX\b/,
+  /lorem ipsum/i,
+  /coming soon/i,
+  /\[\.\.\.\]/,
+  /[[(*_]{1,2}\s*(placeholder|to be written|insert here)[^\n]{0,20}?[\])*_]{1,2}/i,
+  /^\s*(placeholder|to be written|insert here)[\s.!]*$/im,
 ];
 
 /**
@@ -453,11 +467,13 @@ export function validateContent(root, options = {}) {
     const isNew = NEW_COURSES.includes(data.course ?? 'dsa');
 
     // 3. placeholders
-    for (const needle of PLACEHOLDERS) {
-      const at = body.toLowerCase().indexOf(needle.toLowerCase());
-      if (at !== -1) {
-        const line = body.slice(0, at).split('\n').length;
-        errors.push(`${file}:${line}: placeholder string "${needle}"`);
+    for (const marker of PLACEHOLDERS) {
+      const hit = marker.exec(body);
+      if (hit) {
+        const line = body.slice(0, hit.index).split('\n').length;
+        errors.push(
+          `${file}:${line}: placeholder marker ${JSON.stringify(hit[0].trim())}`,
+        );
       }
     }
 

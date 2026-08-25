@@ -26,8 +26,19 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 ## Intuition
 
 A cluster is a set of machines — **nodes** — sharing one control plane and one
-API. Nodes are physical: a node exists because a machine registered itself. A
-**namespace** is the opposite; it is a label on a name.
+API. Nodes are physical, and a Node is also an object: when a kubelet starts it
+registers one, then keeps writing to its `status` — the CPU and memory the
+machine has, the images it already holds, and a set of _conditions_ of which
+`Ready` is the one you read. Nobody creates a Node by applying a manifest;
+deleting the object only removes the cluster's record of a machine that is still
+there. Nodes are **cluster-scoped**, so they belong to no namespace:
+
+```bash
+kubectl get nodes -o wide
+kubectl describe node <name>
+```
+
+A **namespace** is the opposite of a node; it is a label on a name.
 
 **A namespace is a folder for names, not a wall between tenants.** What it
 guarantees is narrow and precise: two objects of the same kind may share a name
@@ -83,8 +94,11 @@ objects, each covering a different axis:
 - **A `ResourceQuota`** caps what the namespace may consume.
 - **A `Role` and `RoleBinding`** decide who may do what inside it. Without them,
   a subject with cluster-wide permissions still has them here.
-- **A `NetworkPolicy`** restricts traffic. Without one, every Pod in the cluster
-  can reach every other Pod, namespace or not.
+- **A `NetworkPolicy`** restricts traffic — provided the cluster's network
+  plugin implements NetworkPolicy. Where it does not, the object is accepted and
+  enforces nothing, which is the most dangerous shape a security control can
+  take. Without one at all, every Pod in the cluster can reach every other Pod,
+  namespace or not.
 
 The quota is the one you will write first:
 
@@ -239,14 +253,18 @@ Work each one out before opening the answer.
   config get-contexts` and check which cluster the asterisk is on.
 </PracticeCheck>
 
-**3. A Pod in the `payments` namespace cannot resolve `api`, but `api.payments` works from a Pod in `default`. What does that tell you?**
+**3. A Pod you believe is in the `payments` namespace cannot resolve `api`, but `api.payments` works from a Pod in `default`. What does that tell you?**
 
 <PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   That the Service exists and DNS is healthy — the fully qualified lookup
-  succeeded from another namespace, so both facts are established. The failing
-  lookup is the short-name one, which only resolves inside the Service's own
-  namespace, so the Pod that failed is not in `payments` after all. The usual
-  cause is a manifest with no `metadata.namespace` applied while the context
-  pointed somewhere else. `kubectl get pods -A` and reading the namespace column
-  confirms it in one command.
+  succeeded from another namespace, so both facts are established. What is left
+  is the short name, which only resolves from inside the Service's own
+  namespace, and there are two ways to lose it. Either the Pod is not in
+  `payments` after all — the usual cause being a manifest with no
+  `metadata.namespace` applied while the context pointed elsewhere — or the Pod
+  is there but does not have the cluster's DNS search path, which is what
+  `hostNetwork: true` or a custom `dnsPolicy`/`dnsConfig` does to it. `kubectl
+  get pods -A` separates them in one command: if the Pod is listed under
+  `payments`, the namespace is right and the Pod's DNS configuration is the
+  remaining suspect.
 </PracticeCheck>

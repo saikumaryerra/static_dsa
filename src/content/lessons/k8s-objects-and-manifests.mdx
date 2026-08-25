@@ -27,8 +27,8 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 [What Kubernetes Is](/learn/k8s-what-kubernetes-is/) called the API server the
 only door. This lesson is about what you post through it.
 
-Everything you create in Kubernetes — a Pod, a Service, a Secret, a quota, a
-role — is an **object**, and every object is the same shape. There is no special
+Everything you create in Kubernetes — a Pod, a Service, a Secret, a
+ResourceQuota, a Role — is an **object**, and every object is the same shape. There is no special
 syntax for Deployments that you then have to unlearn for Jobs.
 
 **An object is a form with four boxes: which form, a name tag, a wish, and a
@@ -142,9 +142,10 @@ is a special case.
 different document rather than a syntax error. The shape is also verbose: a
 Deployment with two containers and a few environment variables runs to sixty
 lines, and the same sixty lines appear again per environment. That verbosity is
-the reason the ecosystem grew templating and overlay tools — Helm and Kustomize
-are not part of Kubernetes, and neither changes the object model; both produce
-the same manifests you would have written.
+the reason the ecosystem grew templating and overlay tools. Helm and Kustomize
+are ecosystem tools rather than cluster features — kubectl happens to bundle
+Kustomize as `apply -k` — and neither changes the object model; both produce the
+same manifests you would have written.
 
 ## Common pitfalls
 
@@ -183,8 +184,8 @@ Work each one out before opening the answer.
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   That it is served at
-  `/apis/batch/v1/namespaces/default/cronjobs/nightly-report` — a named group,
-  so it sits under `/apis` rather than `/api` — and that whatever else it
+  `/apis/batch/v1/namespaces/<namespace>/cronjobs/<name>` — a named group, so it
+  sits under `/apis` rather than `/api` — and that whatever else it
   contains, it has `metadata` with a name and a `spec` you own, and the cluster
   will attach a `status` you do not write. The four-field shape is the same for
   every kind, which is why a kind you have never used is still readable. You can

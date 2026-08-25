@@ -29,7 +29,7 @@ import Figure from '../Figure.astro';
 <Figure
   viewBox="0 0 690 356"
   title="Kubernetes cluster architecture"
-  description="A client running kubectl on the left sends requests to the control plane in the middle. Inside the control plane the kube-apiserver spans the top. Below it, etcd and the kube-scheduler sit side by side, and the controller manager spans the bottom. The kube-apiserver writes to etcd; the scheduler and the controller manager each connect upward to the kube-apiserver and to nothing else — not to etcd, and not to each other. On the right are two worker nodes, each running a kubelet and a kube-proxy and hosting pods. Each kubelet connects to the kube-apiserver; the two nodes do not connect to each other. Every connector in the diagram begins or ends at the kube-apiserver."
+  description="A client running kubectl on the left sends requests to the control plane in the middle. Inside the control plane the kube-apiserver spans the top. Below it, etcd and the kube-scheduler sit side by side, and the controller manager spans the bottom. The kube-apiserver writes to etcd; the scheduler and the controller manager each connect upward to the kube-apiserver and to nothing else — not to etcd, and not to each other. On the right are two worker nodes, each running a kubelet and a kube-proxy and hosting Pods. Each kubelet connects to the kube-apiserver; the two nodes do not connect to each other. Every connector in the diagram begins or ends at the kube-apiserver."
   caption="Every component talks to the API server and to nothing else. That single rule is most of what makes a Kubernetes cluster comprehensible: there is one door, one datastore behind it, and every other part is a client."
   minWidth={620}
 >

@@ -26,8 +26,10 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 ## Intuition
 
 **A local cluster is a real control plane with a pretend datacentre behind it.**
-The kube-apiserver, etcd, the scheduler, the controller manager and the kubelet
-are the same programs that run in production, and they behave the same way.
+With kind and minikube the kube-apiserver, etcd, the kube-scheduler, the
+kube-controller-manager and the kubelet are the same programs that run in
+production, and they behave the same way. k3s — which k3d wraps — substitutes
+some of them for lighter equivalents, which is the trade the table below names.
 What is absent is everything _outside_ the cluster: a cloud to hand out load
 balancers, a network between separate machines, a registry, storage that outlives
 the host, and enough hardware for a failure to be interesting.
@@ -43,8 +45,9 @@ deployment.
 ## How it works
 
 Three tools do the same job differently. All three are tools around Kubernetes
-rather than parts of it, and all three need a container runtime — Docker,
-Podman or an equivalent — already working on your machine.
+rather than parts of it, and all three need a container engine — Docker or
+Podman — already working on your machine. (That engine is not the cluster's
+container runtime: inside each node, a CRI runtime still starts your containers.)
 
 | Tool     | What it is                                                                     | What a node is                            | What it costs you                                                                                                           |
 | -------- | ------------------------------------------------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -59,8 +62,25 @@ kind create cluster --name learn
 kubectl config use-context kind-learn
 ```
 
+One node is enough until you want to watch a Pod move. For that, hand kind a
+config file. This is the kind CLI's own format, not a Kubernetes API object —
+nothing ever sends it to a cluster:
+
+```yaml
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+```
+
 ```bash
-minikube start --profile learn --kubernetes-version=v1.36.2
+kind create cluster --name learn --config kind.yaml
+```
+
+```bash
+minikube start --profile learn
 kubectl config use-context learn
 ```
 
@@ -79,8 +99,11 @@ kubectl get nodes -o wide
 kubectl get pods --all-namespaces
 ```
 
-`get nodes` should show `Ready`, and `--all-namespaces` should show the control
-plane's own Pods in `kube-system`. Now a smoke test that exercises the whole
+`get nodes` should show `Ready`. On kind and minikube, `--all-namespaces` also
+shows the control plane's own Pods in `kube-system`; on k3d it does not, because
+k3s runs the control plane as a single process rather than as static Pods — you
+will see CoreDNS and the k3s add-ons instead. Neither is a broken cluster. Now a
+smoke test that exercises the whole
 chain from the previous lessons — a namespace, a Deployment and a Service:
 
 ```yaml
@@ -88,7 +111,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: web
-  namespace: smoke
 spec:
   replicas: 2
   selector:
@@ -111,7 +133,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: web
-  namespace: smoke
 spec:
   selector:
     app: web
@@ -122,7 +143,7 @@ spec:
 
 ```bash
 kubectl create namespace smoke
-kubectl apply -f deployment.yaml -f service.yaml
+kubectl apply -n smoke -f deployment.yaml -f service.yaml
 kubectl get pods -n smoke -o wide
 kubectl port-forward -n smoke service/web 8080:80
 ```
@@ -154,13 +175,15 @@ Pod sits in `ImagePullBackOff`.
   needs an add-on, minikube has `minikube tunnel`, k3s ships a service load
   balancer of its own — so `kubectl port-forward` is the only portable way to
   reach a workload in these exercises. Storage: the default StorageClass is a
-  directory on the node, which satisfies a PersistentVolumeClaim but has none of
-  a cloud volume's access-mode limits, so a manifest asking for `ReadWriteMany`
-  can work here and fail there. Machines: `--agents 2` gives you containers on
-  one kernel sharing one CPU budget, so anti-affinity and topology spread appear
-  to work without having been tested. And scale: your laptop has a couple of
-  cores, so nothing you observe about scheduling under contention transfers to
-  two hundred nodes.
+  directory on one node, so nothing you learn here about durability, or about
+  detaching a volume and reattaching it elsewhere, transfers — and a
+  PersistentVolumeClaim asking for `ReadWriteMany` is refused outright, because
+  a node-local path cannot be shared, so a design that needs a shared volume
+  cannot be tested locally at all. Machines: extra nodes are containers on one
+  kernel sharing one CPU budget, so anti-affinity and topology spread appear to
+  work without having been tested. And scale: your laptop has a couple of cores,
+  so nothing you observe about scheduling under contention transfers to two
+  hundred nodes.
 </Callout>
 
 ## Trade-offs
