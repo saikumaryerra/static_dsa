@@ -376,7 +376,7 @@ test.describe('lesson cards', () => {
   test('state the "Start lesson" affordance on every card', async ({
     page,
   }) => {
-    await page.goto('/learn/');
+    await page.goto('/learn/dsa/');
     const cards = page.locator('[data-lesson-card]');
     const count = await cards.count();
     expect(count).toBeGreaterThan(0);
@@ -389,7 +389,7 @@ test.describe('lesson cards', () => {
   });
 
   test('rest at elevation 1 and rise on hover', async ({ page }) => {
-    await page.goto('/learn/');
+    await page.goto('/learn/dsa/');
     const card = page.locator('[data-lesson-card]').first();
     const title = card.locator('.lesson-card__title');
 

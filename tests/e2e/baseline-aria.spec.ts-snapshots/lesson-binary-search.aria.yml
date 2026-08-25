@@ -24,8 +24,8 @@
           - link "Learn":
             - /url: ../../learn/
         - listitem:
-          - link "Algorithms":
-            - /url: ../../learn/#track-algorithms
+          - link "DSA":
+            - /url: ../../learn/dsa/#track-algorithms
         - listitem: Linear & Binary Search
     - heading "Linear & Binary Search" [level=1]
     - paragraph: "Find an element in an array two ways: linear search scans every item in O(n); binary search halves a sorted range in O(log n)."
@@ -431,7 +431,7 @@
         - link "Previous Recursion":
           - /url: ../../learn/recursion/
 - contentinfo:
-  - paragraph: LearnDSA — see data structures and algorithms in motion.
+  - paragraph: LearnDSA — free engineering courses you work through at your own pace.
   - navigation "Footer":
     - list:
       - listitem:

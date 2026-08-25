@@ -192,77 +192,86 @@ test.describe('glossary with JavaScript disabled', () => {
 // ---------------------------------------------------------------------------
 // 3. Home — the curriculum block is data-driven (design §3.5), never hardcoded.
 // ---------------------------------------------------------------------------
-test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
+test('home curriculum + heading reflect the real catalogue', async ({
   page,
 }) => {
   await page.goto('/');
 
-  // Data-driven heading: 15 published lessons (M6 adds DP → 15), two tracks.
-  // Reworded by redesign amendment H-1, which also replaced the pair of
-  // `.track-card` summaries with the curriculum itself: two `.track` blocks,
-  // every lesson named and linked. The claim under test is unchanged — nothing
-  // on this page is hand-typed — but it is now checkable against the lessons
-  // rather than against two numbers in a blurb.
+  // Every number here is derived from the published collection, so this test
+  // reads the catalogue and checks the page against it rather than against a
+  // count typed twice. Since the course expansion (decision D-05) the home page
+  // names the COURSES and their modules: a hundred-odd lesson links on a landing
+  // page is a directory, not an answer.
+  const catalogue = await page.evaluate(async () => {
+    const res = await fetch('/learn/');
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    const host = doc.querySelector('[data-lessons]');
+    return JSON.parse(host?.getAttribute('data-lessons') ?? '[]') as {
+      slug: string;
+      track: string;
+      course: string;
+    }[];
+  });
+  expect(catalogue.length, 'the catalogue must be non-empty').toBeGreaterThan(
+    15,
+  );
+  const courseIds = [...new Set(catalogue.map((l) => l.course))];
+
   await expect(
-    page.getByRole('heading', { name: '15 lessons, two tracks' }),
+    page.getByRole('heading', {
+      name: `${catalogue.length} lessons, ${courseIds.length} courses`,
+    }),
   ).toBeVisible();
 
   const metaText = await page
-    .locator('.curriculum .track__meta')
+    .locator('.curriculum .course-block__meta')
     .allInnerTexts();
-  expect(metaText).toHaveLength(2);
+  expect(metaText).toHaveLength(courseIds.length);
   const joined = metaText.join(' | ');
-  // Foundations 9 (all beginner) + Algorithms 6 (mixed difficulty) — spread as text.
-  expect(joined).toMatch(/9 lessons/);
-  expect(joined).toMatch(/6 lessons/);
-  expect(joined).toMatch(/All beginner/);
-  expect(joined).toMatch(/beginner · \d+ intermediate|intermediate/);
-  // Both track headings link into the /learn track anchors. Matched on the
-  // RESOLVED target rather than on the attribute: D2 made these relative
-  // (`./learn/#track-foundations` from home), and the fragment surviving the
-  // rewrite in one piece is half of what this assertion is now worth.
-  const trackTargets = (
-    await page
-      .locator('.curriculum .track__title a')
-      .evaluateAll((links) =>
-        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
-      )
-  ).map((href) => resolveFrom(page.url(), href));
-  expect(trackTargets).toEqual([
-    '/learn/#track-foundations',
-    '/learn/#track-algorithms',
-  ]);
+  // Each course states its own lesson count and a difficulty spread in WORDS
+  // (never a colour-only chip — §3.8, WCAG 1.4.1).
+  for (const course of courseIds) {
+    const n = catalogue.filter((l) => l.course === course).length;
+    expect(joined, `${course} states its lesson count`).toContain(
+      `${n} lesson`,
+    );
+  }
+  expect(joined).toMatch(/beginner|intermediate/);
 
-  // The strongest form of "never hardcoded" the old shape could not express:
-  // the fifteen rows are the SAME fifteen lessons /learn renders, in the same
-  // order, because both derive from the published collection sorted by `order`
-  // within TRACK_ORDER. A hand-typed list here would have to be edited twice to
-  // keep this passing, which is the drift the derivation exists to prevent.
-  // Compared as RESOLVED targets, which is now the only way the comparison can
-  // be made at all: the two pages sit at different depths, so the same lesson is
-  // `./learn/arrays/` on home and `../learn/arrays/` on the index. Their
-  // destinations are what must agree, and that is the claim this test makes.
-  const homeHrefs = (
+  // Each course heading links to that course's page. Matched on the RESOLVED
+  // target rather than on the attribute: D2 made these relative
+  // (`./learn/kubernetes/` from home), and the path surviving the rewrite is
+  // half of what this assertion is worth.
+  const courseTargets = (
     await page
-      .locator('.curriculum .track__lesson')
+      .locator('.curriculum .course-block__title a')
       .evaluateAll((links) =>
         links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
       )
   ).map((href) => resolveFrom(page.url(), href));
-  expect(homeHrefs).toHaveLength(15);
-  expect(homeHrefs.every((href) => /^\/learn\/[a-z0-9-]+\/$/.test(href))).toBe(
-    true,
-  );
+  expect(courseTargets).toEqual(courseIds.map((id) => `/learn/${id}/`));
 
-  await page.goto('/learn/');
-  const learnHrefs = (
+  // The strongest form of "never hardcoded": the module rows are the SAME
+  // modules the course pages render, in the same order, because both derive
+  // from the published collection. A hand-typed list here would have to be
+  // edited twice to keep this passing, which is the drift the derivation exists
+  // to prevent.
+  const moduleTargets = (
     await page
-      .locator('[data-lesson-card]')
+      .locator('.curriculum .course-block__item')
       .evaluateAll((links) =>
         links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
       )
   ).map((href) => resolveFrom(page.url(), href));
-  expect(homeHrefs).toEqual(learnHrefs);
+  const expected = courseIds.flatMap((course) => {
+    const seen: string[] = [];
+    for (const lesson of catalogue) {
+      if (lesson.course === course && !seen.includes(lesson.track))
+        seen.push(lesson.track);
+    }
+    return seen.map((track) => `/learn/${course}/#track-${track}`);
+  });
+  expect(moduleTargets).toEqual(expected);
 });
 
 // ---------------------------------------------------------------------------
@@ -322,13 +331,17 @@ test('sitemap.xml + robots.txt are served and cross-referenced', async ({
   const sitemap = await request.get('/sitemap.xml');
   expect(sitemap.status()).toBe(200);
   const xml = await sitemap.text();
-  // Four static routes + the 15 published lessons = 19 <loc> entries; no /404, /dev.
+  // Static routes + every published lesson; no /404, no /dev. Counted as a floor
+  // rather than pinned: `url-shape.spec.ts` checks the exact set of non-lesson
+  // routes, which is the part a regression could silently drop.
   const locs = xml.match(/<loc>/g) ?? [];
-  expect(locs.length).toBe(19);
+  expect(locs.length).toBeGreaterThanOrEqual(20);
+  expect(xml).toContain('/learn/kubernetes/</loc>');
+  expect(xml).toContain('/learn/system-design/</loc>');
   // D1: the <loc>s carry the trailing slash, because that is the URL the site
   // actually serves. A slashless <loc> would point every crawler at a redirect
   // (a 404 under `astro preview`), which is the defect D1 exists to close —
-  // tests/e2e/url-shape.spec.ts asserts it for all 19 entries, not just these two.
+  // tests/e2e/url-shape.spec.ts asserts it for every entry, not just these two.
   expect(xml).toContain('/glossary/</loc>');
   expect(xml).toContain('/learn/binary-search/</loc>');
   expect(xml).not.toContain('/404');

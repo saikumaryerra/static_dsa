@@ -1,32 +1,39 @@
 ---
 /**
- * Curriculum index — `/learn` (site spec §6 site map, §8 layout).
+ * Catalogue — `/learn` (site spec §6 site map, §8 layout; course expansion
+ * decision D-05).
  *
- * Data-driven: queries the published lessons, groups them into the two tracks
- * (Foundations / Algorithms), and sorts each by `order`, so new lessons appear
- * automatically as later M4 batches add `.mdx` files — this page never lists a
- * lesson by hand. Each lesson renders as a `LessonCard`.
+ * This page WAS the curriculum index: two track sections and fifteen lesson
+ * cards. Since the course expansion it is the catalogue of COURSES, and the
+ * sections, arcs and cards moved to `/learn/{course}/` (`CourseIndex.astro`).
+ * Data-driven either way: it queries the published lessons and derives each
+ * card's lesson count, module count and duration, so a lesson added tomorrow
+ * moves the numbers with no edit here.
  *
- * M7.2 closes the progress loop here (§8 "curriculum index"), all of it driven
- * by `src/lib/progress.ts` reading the same `lesson:{slug}:complete` keys
- * `MarkComplete` writes: a resume CTA under the page head, a per-track
- * "N of M done on this device" counter beside each track heading, a progress
- * mark on each card, and a reset-progress control with an inline confirm step.
- * The lesson list those four surfaces need is injected as JSON at build time
- * (`data-lessons`) — localStorage is never enumerated by prefix.
+ * WHAT STAYED, and why: the resume CTA, the ready-to-review strip, the
+ * reset-progress control, the learning-days line and the pip legend are all
+ * facts about the DEVICE rather than about one course. Three reset buttons
+ * deleting the same five keys would be three descriptions of one act, and the
+ * review strip is capped at two cards precisely because it is the product's
+ * single prompting surface.
  *
- * M8.1 draws the same two surfaces in the one progress currency (spec §8's M8
- * amendment; `docs/m8-gamification.md`), without adding a store or a script:
- * the card's done-checkmark becomes `MasteryPips` (the check is pip 1), and the
- * per-track counter becomes `TrackArc` — the same `[data-track-progress]` block
- * with a ring around the same sentence, plus the earned Practiced/Mastered
- * counts that must always sit beside a self-reported number. The ring itself is
- * filled from the mastery states, not from the completion count: the design
- * calls it their macro rendering, and one filled pip anywhere in the track is a
- * third of a lesson's slice of it. ONE function in the island below still paints
- * every surface from one read, which is what keeps the cards and the rings from
- * disagreeing. A collapsed legend under the page head says what the three stages
- * are and who is grading them (the reader) — static copy, no key, no island.
+ * M7.2 closes the progress loop (§8 "curriculum index"), all of it driven by
+ * `src/lib/progress.ts` reading the same `lesson:{slug}:complete` keys
+ * `MarkComplete` writes: a resume CTA under the page head, a ring on each course
+ * card, and a reset-progress control with an inline confirm step. The lesson
+ * list those surfaces need is injected as JSON at build time (`data-lessons`) —
+ * localStorage is never enumerated by prefix. Here the injected list is the
+ * WHOLE catalogue, so the CTA resumes across courses; a course page injects its
+ * own slice and the same painters scope themselves to it.
+ *
+ * M8.1's currency is unchanged (spec §8's M8 amendment;
+ * `docs/m8-gamification.md`): `TrackArc` is reused per course card, filled from
+ * the mastery states rather than the completion count, because the design calls
+ * the ring their macro rendering. ONE function paints every surface from one
+ * read — `src/lib/progress-paint.ts`, shared with the course pages, which is
+ * what keeps the two levels from disagreeing. A collapsed legend under the page
+ * head says what the three stages are and who is grading them (the reader) —
+ * static copy, no key, no island.
  *
  * M8.2 adds the ready-to-review strip directly under the page head (spec §8) —
  * at most two quiet link-cards, and ZERO DOM when nothing is due, so a reader
@@ -54,7 +61,7 @@
  * it; the acts that do are on the lesson pages, which is where explicit acts
  * happen.
  *
- * JS off (or storage blocked): the CTA still points at lesson 01, the counters
+ * JS off (or storage blocked): the CTA still points at lesson 01, the rings
  * stay hidden rather than lying "0 of 9" — with the store blocked the arcs mark
  * themselves unreadable instead of stating a zero nobody could verify — the
  * reset control, the legend, the learning-days line and every M8 surface are
@@ -64,10 +71,9 @@
  * (§6 local completed state, §12 a11y).
  *
  * Landmarks/headings: BaseLayout owns <header>/<main>/<footer>; this page has one
- * <h1>, then an <h2> per track section (empty tracks show a "coming soon" note so
- * both labelled sections always render — spec §8 requires both), plus the review
- * strip's own <h2> on the visits where it has something to offer — the same
- * level, since it is a section of this page and not part of a track.
+ * <h1> and, on the visits where the review strip has something to offer, its
+ * <h2>. The course cards are links in one list rather than sections, because a
+ * catalogue of three is a choice, not an outline.
  */
 import { getCollection } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';

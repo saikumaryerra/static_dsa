@@ -146,7 +146,13 @@ test.describe('the trials reached the lessons they were written for', () => {
   test('every rendered trial belongs to its page, is unique, and sits in the Algorithms track', async ({
     page,
   }) => {
-    const lessons = await curriculum(page);
+    // Scoped to the `dsa` course: a Trace Trial is graded against a
+    // `<Visualizer>`'s run, and only that course mounts one (course expansion,
+    // decision D-05). The Kubernetes and System Design lessons are covered by a
+    // stronger rule in a cheaper place — `scripts/lib/content-validator.mjs`
+    // rejects a viz-coupled component in a new-course lesson outright, so one
+    // cannot appear for this walk to find.
+    const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
     const seen: string[] = [];
 
     for (const lesson of lessons) {

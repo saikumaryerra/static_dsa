@@ -552,7 +552,7 @@ test.describe('degraded states', () => {
     await writeStorage(page, { [DAYS_KEY]: '{"count":' });
     await page.reload();
 
-    await expect(page.locator('[data-lesson-card]').first()).toBeVisible();
+    await expect(page.locator('[data-course-card]').first()).toBeVisible();
     expect(await page.locator('body').innerText()).not.toMatch(
       /\bNaN\b|\bundefined\b/,
     );
@@ -620,7 +620,7 @@ test.describe('JavaScript disabled', () => {
     // DISCRIMINATOR: the M7 page underneath is intact, so the absence above is
     // a kill-switch rather than a page that failed to render.
     await page.goto(LEARN);
-    await expect(page.locator('[data-lesson-card]').first()).toBeVisible();
+    await expect(page.locator('[data-course-card]').first()).toBeVisible();
     await expect(page.locator('[data-resume-link]')).toBeVisible();
   });
 });

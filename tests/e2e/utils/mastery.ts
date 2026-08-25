@@ -27,8 +27,11 @@ declare global {
 export interface LessonRef {
   slug: string;
   title: string;
+  /** Order WITHIN THE COURSE — not unique across the catalogue. */
   order: number;
   track: string;
+  /** Course id, e.g. `kubernetes` (course expansion, decision D-04). */
+  course: string;
 }
 
 /**
@@ -234,30 +237,79 @@ export function trackPageErrors(page: Page): string[] {
 }
 
 /**
- * The build-injected curriculum, read out of `/learn`'s `data-lessons`.
- *
- * Read rather than hardcoded so no test here assumes a lesson count, title or
- * track membership the build no longer ships.
- *
- * @param page - Page to load `/learn` in (left on `/learn` afterwards).
- * @returns Every published lesson in global `order`.
+ * The catalogue's course order — the outer key the whole curriculum sorts by
+ * since `order` became per-course (course expansion, decision D-04). Spelled out
+ * here rather than imported so a test never inherits the bug it is checking for.
  */
-export async function curriculum(page: Page): Promise<LessonRef[]> {
-  await page.goto('/learn/');
-  return page.evaluate(() => {
-    const host = document.querySelector<HTMLElement>('[data-lessons]');
-    const parsed = JSON.parse(host?.dataset['lessons'] ?? '[]') as {
-      slug: string;
-      title: string;
-      order: number;
-      track: string;
-    }[];
-    return parsed.sort((a, b) => a.order - b.order);
-  });
+const COURSES = ['dsa', 'kubernetes', 'system-design'] as const;
+
+/**
+ * The page that lists a course's lesson cards and module arcs.
+ *
+ * `/learn/` is the CATALOGUE since the course expansion; the cards, the arcs and
+ * the per-course resume CTA moved to `/learn/{course}/`. Tests about those
+ * surfaces load this.
+ *
+ * @param course - Course id; defaults to the one the M7/M8 suites were written
+ * against.
+ * @returns The course page's path, trailing slash included.
+ */
+export function coursePage(course: string = 'dsa'): string {
+  return `/learn/${course}/`;
 }
 
 /**
- * The lessons of one track, in global order.
+ * The build-injected curriculum, read out of `/learn`'s `data-lessons`.
+ *
+ * Read rather than hardcoded so no test here assumes a lesson count, title,
+ * track or course membership the build no longer ships. The catalogue injects
+ * every course's lessons, which is why this still reads `/learn/`; a course page
+ * injects only its own slice.
+ *
+ * @param page - Page to load `/learn` in (left on `/learn` afterwards).
+ * @returns Every published lesson, sorted by (course, order) — the one global
+ * sequence, since `order` is only unique inside a course.
+ */
+export async function curriculum(page: Page): Promise<LessonRef[]> {
+  await page.goto('/learn/');
+  return page.evaluate(
+    (courses) => {
+      const host = document.querySelector<HTMLElement>('[data-lessons]');
+      const parsed = JSON.parse(host?.dataset['lessons'] ?? '[]') as {
+        slug: string;
+        title: string;
+        order: number;
+        track: string;
+        course: string;
+      }[];
+      const rank = (course: string) => {
+        const at = courses.indexOf(course);
+        return at === -1 ? courses.length : at;
+      };
+      return parsed.sort(
+        (a, b) => rank(a.course) - rank(b.course) || a.order - b.order,
+      );
+    },
+    COURSES as unknown as string[],
+  );
+}
+
+/**
+ * The lessons of one course, in course order.
+ *
+ * @param page - Page to load `/learn` in (left on `/learn` afterwards).
+ * @param course - Course id, e.g. `dsa`.
+ * @returns That course's lessons.
+ */
+export async function courseLessons(
+  page: Page,
+  course: string,
+): Promise<LessonRef[]> {
+  return (await curriculum(page)).filter((lesson) => lesson.course === course);
+}
+
+/**
+ * The lessons of one track, in course order.
  *
  * @param page - Page to load `/learn` in (left on `/learn` afterwards).
  * @param track - Track id, e.g. `foundations`.

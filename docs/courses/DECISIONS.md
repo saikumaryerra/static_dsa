@@ -227,3 +227,89 @@ and **fails the build** on any published lesson without a literal `## Practice`.
 **Why.** It satisfies SPEC §5 exactly while reusing three heading names the site already uses
 (`Intuition`, `How it works`, `Common pitfalls`), so the on-this-page bar and the reader's
 expectations carry across courses. `## Complexity` and `## Code` are DSA-only and are simply absent.
+
+---
+
+## D-11 · Lesson files stay **flat** in `src/content/lessons/`, with prefixed slugs
+
+**Context.** 112 new lessons could nest under `lessons/kubernetes/…`; the content
+loader's `**/*.mdx` glob handles either.
+
+**Decision.** Flat, with `k8s-` and `sd-` slug prefixes. Filename = slug.
+
+**Why.** Three existing readers walk the lessons directory with a
+**non-recursive** `readdirSync` — `tests/unit/glossary-anchors.test.ts`,
+`tests/unit/challenges.test.ts` and `tests/e2e/m8-explain-note.spec.ts`. Nested
+files would have gone silently uncovered by all three: glossary-link resolution,
+challenge-id integrity and the "every authored prompt reaches its own lesson"
+check would have quietly stopped applying to the new courses. Flat keeps them
+covering everything, and the prefixes give the same grouping in an `ls`.
+
+---
+
+## D-12 · The glossary is one-directional
+
+**Context.** `tests/unit/glossary-anchors.test.ts` fails on a lesson link to a
+`/glossary/#term` that has no entry, and the glossary's own build guard fails on
+a term naming an unpublished lesson.
+
+**Decision.** New-course lesson prose **does not link into the glossary** — the
+validator rejects it. Glossary terms for the new courses may be added later
+pointing *at* lessons; that direction is safe and is Phase 5 polish, not a gate
+item.
+
+**Why.** It decouples the two: 112 lessons can be written without touching a
+curated 48-entry list, and no lesson blocks on a term that does not exist yet.
+
+---
+
+## D-13 · `yaml` added as a devDependency
+
+**Context.** Appendix D item 8 requires the validator to parse the YAML inside
+lesson code fences. Spec §4 permits no dependency without a `// SPEC-GAP:`.
+
+**Decision.** `yaml@^2.9.0` in `devDependencies`, used only by
+`scripts/lib/content-validator.mjs` and its test. The justification is recorded
+at the top of that file.
+
+**Why.** The alternatives were worse. A hand-rolled YAML subset parser is only
+worth writing if it is correct, and to be correct it would need block scalars,
+anchors and flow collections. Importing the copy npm happens to hoist into
+`node_modules` (both `js-yaml` and `yaml` are there transitively) works today and
+is nobody's contract. This ships **zero bytes to the browser** — nothing in
+`src/` imports it — so the §4 JS budget is untouched.
+
+---
+
+## D-14 · The content validator has a `--strict` mode, and CI runs it
+
+**Context.** `coverage.json` is the plan: it maps all 179 Appendix topics to the
+112 lessons, most of which do not exist yet. If a pending topic were an error,
+`npm run test` would fail at every intermediate commit — which SPEC §4 forbids
+("do not leave the tree broken at a commit boundary"). If it were only ever a
+warning, "every Appendix topic is taught" would be a claim nothing checks.
+
+**Decision.** A topic naming a lesson that is *planned in CURRICULUM.md but not
+yet written* is a **warning** by default and an **error** under `--strict`. A
+topic naming a slug that is in neither is an error at any strictness — it is a
+typo. `npm run validate:content -- --strict` is a new CI step.
+
+**Why.** The authoring loop stays green commit by commit, and the completeness
+claim is enforced in the one place that cannot be forgotten. It also makes the
+§8 gate item mechanical: the gate passes when strict passes.
+
+---
+
+## D-15 · Two exemplar lessons, and what they fix
+
+**Context.** SPEC §3 Phase 2 promotes the Phase 1 lessons to gold standards.
+
+**Decision.** `k8s-what-kubernetes-is` and `sd-design-workflow` are the
+exemplars, referenced from CONTENT_STYLE.md. Building them surfaced four
+mechanism defects that were fixed before any other lesson was written: markdown
+tables had no styling and no scroll container, fenced code blocks had no styling
+at all, the site had no diagram mechanism, and a `Figure` scaled to a wide column
+rendered its labels larger than the lesson's own headings.
+
+**Why.** That is what a vertical slice is for. Finding them on lesson 3 of 112
+would have been cheap; finding them on lesson 90 would not.

@@ -30,6 +30,12 @@
  * - `id`        optional anchor id, so prose can link to a figure.
  * - `minWidth`  px width below which the frame scrolls instead of shrinking.
  *
+ * WHY IT DOES NOT SCALE UP EITHER. The viewBox width is also the drawing's
+ * natural size, and letting `width: 100%` stretch a 690-unit diagram across a
+ * 1118px column renders its 14px labels at 23px — larger than the lesson's own
+ * headings, which reads as a mistake rather than as emphasis. The frame caps the
+ * drawing at 1:1 so a diagram's type is the same size as the prose beside it.
+ *
  * WHY IT SCROLLS RATHER THAN SHRINKS. A diagram scaled to 343px of a phone
  * screen renders its labels at around 6px. Spec §6 allows a diagram to scroll
  * ("no horizontal overflow unless intentional and handled — scrollable code
@@ -65,6 +71,14 @@ const {
 } = Astro.props;
 
 const uid = `fig-${nextUid()}`;
+
+/**
+ * The drawing's natural width in px — the third number of the viewBox. Used as
+ * the cap so the SVG never scales past 1:1 (see the note above). A malformed
+ * viewBox falls back to no cap rather than to a wrong one.
+ */
+const naturalWidth = Number(viewBox.trim().split(/\s+/)[2]);
+const cap = Number.isFinite(naturalWidth) ? `${naturalWidth}px` : 'none';
 ---
 
 <figure class="figure" id={id}>
@@ -82,7 +96,7 @@ const uid = `fig-${nextUid()}`;
       role="img"
       aria-labelledby={`${uid}-t`}
       aria-describedby={`${uid}-d`}
-      style={`min-width:${minWidth}px`}
+      style={`min-width:${minWidth}px;max-width:${cap}`}
     >
       <title id={`${uid}-t`}>{title}</title>
       <desc id={`${uid}-d`}>{description}</desc>
@@ -133,9 +147,14 @@ const uid = `fig-${nextUid()}`;
   }
 
   /* The one box a diagram wants the eye to land on first. One per figure. */
+  /* The palette is achromatic by design (`--brand` is byte-identical to
+     `--text`), so a "highlight" fill is a barely-there half-step. The emphasis
+     is carried by the STROKE instead — darker and thicker — which also survives
+     forced colours and greyscale printing, where a fill difference does not. */
   .figure :global(.dg-box--accent) {
     fill: var(--brand-soft);
-    stroke: var(--brand-border);
+    stroke: var(--text);
+    stroke-width: 2.5;
   }
 
   /* A dashed container drawn AROUND a group of boxes (a node, a region, a VPC). */

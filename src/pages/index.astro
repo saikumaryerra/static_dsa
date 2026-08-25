@@ -154,6 +154,9 @@ const resumeFallback = firstLesson
 
 /** Two-digit lesson number, matching the curriculum cards. */
 const num = (order: number) => String(order).padStart(2, '0');
+
+/** `2 lessons` / `1 lesson` — a landing page that says "1 lessons" reads as unfinished. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 ---
 
 <BaseLayout
@@ -304,7 +307,7 @@ const num = (order: number) => String(order).padStart(2, '0');
               <a href={coursePath(course.id)}>{course.title}</a>
             </h3>
             <p class="course-block__meta tabular-nums">
-              {course.count} lessons · ~{course.totalMinutes} min ·{' '}
+              {plural(course.count, 'lesson')} · ~{course.totalMinutes} min ·{' '}
               {course.spread}
             </p>
             <ol class="course-block__list" role="list">
@@ -322,7 +325,7 @@ const num = (order: number) => String(order).padStart(2, '0');
                     </span>
                     <span class="course-block__name">{module.heading}</span>
                     <span class="course-block__mins tabular-nums">
-                      {module.count} lessons
+                      {plural(module.count, 'lesson')}
                     </span>
                   </a>
                 </li>

@@ -75,6 +75,15 @@ jobs:
 
       - run: npm run test # Vitest unit suite
 
+      # The content validator, in STRICT mode (docs/courses/SPEC.md Appendix D).
+      # The Vitest copy above runs it non-strict so a commit landing one finished
+      # module does not fail on the modules still to come; strict additionally
+      # requires every Appendix A/B topic in docs/courses/coverage.json to name a
+      # lesson that actually exists. That is what makes "every topic is taught" a
+      # checked claim instead of a remembered one, and CI is the one place it
+      # cannot be forgotten.
+      - run: npm run validate:content -- --strict
+
       # Browsers and system libs are already in the container (see `container:`
       # above), so there is no `playwright install` step here.
 

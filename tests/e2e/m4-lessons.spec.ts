@@ -150,6 +150,12 @@ for (const [renderer, slug] of Object.entries(RENDERER_SAMPLE)) {
       await page.goto(`/learn/${slug}/`);
       await hydrateAllViz(page);
 
+      // Measured at 4–13 s on these pages with the machine quiet, and it is the
+      // whole-document scan of a page carrying three hydrated instruments and
+      // nine code blocks — so the 30 s default leaves no headroom at all, and a
+      // busy machine turns a passing scan into a timeout that reads like a real
+      // a11y regression. Raising the budget changes nothing the test asserts.
+      test.setTimeout(90_000);
       const results = await new AxeBuilder({ page }).analyze();
 
       // Hard gate (§18): zero critical violations of any kind.

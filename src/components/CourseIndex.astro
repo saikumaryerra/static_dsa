@@ -55,11 +55,18 @@ const byOrder = (
  * blurbs come from `src/lib/tracks.ts`, so this component states no module copy
  * of its own — a rename lands in one place.
  */
-const modules = tracksForCourse(course).map((id) => ({
-  id,
-  ...TRACK_COPY[id],
-  lessons: inCourse.filter((l) => l.data.track === id).sort(byOrder),
-}));
+const modules = tracksForCourse(course)
+  .map((id) => ({
+    id,
+    ...TRACK_COPY[id],
+    lessons: inCourse.filter((l) => l.data.track === id).sort(byOrder),
+  }))
+  // A module with no published lesson is ABSENT (SPEC §3: "at every commit a
+  // module is either absent or complete"). A promise of future content is a
+  // placeholder, and the content validator bans that phrasing outright — so the
+  // page simply does not draw a section with nothing in it. Everything that
+  // renders here is finished.
+  .filter((module) => module.lessons.length > 0);
 
 /**
  * The lesson list the progress island reads — THIS course only, in course order.
@@ -83,7 +90,21 @@ const totalMinutes = inCourse.reduce(
   (sum, l) => sum + l.data.estimatedMinutes,
   0,
 );
-const roundedMinutes = Math.round(totalMinutes / 5) * 5;
+
+/** `2 modules` / `1 module` — a page that says "1 modules" reads as unfinished. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * The meta line, assembled here rather than in the markup: interleaving text and
+ * separator elements in JSX collapses the whitespace around them unpredictably
+ * ("1 lessons ·1 modules"), and one joined string cannot get that wrong.
+ */
+const meta = [
+  plural(inCourse.length, 'lesson'),
+  plural(modules.length, 'module'),
+  `~${Math.round(totalMinutes / 5) * 5} min`,
+  copy.difficulty,
+].join(' · ');
 
 /**
  * The CTA's server-rendered wording, from the SAME helper the island calls at
@@ -101,12 +122,7 @@ const resumeFallback = firstLesson
     <h1>{copy.title}</h1>
     <p class="course__intro">{copy.description}</p>
 
-    <p class="course__meta">
-      {inCourse.length} lessons <span aria-hidden="true">·</span>
-      {modules.length} modules <span aria-hidden="true">·</span>
-      ~{roundedMinutes} min <span aria-hidden="true">·</span>
-      {copy.difficulty}
-    </p>
+    <p class="course__meta">{meta}</p>
 
     {
       firstLesson && (
@@ -175,29 +191,24 @@ const resumeFallback = firstLesson
           {/* Empty until the island fills it: "0 of 5" rendered server-side
               would be a claim about a device the build cannot see. Its SPACE is
               reserved all the same, and every rule about what this block says,
-              reserves and hides lives in the component. An empty module gets
-              none: there is no progress to report on zero lessons. */}
-          {module.lessons.length > 0 && <TrackArc track={module.id} />}
+              reserves and hides lives in the component. */}
+          <TrackArc track={module.id} />
         </div>
 
-        {module.lessons.length > 0 ? (
-          <ul class="course__grid" role="list">
-            {module.lessons.map((lesson) => (
-              <li>
-                <LessonCard
-                  slug={lesson.data.slug}
-                  order={lesson.data.order}
-                  title={lesson.data.title}
-                  summary={lesson.data.summary}
-                  difficulty={lesson.data.difficulty}
-                  estimatedMinutes={lesson.data.estimatedMinutes}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p class="course__empty">Lessons for this module are coming soon.</p>
-        )}
+        <ul class="course__grid" role="list">
+          {module.lessons.map((lesson) => (
+            <li>
+              <LessonCard
+                slug={lesson.data.slug}
+                order={lesson.data.order}
+                title={lesson.data.title}
+                summary={lesson.data.summary}
+                difficulty={lesson.data.difficulty}
+                estimatedMinutes={lesson.data.estimatedMinutes}
+              />
+            </li>
+          ))}
+        </ul>
       </section>
     ))
   }
@@ -376,12 +387,6 @@ const resumeFallback = firstLesson
     .course__grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-  }
-
-  .course__empty {
-    margin-block-start: var(--space-6);
-    font-size: var(--text-sm);
-    color: var(--text-muted);
   }
 </style>
 

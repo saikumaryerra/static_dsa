@@ -45,7 +45,14 @@ import {
 
 /** A Foundations lesson with the standard three Practice questions. */
 const LESSON = 'arrays';
-const LEARN = '/learn/';
+/**
+ * Since the course expansion (decision D-05) `/learn/` is the CATALOGUE of
+ * courses and the lesson cards, module arcs and per-course resume CTA live on
+ * the course page. Everything this file asserts is a course-page surface, so
+ * `LEARN` names that page; the catalogue-only surfaces (reset, review strip,
+ * learning days) are covered where they now live.
+ */
+const LEARN = '/learn/dsa/';
 
 /** The `data-total` its Practice section declares — read, never assumed. */
 async function questionCount(page: Page): Promise<number> {
@@ -414,7 +421,10 @@ test.describe('the surfaces agree with each other', () => {
         checks: [1, 1, 1],
       }),
     });
-    await page.reload();
+    // `trackLessons` leaves the page on the CATALOGUE; the module arcs and the
+    // cards are on the course page since decision D-05. Navigating re-runs the
+    // island exactly as the reload it replaces did.
+    await page.goto(LEARN);
 
     const total = foundations.length;
     await expect(trackCount(page, 'foundations')).toHaveText(
@@ -476,7 +486,7 @@ test.describe('the surfaces agree with each other', () => {
         checks: [1, 1, 1],
       }),
     });
-    await page.reload();
+    await page.goto(LEARN);
 
     await expect(trackCount(page, 'foundations')).toHaveText(
       /^0 of \d+ done on this device$/,

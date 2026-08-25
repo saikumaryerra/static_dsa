@@ -17,8 +17,8 @@
       - listitem:
         - button "Switch to dark theme"
 - main:
-  - heading "See data structures and algorithms in motion" [level=1]
-  - paragraph: Fifteen lessons that teach the core of computer science by showing you the algorithm running. Every swap, pointer move and recursive call, one step at a time — on your own input, in your own browser.
+  - heading "See how the machine actually works" [level=1]
+  - paragraph: "3 free courses — data structures and algorithms, Kubernetes, and system design. The algorithms run in your browser, one step at a time, on your own input. The rest is taught the same way: one idea per lesson, with a real manifest, a worked estimate or a diagram you can read."
   - link /Start with lesson \d+/:
     - /url: ./learn/complexity-big-o/
   - link /See all \d+ lessons/:
@@ -97,72 +97,44 @@
     - text: The real lesson visualization, running here.
     - link "Open the lesson":
       - /url: ./learn/binary-search/
-  - region "What a lesson actually does":
-    - heading "What a lesson actually does" [level=2]
+  - region "What an algorithms lesson actually does":
+    - heading "What an algorithms lesson actually does" [level=2]
     - heading "Step it, forwards and back" [level=3]
     - paragraph: The drawing above is not an animation. An instrumented algorithm ran once and recorded every step, so the player is just an index into that record — which is why stepping backwards is instant, and why it is always the truth.
     - heading "Read the same run as a table" [level=3]
     - paragraph: "Under every drawing is the run written out, one row per step, with the algorithm’s own variables as columns. Two views of one trace: they cannot tell you different stories, and with JavaScript off the table is the lesson."
     - heading "Run it on your own numbers" [level=3]
     - paragraph: Type an array and press Run. The algorithm executes on your input for real and the drawing, the table and the step count all follow — no canned second example, nothing pre-recorded.
-  - region /\d+ lessons, two tracks/:
-    - heading /\d+ lessons, two tracks/ [level=2]
-    - paragraph: Work through them in order, or start at whichever one you came for — nothing is locked, and every lesson names what it builds on.
-    - heading "Foundations & Data Structures" [level=3]:
-      - link "Foundations & Data Structures":
-        - /url: ./learn/#track-foundations
-    - paragraph: /9 lessons · ~\d+ min · All beginner/
+  - region /\d+ lessons, 3 courses/:
+    - heading /\d+ lessons, 3 courses/ [level=2]
+    - paragraph: "Work through a course in order, or start at whichever topic you came for — nothing is locked, and every lesson names what it builds on. Kubernetes and System Design are prose and diagrams rather than instruments: one idea per lesson, each with something you could actually apply, run or estimate."
+    - heading "Data Structures & Algorithms" [level=3]:
+      - link "Data Structures & Algorithms":
+        - /url: ./learn/dsa/
+    - paragraph: /\d+ lessons · ~\d+ min · \d+ beginner · 2 intermediate/
     - list:
       - listitem:
-        - link "Complexity & Big-O 9 min":
-          - /url: ./learn/complexity-big-o/
+        - link "Foundations & Data Structures 9 lessons":
+          - /url: ./learn/dsa/#track-foundations
       - listitem:
-        - link "Arrays 8 min":
-          - /url: ./learn/arrays/
-      - listitem:
-        - link "Linked Lists 9 min":
-          - /url: ./learn/linked-lists/
-      - listitem:
-        - link "Stacks 7 min":
-          - /url: ./learn/stacks/
-      - listitem:
-        - link "Queues 8 min":
-          - /url: ./learn/queues/
-      - listitem:
-        - link /Hash Tables \d+ min/:
-          - /url: ./learn/hash-tables/
-      - listitem:
-        - link /Trees & Binary Search Trees \d+ min/:
-          - /url: ./learn/trees-bst/
-      - listitem:
-        - link /Heaps \d+ min/:
-          - /url: ./learn/heaps/
-      - listitem:
-        - link /Graphs \d+ min/:
-          - /url: ./learn/graphs/
-    - heading "Algorithms" [level=3]:
-      - link "Algorithms":
-        - /url: ./learn/#track-algorithms
-    - paragraph: /6 lessons · ~\d+ min · 4 beginner · 2 intermediate/
+        - link "Algorithms 6 lessons":
+          - /url: ./learn/dsa/#track-algorithms
+    - 'heading "Kubernetes: From Fundamentals to Production" [level=3]':
+      - 'link "Kubernetes: From Fundamentals to Production"':
+        - /url: ./learn/kubernetes/
+    - paragraph: /1 lesson · ~\d+ min · All beginner/
     - list:
       - listitem:
-        - link /Recursion \d+ min/:
-          - /url: ./learn/recursion/
+        - link "Foundations 1 lesson":
+          - /url: ./learn/kubernetes/#track-k8s-foundations
+    - 'heading "System Design: Principles and Real-World Architectures" [level=3]':
+      - 'link "System Design: Principles and Real-World Architectures"':
+        - /url: ./learn/system-design/
+    - paragraph: /1 lesson · ~\d+ min · All beginner/
+    - list:
       - listitem:
-        - link /Linear & Binary Search \d+ min/:
-          - /url: ./learn/binary-search/
-      - listitem:
-        - 'link /Sorting I: Bubble, Selection, Insertion \d+ min/':
-          - /url: ./learn/sorting-basics/
-      - listitem:
-        - 'link /Sorting II: Merge & Quick \d+ min/':
-          - /url: ./learn/sorting-efficient/
-      - listitem:
-        - 'link /Graph Traversal: BFS & DFS \d+ min/':
-          - /url: ./learn/graph-traversal/
-      - listitem:
-        - link /Intro to Dynamic Programming \d+ min/:
-          - /url: ./learn/dynamic-programming/
+        - link "The design workflow 1 lesson":
+          - /url: ./learn/system-design/#track-sd-foundations
   - region "What it costs you":
     - heading "What it costs you" [level=2]
     - term: No account, no paywall
@@ -177,7 +149,7 @@
   - 'link /Begin: \d+ · Complexity & Big-O/':
     - /url: ./learn/complexity-big-o/
 - contentinfo:
-  - paragraph: LearnDSA — see data structures and algorithms in motion.
+  - paragraph: LearnDSA — free engineering courses you work through at your own pace.
   - navigation "Footer":
     - list:
       - listitem:

@@ -23,7 +23,6 @@ const lessons = await getCollection('lessons', ({ data }) => data.published);
   title={`${copy.title} · LearnDSA`}
   canonicalPath={coursePath(course)}
   description={copy.description}
-  wide
 >
   <CourseIndex course={course} lessons={lessons} />
 </BaseLayout>

@@ -20,6 +20,30 @@ touching its area:
 | `docs/m8-gamification.md` | the mastery-loop design **as shipped**, its binding stance, data model, killed mechanics, and what was deferred |
 | `docs/redesign-2026-08/` | the 2026-08 ground-up UI/UX redesign: `00-interpretation.md` (what the brief means for a no-account static site), `01-direction.md` (the design as built), `03-amendments.md` (**every spec constraint it reopened, and the test each one moved**) |
 
+## Course expansion (in progress on `feat/kubernetes-and-system-design-courses`)
+
+Before any related work, read `docs/courses/SPEC.md` and `docs/courses/PROGRESS.md`,
+and follow the resume protocol in SPEC.md §4. All lessons follow
+`docs/courses/CONTENT_STYLE.md`; the plan is `docs/courses/CURRICULUM.md` and every
+choice is logged in `docs/courses/DECISIONS.md`.
+
+**What it changed about the site's shape** (decisions D-04/D-05):
+
+- The hierarchy is **course → track → lesson**. `track` keeps its name and is now
+  the *module*; the two original tracks are the two modules of the `dsa` course, so
+  no existing lesson's frontmatter moved. `order` is **per course**, and prev/next
+  chains inside a course.
+- **`/learn/` is the catalogue** of courses; the lesson cards, module arcs and a
+  course-scoped resume CTA live on `/learn/{course}/` (`CourseIndex.astro`). The
+  reset control, the review strip and the learning-days line stayed on the
+  catalogue because they describe the *device*, not a course. Lesson URLs did not
+  move. `src/lib/progress-paint.ts` holds the painters both pages share.
+- `complexity` is optional; `difficulty` is still `beginner | intermediate`.
+- Prose lessons get `Figure.astro` + `src/components/diagrams/*` (hand-written
+  inline SVG on design tokens, zero JS), and a small rehype pass in
+  `astro.config.mjs` that wraps markdown tables in a keyboard-reachable scroll
+  container and styles fenced code.
+
 ## Workflow: sub-agent orchestration
 
 Delegate work through the role agents defined in `Agents.md` — act as orchestrator, don't implement everything inline. Role → Claude Code agent mapping:
@@ -124,7 +148,12 @@ Test harness shape: Vitest runs `environment: 'node'` with no DOM library and no
 
 Two blind spots in that harness, found in Plan C and recorded in spec §18 — neither is a bug, and both are invisible from a green run. **axe cannot see a closed `<details>`** (`display: none`), so a11y surface behind a disclosure needs a scan that opens it first; doing that for the ledger found a real `serious` failure on its first run. And **`toMatchAriaSnapshot` matches a subset**, so the aria baselines sat a whole milestone out of date while passing — every M8 addition was invisible to the comparison. Re-seed them when a milestone adds structure, and read the diff.
 
-Definition of Done for any change (spec §18): `npm run build`, `npm run lint`, `npm run format:check`, `npm run test`, and `npm run test:e2e` all clean. CI runs all five; M7/M8 acceptance leans on the e2e suite heavily (visual/aria baselines, focus-retention, axe scans, the DOM/storage halves of the calm invariants).
+Definition of Done for any change (spec §18): `npm run build`, `npm run lint`, `npm run format:check`, `npm run test`, and `npm run test:e2e` all clean. **The course expansion adds a sixth: `npm run validate:content`** (and CI runs it as `-- --strict`). CI runs all six; M7/M8 acceptance leans on the e2e suite heavily (visual/aria baselines, focus-retention, axe scans, the DOM/storage halves of the calm invariants).
+
+**Never run `npm run test:e2e` while subagents are running.** The suite is
+timing-sensitive (`retries: 0` locally, `fullyParallel: true`, 4 cores): a run
+alongside four reconnaissance agents produced 14 failures that all passed on a
+quiet machine. A red e2e run under load is not evidence of anything.
 
 ## Conventions
 

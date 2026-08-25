@@ -11,10 +11,10 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 
 | Phase | State |
 |---|---|
-| 0 — Recon and baseline | **in progress** |
-| 1 — Vertical slice | not started |
-| 2 — Curriculum, style guide, exemplars | not started |
-| 3 — Content production | not started |
+| 0 — Recon and baseline | **done** (`b1c347c`) |
+| 1 — Vertical slice | **done** |
+| 2 — Curriculum, style guide, exemplars | **done** |
+| 3 — Content production | **next** — 2 of 112 lessons written |
 | 4 — Diagrams | not started |
 | 5 — Integration polish | not started |
 | 6 — Verification gate | not started |
@@ -22,24 +22,31 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 
 ## Modules
 
-None yet. Table appears when CURRICULUM.md exists; columns are
-*lessons written / validated / reviewed / committed*.
+Full plan in `CURRICULUM.md` (23 modules, 112 lessons). `ok` = written, validated,
+reviewed and committed.
+
+| Course | Module | Lessons | Written | State |
+|---|---|---|---|---|
+| Kubernetes | 01 `k8s-foundations` | 5 | 1 | `k8s-what-kubernetes-is` is `ok` (exemplar) |
+| Kubernetes | 02–14 | 62 | 0 | — |
+| System Design | 01 `sd-foundations` | 4 | 1 | `sd-design-workflow` is `ok` (exemplar) |
+| System Design | 02–09 | 41 | 0 | — |
 
 ## In progress
 
-Phase 0. Written so far: `docs/courses/SPEC.md`, `RECON.md`, `DECISIONS.md` (D-01…D-10),
-this file, and the three Appendix E worker definitions in `.claude/agents/`.
-Nothing in `src/` has been touched.
+Nothing half-written. Every file on the branch is finished and committed or is
+listed under "Next actions" as not started.
 
 ## Next actions
 
-1. Finish Phase 0: read the tests/tooling recon, re-run the 14 failing e2e specs on a quiet
-   machine to separate load flakes from real baseline failures, commit Phase 0.
-2. Phase 1 — schema (`course`, per-course `order`, optional `complexity`), `src/lib/courses.ts`,
-   widened `tracks.ts`; then the rehype table/code pass with an **empirical** check of plugin
-   ordering against Astro's Shiki pass; then `CourseIndex` + the three course pages; then the
-   `/learn/` catalogue conversion.
-3. Phase 1 — two exemplar lessons (one Kubernetes, one System Design), all five checks, commit.
+1. **Phase 3 pilot.** Author `k8s-foundations` lessons 2–5 with one `lesson-author`
+   worker, review with `content-reviewer`, validate, commit. This is the one-module
+   pilot SPEC §10 rule 5 requires before any fan-out.
+2. **Phase 3 batch 1.** Fan out to at most 8 modules per batch (one worker per
+   module), drawing from both courses. Validate → review → update CURRICULUM.md,
+   coverage stays as-is (it already names every planned lesson) → commit per batch.
+3. **Phase 4.** The remaining 10 Appendix C diagrams, one subagent per diagram,
+   once their lessons exist. `K8sArchitecture` is the exemplar.
 
 ## Verification
 

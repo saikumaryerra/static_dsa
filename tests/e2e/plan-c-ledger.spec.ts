@@ -1290,7 +1290,10 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
   test('every StepLink the site ships points at a row that exists', async ({
     page,
   }) => {
-    const lessons = await curriculum(page);
+    // Scoped to the `dsa` course: a `<StepLink>` names a row of a ledger, and a
+    // ledger only exists under a `<Visualizer>` (decision D-05). The validator
+    // rejects `<StepLink>` in a new-course lesson, so nothing escapes this.
+    const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
     let found = 0;
 
     for (const lesson of lessons) {

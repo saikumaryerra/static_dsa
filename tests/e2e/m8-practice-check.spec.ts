@@ -507,9 +507,16 @@ test.describe('the tally is announced once, politely', () => {
 });
 
 test.describe('the component reached every lesson', () => {
-  test('all 15 Practice sections are self-gradable, with no bare disclosure left', async ({
+  test('every Practice section is self-gradable, with no bare disclosure left', async ({
     page,
   }) => {
+    // A per-lesson walk, so its wall-clock grows with the catalogue: three
+    // courses and 100+ lessons is well past the 30 s default, and a timeout here
+    // would read as a content failure rather than as an arithmetic one. The
+    // claim is worth the minute — it is the only thing asserting this across
+    // EVERY lesson rather than a sample.
+    test.setTimeout(180_000);
+
     const lessons = await curriculum(page);
     expect(lessons.length).toBeGreaterThanOrEqual(15);
 

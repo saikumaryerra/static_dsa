@@ -22,6 +22,12 @@
  * reader is choosing between options, where the level should be stated for all
  * three or for none. Colour is not carrying it either way: it is the word.
  *
+ * LAYOUT: title, blurb, meta, arc, CTA — one column, in that order. The arc was
+ * beside the title first, which is where `/learn`'s track sections put it, and
+ * it is wrong on a card: the arc's two sentences are as wide as the title, so a
+ * three-word course name wrapped to one word per line and the ring landed on top
+ * of it. A card is a third of a page, not a page.
+ *
  * PROGRESS: `TrackArc` is reused verbatim with the COURSE id as its group. The
  * island's painter filters the injected lesson list by `track === group ||
  * course === group`, and the two id sets are disjoint by construction (asserted
@@ -42,8 +48,21 @@ interface Props {
 const { course, lessonCount, moduleCount, totalMinutes } = Astro.props;
 const copy = COURSE_COPY[course];
 
-/** Rounded to the nearest five, like the home page's track totals. */
-const roundedMinutes = Math.round(totalMinutes / 5) * 5;
+/** `2 modules` / `1 module` — a card that says "1 modules" reads as unfinished. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * The meta line, assembled here rather than in the markup. Interleaving text and
+ * `<span>` separators in JSX collapses the whitespace around them unpredictably
+ * ("15 lessons ·2 modules"), and one joined string cannot get that wrong.
+ * Minutes are rounded to the nearest five, like the home page's totals.
+ */
+const meta = [
+  plural(lessonCount, 'lesson'),
+  plural(moduleCount, 'module'),
+  `~${Math.round(totalMinutes / 5) * 5} min`,
+  copy.difficulty,
+].join(' · ');
 ---
 
 <a
@@ -52,20 +71,11 @@ const roundedMinutes = Math.round(totalMinutes / 5) * 5;
   data-course-card
   data-course={course}
 >
-  <span class="course-card__head">
-    <span class="course-card__titles">
-      <span class="course-card__title">{copy.title}</span>
-      <span class="course-card__blurb">{copy.blurb}</span>
-    </span>
-    <TrackArc track={course} />
-  </span>
+  <span class="course-card__title">{copy.title}</span>
+  <span class="course-card__blurb">{copy.blurb}</span>
+  <span class="course-card__meta">{meta}</span>
 
-  <span class="course-card__meta">
-    {lessonCount} lessons <span aria-hidden="true">·</span>
-    {moduleCount} modules <span aria-hidden="true">·</span>
-    ~{roundedMinutes} min <span aria-hidden="true">·</span>
-    {copy.difficulty}
-  </span>
+  <TrackArc track={course} />
 
   <span class="course-card__cta">
     Open the course <span aria-hidden="true">→</span>
@@ -80,28 +90,6 @@ const roundedMinutes = Math.round(totalMinutes / 5) * 5;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-  }
-
-  .course-card__head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-4);
-  }
-
-  /* A card is narrow, so the arc drops below the title on the smallest screens
-     rather than squeezing a two-line heading into half a column. */
-  @media (max-width: 419px) {
-    .course-card__head {
-      flex-direction: column;
-    }
-  }
-
-  .course-card__titles {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    min-width: 0;
   }
 
   .course-card__title {
@@ -124,8 +112,16 @@ const roundedMinutes = Math.round(totalMinutes / 5) * 5;
     font-variant-numeric: tabular-nums;
   }
 
+  /* The arc pushes the CTA to the bottom of the tallest card in the row, so the
+     three "Open the course" lines sit on one baseline however long the titles
+     are. `margin-block-start: auto` on the CTA does the rest. */
+  .course-card :global(.track-arc) {
+    margin-block-start: var(--space-1);
+  }
+
   .course-card__cta {
     margin-block-start: auto;
+    padding-block-start: var(--space-2);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
     color: var(--text);
