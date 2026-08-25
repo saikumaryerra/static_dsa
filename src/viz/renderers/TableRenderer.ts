@@ -33,7 +33,7 @@
  * plumbing (like QueueRenderer), so the build-time still is exactly `trace[0]` and
  * reduced motion is inherited from the token layer — no `matchMedia` here.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { cellId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, line, rect, text } from '../core/svg';
@@ -73,6 +73,15 @@ const cellX = (i: number): number => PAD + i * (CELL + GAP);
 const cellCenterX = (i: number): number => cellX(i) + CELL / 2;
 const widthOf = (n: number): number =>
   PAD * 2 + Math.max(n, 1) * (CELL + GAP) - GAP;
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup.
+ */
+const measure = (step: Step<TableState>): Extent => ({
+  w: widthOf(step.state.table.length),
+  h: HEIGHT,
+});
 
 /** Index behind a `cellId` string (`"i3"` → 3). */
 const idIndex = (id: string): number => Number(id.slice(1));
@@ -184,8 +193,9 @@ function draw(step: Step<TableState>): Canvas {
     }
   }
 
+  const box = measure(step);
   return {
-    viewBox: `0 0 ${widthOf(table.length)} ${HEIGHT}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -196,4 +206,5 @@ function draw(step: Step<TableState>): Canvas {
 export const tableRenderer: RendererModule<TableState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

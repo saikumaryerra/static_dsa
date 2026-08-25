@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 // It cannot live in a spec file: importing one spec from another makes
 // Playwright register the imported tests twice.
 import { waitForAnchorScroll } from './utils/scroll';
+import { linkTarget, resolveFrom } from './utils/urls';
 
 /**
  * M5 independent QA (spec §17 M5 acceptance + §14 SEO + §12 a11y; arch/design docs
@@ -18,7 +19,7 @@ import { waitForAnchorScroll } from './utils/scroll';
  *   - glossary jump-bar behavior (present links vs non-focusable empty letters, the
  *     scroll-margin offset that lands headings below the sticky chrome, xref links
  *     resolving, full JS-off operation);
- *   - the home track cards being DATA-DRIVEN (design §3.5), never hardcoded;
+ *   - the home curriculum block being DATA-DRIVEN (design §3.5), never hardcoded;
  *   - the About live demo hydrating and degrading gracefully with JS off;
  *   - SEO artifacts served by the build (sitemap.xml reachable from robots.txt).
  */
@@ -30,9 +31,11 @@ import { waitForAnchorScroll } from './utils/scroll';
 //    code blocks — m4-lessons.spec.ts), so anything serious here is a real defect.
 // ---------------------------------------------------------------------------
 const AXE_PAGES: { path: string; name: string }[] = [
-  { path: '/glossary', name: 'glossary' },
-  { path: '/about', name: 'about' },
-  { path: '/404', name: '404' },
+  { path: '/glossary/', name: 'glossary' },
+  { path: '/about/', name: 'about' },
+  // `/404/` — the slashless form does not reach this site's 404 document under
+  // `trailingSlash: 'always'`, so axe would scan Astro's error page instead.
+  { path: '/404/', name: '404' },
 ];
 
 for (const { path, name } of AXE_PAGES) {
@@ -71,7 +74,7 @@ test.describe('glossary page', () => {
   test('renders all terms grouped A–Z with a labelled jump nav', async ({
     page,
   }) => {
-    await page.goto('/glossary');
+    await page.goto('/glossary/');
 
     // Exactly one h1; every present letter has an <h2> section.
     await expect(page.locator('h1')).toHaveCount(1);
@@ -99,7 +102,7 @@ test.describe('glossary page', () => {
     page,
     request,
   }) => {
-    await page.goto('/glossary');
+    await page.goto('/glossary/');
     const hrefs = await page
       .locator('.glossary__xref')
       .evaluateAll((els) =>
@@ -111,9 +114,15 @@ test.describe('glossary page', () => {
       );
     expect(hrefs.length).toBeGreaterThan(0);
     for (const href of hrefs) {
-      expect(href).toMatch(/^\/learn\/[a-z-]+$/);
-      const res = await request.get(href!);
-      expect(res.status(), `${href} should be reachable`).toBe(200);
+      // Resolved against the glossary page, because D2 made the attribute
+      // document-relative (`../learn/graphs/`). Anchored on the trailing slash
+      // (D1): `trailingSlash: 'always'` makes the slashless form a 404, so a
+      // glossary cross-link that lost its slash must fail HERE, on the shape,
+      // rather than as a confusing 404 two lines down.
+      const target = resolveFrom(page.url(), href!);
+      expect(target).toMatch(/^\/learn\/[a-z-]+\/$/);
+      const res = await request.get(target);
+      expect(res.status(), `${target} should be reachable`).toBe(200);
     }
   });
 
@@ -129,7 +138,7 @@ test.describe('glossary page', () => {
       page,
     }) => {
       await page.setViewportSize({ width: bp.width, height: bp.height });
-      await page.goto('/glossary');
+      await page.goto('/glossary/');
 
       // Jump to "S" (always populated — Stack, Sort, Search, …).
       await page.locator('a.glossary__chip[href="#letter-s"]').click();
@@ -166,7 +175,7 @@ test.describe('glossary with JavaScript disabled', () => {
   test('renders terms and working anchor/xref links without JS', async ({
     page,
   }) => {
-    await page.goto('/glossary');
+    await page.goto('/glossary/');
     expect(
       await page.locator('.glossary__term').count(),
     ).toBeGreaterThanOrEqual(40);
@@ -176,44 +185,91 @@ test.describe('glossary with JavaScript disabled', () => {
     ).toHaveAttribute('href', '#letter-a');
     // A cross-link is a real <a href> into a lesson.
     const firstXref = page.locator('.glossary__xref').first();
-    await expect(firstXref).toHaveAttribute('href', /^\/learn\/[a-z-]+$/);
+    await linkTarget(page, firstXref).toMatch(/^\/learn\/[a-z-]+\/$/);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 3. Home — track cards are data-driven (design §3.5), never hardcoded.
+// 3. Home — the curriculum block is data-driven (design §3.5), never hardcoded.
 // ---------------------------------------------------------------------------
-test('home track cards + heading reflect the real 15-lesson curriculum', async ({
+test('home curriculum + heading reflect the real 15-lesson curriculum', async ({
   page,
 }) => {
   await page.goto('/');
 
-  // Data-driven heading: two tracks, 15 published lessons (M6 adds DP → 15).
+  // Data-driven heading: 15 published lessons (M6 adds DP → 15), two tracks.
+  // Reworded by redesign amendment H-1, which also replaced the pair of
+  // `.track-card` summaries with the curriculum itself: two `.track` blocks,
+  // every lesson named and linked. The claim under test is unchanged — nothing
+  // on this page is hand-typed — but it is now checkable against the lessons
+  // rather than against two numbers in a blurb.
   await expect(
-    page.getByRole('heading', { name: 'Two tracks, 15 lessons' }),
+    page.getByRole('heading', { name: '15 lessons, two tracks' }),
   ).toBeVisible();
 
-  const cardText = await page.locator('.track-card').allInnerTexts();
-  const joined = cardText.join(' | ');
+  const metaText = await page
+    .locator('.curriculum .track__meta')
+    .allInnerTexts();
+  expect(metaText).toHaveLength(2);
+  const joined = metaText.join(' | ');
   // Foundations 9 (all beginner) + Algorithms 6 (mixed difficulty) — spread as text.
   expect(joined).toMatch(/9 lessons/);
   expect(joined).toMatch(/6 lessons/);
   expect(joined).toMatch(/All beginner/);
   expect(joined).toMatch(/beginner · \d+ intermediate|intermediate/);
-  // Both cards link into the /learn track anchors.
-  await expect(
-    page.locator('a.track-card[href="/learn#track-foundations"]'),
-  ).toHaveCount(1);
-  await expect(
-    page.locator('a.track-card[href="/learn#track-algorithms"]'),
-  ).toHaveCount(1);
+  // Both track headings link into the /learn track anchors. Matched on the
+  // RESOLVED target rather than on the attribute: D2 made these relative
+  // (`./learn/#track-foundations` from home), and the fragment surviving the
+  // rewrite in one piece is half of what this assertion is now worth.
+  const trackTargets = (
+    await page
+      .locator('.curriculum .track__title a')
+      .evaluateAll((links) =>
+        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+      )
+  ).map((href) => resolveFrom(page.url(), href));
+  expect(trackTargets).toEqual([
+    '/learn/#track-foundations',
+    '/learn/#track-algorithms',
+  ]);
+
+  // The strongest form of "never hardcoded" the old shape could not express:
+  // the fifteen rows are the SAME fifteen lessons /learn renders, in the same
+  // order, because both derive from the published collection sorted by `order`
+  // within TRACK_ORDER. A hand-typed list here would have to be edited twice to
+  // keep this passing, which is the drift the derivation exists to prevent.
+  // Compared as RESOLVED targets, which is now the only way the comparison can
+  // be made at all: the two pages sit at different depths, so the same lesson is
+  // `./learn/arrays/` on home and `../learn/arrays/` on the index. Their
+  // destinations are what must agree, and that is the claim this test makes.
+  const homeHrefs = (
+    await page
+      .locator('.curriculum .track__lesson')
+      .evaluateAll((links) =>
+        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+      )
+  ).map((href) => resolveFrom(page.url(), href));
+  expect(homeHrefs).toHaveLength(15);
+  expect(homeHrefs.every((href) => /^\/learn\/[a-z0-9-]+\/$/.test(href))).toBe(
+    true,
+  );
+
+  await page.goto('/learn/');
+  const learnHrefs = (
+    await page
+      .locator('[data-lesson-card]')
+      .evaluateAll((links) =>
+        links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+      )
+  ).map((href) => resolveFrom(page.url(), href));
+  expect(homeHrefs).toEqual(learnHrefs);
 });
 
 // ---------------------------------------------------------------------------
 // 4. About — the trimmed live demo hydrates and is keyboard-reachable.
 // ---------------------------------------------------------------------------
 test('about live demo hydrates and is operable', async ({ page }) => {
-  await page.goto('/about');
+  await page.goto('/about/');
   await expect(page.locator('h1')).toHaveCount(1);
   await expect(page.locator('h2')).toHaveCount(3);
 
@@ -239,7 +295,7 @@ test.describe('about with JavaScript disabled', () => {
   test('prose renders and the viz degrades to its static fallback', async ({
     page,
   }) => {
-    await page.goto('/about');
+    await page.goto('/about/');
     await expect(page.locator('h1')).toHaveCount(1);
     // The Visualizer root is still present (SSR), just never hydrates.
     await expect(page.locator('[data-viz]').first()).toBeVisible();
@@ -269,8 +325,12 @@ test('sitemap.xml + robots.txt are served and cross-referenced', async ({
   // Four static routes + the 15 published lessons = 19 <loc> entries; no /404, /dev.
   const locs = xml.match(/<loc>/g) ?? [];
   expect(locs.length).toBe(19);
-  expect(xml).toContain('/glossary</loc>');
-  expect(xml).toContain('/learn/binary-search</loc>');
+  // D1: the <loc>s carry the trailing slash, because that is the URL the site
+  // actually serves. A slashless <loc> would point every crawler at a redirect
+  // (a 404 under `astro preview`), which is the defect D1 exists to close —
+  // tests/e2e/url-shape.spec.ts asserts it for all 19 entries, not just these two.
+  expect(xml).toContain('/glossary/</loc>');
+  expect(xml).toContain('/learn/binary-search/</loc>');
   expect(xml).not.toContain('/404');
   expect(xml).not.toContain('/dev');
 });

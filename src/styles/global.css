@@ -76,9 +76,10 @@
   --shadow-1: var(--shadow-1);
   --shadow-2: var(--shadow-2);
 
-  /* Layout widths → max-w-container / max-w-measure */
+  /* Layout widths → max-w-container / max-w-measure / max-w-shell */
   --container-container: var(--container-max);
   --container-measure: var(--measure);
+  --container-shell: var(--shell);
 }
 
 /* ---------- Base element styles (overridable by utilities) ---------- */
@@ -258,25 +259,31 @@
                          At rest it is parked off-screen by a transform, and a
                          transform does not clip a shadow — so resting it at
                          level 2 smudged every page).
-                         Both halves of that pair are load-bearing:
+                         Both halves of that pair are load-bearing, and the
+                         achromatic repaint changed which half does the lifting:
                          · the FILL moves because in dark a shadow cannot. Even a
-                           fully opaque black is 1.12:1 against `--bg`, so a
+                           fully opaque black is 1.10:1 against `--bg`, so a
                            shadow-only hover leaves the 1px border doing all the
                            work — the pre-M7.3 behaviour VD-3 exists to replace.
-                           `--surface-raised` is 1.17:1 above `--surface` in dark;
-                           in LIGHT it is the same white as level 1 by
-                           construction, so the line is a no-op there and
-                           `--shadow-2` carries the whole step, by design.
-                         · the KEYLINE is `--text-muted` — 7.58:1 light and 4.89:1
-                           dark on the raised fill — and NOT `--border-strong`,
-                           which is only 2.64:1 on the dark raised fill and so
-                           fails the 3:1 WCAG 1.4.11 asks of a boundary that
-                           carries meaning. A normative recipe gets copied; this
-                           one has to pass its own standard.
+                           `--surface-raised` is 1.09:1 above `--surface` in dark
+                           (it was 1.17:1 on the slate palette), so in dark the
+                           fill is now the reinforcement and the keyline below is
+                           the signal; in LIGHT the fill is the same white as
+                           level 1 by construction, so the line is a no-op there
+                           and `--shadow-2` carries the whole step, by design.
+                         · the KEYLINE is `--text-muted` — 6.67:1 light and 6.61:1
+                           dark on the raised fill — and NOT `--border-strong`.
+                           That started as a hard constraint: --border-strong was
+                           2.64:1 on the dark raised fill, failing the 3:1 WCAG
+                           1.4.11 asks of a boundary that carries meaning. The
+                           repaint takes it to 3.15:1, so the constraint is now a
+                           preference — 0.15 of headroom is not what a normative
+                           recipe should be built on, least of all in the theme
+                           where the fill move shrank.
      level -1  sunken    `--surface-sunken`. Wells that things sit INSIDE. It is a
-                         well relative to the CARD, not to the canvas: 1.12:1
-                         light / 1.21:1 dark against `--surface`, but only 1.08:1
-                         / 1.06:1 against `--bg` (and in dark it is a shade
+                         well relative to the CARD, not to the canvas: 1.13:1
+                         light / 1.06:1 dark against `--surface`, but only 1.10:1
+                         / 1.02:1 against `--bg` (and in dark it is a shade
                          LIGHTER than the canvas rather than darker), so a well
                          dropped straight onto the page needs a `--border` keyline
                          to exist at all. Consumers: prose inline code
@@ -370,8 +377,20 @@
     color: var(--text);
   }
 
-  /* Pressed. --text is already the hover colour, so the press has to travel
-     somewhere else to be visible at all: brand, which is 6.01:1 on the canvas. */
+  /* Pressed — AND CURRENTLY INVISIBLE, which is recorded here rather than
+     quietly fixed. --text was already the hover colour, so the press travelled
+     to --brand (6.01:1 on the canvas when --brand was indigo); the achromatic
+     repaint made --brand byte-identical to --text, so :active now paints exactly
+     what :hover paints. The rule STAYS: the CMP-8 selector scan in
+     tests/e2e/m7-brand.spec.ts requires this family to declare a pressed state,
+     and deleting it would trade a design gap for a CI failure.
+     A replacement signal is a DESIGN DECISION, not a mechanical fix, because
+     every obvious candidate is already spoken for in this system: an underline
+     is the aria-current cue two rules below, opacity is the shared disabled
+     recipe (--disabled-opacity), and a fill move needs horizontal padding and a
+     radius this link deliberately does not have (RSP-5 pads the block axis only,
+     so the header's row height cannot change). Flagged to design, not guessed
+     at. */
   .nav-link:active {
     color: var(--brand);
   }
@@ -389,7 +408,7 @@
      darkens in light and lightens in dark, which is the direction each theme
      reads as "closer". :active goes one step further in whichever direction the
      theme travels by mixing --text in — fill only, no motion. --brand-contrast
-     stays >=7.9:1 on both shades in both themes. */
+     stays >=13.76:1 on both shades in both themes. */
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -442,7 +461,15 @@
      on (M7.1 CMP-3); the disabled state itself uses the shared token recipe.
      The hover fill is --brand-soft rather than a stronger border alone: on a
      white card the border move was the only signal and read as a rendering
-     artefact. --text is 15.97:1 (light) / 11.82:1 (dark) on it. */
+     artefact. --text is 14.86:1 (light) / 12.90:1 (dark) on it.
+     With the brand hue retired that fill is now the ENTIRE difference between
+     hover and the pressed state below, which keeps the same border and swaps to
+     --surface-sunken: 1.09:1 apart in light, 1.24:1 in dark. Light also inverts
+     the usual direction — the hover fill sits one step BELOW the pressed one,
+     because --surface-sunken is itself only 1.10:1 from --bg and nothing lighter
+     than it would be visible on the canvas (tokens.css's light tint-family note
+     has the arithmetic). tests/unit/palette-states.test.ts fails if the two
+     fills ever collapse onto one value. */
   .btn-secondary:not(:disabled):hover {
     border-color: var(--brand);
     background-color: var(--brand-soft);
@@ -486,13 +513,15 @@
       box-shadow var(--duration-fast) var(--ease-standard);
   }
 
-  /* Level 2, all three parts of it. The FILL is what makes this hover survive in
-     dark, where --shadow-2 has nowhere to go (a black shadow tops out at 1.12:1
-     on --bg): --surface-raised is 1.17:1 above --surface there, and is the same
-     white as level 1 in light, so the line costs nothing and the shadow carries
-     that theme. The keyline is --text-muted, not --border-strong, which is 2.64:1
-     on the dark raised fill — both numbers and the reasoning are in the model
-     above. */
+  /* Level 2, all three parts of it. In DARK the keyline is what makes this hover
+     survive: --shadow-2 has nowhere to go there (even opaque black is 1.10:1 on
+     --bg) and the achromatic repaint left --surface-raised only 1.09:1 above
+     --surface, so the --border → --text-muted move (1.26:1 → 6.61:1 against the
+     fill it sits on) is the part actually seen. In LIGHT the raised fill is the
+     same white as level 1, so the line costs nothing there and --shadow-2 carries
+     the theme. The keyline is --text-muted rather than --border-strong (3.15:1 on
+     the dark raised fill now, 2.64:1 before the repaint) — all of these numbers
+     and the reasoning are in the model above. */
   .track-card:hover {
     border-color: var(--text-muted);
     background-color: var(--surface-raised);
@@ -547,19 +576,19 @@
   :root,
   :root[data-theme='dark'],
   :root:not([data-theme]) {
-    --bg: #f8fafc;
+    --bg: #fcfcfb;
     --surface: #ffffff;
-    --surface-sunken: #eef2f6;
+    --surface-sunken: #f1f1ef;
     --surface-raised: #ffffff;
-    --text: #0f172a;
-    --text-muted: #475569;
-    --border: #e2e8f0;
-    --border-strong: #64748b;
-    --brand: #4f46e5;
+    --text: #141519;
+    --text-muted: #5a5c64;
+    --border: #dcdde0;
+    --border-strong: #7c7e86;
+    --brand: #141519;
     --brand-contrast: #ffffff;
-    --brand-soft: #eef2ff;
-    --brand-border: #c7d2fe;
-    --brand-hover: #4338ca;
+    --brand-soft: #e8e8e5;
+    --brand-border: #dcdde0;
+    --brand-hover: #2b2d33;
     --hl-compare: #b45309;
     --hl-swap: #be185d;
     --hl-active: #0072b2;
@@ -568,9 +597,9 @@
     --hl-found: #15803d;
     --accent-warn: #b45309;
     --shadow-1:
-      0 1px 2px 0 rgb(15 23 42 / 0.05), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+      0 1px 2px 0 rgb(20 21 25 / 0.05), 0 1px 3px 0 rgb(20 21 25 / 0.06);
     --shadow-2:
-      0 2px 4px -1px rgb(15 23 42 / 0.06), 0 6px 16px -2px rgb(15 23 42 / 0.1);
+      0 2px 4px -1px rgb(20 21 25 / 0.06), 0 6px 16px -2px rgb(20 21 25 / 0.1);
     color-scheme: light;
   }
 

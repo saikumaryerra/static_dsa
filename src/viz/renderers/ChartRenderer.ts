@@ -12,7 +12,7 @@
  * the non-color marker. Emphasis: `active` → `is-emph` (`--hl-active` 3px, keeps
  * its dash); `compare` → `is-emph-compare`.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { curveId } from '../core/ids';
 import { group, line, polygon, polyline, text } from '../core/svg';
 import { createRenderer, renderStaticSvg, type Canvas } from './shared';
@@ -52,6 +52,17 @@ const RIGHT = 96; // reserved for end-of-line labels
 const ORIGIN_Y = PLOT_Y0 + PLOT_H;
 const WIDTH = PLOT_X0 + PLOT_W + RIGHT;
 const HEIGHT = ORIGIN_Y + 34;
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup.
+ *
+ * Takes no step BY DESIGN: the plot is a fixed frame and the curves are scaled
+ * INTO it, so every step of every chart trace measures the same and freezing the
+ * extent is a no-op here by construction. (Assignable to `RendererModule.measure`
+ * — a function may declare fewer parameters than its contract passes.)
+ */
+const measure = (): Extent => ({ w: WIDTH, h: HEIGHT });
 
 function draw(step: Step<ChartState>): Canvas {
   const { maxN, functions } = step.state;
@@ -163,8 +174,9 @@ function draw(step: Step<ChartState>): Canvas {
     });
   }
 
+  const box = measure();
   return {
-    viewBox: `0 0 ${WIDTH} ${HEIGHT}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -175,4 +187,5 @@ function draw(step: Step<ChartState>): Canvas {
 export const chartRenderer: RendererModule<ChartState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

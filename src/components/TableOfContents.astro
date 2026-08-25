@@ -111,11 +111,14 @@ const items = headings.filter((h) => h.depth === 2);
   /* M7.3: the current section gets the brand TINT as well as the brand bar, so
      "you are here" is a shape the eye lands on rather than a 2px edge. The bar
      and `aria-current` are the non-color cues and both stay — the fill is the
-     reinforcement, never the signal. `--text` on `--brand-soft` is 15.97:1 light
-     / 11.82:1 dark; the tint itself is quiet against what it sits on (1.07:1 on
-     the rail's `--bg`, 1.12:1 on the inline panel's `--surface`, and in dark it
-     is luminance-identical to `--surface` by construction), which is precisely
-     why it may not carry meaning alone. */
+     reinforcement, never the signal. `--text` on `--brand-soft` is 14.86:1 light
+     / 12.90:1 dark; the tint itself is quiet against what it sits on (1.20:1 on
+     the rail's `--bg`, 1.23:1 on the inline panel's `--surface`, and 1.26:1 /
+     1.16:1 for the same two in dark), which is precisely why it may not carry
+     meaning alone. It used to be luminance-IDENTICAL to `--surface` in dark;
+     that stopped being true when Plan B moved dark `--brand-soft` off the bluest
+     step in the ramp, and the tint is now a hair darker than the panel rather
+     than exactly equal to it. Still decorative either way. */
   .toc a[aria-current='location'] {
     color: var(--text);
     border-left-color: var(--brand);
@@ -255,13 +258,16 @@ const items = headings.filter((h) => h.depth === 2);
     margin-bottom: var(--space-2);
   }
 
-  @media (min-width: 1024px) {
-    .toc--inline {
-      display: none;
-    }
+  /* The 1024px swap that used to hide this bar and reveal the rail is GONE
+     (redesign 2026-08, amendment L-3). The rail's 15rem was the only thing
+     standing between the reading column and the instrument pane, and it bought
+     one list a reader consults a handful of times per lesson.
 
-    .toc--rail {
-      display: block;
-    }
-  }
+     The bar is the better of the two anyway, and not only because it is
+     cheaper: it names the section you are IN (`data-toc-current`, filled by the
+     same scroll-spy that used to only tint a rail entry), which is the question
+     wayfinding is actually asked. The rail could show a highlight but never a
+     label, so on a 9,000px lesson it answered "where am I" only if you looked
+     away from what you were reading. `.toc--rail` is retained for any future
+     surface that wants a static list; nothing renders it today. */
 </style>

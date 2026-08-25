@@ -51,8 +51,8 @@ import {
 } from './utils/mastery';
 
 const LESSON = 'arrays';
-const LESSON_URL = `/learn/${LESSON}`;
-const LEARN = '/learn';
+const LESSON_URL = `/learn/${LESSON}/`;
+const LEARN = '/learn/';
 
 /**
  * Countdown shapes, in any wording — a number of time units that could only be

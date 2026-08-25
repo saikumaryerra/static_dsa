@@ -8,6 +8,7 @@
  * embedding, arch §3.1). Kept side-effect-free so they are trivially unit-testable.
  */
 import type { CollectionEntry } from 'astro:content';
+import { deploymentUrl } from './deployment-url';
 
 /**
  * Serialize a value to a JSON-LD string safe to inline in a `<script>` element.
@@ -29,16 +30,21 @@ function serializeJsonLd(data: unknown): string {
  * no schedule or instructor (arch §3.1 SPEC-GAP); the shape stays valid schema.org.
  *
  * @param entry   - The published lesson collection entry.
- * @param siteUrl - The absolute site origin (from `Astro.site`), used to build the
- *                  canonical course URL and the provider URL.
+ * @param siteUrl - The full deployment URL (from `Astro.site`), sub-path
+ *                  included, used to build the canonical course URL and the
+ *                  provider URL.
  * @returns An inline-safe JSON-LD string describing the lesson as a `Course`.
  */
 export function courseJsonLd(
   entry: CollectionEntry<'lessons'>,
   siteUrl: string | URL,
 ): string {
-  const origin = new URL(siteUrl).origin;
-  const url = new URL(`/learn/${entry.data.slug}`, siteUrl).href;
+  // D3: both joins go through `deploymentUrl`. `.origin` and `new URL(path,
+  // base)` each DROP a deployment sub-path, so under `sample.com/learndsa` this
+  // block used to declare `sample.com/learn/<slug>/` — a page that host does not
+  // serve — and name the provider at a site root that is not this site's.
+  const home = deploymentUrl(siteUrl, '/');
+  const url = deploymentUrl(siteUrl, `/learn/${entry.data.slug}/`);
 
   return serializeJsonLd({
     '@context': 'https://schema.org',
@@ -53,7 +59,7 @@ export function courseJsonLd(
     provider: {
       '@type': 'Organization',
       name: 'LearnDSA',
-      url: origin,
+      url: home,
     },
   });
 }
@@ -61,11 +67,14 @@ export function courseJsonLd(
 /**
  * Build the optional site-level `WebSite` JSON-LD for the home page (arch §3.3).
  *
- * @param siteUrl - The absolute site origin (from `Astro.site`).
+ * @param siteUrl - The full deployment URL (from `Astro.site`), sub-path included.
  * @returns An inline-safe JSON-LD string describing the site as a `WebSite`.
  */
 export function webSiteJsonLd(siteUrl: string | URL): string {
-  const origin = new URL(siteUrl).origin;
+  // The home page's own canonical, to the character. Two machine-readable
+  // declarations of "this site" that disagree about a trailing slash are the
+  // same defect a mismatched canonical is, wearing a different tag name.
+  const home = deploymentUrl(siteUrl, '/');
 
   return serializeJsonLd({
     '@context': 'https://schema.org',
@@ -73,7 +82,7 @@ export function webSiteJsonLd(siteUrl: string | URL): string {
     name: 'LearnDSA',
     description:
       'Free, interactive lessons on data structures and algorithms with step-through visualizations.',
-    url: origin,
+    url: home,
     inLanguage: 'en',
   });
 }

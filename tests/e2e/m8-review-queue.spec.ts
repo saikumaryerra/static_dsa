@@ -20,6 +20,7 @@
  * mocking the clock would test a fake schedule.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   cardPips,
@@ -46,8 +47,9 @@ import {
   runCustomInput,
   storageFingerprint,
 } from './utils/predict';
+import { linkTarget } from './utils/urls';
 
-const LEARN = '/learn';
+const LEARN = '/learn/';
 const STRIP = '[data-review-strip]';
 
 /**
@@ -243,9 +245,11 @@ test.describe('at most two cards, the longest-waiting first', () => {
 
     const card = page.locator(`[data-review-card="${lesson.slug}"]`);
     await expect(card).toHaveJSProperty('tagName', 'A');
-    await expect(card).toHaveAttribute(
-      'href',
-      `/learn/${lesson.slug}?review=1#practice`,
+    // Resolved rather than read: the island builds this href against the
+    // deployment root (D2), so the attribute is an absolute URL — and where the
+    // card GOES is what this test has always meant.
+    await linkTarget(page, card).toBe(
+      `/learn/${lesson.slug}/?review=1#practice`,
     );
     // Its visible text IS its accessible name — an aria-label here would
     // replace the title and the size of the ask with a shorter, poorer string.
@@ -355,7 +359,9 @@ test.describe('following an invitation', () => {
     const before = await storageFingerprint(page);
 
     await page.locator(`[data-review-card="${slug}"]`).click();
-    await expect(page).toHaveURL(/\/learn\/binary-search\?review=1#practice$/);
+    await expect(page).toHaveURL(
+      /\/learn\/binary-search\/\?review=1#practice$/,
+    );
 
     const viz = await hydrateViz(page.locator('#viz-binary-search'));
     await expect(predictToggle(viz)).toHaveAttribute('aria-pressed', 'true');
@@ -383,7 +389,12 @@ test.describe('following an invitation', () => {
     const viz = await hydrateViz(page.locator('#viz-binary-search'));
     await expect(predictToggle(viz)).toHaveAttribute('aria-pressed', 'true');
     // A run long enough to answer five predictions: the authored example is
-    // four steps, so a real reader reaching the bar uses their own input.
+    // four steps, so a real reader reaching the bar uses their own input — which
+    // since the 2026-08 redesign means opening the "Run it on your own input"
+    // disclosure the form sits behind (amendment C-2). One extra click on a real
+    // control; the deep-linked review visit is otherwise unchanged, and so is
+    // everything this test asserts about it.
+    await openCustomInput(viz);
     await runCustomInput(
       viz,
       '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]',
@@ -500,7 +511,7 @@ test.describe('the strip keeps up with the device', () => {
 
     // The home page injects the same `[data-lessons]` list for its own resume
     // link, so "no strip here" is a real risk rather than a hypothetical one.
-    for (const path of ['/', `/learn/${slug}`]) {
+    for (const path of ['/', `/learn/${slug}/`]) {
       await page.goto(path);
       await expect(page.locator(STRIP)).toHaveCount(0);
       await expect(page.locator('[data-review-card]')).toHaveCount(0);

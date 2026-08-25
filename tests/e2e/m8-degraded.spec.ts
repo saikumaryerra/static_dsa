@@ -37,10 +37,11 @@ import {
   trackArc,
   trackPageErrors,
 } from './utils/mastery';
+import { linkTarget } from './utils/urls';
 
 const LESSON = 'arrays';
-const LESSON_URL = `/learn/${LESSON}`;
-const LEARN = '/learn';
+const LESSON_URL = `/learn/${LESSON}/`;
+const LEARN = '/learn/';
 
 /** Accessible names of every button a reader can actually see and press. */
 async function visibleButtonNames(page: Page): Promise<string[]> {
@@ -168,7 +169,7 @@ test.describe('JavaScript disabled — the page is M7, plus one line of static c
     // The M7 page underneath is fully usable: every card is still a real link.
     const cards = page.locator('[data-lesson-card]');
     expect(await cards.count()).toBeGreaterThanOrEqual(15);
-    await expect(cards.first()).toHaveAttribute('href', /^\/learn\//);
+    await linkTarget(page, cards.first()).toMatch(/^\/learn\//);
     await expect(page.locator('[data-resume-link]')).toBeVisible();
   });
 });

@@ -35,7 +35,7 @@ export interface GlossaryTerm {
 
 /**
  * Stable, URL-safe fragment id for a term — "Big-O notation" → "big-o-notation".
- * Pure and deterministic so lesson prose can hard-link `/glossary#binary-search`
+ * Pure and deterministic so lesson prose can hard-link `/glossary/#binary-search`
  * and a reader can share a single definition. Collision-freedom across the whole
  * list is asserted at build time in `glossary.astro`: two terms slugifying alike
  * would make one of them permanently unreachable.

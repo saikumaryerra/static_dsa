@@ -15,6 +15,11 @@ export default defineConfig(
       'playwright-report/',
       'test-results/',
       '.opencode/',
+      // Agent/tooling scratch space, not project source. `.claude/worktrees/`
+      // holds a full nested checkout, so without this ESLint parses 368 files
+      // that have no tsconfig root here; both are git-excluded already.
+      '.claude/',
+      '.impeccable/',
     ],
   },
   js.configs.recommended,

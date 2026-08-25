@@ -12,7 +12,7 @@
  * ✓ badge), `frontier` (teal DASHED RING — the shape carries it), `active` (blue
  * + lift + caret); an edge id in any highlight becomes `is-path`.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { edgeId, nodeId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { circle, group, line, polygon, rect, text } from '../core/svg';
@@ -56,8 +56,17 @@ interface Pt {
   y: number;
 }
 
-function draw(step: Step<GraphState>): Canvas {
-  const { nodes, edges } = step.state;
+/**
+ * Node placement AND the box it needs, in one pass. The two are inseparable —
+ * the ring radius sets the default square, and an authored `pos` can push past
+ * it — so `measure` and `draw` share this single source rather than each
+ * re-deriving the arithmetic (`draw` destructures `posById` from the same call).
+ */
+function geometry(state: GraphState): {
+  posById: Map<number, Pt>;
+  box: Extent;
+} {
+  const { nodes } = state;
   const n = nodes.length;
   const ring = Math.max(70, n * 13);
   const center = ring + R + 24 + PAD;
@@ -75,12 +84,25 @@ function draw(step: Step<GraphState>): Canvas {
     }
   });
 
-  let maxX = 2 * center;
-  let maxY = 2 * center;
+  let w = 2 * center;
+  let h = 2 * center;
   for (const p of posById.values()) {
-    maxX = Math.max(maxX, p.x + R + PAD);
-    maxY = Math.max(maxY, p.y + R + PAD);
+    w = Math.max(w, p.x + R + PAD);
+    h = Math.max(h, p.y + R + PAD);
   }
+  return { posById, box: { w, h } };
+}
+
+/**
+ * The natural box for one step. Geometry only — no markup built — so a caller
+ * can reduce a whole trace to its extent cheaply.
+ */
+const measure = (step: Step<GraphState>): Extent => geometry(step.state).box;
+
+function draw(step: Step<GraphState>): Canvas {
+  const { nodes, edges } = step.state;
+  const n = nodes.length;
+  const { posById, box } = geometry(step.state);
 
   const classes = applyHighlights(step.highlights);
 
@@ -189,7 +211,7 @@ function draw(step: Step<GraphState>): Canvas {
   }
 
   return {
-    viewBox: `0 0 ${maxX} ${maxY}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -200,4 +222,5 @@ function draw(step: Step<GraphState>): Canvas {
 export const graphRenderer: RendererModule<GraphState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

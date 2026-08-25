@@ -8,7 +8,12 @@
  * - `input`            optional initial input, e.g. "[1,3,5,7,9,11] target=7";
  *                      else the algorithm's defaultInput().
  * - `allowCustomInput` show the custom-input form (default true).
- * - `showMetrics`      show the metrics pills (default true).
+ * - `showMetrics`      show the metrics pills (default true). The ledger's cost
+ *                      column inherits this: "no counters on this demo" must not
+ *                      be defeated by the table underneath the drawing.
+ * - `showLedger`       render the trace as a table under the drawing (default
+ *                      true). /about and the dev gallery pass false — both are
+ *                      chrome demonstrations rather than lessons.
  * - `inputLabel`/`inputPlaceholder`  label + placeholder for the FIRST field
  *                      (default "Array"). Non-array lessons override the label
  *                      (e.g. graph "Edges", recursion "n"); the placeholder is
@@ -94,11 +99,15 @@
  */
 import { algorithms, renderers } from './registry';
 import { collectLegend } from './core/legend';
+import { traceExtent } from './core/extent';
+import { claimInstrumentId } from './core/instrument-id';
 import {
   inputHelpText,
   probeListCap,
   splitAuthoredInput,
 } from './core/input-hint';
+import { buildLedger, withoutCost } from './core/ledger';
+import Ledger from './Ledger.astro';
 import type { Algorithm, RendererModule, Step } from './core/types';
 
 interface Props {
@@ -107,6 +116,7 @@ interface Props {
   input?: string;
   allowCustomInput?: boolean;
   showMetrics?: boolean;
+  showLedger?: boolean;
   inputLabel?: string;
   inputPlaceholder?: string;
   targetLabel?: string;
@@ -120,6 +130,7 @@ const {
   input,
   allowCustomInput = true,
   showMetrics = true,
+  showLedger = true,
   // Defaults keep every array/search/sort lesson (incl. binary-search) unchanged.
   inputLabel = 'Array',
   // No literal placeholder defaults (M7.2 CMP-14): with an authored `input` the
@@ -131,8 +142,19 @@ const {
   showTarget = true,
 } = Astro.props;
 
-// Unique id base so multiple visualizers on one page don't collide.
-const uid = `viz-${Math.random().toString(36).slice(2, 8)}`;
+// Unique id base so multiple visualizers on one page don't collide — DERIVED,
+// not random (Plan C §5). This was the last `Math.random()` in `src/`, which
+// made every instrument's id churn on every build: nothing could point INTO a
+// run and still resolve after a rebuild. The derivation, the per-render
+// collision tiebreak and the reasons for both live in `core/instrument-id.ts`;
+// `Astro.request` is that module's per-render key (never its `.headers`, which
+// warns on a prerendered page). The eight derived ids below ride on this.
+const uid = claimInstrumentId(
+  Astro.request,
+  Astro.url.pathname,
+  algorithm,
+  renderer,
+);
 
 // --- Build-time still (architecture §1): resolve the lazy chunks, run the algo,
 // render step 0 to a DOM-free SVG string. Unknown ids or malformed authored
@@ -159,7 +181,13 @@ if (!step0)
   throw new Error(`Algorithm "${algorithm}" produced an empty trace.`);
 
 const label = algo.label;
-const still = rmod.renderStatic(step0, { title: label, idBase: uid });
+// One box for the whole trace (Plan A §3). Renderers size their viewBox from the
+// CURRENT step, so a growing structure resized the canvas mid-trace and moved
+// the transport row under the reader's thumb. The still is re-emitted with the
+// SAME extent the island will use, or the JS-off frame would keep step 0's small
+// box and the drawing would jump once, at hydration.
+const extent = traceExtent(rmod.measure, trace);
+const still = rmod.renderStatic(step0, { title: label, idBase: uid, extent });
 const step0Text = step0.explanation;
 
 // Step-0 metric pills, rendered at BUILD time. An empty `.viz-metrics` measures
@@ -263,6 +291,28 @@ const targetHint = authored.target || targetPlaceholder || '7';
 const itemCap = probeListCap(input ?? '', (raw) => algo.parseInput(raw));
 const helpText = inputHelpText({ example: arrayPlaceholder, cap: itemCap });
 
+// --- The ledger (Plan C §1): the run written out, under its own drawing. ---
+//
+// Built HERE, at build time, from the SAME precomputed trace the still came
+// from, so it is a second VIEW of one run and never a second source of truth —
+// `buildLedger` re-runs nothing. It is server-rendered because it is M7-class
+// content: with JavaScript off the table IS the lesson (spec §8), which is why
+// it renders outside `.viz-controls`, where the `<noscript>` kill-switch cannot
+// reach it, and why its seek buttons ship `disabled` rather than absent.
+//
+// TWO PROPS, TWO QUESTIONS, and they cannot contradict each other. `showLedger`
+// answers "is this a lesson?" — /about and the dev gallery are demonstrations of
+// the chrome, so they opt out entirely. `showMetrics` answers "does this demo
+// show counters?", and the cost column INHERITS it: the abandoned build had no
+// prop at all and printed a `comparisons` column on the one page whose author
+// had already written `showMetrics={false}`.
+const ledger = showLedger
+  ? (() => {
+      const full = buildLedger(trace, algo.ledger);
+      return showMetrics ? full : withoutCost(full);
+    })()
+  : null;
+
 const explainId = `${uid}-explain`;
 const predictNoteId = `${uid}-predict-note`;
 const errId = `${uid}-err`;
@@ -275,11 +325,13 @@ const targetId = `${uid}-target`;
 
 <section
   class="viz"
+  id={uid}
   aria-label={`${label} visualization`}
   data-viz
   data-algorithm={algorithm}
   data-renderer={renderer}
   data-input={input ?? ''}
+  data-extent={`${extent.w} ${extent.h}`}
   data-label={label}
   data-show-metrics={showMetrics ? 'true' : 'false'}
   data-target-label={showTarget ? targetLabel : ''}
@@ -299,60 +351,6 @@ const targetId = `${uid}-target`;
          keeps today's scale-to-fit still and never gets an unreachable scroller. */
     }
     <div class="viz-canvas" data-viz-canvas tabindex="-1" set:html={still} />
-
-    {
-      /* Auto-legend (build time): one pill per highlight kind this trace really
-         uses. The swatch repeats the renderer's own token + tint, the glyph is
-         the character the renderer draws, and the word is the plain-language
-         name — so colour is never the only signal here either. `active` and
-         `frontier` have no character marker; frontier's dashed swatch border
-         carries its non-colour cue. */
-    }
-    {
-      legend.length > 0 && (
-        <ul
-          class="viz-legend"
-          role="list"
-          aria-label="What the highlights mean"
-          data-viz-legend
-        >
-          {legend.map((item) => (
-            <li class="viz-pill viz-legend__item">
-              <span
-                class="viz-legend__swatch"
-                data-kind={item.kind}
-                style={`--legend-hl: var(${item.token})`}
-                aria-hidden="true"
-              />
-              {item.glyph && (
-                <span class="viz-legend__glyph" aria-hidden="true">
-                  {item.glyph}
-                </span>
-              )}
-              <span>{item.word}</span>
-            </li>
-          ))}
-        </ul>
-      )
-    }
-
-    {
-      /* A11Y-2: exposed, not aria-hidden — the pills are a SIBLING of the
-         aria-live explanation, so screen-reader users can read the counts on
-         demand without the live region re-announcing them every step. */
-    }
-    {
-      showMetrics && (
-        <div class="viz-metrics" data-viz-metrics>
-          {metricPills.map((pill) => (
-            <span class="viz-pill">
-              {pill.label}
-              <b>{pill.value}</b>
-            </span>
-          ))}
-        </div>
-      )
-    }
 
     <p
       class="viz-explain"
@@ -564,12 +562,19 @@ const targetId = `${uid}-target`;
     </div>
 
     {
-      /* The STATED REASON behind the two controls predict marks unavailable
+      /* The STATED REASON behind everything predict makes unavailable
          (task: `aria-disabled` + a reason, never the `disabled` attribute).
          Shipped hidden, revealed by the toggle, and named by `aria-describedby`
-         on both of them while it is on: `aria-disabled` says "no", this says
-         why — and names the control that still moves, because skipping is a
-         first-class choice here, not a failure. */
+         on the two transport controls while it is on: `aria-disabled` says
+         "no", this says why — and names the control that still moves, because
+         skipping is a first-class choice here, not a failure.
+
+         It also carries the reason the RUN TABLE is gone (Plan C §4), which is
+         the "with a reason" half of hiding it: a table that vanished with no
+         explanation reads as a bug, and this is the surface the reader is
+         looking at when it does. The old wording named "the step slider" — a
+         control Plan C made focus-revealed, so it named something the reader
+         could no longer see — and said nothing about the table at all. */
     }
     {
       showPredict && (
@@ -579,8 +584,9 @@ const targetId = `${uid}-target`;
           data-viz-predict-note
           hidden
         >
-          Auto-play and the step slider are off while Predict is on. Step
-          forward moves on without answering.
+          Auto-play and scrubbing are off while Predict is on, and the run table
+          is hidden — it would give the next step away. Step forward moves on
+          without answering.
         </p>
       )
     }
@@ -597,88 +603,28 @@ const targetId = `${uid}-target`;
     </p>
 
     {
+      /* The custom-input form is a DISCLOSURE now (redesign 2026-08).
+         Two measurements pushed it behind a summary. On a phone the controls
+         region measured 550px tall, of which this form was 300 — so a reader who
+         stepped the algorithm and wanted the next sentence scrolled past a form
+         they had not asked for. And in a bench's pinned stage column the whole
+         instrument has to fit one viewport, which it does not with the form
+         permanently open.
+
+         It is a `<details>`, not a hidden panel: the summary is a real control,
+         it is directly under the transport where the eye already is, and its
+         label promises the thing the product is proud of. The `<p>` legend it
+         replaces said the same words with no way to act on them. */
+    }
+    {
       allowCustomInput && (
-        <form class="viz-custom" data-viz-form novalidate>
-          <p class="viz-custom__legend">Try your own input</p>
-          <div class="viz-custom__fields">
-            <div class="viz-field">
-              <label for={arrayId}>{inputLabel}</label>
-              {/* INP-1: these fields take code-shaped literals, so every
-                  "helpful" mobile keyboard behaviour (autocorrect, leading
-                  capital, spell squiggles) is noise here.
-                  SPACE-SEPARATED describedby: the field owes BOTH descriptions
-                  and the error one has to survive — overwriting the list with
-                  just the error id (or the reverse) is how one of the two
-                  silently stops being announced. Format first, then what went
-                  wrong with it. */}
-              <input
-                type="text"
-                id={arrayId}
-                data-viz-array
-                placeholder={arrayPlaceholder}
-                aria-describedby={helpText ? `${helpId} ${errId}` : errId}
-                spellcheck="false"
-                autocapitalize="none"
-                autocorrect="off"
-                disabled
-              />
-            </div>
-            {showTarget && (
-              <div class="viz-field viz-field--target">
-                <label for={targetId}>{targetLabel}</label>
-                <input
-                  type="text"
-                  id={targetId}
-                  data-viz-target
-                  inputmode="numeric"
-                  placeholder={targetHint}
-                  aria-describedby={errId}
-                  spellcheck="false"
-                  autocapitalize="none"
-                  autocorrect="off"
-                  disabled
-                />
-              </div>
-            )}
-            <button type="submit" class="btn-secondary" data-viz-run disabled>
-              Run
-            </button>
-            {/* Recovery (CMP-14): puts the lesson's own example back — the exact
-                authored string, which the build already proved parses — and
-                refills both fields with its REAL values, so an experiment is
-                never a one-way door. Only offered when there IS an authored
-                input; a viz seeded from defaultInput() has no string to restore
-                and the control would lie about what it does. */}
-            {input && (
-              <button
-                type="button"
-                class="btn-secondary"
-                data-viz-restore
-                disabled
-              >
-                Restore example
-              </button>
-            )}
-          </div>
-          {/* Persistent format + cap disclosure (INP-*). Muted, not an error:
-              it is the same text before and after a mistake, so the reader can
-              act on it instead of guessing from a rejection. */}
-          {helpText && (
-            <p class="viz-custom__help" id={helpId}>
-              {helpText}
-            </p>
-          )}
-          {/* role="status" carries an implicit aria-live="polite"; the choice
-              over role="alert" (A11Y-8) is therefore about politeness, not about
-              announcing once: this error is the direct result of the reader's own
-              submit, so it should queue behind whatever the AT is saying instead
-              of interrupting it. showError also moves focus to the offending
-              field, which re-announces the text via aria-describedby. */}
-          <p class="viz-error" id={errId} role="status" data-viz-error hidden>
+        <details class="viz-custom-open">
+          <summary>
             <svg
-              viewBox="0 0 24 24"
+              class="viz-custom-open__chevron"
               width="16"
               height="16"
+              viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
@@ -686,16 +632,198 @@ const targetId = `${uid}-target`;
               stroke-linejoin="round"
               aria-hidden="true"
             >
-              <path d="M12 3 2 20h20z" />
-              <path d="M12 10v4" />
-              <path d="M12 17h.01" />
+              <path d="M9 6l6 6-6 6" />
             </svg>
-            <span data-viz-error-text />
-          </p>
-        </form>
+            {/* NAMED, because a lesson can host three instruments and three
+                identical "Run it on your own input" summaries are three
+                indistinguishable controls in a screen reader's list — the exact
+                defect CNT-8 was raised for, and the exact shape the ledger's own
+                summary already avoids ("The run, written out — Binary search on
+                a sorted array"). Same em-dash idiom, same source of truth. */}
+            <span>Run it on your own input — {label}</span>
+          </summary>
+          <form class="viz-custom" data-viz-form novalidate>
+            <div class="viz-custom__fields">
+              <div class="viz-field">
+                <label for={arrayId}>{inputLabel}</label>
+                {/* INP-1: these fields take code-shaped literals, so every
+                  "helpful" mobile keyboard behaviour (autocorrect, leading
+                  capital, spell squiggles) is noise here.
+                  SPACE-SEPARATED describedby: the field owes BOTH descriptions
+                  and the error one has to survive — overwriting the list with
+                  just the error id (or the reverse) is how one of the two
+                  silently stops being announced. Format first, then what went
+                  wrong with it. */}
+                <input
+                  type="text"
+                  id={arrayId}
+                  data-viz-array
+                  placeholder={arrayPlaceholder}
+                  aria-describedby={helpText ? `${helpId} ${errId}` : errId}
+                  spellcheck="false"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  disabled
+                />
+              </div>
+              {showTarget && (
+                <div class="viz-field viz-field--target">
+                  <label for={targetId}>{targetLabel}</label>
+                  <input
+                    type="text"
+                    id={targetId}
+                    data-viz-target
+                    inputmode="numeric"
+                    placeholder={targetHint}
+                    aria-describedby={errId}
+                    spellcheck="false"
+                    autocapitalize="none"
+                    autocorrect="off"
+                    disabled
+                  />
+                </div>
+              )}
+              <button type="submit" class="btn-secondary" data-viz-run disabled>
+                Run
+              </button>
+              {/* Recovery (CMP-14): puts the lesson's own example back — the exact
+                authored string, which the build already proved parses — and
+                refills both fields with its REAL values, so an experiment is
+                never a one-way door. Only offered when there IS an authored
+                input; a viz seeded from defaultInput() has no string to restore
+                and the control would lie about what it does. */}
+              {input && (
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  data-viz-restore
+                  disabled
+                >
+                  Restore example
+                </button>
+              )}
+            </div>
+            {/* Persistent format + cap disclosure (INP-*). Muted, not an error:
+              it is the same text before and after a mistake, so the reader can
+              act on it instead of guessing from a rejection. */}
+            {helpText && (
+              <p class="viz-custom__help" id={helpId}>
+                {helpText}
+              </p>
+            )}
+            {/* role="status" carries an implicit aria-live="polite"; the choice
+              over role="alert" (A11Y-8) is therefore about politeness, not about
+              announcing once: this error is the direct result of the reader's own
+              submit, so it should queue behind whatever the AT is saying instead
+              of interrupting it. showError also moves focus to the offending
+              field, which re-announces the text via aria-describedby. */}
+            <p class="viz-error" id={errId} role="status" data-viz-error hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 3 2 20h20z" />
+                <path d="M12 10v4" />
+                <path d="M12 17h.01" />
+              </svg>
+              <span data-viz-error-text />
+            </p>
+          </form>
+        </details>
       )
     }
   </div>
+
+  {
+    /* THE KEY — the legend and the counters — sits BELOW the transport
+       (redesign 2026-08), not between the drawing and the sentence where it
+       started.
+
+       MEASURED reason: in a bench's pinned stage column the whole instrument has
+       to fit one viewport, and on the four lessons with a tall drawing (the
+       graph, the tree, the call stack, the DP table) 88px of legend and metric
+       pills above the transport was exactly what pushed Play below the fold at
+       1440x900. Ordering the instrument by what a reader needs in view — the
+       drawing, the sentence about it, the controls that move it — puts the two
+       blocks a reader consults occasionally after the three they use constantly.
+
+       OUTSIDE `.viz-controls`, deliberately: the legend explains the colours of
+       the STILL as much as of the live drawing, and `.viz-controls` is what the
+       `<noscript>` kill-switch hides. With JavaScript off the key sits directly
+       under the figure, which is where it always was. */
+  }
+  <div class="viz-key">
+    {
+      /* Auto-legend (build time): one pill per highlight kind this trace really
+           uses. The swatch repeats the renderer's own token + tint, the glyph is
+           the character the renderer draws, and the word is the plain-language
+           name — so colour is never the only signal here either. `active` and
+           `frontier` have no character marker; frontier's dashed swatch border
+           carries its non-colour cue. */
+    }
+    {
+      legend.length > 0 && (
+        <ul
+          class="viz-legend"
+          role="list"
+          aria-label="What the highlights mean"
+          data-viz-legend
+        >
+          {legend.map((item) => (
+            <li class="viz-pill viz-legend__item">
+              <span
+                class="viz-legend__swatch"
+                data-kind={item.kind}
+                style={`--legend-hl: var(${item.token})`}
+                aria-hidden="true"
+              />
+              {item.glyph && (
+                <span class="viz-legend__glyph" aria-hidden="true">
+                  {item.glyph}
+                </span>
+              )}
+              <span>{item.word}</span>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
+    {
+      /* A11Y-2: exposed, not aria-hidden — the pills are a SIBLING of the
+           aria-live explanation, so screen-reader users can read the counts on
+           demand without the live region re-announcing them every step. */
+    }
+    {
+      showMetrics && (
+        <div class="viz-metrics" data-viz-metrics>
+          {metricPills.map((pill) => (
+            <span class="viz-pill">
+              {pill.label}
+              <b>{pill.value}</b>
+            </span>
+          ))}
+        </div>
+      )
+    }
+  </div>
+
+  {
+    /* The ledger closes the instrument, and DOM order IS the visual order:
+       drawing, sentence, transport, key, the run. OUTSIDE `.viz-controls` on purpose
+       — the `<noscript>` kill-switch below hides that block, and this table must
+       survive with JavaScript off, because with JavaScript off it is the lesson.
+       Its seek buttons ship `disabled` and stay that way until the island turns
+       them on, so a JS-off reader is never offered a control that cannot act. */
+  }
+  {ledger && <Ledger ledger={ledger} uid={uid} label={label} />}
 
   <p class="viz-nojs-note">
     <svg
@@ -749,68 +877,146 @@ const targetId = `${uid}-target`;
          and frame have always shared this token (they were #F6F7F9 on #F6F7F9
          before), so the inversion changed nothing about their relationship: the
          boundary is, and always was, the 1.5px `--border-strong` stroke —
-         4.76:1 / 3.07:1, both >= the 3:1 that WCAG 1.4.11 asks of it, and the
-         light figure IMPROVED with the inversion (4.55:1 before). `--surface-
-         sunken` was measured as the alternative (stroke 4.23:1 / 3.72:1, plus a
-         1.12:1 / 1.21:1 fill delta against the frame) and rejected: three other
+         4.05:1 / 3.44:1, both >= the 3:1 that WCAG 1.4.11 asks of it (the light
+         figure was 4.55:1 before the inversion and 4.76:1 before the achromatic
+         repaint; both moves stayed clear of the floor). `--surface-sunken` was
+         measured as the alternative (stroke 3.58:1 / 3.66:1, plus a 1.13:1 /
+         1.06:1 fill delta against the frame) and rejected: three other
          places restate this exact recipe against `--surface` — the guard test
          `tests/unit/tokens-contrast.test.ts`, the home hero's `renderStatic()`
          still and the 404 still — and the two stills exist to show readers the
          real product, so the lesson must not paint its cells differently.
        highlight `color-mix()` fills . unchanged, and for the same reason: the
          tints mix over `--surface`. Each `--hl-*` stroke on its own tint is
-         >= 3.92:1 / 4.20:1 (1.4.11 wants 3:1), `--text` on those tints is
-         >= 13.87:1 / 7.95:1, and the marker glyphs — text, so they owe 4.5:1 —
-         are >= 5.02:1 / 5.38:1 on the frame they are drawn over.
+         >= 3.92:1 / 5.15:1 (1.4.11 wants 3:1), `--text` on those tints is
+         >= 14.17:1 / 10.20:1, and the marker glyphs — text, so they owe 4.5:1 —
+         are >= 5.02:1 / 6.52:1 on the frame they are drawn over. The dark column
+         gained across the board when the repaint darkened `--surface`; light is
+         unchanged, because light `--surface` never moved.
        .viz-weight-pill .......... level 1, kept. It MASKS the frame behind an
          edge weight, so being the frame's own colour is its whole job.
        .viz-pill ................. `--bg` -> `--surface-sunken`. Metric and
          legend chips are the only consumers here that sit INSIDE the frame, so
          the plan's blanket "move to --surface" would have painted them white on
-         white; their `--border` keyline is just 1.22:1 there, so the fill has to
-         carry the shape. A sunken chip on a level-1 card is 1.12:1 / 1.21:1 —
-         faint by design, and the readable part clears AA either way
-         (`--text-muted` 6.74:1 / 6.91:1, the `<b>` value 15.87:1 / 14.36:1).
+         white; their `--border` keyline is just 1.20:1 / 1.34:1 there, so the
+         fill has to carry the shape. A sunken chip on a level-1 card is 1.13:1 /
+         1.06:1 — faint by design, and the readable part clears AA either way
+         (`--text-muted` 5.90:1 / 7.68:1, the `<b>` value 16.13:1 / 15.96:1).
        .viz-btn, .viz-select,
        .viz-field input,
        .viz-keys kbd ............. `--bg` -> `--surface`. These sit OUTSIDE the
          frame, on the page canvas, where level 1 is the raised reading — the
-         move `.btn-secondary` already made. `--border-strong` is 4.55:1 on the
-         canvas and 4.76:1 on their own fill; a sunken fill would have been
-         1.06:1 against the canvas, i.e. gone.
+         move `.btn-secondary` already made. `--border-strong` is 3.94:1 / 3.71:1
+         on the canvas and 4.05:1 / 3.44:1 on their own fill; a sunken fill would
+         have been 1.10:1 / 1.02:1 against the canvas, i.e. gone.
        .viz-btn[aria-disabled] ... `--surface` -> `--bg`. The bound state works
          by flattening into the background, so it has to follow the background.
-         `--text-muted` on it is 7.24:1 / 7.30:1 before the shared 0.5 opacity.
+         `--text-muted` on it is 6.49:1 / 7.80:1 before the shared 0.5 opacity.
        .viz-slider thumb ring .... `--surface` -> `--bg`. The ring punches the
          thumb out of what is behind the slider, which is the canvas; against
-         the brand-filled track it reads at 6.01:1 / 6.28:1. */
+         the brand-filled track it reads at 17.77:1 / 16.20:1 — the achromatic
+         repaint took that from 6.01:1 / 6.28:1, since the track is now --text. */
 
-  /* ---- Region + frame ---- */
+  /* ---- Region + frame ----
+
+     ONE STACKED FRAME (Plan C §6). The drawing used to sit inside a bordered
+     `<figure>` while the transport, scrubber, speed, keyboard hint and input
+     form sat BELOW it on the bare page canvas — two objects that merely happened
+     to be adjacent, and no reader could tell that the second operated the first.
+     The border therefore moves UP to the section and `.viz-frame` gives its own
+     up, so drawing, sentence, controls and the ledger become four regions of one
+     thing, separated by rules rather than by gaps.
+
+     Nothing moved in the DOM, which is what makes this safe: the `<noscript>`
+     kill-switch, the tab order, the aria tree's shape and every existing
+     selector still mean exactly what they meant. */
   .viz {
     margin-block: var(--space-8);
-  }
-
-  /* RSP-2: full-bleed below the md breakpoint. The drawing is the widest thing
-     on a lesson page and the shell's gutters (`main`'s `px-4`) were costing it
-     2rem of a 390px screen; the negative margin is EXACTLY that gutter, so the
-     document still never scrolls sideways. Side borders and the card radius go
-     with it — a rounded card that touches both edges reads as a rendering bug. */
-  .viz-frame {
-    margin: 0 calc(var(--space-4) * -1);
+    /* RSP-2's full bleed, inherited from `.viz-frame`: the drawing is the widest
+       thing on a lesson page and the shell's gutters (`main`'s `px-4`) were
+       costing it 2rem of a 390px screen. The negative margin is EXACTLY that
+       gutter, so the document still never scrolls sideways. Side borders and the
+       card radius go with it — a rounded card that touches both edges reads as a
+       rendering bug. */
+    margin-inline: calc(var(--space-4) * -1);
     background-color: var(--surface);
     border-block: 1px solid var(--border);
-    border-radius: 0;
     box-shadow: var(--shadow-1);
-    padding: var(--space-4);
+    /* Clips the ledger's own corners to the card radius below, and is the same
+       clip `.viz-frame` used to own: the canvas is an inner scroller, so nothing
+       that needs to overflow is trapped by it.
+
+       PROBED, because `overflow: hidden` makes this a scroll CONTAINER, and a
+       fragment jump scrolls every scrollable ancestor of its target — which
+       would move a row out from under the reader with no scrollbar to put it
+       back (Plan C §7 flagged it unverified). It cannot happen here: across
+       eight measurements on the built site — two lessons, three widths, JS on
+       and off, jumping to rows 1 and 20 — this box read
+       `scrollHeight === clientHeight` and `scrollWidth === clientWidth` every
+       time, and its scroll offsets never left 0. The canvas and the ledger's
+       well are both inner scrollers, so they absorb the overflow before it
+       reaches this element. Anything added here that can outgrow the box would
+       reopen it. */
     overflow: hidden;
+    /* The instrument is an anchor target in its own right now that its id is
+       stable (`#viz-binary-search-…`), and `<StepLink>` lands here whenever the
+       row it names cannot be shown — while Predict is on, or on an instrument
+       with no ledger. Same two offsets as the lesson's headings and the ledger's
+       rows; see the row rule in `Ledger.astro` for why `--toc-bar-h` carries a
+       fallback. */
+    scroll-margin-top: calc(
+      var(--header-h) + var(--toc-bar-h, 0rem) + var(--space-2)
+    );
+    /* The instrument now appears at three very different widths on the SAME
+       viewport — full-bleed on a phone, ~1150px in a solo bench, ~500px pinned
+       in a bench's stage column — so every layout decision inside it has to
+       follow its own box rather than the window's (redesign 2026-08). The
+       viewport media queries that used to switch the control bar and the
+       transport are container queries against this name below.
+
+       `inline-size` only: a `size` container would need a height too, and this
+       element's height is exactly what its contents decide. */
+    container: viz / inline-size;
+  }
+
+  @media (min-width: 1024px) {
+    .viz {
+      scroll-margin-top: calc(var(--header-h) + var(--space-6));
+    }
+  }
+
+  @media (min-width: 768px) {
+    .viz {
+      margin-inline: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+    }
+  }
+
+  /* The frame keeps the padding and gives up the chrome — `.viz` above draws the
+     one border now. Still a `<figure>`: it is the figure `.viz-explain` captions. */
+  .viz-frame {
+    margin: 0;
+    padding: var(--space-4);
   }
 
   @media (min-width: 768px) {
     .viz-frame {
-      margin-inline: 0;
-      border-inline: 1px solid var(--border);
-      border-radius: var(--radius-card);
       padding: var(--space-6);
+    }
+  }
+
+  /* The controls are a region inside that border now, separated by a rule rather
+     than by a gap, and padded to the frame's own gutter so the two read as one
+     column. */
+  .viz-controls {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border);
+  }
+
+  @media (min-width: 768px) {
+    .viz-controls {
+      padding-inline: var(--space-6);
     }
   }
 
@@ -822,7 +1028,19 @@ const targetId = `${uid}-target`;
      `--viz-natural-w` is written by the script from the live `viewBox` (never at
      build time): with JS off there is no measurement, no scroll container, and
      therefore no unreachable-scroller keyboard failure — and JS-off only ever
-     shows the small authored input anyway. */
+     shows the small authored input anyway.
+
+     Plan A considered a vertical twin for this floor and MEASURED it away:
+     `meet` + `height:auto` makes the scale uniform, so this min-width is
+     already a two-axis floor; no `max-height` exists anywhere here, so there is
+     no cap to overflow against; and adding one would make a canvas that
+     overflows vertically while fitting horizontally — which `measureCanvas`
+     below would leave `tabindex="-1"`, i.e. exactly the unreachable scroller
+     this comment says the design avoids. The floor is correct as it stands, and
+     `tests/e2e/plan-a-frames.spec.ts` now pins it: `--viz-natural-w` holds one
+     value for a whole run (the frozen extent bought that), an overflowing
+     canvas is a reachable, named scroll region, and the 6-cell default still
+     fits 390px. */
   .viz-canvas {
     margin-block-end: var(--space-4);
     overflow-x: auto;
@@ -1192,12 +1410,23 @@ const targetId = `${uid}-target`;
     font-size: 12px;
   }
 
+  /* ---- The key: legend + counters, under the transport ---- */
+  .viz-key {
+    padding: 0 var(--space-4) var(--space-4);
+  }
+
+  @media (min-width: 768px) {
+    .viz-key {
+      padding: 0 var(--space-6) var(--space-6);
+    }
+  }
+
   /* ---- Metrics ---- */
   .viz-metrics {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    margin-bottom: var(--space-3);
+    margin-bottom: 0;
   }
 
   /* A chip INSIDE the level-1 frame, so it is a sunken well, not a raised
@@ -1236,7 +1465,7 @@ const targetId = `${uid}-target`;
      drawing rather than a decorative dot. --legend-hl is set inline from
      HIGHLIGHTS[kind].token, which keeps the token mapping in ONE place. It
      survives the pill's move to a sunken fill (M7.3): the tint still samples the
-     cell, and the 2px --hl-* border is >= 4.46:1 / 6.51:1 against the chip. */
+     cell, and the 2px --hl-* border is >= 4.43:1 / 6.94:1 against the chip. */
   .viz-legend__swatch {
     flex-shrink: 0;
     width: 0.875rem;
@@ -1366,10 +1595,28 @@ const targetId = `${uid}-target`;
       'scrub speed';
     align-items: center;
     gap: var(--space-3);
-    margin-top: var(--space-4);
+    /* No `margin-top`: `.viz-controls` is a padded region of the frame now, so
+       the gap above the transport comes from that padding. Keeping both stacked
+       a 16px margin on 16px of padding. */
   }
 
-  @media (min-width: 640px) {
+  /* Was `@media (min-width: 640px)`. A pinned stage column is ~545px wide on a
+     1600px screen, so the viewport query put transport, scrubber and speed on
+     one row inside a box that could not hold them and the speed label landed on
+     top of the slider. The container query asks the only question that matters:
+     is THIS instrument wide enough?
+
+     36rem, and the number is a measurement rather than a round one. A container
+     query resolves against the CONTENT box, and `.viz` carries a 1px border from
+     768px up, so a 545px pinned pane queries as 543. One row inside it fits on
+     paper — transport ~300 + counter 40 + speed ~116 + gaps 32 = 488 against
+     ~495 of usable width after `.viz-controls`' padding — and fails in practice:
+     at 7px of slack the step counter wraps to two lines mid-row. So the pinned
+     pane takes the two-row layout deliberately, and 36rem (576px) is safely above
+     it; a solo bench at ~1150px is unambiguously one row. The 44px this costs the
+     pane is affordable now that the legend and the counters sit below the
+     transport rather than above it. */
+  @container viz (min-width: 36rem) {
     .viz-control-bar {
       grid-template-columns: auto minmax(0, 1fr) auto;
       grid-template-areas: 'transport scrub speed';
@@ -1383,12 +1630,79 @@ const targetId = `${uid}-target`;
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
+    /* Positioning context for the label's visually-hidden state below. */
+    position: relative;
   }
 
   .viz-scrub__label,
   .viz-speed__label {
     font-size: var(--text-sm);
     color: var(--text-muted);
+  }
+
+  /* ---- The scrubber, REVEALED ON FOCUS (Plan C §6) ----
+
+     The ledger's rows are the pointer scrub affordance now, so the track no
+     longer has to sit in the control bar advertising itself. What it must not do
+     is disappear:
+
+     - it CANNOT be deleted. `setupViz` early-exits on `if (!canvas || !explain ||
+       !slider) return;` before the abort controller, `mount()` and
+       `data-viz-ready`, so removing it means the island never hydrates at all —
+       no play, no step, no predict, no custom input — and eight specs drive it
+       directly as the keyboard scrubber;
+     - and it cannot be PERMANENTLY hidden either. A focusable range input with
+       no visible focus indicator is a 2.4.7 failure: a sighted keyboard user
+       tabs into a control that is simply not there.
+
+     So it takes the pattern this site already ships on `.skip-link` — hidden
+     until focused, visible while focused, instant with no transition, keyed off
+     `:focus-within` on the wrapper so the label returns with the control it
+     names. Reveal is KEYBOARD-ONLY by construction, and deliberately so: the
+     label is clipped to 1x1 at rest and the slider itself is `pointer-events:
+     none` while hidden, so no pointer route into it exists. The rows of the
+     ledger below are the pointer scrubber; this is the keyboard and AT one. The difference is WHERE it hides: the skip link parks itself
+     off-viewport with a transform because it appears in the viewport's corner,
+     while a scrubber has to reveal IN PLACE, so it hides in place instead —
+     `opacity` plus `pointer-events`, and the box it will occupy stays reserved,
+     which means revealing it moves nothing else on the row.
+
+     Never `display: none` or `visibility: hidden`: either would drop the slider
+     out of the accessibility tree — where `aria-valuetext` is its position
+     readout — and out of reach of the specs that fill and focus it. `.viz-counter`
+     stays visible throughout, so the step position is never only in the track. */
+  .viz-slider {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .viz-scrub:focus-within .viz-slider {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* The name arrives with the control it names. Visually hidden the rest of the
+     time — never removed, because the `<label for>` IS the slider's accessible
+     name in every state. */
+  .viz-scrub__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .viz-scrub:focus-within .viz-scrub__label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
   }
 
   /* VD-4: the UA track sits at ~1.3:1 against the card, so both halves are
@@ -1504,9 +1818,26 @@ const targetId = `${uid}-target`;
     flex-wrap: wrap;
   }
 
-  @media (min-width: 640px) {
+  @container viz (min-width: 36rem) {
     .viz-transport {
       justify-content: flex-start;
+    }
+  }
+
+  /* Vertical economy for the pinned stage column. A whole instrument plus its
+     table has to sit inside one viewport there, and these are the bands that can
+     give without costing the reader anything they were using: the gap under the
+     legend, and the frame's and controls' own block padding. (The larger saving
+     was structural — the legend and the counters moved BELOW the transport, so
+     they no longer stand between the drawing and the controls at all.) */
+  @container viz (max-width: 34rem) {
+    .viz-legend {
+      margin-bottom: var(--space-2);
+    }
+
+    .viz-frame,
+    .viz-controls {
+      padding-block: var(--space-3);
     }
   }
 
@@ -1537,8 +1868,11 @@ const targetId = `${uid}-target`;
      colour change on its own reads as a rendering artefact; :active sinks to the
      well level — a fill move, never a transform, since motion in this component
      belongs to the drawing. :focus-visible is deliberately absent: the global
-     ring owns it. --text is 15.97:1 / 11.82:1 on --brand-soft and 15.87:1 /
-     14.36:1 on --surface-sunken. */
+     ring owns it. --text is 14.86:1 / 12.90:1 on --brand-soft and 16.13:1 /
+     15.96:1 on --surface-sunken. Those two fills are the WHOLE difference
+     between hover and pressed now that both states share a --brand border and
+     --brand has no hue left (1.09:1 apart light, 1.24:1 dark) —
+     tests/unit/palette-states.test.ts fails if a palette edit collapses them. */
   .viz-btn:not(:disabled):not([aria-disabled='true']):hover {
     border-color: var(--brand);
     background-color: var(--brand-soft);
@@ -1559,7 +1893,7 @@ const targetId = `${uid}-target`;
 
   /* The brand family's own shades, like `.btn-primary`: --brand-hover darkens in
      light and lightens in dark, and :active takes one more step in whichever
-     direction the theme travels. --brand-contrast stays >= 7.90:1 on both. */
+     direction the theme travels. --brand-contrast stays >= 13.76:1 on both. */
   .viz-btn--play:not(:disabled):not([aria-disabled='true']):hover {
     color: var(--brand-contrast);
     background-color: var(--brand-hover);
@@ -1598,9 +1932,14 @@ const targetId = `${uid}-target`;
      a DOT — a shape, so it survives forced colours and every form of colour
      blindness — while the border turns brand and an inset ring thickens it
      WITHOUT reflowing the row. It is PracticeCheck's chosen-grade recipe on
-     purpose: the same 12% brand tint over the same `--surface` control fill, so
-     "this is on" looks identical in both places and its measured `--text`
-     contrast (14.25:1 light / 12.91:1 dark) carries over unchanged. The state
+     purpose: the same 12% brand tint over the same backdrop, so "this is on"
+     looks identical in both places and its measured `--text` contrast (13.85:1
+     light / 12.21:1 dark) carries over unchanged. That backdrop is the page
+     canvas, NOT this control's own `--surface` fill: the tint is translucent and
+     REPLACES that fill, and neither this toggle nor PracticeCheck's buttons have
+     a painted ancestor before `<html>` — `.viz-frame` does not contain the
+     transport bar. Confirmed by sampling both rendered controls, which composite
+     to the same #DFE0DF light / #292A2B dark. The state
      itself is carried to assistive tech by `aria-pressed`, and the visible label
      stays the constant "Predict". */
   .viz-predict-toggle__dot {
@@ -1632,18 +1971,56 @@ const targetId = `${uid}-target`;
     padding-inline: var(--space-3);
   }
 
-  /* ---- Custom input ---- */
-  .viz-custom {
+  /* ---- Custom input, behind a disclosure (redesign 2026-08) ---- */
+  .viz-custom-open {
     margin-top: var(--space-4);
-    padding-top: var(--space-4);
     border-top: 1px solid var(--border);
   }
 
-  .viz-custom__legend {
-    margin: 0 0 var(--space-2);
+  /* A real control, sized like one: 44px of target (WCAG 2.5.5) with the label
+     and its chevron on the same baseline. It reads as the promise it is —
+     "Run it on your own input" — rather than as the section label the `<p>` it
+     replaces used to be. */
+  .viz-custom-open summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding-block: var(--space-2);
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
     color: var(--text);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .viz-custom-open summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .viz-custom-open summary:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .viz-custom-open summary:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+    border-radius: var(--radius-control);
+  }
+
+  .viz-custom-open__chevron {
+    flex: none;
+    color: var(--text-muted);
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  .viz-custom-open[open] .viz-custom-open__chevron {
+    transform: rotate(90deg);
+  }
+
+  .viz-custom {
+    padding-bottom: var(--space-2);
   }
 
   .viz-custom__fields {
@@ -1713,7 +2090,7 @@ const targetId = `${uid}-target`;
      Post-inversion (M7.3) that backdrop is the page canvas, so this follows
      `--bg` — pointing it at `--surface` would now paint the bound state in the
      RESTING colour and erase the delta entirely. `--text-muted` on `--bg` is
-     7.24:1 / 7.30:1 before the shared 0.5 opacity. */
+     6.49:1 / 7.80:1 before the shared 0.5 opacity. */
   .viz-btn[aria-disabled='true'] {
     border-color: var(--border);
     background-color: var(--bg);
@@ -1745,7 +2122,7 @@ const targetId = `${uid}-target`;
 
   /* The stated reason behind predict's two unavailable controls. Shipped hidden
      in SSR and revealed by the toggle; `--text-muted` on the page canvas is
-     7.24:1 / 7.30:1. Sized like `.viz-keys`, because it is the same kind of
+     6.49:1 / 7.80:1. Sized like `.viz-keys`, because it is the same kind of
      thing: a quiet note about how the transport behaves right now. */
   .viz-predict-note {
     margin: var(--space-3) 0 0;
@@ -1807,11 +2184,18 @@ const targetId = `${uid}-target`;
     display: none;
     align-items: center;
     gap: var(--space-2);
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
+    /* Padded, not margined: it is a region inside the frame's border now (see
+       the frame comment above), so it owes the same gutter as its siblings. */
+    padding: var(--space-3) var(--space-4);
     border-top: 1px solid var(--border);
     font-size: var(--text-sm);
     color: var(--text-muted);
+  }
+
+  @media (min-width: 768px) {
+    .viz-nojs-note {
+      padding-inline: var(--space-6);
+    }
   }
 
   /* Failed state (chunk load failure / unparseable authored input — defense in
@@ -2013,7 +2397,9 @@ const targetId = `${uid}-target`;
 <script>
   import { normalizeSpeed, Player } from './core/player';
   import { errorField } from './core/error-field';
-  import { splitAuthoredInput } from './core/input-hint';
+  import { composeCustomInput, splitAuthoredInput } from './core/input-hint';
+  import { traceExtent } from './core/extent';
+  import { buildLedger, ledgerLayout, withoutCost } from './core/ledger';
   import { algorithms, renderers } from './registry';
   // The `viz:run` name and its payload shape (M8.3). Imported rather than
   // retyped: `src/lib/challenges.ts` owns the contract because its consumers do,
@@ -2024,8 +2410,10 @@ const targetId = `${uid}-target`;
   import { VIZ_RUN_EVENT } from '../lib/challenges';
   import { PROGRESS_CHANGED_EVENT } from '../lib/progress-events';
   import type { VizRunDetail } from '../lib/challenges';
+  import type { Ledger } from './core/ledger';
   import type {
     Algorithm,
+    Extent,
     PredictQuestion,
     Renderer,
     RendererModule,
@@ -2120,12 +2508,37 @@ const targetId = `${uid}-target`;
     const algoId = root.dataset['algorithm'] ?? '';
     const rendererId = root.dataset['renderer'] ?? '';
     const rawInput = root.dataset['input'] ?? '';
+    // The authored raw string, already split into the two fields the form
+    // renders. Read HERE rather than in the two handlers that need it because
+    // `data-input` never changes after hydration, and because the gate
+    // `composeCustomInput` applies has to be the instrument's own authored
+    // value — the rendered placeholder falls back to a bracketed literal for an
+    // instrument that authored nothing, and never reaches this script anyway.
+    const authoredFields = splitAuthoredInput(rawInput);
     const title = root.dataset['label'] ?? '';
     const showMetrics = root.dataset['showMetrics'] === 'true';
     // The SECOND field's rendered label ("Target", "Index", "Search key",
     // "Start node"); empty when that field isn't rendered. errorField reads it
     // so error attribution follows the actual UI instead of a hardcoded word.
     const targetLabel = root.dataset['targetLabel'] ?? '';
+    /**
+     * The authored run's frozen drawing box, measured by the BUILD from the very
+     * trace it rendered the still from — so the first hydrated draw reuses the
+     * still's own viewBox instead of re-deriving one that could differ. Custom
+     * runs measure their own; see `applyTrace`.
+     *
+     * `undefined` for an absent or malformed attribute, which `mount` then
+     * recomputes rather than drawing unfrozen: silently falling back to the
+     * per-step box would reintroduce exactly the resize this exists to stop.
+     */
+    const authoredExtent = ((): Extent | undefined => {
+      const parts = (root.dataset['extent'] ?? '').split(' ');
+      const w = Number(parts[0]);
+      const h = Number(parts[1]);
+      return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
+        ? { w, h }
+        : undefined;
+    })();
     // The lesson a passed predict session credits (M8.2). Emitted by the build
     // only for a `/learn/{slug}` page that also has a predictor, so it is empty
     // on /about and in the dev gallery — where the practice still works and
@@ -2163,6 +2576,22 @@ const targetId = `${uid}-target`;
       root.querySelector<HTMLButtonElement>('[data-viz-restore]');
     const errorBox = root.querySelector<HTMLElement>('[data-viz-error]');
     const errorText = root.querySelector<HTMLElement>('[data-viz-error-text]');
+    // The ledger (Plan C). All of it is `null` on /about and in the dev gallery,
+    // which set `showLedger={false}` — every function below no-ops there. The
+    // four inner nodes are the ONLY ones a rebuild replaces: the `<details>`, its
+    // summary and the well survive, so a reader who has opened the table (or
+    // scrolled it) is not thrown out of it by running a new input.
+    const ledgerRoot = root.querySelector<HTMLElement>('[data-ledger]');
+    const ledgerWell =
+      ledgerRoot?.querySelector<HTMLElement>('[data-ledger-well]') ?? null;
+    const ledgerCaption =
+      ledgerRoot?.querySelector<HTMLElement>('caption') ?? null;
+    const ledgerHead =
+      ledgerRoot?.querySelector<HTMLTableSectionElement>('thead') ?? null;
+    const ledgerBody =
+      ledgerRoot?.querySelector<HTMLTableSectionElement>('tbody') ?? null;
+    const ledgerCount =
+      ledgerRoot?.querySelector<HTMLElement>('[data-ledger-count]') ?? null;
     // Both absent unless the BUILD found real questions in this run's trace.
     const predictBtn =
       root.querySelector<HTMLButtonElement>('[data-viz-predict]');
@@ -2187,6 +2616,13 @@ const targetId = `${uid}-target`;
     let player: Player<unknown> | null = null;
     let algo: Algorithm<unknown, unknown> | null = null;
     let renderer: Renderer<unknown> | null = null;
+    /**
+     * The resolved renderer module, kept beside its `Renderer` because
+     * `applyTrace` needs its `measure` on every custom run — `mount` runs once,
+     * so a module held only in that function's scope would leave every later
+     * trace without a way to compute its own box.
+     */
+    let rendererModule: RendererModule<unknown> | null = null;
     let observer: IntersectionObserver | null = null;
     let destroyed = false;
     /** Pending rAF for the resize-driven overflow measurement; `null` when idle. */
@@ -2230,6 +2666,21 @@ const targetId = `${uid}-target`;
     let passRecorded = false;
     /** A graded prediction waiting to ride the next explanation into the live region. */
     let pendingVerdict: 'right' | 'wrong' | null = null;
+    /**
+     * The two ledger nodes the mark moves between, held so a step costs two
+     * elements rather than a sweep of up to 200 rows. Both are dropped to `null`
+     * by a rebuild, because the nodes they point at leave the document with the
+     * rows they were on.
+     */
+    let ledgerCurrentRow: HTMLTableRowElement | null = null;
+    let ledgerTabStop: HTMLButtonElement | null = null;
+    /**
+     * The index the mark is on, or `null` before the first mark. It exists only
+     * to answer "did the mark MOVE?" — the Player is still the single source of
+     * the current step — because scrolling the well is a response to movement,
+     * not to being asked the same question twice (see `markLedgerRow`).
+     */
+    let ledgerMarked: number | null = null;
     /** The current step's explanation without any verdict prefix. */
     let lastText = explain.textContent ?? '';
 
@@ -2248,6 +2699,7 @@ const targetId = `${uid}-target`;
       if (measureFrame !== null) cancelAnimationFrame(measureFrame);
       player?.pause(); // clears any pending auto-play tick
       renderer?.destroy();
+      rendererModule = null;
       root.removeAttribute('data-viz-ready');
       root.removeAttribute('aria-busy');
       delete root.dataset['vizLoading'];
@@ -2594,6 +3046,40 @@ const targetId = `${uid}-target`;
         passRecorded = false;
         buildStrip();
       }
+      // P0 (Plan C §4): THE LEDGER IS THIS MODE'S ANSWER KEY, so predicting
+      // hides it outright.
+      //
+      // Predict grades one step ahead precisely so the answer is not on screen —
+      // `binary-search.ts` states it — and every predictor grades against
+      // `trace[i + 1]`. The table renders every step INCLUDING that one, with
+      // its state columns and its authored sentence: binary-search's fourth row
+      // is the verbatim answer and its `mid` column answers the other two
+      // questions, `predictAdjacentSwap` is literally
+      // `nextSwaps > swaps ? 0 : 1` against a `swaps` COLUMN, so the column is
+      // the grading expression, and `predictNextVisit` is only asked where the
+      // next step is a visit, which makes the answer the next row by
+      // construction. Nothing else on screen shows `i + 1`. The consequence is
+      // mastery, not just pedagogy: `passFloor` is 3 here, a passing session
+      // calls `recordPass` -> Practiced, and `?review=1` opens this mode
+      // automatically — so the spaced-review deep link is the path that would
+      // land a reader on the answer key.
+      //
+      // HIDDEN, NOT BLANKED. Blanking the cells past the current row still
+      // leaks the answer through the row count, and this codebase already wrote
+      // the rule down: styling a leak is not hiding it, because opacity and
+      // colour are defeated by forced-colors, by a screen reader reading the
+      // accessible name, by select-all and by print. `hidden` is display:none,
+      // which closes all four at once. It is deliberately NOT the killed
+      // cost-withholding (spec §4.1): that blanked one value permanently, for
+      // every reader, on twelve instruments to guard six, while the metric pill
+      // beside it still printed the number — this is opt-in, temporary, and the
+      // thing it hides is the one thing the design already hides.
+      //
+      // Here rather than in the toggle's handler because `setPredict` is the
+      // single writer of every piece of predict state, "so the toggle, the
+      // review deep link and teardown cannot disagree" — and teardown's
+      // `setPredict(false)` is what puts the table back.
+      if (ledgerRoot) ledgerRoot.hidden = on;
       // A11Y-1 again: auto-play and the scrubber become unavailable through
       // `aria-disabled` plus the note that says why — never the `disabled`
       // attribute, which would drop a focused control's focus on `<body>` and
@@ -2669,6 +3155,281 @@ const targetId = `${uid}-target`;
       explain!.replaceChildren(tag, ` — ${text}`);
     }
 
+    // --- The ledger (Plan C §3): the table tracks the run, or it lies about it ---
+    //
+    // The abandoned build derived the table once, in frontmatter, and captured
+    // its rows at setup. Neither `loadTrace` call site — a custom run, "Restore
+    // example" — touched it, so a reader who changed the input got the OLD table
+    // beside the NEW drawing: at the §11 input caps a bubble-sort run reaches
+    // 901 steps against a 29-row table, where the "you are here" mark simply
+    // vanishes and every value column describes a different run. The rebuild
+    // below hangs off `applyTrace` — the one seam both call sites already route
+    // through — so a third caller cannot forget it.
+
+    /**
+     * Moves the "you are here" mark to the row the Player is on.
+     *
+     * The ledger holds no index of its own: the Player stays the single source
+     * of which step is current, which is what keeps the table a second VIEW of
+     * one trace rather than a second copy of its state.
+     *
+     * ROVING TABINDEX — exactly one button in the table is tabbable — so a
+     * 200-row run costs a keyboard reader one tab stop rather than 200, and the
+     * arrow keys move between rows from there. When the current step is past the
+     * row cap there is no row to mark, so the tab stop falls back to the last
+     * rendered row: `aria-current` stays OFF, which is honest (the reader is not
+     * on a row this table shows, and the cap notice says why), while the table
+     * never becomes a region the keyboard cannot enter at all.
+     *
+     * IT ONLY SCROLLS WHEN THE MARK MOVES. Mounting marks step 0 twice (the
+     * Player's `reset` and `wireLedger`), and a reader can arrive at this
+     * instrument from a `<StepLink>`, which scrolls the well to the row it names
+     * and THEN brings the instrument into view — which is what mounts the island
+     * (`IntersectionObserver`). A first mark that revealed would scroll that
+     * reader straight back to row 1, undoing the jump they just made. A mark
+     * that has not moved has nothing to follow.
+     *
+     * @param index - The trace index the Player is on.
+     */
+    function markLedgerRow(index: number): void {
+      if (!ledgerBody) return;
+      const moved = ledgerMarked !== null && ledgerMarked !== index;
+      ledgerMarked = index;
+      ledgerCurrentRow?.removeAttribute('aria-current');
+      ledgerCurrentRow = null;
+      if (ledgerTabStop) ledgerTabStop.tabIndex = -1;
+      ledgerTabStop = null;
+      const rows = ledgerBody.rows;
+      if (rows.length === 0) return;
+      const row = rows.item(index);
+      if (row) {
+        // `step`, not `true`: the token exists for exactly this — one step of a
+        // process — and this site already uses the specific token wherever one
+        // is defined (`page` in the breadcrumb, `location` in the ToC).
+        row.setAttribute('aria-current', 'step');
+        ledgerCurrentRow = row;
+      }
+      ledgerTabStop =
+        (row ?? rows.item(rows.length - 1))?.querySelector<HTMLButtonElement>(
+          '[data-ledger-seek]',
+        ) ?? null;
+      if (ledgerTabStop) ledgerTabStop.tabIndex = 0;
+      if (!row || !ledgerWell || !moved) return;
+      // Keep the current row in view without yanking the page: scroll the WELL,
+      // and only when the row is actually outside it. `scrollIntoView` would
+      // walk every scrollable ancestor — the instrument's own overflow wrapper
+      // and then the document — and move the reader away from the drawing the
+      // row is describing.
+      const rowBox = row.getBoundingClientRect();
+      const wellBox = ledgerWell.getBoundingClientRect();
+      // The column headers are STICKY at the top of the well, so the first
+      // ~35px of it is not somewhere a row can be seen: "inside the well" and
+      // "visible" are not the same test. Without this, stepping backwards left
+      // the current row sitting under the header row — it is `top < wellBox.top`
+      // that is false there, which is why it read as correct.
+      const usableTop =
+        wellBox.top +
+        (ledgerHead?.querySelector('th')?.getBoundingClientRect().height ?? 0);
+      if (rowBox.top < usableTop || rowBox.bottom > wellBox.bottom) {
+        ledgerWell.scrollTop +=
+          rowBox.top - wellBox.top - (wellBox.height - rowBox.height) / 2;
+      }
+    }
+
+    /**
+     * Redraws the table's caption, head, body, step count and cap notice.
+     *
+     * Those five and nothing else — see the query block above for why the
+     * `<details>` and the well are left standing.
+     *
+     * The buttons this creates are ENABLED, unlike the ones the build ships.
+     * Those are `disabled` so a JS-off reader is never offered a control that
+     * cannot act; this code only ever runs where the island is alive, so the
+     * dotted underline the `:disabled` rule withdraws comes back with them.
+     *
+     * @param next - A ledger from `buildLedger`, already capped.
+     */
+    function renderLedger(next: Ledger): void {
+      if (!ledgerRoot || !ledgerHead || !ledgerBody || !ledgerCaption) return;
+      const { whatIndex, numeric } = ledgerLayout(next);
+
+      /** The classes `Ledger.astro` puts on the same column, server-side. */
+      const columnClass = (column: number): string =>
+        [
+          column === whatIndex ? 'viz-ledger__what' : '',
+          numeric[column] ? 'viz-ledger__n' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+
+      const rowWord = next.rows.length === 1 ? 'row' : 'rows';
+      ledgerCaption.textContent = `${title}: ${next.rows.length} ${rowWord}, one per step of this run.`;
+
+      const head = document.createElement('tr');
+      const hash = document.createElement('th');
+      hash.scope = 'col';
+      hash.className = 'viz-ledger__num';
+      hash.textContent = '#';
+      head.append(hash);
+      // Rebuilt rather than reused: the generic fallback derives its columns
+      // from the metric keys the trace actually emits, so a new run can have a
+      // different set of them (spec §11's first-seen order).
+      next.headers.forEach((header, column) => {
+        const th = document.createElement('th');
+        th.scope = 'col';
+        const cls = columnClass(column);
+        if (cls) th.className = cls;
+        th.textContent = header;
+        head.append(th);
+      });
+      ledgerHead.replaceChildren(head);
+
+      const body = document.createDocumentFragment();
+      for (const row of next.rows) {
+        const tr = document.createElement('tr');
+        // The same durable anchor the build writes, so a `<StepLink>` into this
+        // instrument still resolves after the reader has run their own input.
+        tr.id = `${root.id}-row-${row.n}`;
+        tr.dataset['ledgerRow'] = String(row.index);
+        const th = document.createElement('th');
+        th.scope = 'row';
+        th.className = 'viz-ledger__num';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'viz-ledger__seek';
+        button.dataset['ledgerSeek'] = String(row.index);
+        button.setAttribute('aria-label', `Go to step ${row.n}`);
+        button.tabIndex = -1; // markLedgerRow below promotes exactly one
+        button.textContent = String(row.n);
+        th.append(button);
+        tr.append(th);
+        row.cells.forEach((cell, column) => {
+          const td = document.createElement('td');
+          const cls = columnClass(column);
+          if (cls) td.className = cls;
+          td.textContent = cell.text;
+          tr.append(td);
+        });
+        body.append(tr);
+      }
+      ledgerBody.replaceChildren(body);
+
+      if (ledgerCount) {
+        const stepWord = next.total === 1 ? 'step' : 'steps';
+        ledgerCount.textContent = `(${next.total} ${stepWord})`;
+      }
+      // NO SILENT CAPS (spec §11), on this path too: the same
+      // `rows.length < total` test the server render applies, with both numbers
+      // and an action. One rule rather than a server/client branch — a cap only
+      // one path admitted to would be two behaviours to keep in sync, and this
+      // is the path where it can actually bind.
+      const capped = next.rows.length < next.total;
+      const cap =
+        ledgerRoot.querySelector<HTMLElement>('[data-ledger-cap]') ??
+        (capped ? document.createElement('p') : null);
+      if (cap && capped) {
+        cap.className = 'viz-ledger__cap';
+        cap.dataset['ledgerCap'] = '';
+        cap.textContent = `Showing the first ${next.rows.length} of ${next.total} steps. Narrow the input to see the whole run.`;
+        if (!cap.isConnected) ledgerWell?.before(cap);
+      } else if (cap) {
+        cap.remove();
+      }
+
+      // Both marked nodes have just left the document with the rows they were
+      // on — the exact staleness this whole function exists to end.
+      ledgerCurrentRow = null;
+      ledgerTabStop = null;
+      markLedgerRow(player?.currentIndex ?? 0);
+    }
+
+    /**
+     * Transcribes a trace into the table, applying the same two rules the build
+     * applies: `buildLedger`'s 200-row cap, and `showMetrics` on the cost column.
+     *
+     * @param next - The trace the Player has just been given.
+     */
+    function rebuildLedger(next: Trace<unknown>): void {
+      if (!ledgerRoot || !algo) return;
+      const full = buildLedger(next, algo.ledger);
+      renderLedger(showMetrics ? full : withoutCost(full));
+    }
+
+    /**
+     * Brings the table to life: enables the seek controls the build shipped
+     * `disabled`, and binds the two listeners that drive them.
+     *
+     * DELEGATED on the ledger root, once, rather than one listener per button.
+     * The rows are replaced wholesale on every custom run, so per-button
+     * listeners would have to be rebound on each rebuild — and the abandoned
+     * build's were bound without `{signal}`, outliving the island's teardown
+     * contract (TD-4). One pair here survives every rebuild for free.
+     */
+    function wireLedger(): void {
+      if (!ledgerRoot) return;
+      for (const button of ledgerRoot.querySelectorAll<HTMLButtonElement>(
+        '[data-ledger-seek]',
+      )) {
+        button.disabled = false;
+        button.tabIndex = -1;
+      }
+      ledgerRoot.addEventListener(
+        'click',
+        (event) => {
+          const button = (
+            event.target as HTMLElement | null
+          )?.closest<HTMLButtonElement>('[data-ledger-seek]');
+          if (!button) return;
+          // The same decline the slider's handler makes, on the same condition:
+          // scrubbing past a question is the one thing predict mode exists to
+          // prevent. While predicting the table is `hidden`, so no reader can
+          // reach this — the guard is what still holds if that ever regresses.
+          if (predictOn) return;
+          const index = Number(button.dataset['ledgerSeek']);
+          if (Number.isFinite(index)) player?.seek(index);
+        },
+        { signal },
+      );
+      ledgerRoot.addEventListener(
+        'keydown',
+        (event) => {
+          const button = (
+            event.target as HTMLElement | null
+          )?.closest<HTMLButtonElement>('[data-ledger-seek]');
+          if (!button || predictOn || !ledgerBody) return;
+          const rows = ledgerBody.rows;
+          const from = Number(button.dataset['ledgerSeek']);
+          if (!Number.isFinite(from) || rows.length === 0) return;
+          // ←/→ are deliberately absent: they belong to the well, which is a
+          // scroll container in BOTH axes (see the root keydown handler).
+          const next =
+            event.key === 'ArrowDown'
+              ? from + 1
+              : event.key === 'ArrowUp'
+                ? from - 1
+                : event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? rows.length - 1
+                    : null;
+          if (next === null) return;
+          // Swallowed at a bound too: the well must not scroll as a consolation
+          // for a move that didn't happen.
+          event.preventDefault();
+          if (next < 0 || next >= rows.length) return;
+          player?.seek(next);
+          // `markLedgerRow` has already put this row in view and moved the tab
+          // stop onto it, so focus must not scroll anything a second time.
+          rows
+            .item(next)
+            ?.querySelector<HTMLButtonElement>('[data-ledger-seek]')
+            ?.focus({ preventScroll: true });
+        },
+        { signal },
+      );
+      markLedgerRow(player?.currentIndex ?? 0);
+    }
+
     /** onStep: sync explanation, slider, counter, metrics, and button states. */
     function onStep(index: number, step: Step<unknown>): void {
       const length = player?.length ?? 1;
@@ -2684,6 +3445,7 @@ const targetId = `${uid}-target`;
       const progress = length > 1 ? (index / (length - 1)) * 100 : 0;
       slider!.style.setProperty('--viz-progress', `${progress.toFixed(2)}%`);
       if (counter) counter.textContent = `${index + 1} / ${length}`;
+      markLedgerRow(index);
       renderMetrics(step);
       updateButtons(index, length, player?.isPlaying ?? false);
       // The question belongs to the index, so it is re-asked wherever the reader
@@ -2755,6 +3517,48 @@ const targetId = `${uid}-target`;
     }
 
     /**
+     * Swaps in a new trace together with its OWN frozen box.
+     *
+     * Every caller that replaces the trace must come through here — the custom
+     * run and "Restore example" alike. `mount` runs exactly once per island, so
+     * `setExtent` is the only channel that can update the box afterwards, and a
+     * path that skipped it would draw the new run against the previous one's
+     * measurements: too small (and clamped back to per-step resizing) or too
+     * large (a permanent band of empty canvas).
+     *
+     * Order matters: the extent has to be in place BEFORE the redraw
+     * `loadTrace` triggers, and the canvas is re-measured after it —
+     * `syncTraceBounds` ends in `measureCanvas`, so RSP-2's legibility floor and
+     * scroll-region state are reconciled against the box this just set.
+     *
+     * THE LEDGER REBUILDS HERE for the same reason the extent does (Plan C §3):
+     * this is the one seam every trace swap comes through, and a table that did
+     * not follow the trace would be the OLD run's numbers printed beside the NEW
+     * run's drawing — on the one product whose promise is that nothing is faked.
+     * It runs after `loadTrace`, which resets the Player to step 0, so the
+     * "you are here" mark lands on a row that exists.
+     *
+     * KNOWN TRADE, recorded because this is where it first becomes reachable:
+     * both `traceExtent` and the `fitToExtent` inside the redraw throw rather
+     * than draw a box they cannot justify, and `Player.draw` does not guard
+     * `renderer.render`. A throw raised here — from the reader's own input, the
+     * only runtime-only exposure, since every authored run is measured and drawn
+     * at build time — propagates out of the submit handler, and one raised later
+     * from inside `play()`'s self-rescheduling tick would stop the loop with
+     * `playing` still true: the button would read "Pause" over a transport that
+     * no longer advances. Loud-on-impossible-geometry is deliberate (a silently
+     * wrong box is a clipped drawing nobody notices); making the failure legible
+     * belongs to `Player`, not here, so it is named rather than patched around.
+     */
+    function applyTrace(next: Trace<unknown>): void {
+      if (!player || !renderer || !rendererModule) return;
+      renderer.setExtent(traceExtent(rendererModule.measure, next));
+      player.loadTrace(next);
+      rebuildLedger(next);
+      syncTraceBounds();
+    }
+
+    /**
      * Announces a finished custom run to the page (`viz:run`; spec §11.3's M8
      * amendment, contract in `src/lib/challenges.ts`).
      *
@@ -2797,9 +3601,14 @@ const targetId = `${uid}-target`;
     /**
      * RSP-2: gives the drawing a legibility floor and keeps the resulting scroll
      * container operable. The floor itself is CSS (`min-width` from
-     * `--viz-natural-w`); this reads the LIVE `viewBox` — the renderer rewrites
-     * it whenever the item count changes — and then reconciles the canvas's two
-     * competing tabindex needs against reality:
+     * `--viz-natural-w`); this reads the mounted SVG's `viewBox`,
+     * which under the frozen extent (Plan A) holds ONE value for a whole run
+     * and changes only when a new trace brings a new box — mount, a custom run,
+     * or "Restore example". So the floor no longer moves under the reader while
+     * they step, which is the point; what it still owes is a re-measure on every
+     * trace swap, and `applyTrace` pays it through `syncTraceBounds`. Having
+     * read the box, this reconciles the canvas's two competing tabindex needs
+     * against reality:
      *
      * - not overflowing → `tabindex="-1"`: a click target for the Space/←/→
      *   shortcuts, invisible to assistive tech and absent from the tab order;
@@ -2834,14 +3643,26 @@ const targetId = `${uid}-target`;
     }
 
     /**
-     * RSP-2 upkeep. Several renderers GROW mid-trace — a tree gains a level, a
-     * hash bucket gains a chain link, an array insert adds a cell — and both the
-     * legibility floor and the scroll-region reconciliation are computed from the
-     * `viewBox`, so a single mount-time measurement goes stale on exactly the
-     * lessons that need it most. Reading the attribute is a string compare that
-     * touches no layout, so it can run on every step; the full measurement (which
-     * reads `scrollWidth` and therefore forces a synchronous reflow) runs only
-     * when the drawing really changed shape.
+     * RSP-2 upkeep — a smaller job than it was, and still a real one.
+     *
+     * It was written for renderers that GROW mid-trace (a tree gains a level, a
+     * hash bucket gains a chain link, an array insert adds a cell), which made a
+     * single mount-time measurement go stale on exactly the lessons that needed
+     * it most. Freezing one box per trace ended that: within a run the attribute
+     * no longer changes, so on every step after the first this early-returns.
+     *
+     * It is kept because the box is trace-constant only for as long as a caller
+     * keeps it so, and two paths still move it. It changes on the first draw
+     * after a new extent — mount, and every `applyTrace` (custom run, "Restore
+     * example") — where this is what notices first, ahead of the `measureCanvas`
+     * that `syncTraceBounds` runs at the end of the same swap. And `fitToExtent`
+     * CLAMPS to each step's natural box, so a step wider than the frozen extent
+     * (an authored `data-extent` the client's own reduction would not have
+     * produced) still widens the drawing mid-run, with nothing else watching for
+     * it. Reading the attribute is a string compare that touches no layout, so
+     * it can run on every step; the full measurement (which reads `scrollWidth`
+     * and therefore forces a synchronous reflow) runs only when the drawing
+     * really changed shape.
      */
     function remeasureIfResized(): void {
       const svg = canvas!.querySelector('svg');
@@ -2914,10 +3735,19 @@ const targetId = `${uid}-target`;
 
       const trace = algo.run(input);
       currentTrace = trace;
+      rendererModule = rmod;
       renderer = rmod.create();
       // Replace the static still, then mount the live renderer in its place.
       canvas!.replaceChildren();
-      renderer.mount(canvas!, { title });
+      // The extent the BUILD measured from this same run, so the first hydrated
+      // draw reuses the still's exact viewBox and hydration moves nothing. It is
+      // recomputed here when the attribute is missing or unparseable (a partial
+      // View Transition swap, a hand-edited DOM) rather than left undefined,
+      // because drawing unfrozen is the defect, not the fallback.
+      renderer.mount(canvas!, {
+        title,
+        extent: authoredExtent ?? traceExtent(rmod.measure, trace),
+      });
 
       player = new Player<unknown>({
         trace,
@@ -3031,6 +3861,9 @@ const targetId = `${uid}-target`;
       ].forEach((el) => {
         if (el) el.disabled = false;
       });
+      // The ledger's own seek buttons, on the same principle and for the same
+      // reason — they ship `disabled` because with JS off they cannot act.
+      wireLedger();
       updateButtons(player?.currentIndex ?? 0, player?.length ?? 1, false);
 
       // The review queue's deep link (M8.2): `?review=1` opens predict mode for
@@ -3060,7 +3893,18 @@ const targetId = `${uid}-target`;
         (event) => {
           event.preventDefault();
           if (!algo || !player) return;
-          const raw = `${arrayInput?.value ?? ''} target=${targetInput?.value ?? ''}`;
+          // The two fields, joined into the one string parseInput takes. Not a
+          // template literal any more: the help text under these fields
+          // advertises "whole numbers, comma-separated" while every array
+          // parser requires a `[…]` literal, so a reader who typed exactly what
+          // was asked for was told to type an array and a target — with both
+          // fields filled in. composeCustomInput closes that gap, gated on this
+          // instrument's own authored input so a graph or DP field is untouched.
+          const raw = composeCustomInput(
+            arrayInput?.value ?? '',
+            targetInput?.value ?? '',
+            authoredFields.input,
+          );
           const parsed = algo.parseInput(raw);
           if (isParseError(parsed)) {
             showError(parsed.error);
@@ -3072,8 +3916,7 @@ const targetId = `${uid}-target`;
           // only indexed into — this is the same object the Player receives.
           input = parsed;
           currentTrace = algo.run(parsed);
-          player.loadTrace(currentTrace);
-          syncTraceBounds();
+          applyTrace(currentTrace);
           // The reader crafted a run and it succeeded: tell the page (M8.3).
           // Last, so anything listening sees a settled island — and only here,
           // because this is the only path where the input is the reader's own.
@@ -3093,14 +3936,12 @@ const targetId = `${uid}-target`;
           if (!algo || !player) return;
           const parsed = algo.parseInput(rawInput);
           if (isParseError(parsed)) return;
-          const fields = splitAuthoredInput(rawInput);
-          if (arrayInput) arrayInput.value = fields.input;
-          if (targetInput) targetInput.value = fields.target;
+          if (arrayInput) arrayInput.value = authoredFields.input;
+          if (targetInput) targetInput.value = authoredFields.target;
           clearError();
           input = parsed;
           currentTrace = algo.run(parsed);
-          player.loadTrace(currentTrace);
-          syncTraceBounds();
+          applyTrace(currentTrace);
         },
         { signal },
       );
@@ -3144,12 +3985,16 @@ const targetId = `${uid}-target`;
           } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             // While the canvas is a real scroll region (RSP-2), ←/→ belong to
             // the scroll container: stealing them would leave its content
-            // unreachable by keyboard (2.1.1). Everywhere else they step —
+            // unreachable by keyboard (2.1.1). The ledger's well is the same
+            // case and needs no measurement to prove it — it is a scroller in
+            // BOTH axes by construction, and on a narrow screen the cost column
+            // is only reachable by scrolling it sideways. Everywhere else they step —
             // through the SAME availability gate as the buttons they mirror, so
             // a key can never do what the matching control declines to do. The
             // key is still swallowed at a bound: the page must not scroll
             // sideways as a consolation for a step that didn't happen.
             if (canvas!.tabIndex === 0 && canvas!.contains(target)) return;
+            if (ledgerWell?.contains(target)) return;
             event.preventDefault();
             if (event.key === 'ArrowLeft')
               activate(backBtn, () => player?.stepBackward());

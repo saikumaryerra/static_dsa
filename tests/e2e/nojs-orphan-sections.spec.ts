@@ -180,7 +180,7 @@ test.describe('JavaScript disabled — no heading is left without its section', 
     const deadLinks: string[] = [];
 
     for (const lesson of lessons) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       const audit = await auditLesson(page);
 
       // DISCRIMINATOR: the audit found the page's real structure. A selector that

@@ -78,7 +78,7 @@ const DYNAMIC_IMPORT = /\bimport\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/g;
 
 /** One built page's JS, in gzipped bytes. */
 interface PageBudget {
-  /** Path relative to `dist/`, e.g. `learn/binary-search.html`. */
+  /** Path relative to `dist/`, e.g. `learn/binary-search/index.html`. */
   page: string;
   /** Gzipped bytes of inline `<script>` bodies (JSON-LD excluded). */
   inline: number;
@@ -290,7 +290,15 @@ test.describe('the JS budget (spec §4)', () => {
 
   test('the measurement is reading a real build, not an empty directory', async () => {
     const pages = measureAll();
-    const lessons = pages.filter((page) => page.page.startsWith('learn/'));
+    // `learn/index.html` is the CURRICULUM page, not a lesson. Under D1's
+    // `build.format: 'directory'` it lives under `learn/` like the fifteen
+    // lessons do, so the prefix alone would fold it into the set and quietly
+    // turn the "at least 15 lessons" floor below into "at least 14 lessons and
+    // an index".
+    const lessons = pages.filter(
+      (page) =>
+        page.page.startsWith('learn/') && page.page !== 'learn/index.html',
+    );
     // 15 lessons (spec §17). Asserted as a floor rather than a count so adding a
     // lesson is not a test edit — but a parser that matched nothing, or a build
     // that emitted no lesson, cannot pass.
@@ -318,12 +326,19 @@ test.describe('the JS budget (spec §4)', () => {
     // then, and nothing can appear without something having imported it. (A
     // fetched chunk landing in the DEFERRED set is fine and expected: the
     // visualizer hydrates and pulls its algorithm and renderer.)
+    // The dist FILENAME, which moved with `build.format: 'directory'` (D1):
+    // `learn/binary-search.html` became `learn/binary-search/index.html`. A
+    // stale literal here fails as "was not measured" rather than as a budget
+    // breach, so it is worth naming why it is spelled this way.
     const measured = measureAll().find(
-      (candidate) => candidate.page === 'learn/binary-search.html',
+      (candidate) => candidate.page === 'learn/binary-search/index.html',
     );
-    expect(measured, 'learn/binary-search.html was not measured').toBeDefined();
+    expect(
+      measured,
+      'learn/binary-search/index.html was not measured',
+    ).toBeDefined();
 
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const fetched = await page.evaluate(() =>
       performance
         .getEntriesByType('resource')

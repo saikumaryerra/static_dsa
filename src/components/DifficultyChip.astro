@@ -10,10 +10,10 @@
  *   lose nothing (§12).
  *
  * Neutral pill: surface fill, 1px border, uppercase --text-xs, muted text.
- * `--text-muted` on `--surface` is 7.58:1 light / 5.71:1 dark, and 7.24:1 /
- * 7.30:1 where the chip sits directly on the canvas (the lesson meta row) — the
+ * `--text-muted` on `--surface` is 6.67:1 light / 7.22:1 dark, and 6.49:1 /
+ * 7.80:1 where the chip sits directly on the canvas (the lesson meta row) — the
  * label clears 1.4.3 on both backdrops. The `--border` keyline is decorative and
- * owes no floor (1.23:1 on a card, 1.18:1 on the canvas), which is exactly the
+ * owes no floor (1.36:1 on a card, 1.32:1 on the canvas), which is exactly the
  * point: nothing here competes with the algorithm state on a lesson page.
  * Reading only tokens is also what keeps the chip off the print sheet's problem
  * list: global.css's `@media print` block forces the light token set globally,
@@ -23,8 +23,9 @@
  * the thirteen "Beginner" ones, and shipped NEITHER:
  * - Soft semantic fills (VD-6/CMP-2) — proposed, built, then REJECTED at design
  *   review, which withheld sign-off. Three reasons, all measured or structural:
- *   the fills are 1.00–1.06:1 against the card they actually sit on (1.01–1.27:1
- *   against the canvas), so they do almost no perceptual work; what separation
+ *   the fills are 1.05–1.21:1 against the card they actually sit on (1.03–1.30:1
+ *   against the canvas — re-measured on the achromatic palette, which moved the
+ *   canvas but not the white card), so they do almost no perceptual work; what separation
  *   remained was carried by the label hue alone, which is the colour-only
  *   channel the component exists to avoid leaning on; and painting all thirteen
  *   beginner chips as loudly as the two intermediate ones inverts the very

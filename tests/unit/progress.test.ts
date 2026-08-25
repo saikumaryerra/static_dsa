@@ -48,6 +48,7 @@ import {
   isComplete,
   isPracticed,
   isReviewDue,
+  lessonHref,
   MASTERY_GATE_DAYS,
   masteryGateOpen,
   masteryKey,
@@ -1588,10 +1589,51 @@ describe('the review strip copy (the vocabulary ban, read off the exports)', () 
   });
 });
 
-describe('reviewHref', () => {
+/**
+ * THE TWO LINKS ONLY A RETURNING READER EVER SEES, at both deployment shapes.
+ *
+ * Both are built in client JS, where `scripts/portablize.mjs` cannot reach them
+ * — so before D2 they were written `/learn/…` and a sub-path deployment served
+ * the resume CTA and every review card a 404 at the origin root. They take the
+ * deployment root as an argument now (`siteRoot()` reads it off the wordmark at
+ * runtime), which is exactly what makes them testable in this harness: the join
+ * is pure, and the sub-path case is the case that used to be broken.
+ */
+describe('reviewHref and lessonHref', () => {
+  const ROOT = 'https://learndsa.dev/';
+  const SUBPATH = 'https://sample.com/deployments/learndsa/';
+
   it('deep-links to the practice section with predict on for one visit', () => {
-    expect(reviewHref('binary-search')).toBe(
-      '/learn/binary-search?review=1#practice',
+    expect(reviewHref('binary-search', ROOT)).toBe(
+      'https://learndsa.dev/learn/binary-search/?review=1#practice',
+    );
+  });
+
+  it('keeps a review deep-link inside a sub-path deployment', () => {
+    expect(reviewHref('binary-search', SUBPATH)).toBe(
+      'https://sample.com/deployments/learndsa/learn/binary-search/?review=1#practice',
+    );
+  });
+
+  it('points the resume CTA at a lesson, at either deployment shape', () => {
+    expect(lessonHref('arrays', ROOT)).toBe(
+      'https://learndsa.dev/learn/arrays/',
+    );
+    expect(lessonHref('arrays', SUBPATH)).toBe(
+      'https://sample.com/deployments/learndsa/learn/arrays/',
+    );
+  });
+
+  /**
+   * The root is the ANCHOR's resolved href, and an anchor on a lesson page reads
+   * `../../` — i.e. the value handed in is already absolute and already
+   * slash-terminated. Pinned because the join drops everything after the last
+   * slash: a root of `…/learndsa` (no slash) would put the lesson beside the
+   * deployment instead of inside it.
+   */
+  it('joins onto the root path, not beside it', () => {
+    expect(lessonHref('arrays', 'https://sample.com/a/b/')).toBe(
+      'https://sample.com/a/b/learn/arrays/',
     );
   });
 });

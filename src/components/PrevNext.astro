@@ -49,7 +49,7 @@ const nextOverline = next?.trackLabel
 <nav aria-label="Lesson navigation" class="prevnext">
   {
     next ? (
-      <a href={`/learn/${next.slug}`} class="track-card prevnext__next">
+      <a href={`/learn/${next.slug}/`} class="track-card prevnext__next">
         <span class="prevnext__overline">{nextOverline}</span>
         <span class="prevnext__title">{next.title}</span>
         <span class="prevnext__cta">
@@ -57,7 +57,7 @@ const nextOverline = next?.trackLabel
         </span>
       </a>
     ) : (
-      <a href="/learn" class="track-card prevnext__next">
+      <a href="/learn/" class="track-card prevnext__next">
         <span class="prevnext__overline">Last lesson</span>
         <span class="prevnext__title">That's the whole curriculum</span>
         <span class="prevnext__cta">
@@ -68,7 +68,7 @@ const nextOverline = next?.trackLabel
   }
   {
     prev && (
-      <a href={`/learn/${prev.slug}`} class="prevnext__prev">
+      <a href={`/learn/${prev.slug}/`} class="prevnext__prev">
         <span aria-hidden="true">←</span> {prevOverline}{' '}
         <span aria-hidden="true">·</span> {prev.title}
       </a>

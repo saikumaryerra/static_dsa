@@ -39,7 +39,7 @@ import {
 } from './utils/mastery';
 
 const LESSON = 'arrays';
-const LEARN = '/learn';
+const LEARN = '/learn/';
 
 /**
  * Loss-framing and second-currency vocabulary, applied to M8-owned copy.
@@ -114,7 +114,7 @@ test.describe('no ratio, no percentage, no second currency', () => {
   test('a fully graded lesson states counts in words and nothing else', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await page.locator('[data-mark-complete]').click();
     const total = await gradeAll(page, 'had');
 
@@ -189,7 +189,7 @@ test.describe('no ratio, no percentage, no second currency', () => {
       }),
     });
 
-    for (const path of [LEARN, `/learn/${foundations[0]!.slug}`, '/']) {
+    for (const path of [LEARN, `/learn/${foundations[0]!.slug}/`, '/']) {
       await page.goto(path);
       const text = await page.locator('body').innerText();
       const hits = text
@@ -206,7 +206,7 @@ test.describe('no ratio, no percentage, no second currency', () => {
   }) => {
     // "Privacy is a feature" is only true if the reader is told — and the
     // corollary is that a reader who clears their browser is not surprised.
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await gradeAll(page, 'had');
     await page.locator('[data-mark-complete]').click();
 
@@ -258,13 +258,18 @@ test.describe('nothing gates on Learned', () => {
     // the curriculum is navigable in full from the first visit.
     const lessons = await curriculum(page);
     const allLinks = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-lesson-card]')].every(
-        (card) =>
+      [...document.querySelectorAll('[data-lesson-card]')].every((card) => {
+        // Resolved against the page: since D2 the card's href is relative
+        // (`../learn/arrays/`), and where it GOES is what "not locked" means.
+        const href = card.getAttribute('href') ?? '';
+        const path = new URL(href, location.href).pathname;
+        return (
           card.tagName === 'A' &&
-          (card.getAttribute('href') ?? '').startsWith('/learn/') &&
+          path.startsWith('/learn/') &&
           !card.hasAttribute('aria-disabled') &&
-          card.getAttribute('tabindex') !== '-1',
-      ),
+          card.getAttribute('tabindex') !== '-1'
+        );
+      }),
     );
     expect(allLinks, 'every card must be a real, enabled link').toBe(true);
     await expect(page.locator('[data-lesson-card]')).toHaveCount(
@@ -273,7 +278,7 @@ test.describe('nothing gates on Learned', () => {
 
     // …and the last lesson is readable in full with nothing recorded at all.
     const last = lessons[lessons.length - 1]!;
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
     await expect(page.getByRole('heading', { name: 'Practice' })).toBeVisible();
     await expect(page.locator('[data-practice-check]')).not.toHaveCount(0);
     await expect(page.locator('[data-mark-complete]')).toBeEnabled();
@@ -294,7 +299,7 @@ test.describe('nothing gates on Learned', () => {
           .sort(),
       );
 
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     const untouched = await controls(page);
     expect(untouched.length).toBeGreaterThan(3);
 

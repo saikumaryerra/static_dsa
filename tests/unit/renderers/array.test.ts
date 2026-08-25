@@ -15,7 +15,13 @@ describe('arrayRenderer.renderStatic', () => {
       state: { array: [1, 3, 5, 7] },
       explanation: 'Search window is indices 0–3; middle index 1 holds 3.',
       highlights: [
-        { kind: 'range', ids: ['i0', 'i1', 'i2', 'i3'] },
+        // The end labels are the ALGORITHM's, not the renderer's: an unlabelled
+        // range draws its underbar and names nothing (marker-vocabulary.test.ts).
+        {
+          kind: 'range',
+          ids: ['i0', 'i1', 'i2', 'i3'],
+          meta: { startLabel: 'lo', endLabel: 'hi' },
+        },
         { kind: 'active', ids: ['i1'] },
       ],
     };

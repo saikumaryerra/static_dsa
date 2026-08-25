@@ -13,14 +13,16 @@
  * views), `active`. Reads `state.comparing`/`state.swapping` as a convenience so
  * heap algorithms need not emit two id schemes.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { cellId, nodeId } from '../core/ids';
 import { HIGHLIGHTS, type HighlightKind } from '../core/highlight';
 import { circle, group, line, rect, text } from '../core/svg';
 import {
   createRenderer,
+  nullLabelWidth,
   renderStaticSvg,
   swapMark,
+  type Anchor,
   type Canvas,
 } from './shared';
 
@@ -40,11 +42,47 @@ const YSTEP = 62;
 const LEAF_GAP = 60; // horizontal room per bottom-level node
 const CELL = 46;
 const CELL_GAP = 6;
+/** The resting label an empty heap draws. `geometry` sizes the box around it. */
+const EMPTY_LABEL = 'empty heap';
 
 const depthOf = (i: number): number => Math.floor(Math.log2(i + 1));
 const idIndex = (id: string): number => Number(id.slice(1));
 
-function draw(step: Step<HeapState>): Canvas {
+/** Every derived layout constant for one step — see {@link geometry}. */
+interface HeapGeometry {
+  /** The heap's live prefix (`heap` clipped to `size`). */
+  items: number[];
+  /** `items.length` — the node/cell count both bands draw. */
+  n: number;
+  /** Deepest tree level in use; sets how tall the tree band is. */
+  maxDepth: number;
+  /** Horizontal room the bottom tree level needs. */
+  treeWidth: number;
+  /** Horizontal room the backing-array band needs. */
+  arrayWidth: number;
+  /** The wider of the two bands — both are centred within it. */
+  contentWidth: number;
+  /** Left edge of the backing-array band (it is centred on `contentWidth`). */
+  arrayX0: number;
+  /** Top edge of the backing-array band, below the whole tree. */
+  arrayTop: number;
+  /** viewBox width — the two bands, or the resting label, whichever is wider. */
+  width: number;
+  /** viewBox height. */
+  height: number;
+}
+
+/**
+ * Every number the heap's layout is built from, derived ONCE.
+ *
+ * The heap is the renderer whose box and layout are genuinely interdependent:
+ * the tree's depth sets `arrayTop` (hence the height), the wider of the two
+ * bands sets `contentWidth` (hence the width AND where the array band starts).
+ * So `measure` cannot restate a formula without restating all of them — it
+ * returns `{ width, height }` from here, and `draw` destructures the rest from
+ * the same call. One source, no drift.
+ */
+function geometry(step: Step<HeapState>): HeapGeometry {
   const { heap } = step.state;
   const size = Math.min(step.state.size, heap.length);
   const items = heap.slice(0, size);
@@ -55,7 +93,52 @@ function draw(step: Step<HeapState>): Canvas {
   const treeWidth = Math.max(bottomCount * LEAF_GAP, LEAF_GAP);
   const arrayWidth = Math.max(n, 1) * (CELL + CELL_GAP) - CELL_GAP;
   const contentWidth = Math.max(treeWidth, arrayWidth);
-  const width = PAD * 2 + contentWidth;
+  // Floored by the resting label (Plan A §4): an empty heap's band-derived box
+  // is 80 units wide and the centred "empty heap" is ~110, so the still used to
+  // clip it to "mpty hea" for every JS-off reader and every printed page.
+  const width = Math.max(
+    PAD * 2 + contentWidth,
+    n === 0 ? nullLabelWidth(EMPTY_LABEL) + PAD * 2 : 0,
+  );
+  const arrayTop = PAD + TOP + (maxDepth + 1) * YSTEP + 16;
+  const arrayX0 = PAD + (contentWidth - arrayWidth) / 2;
+
+  return {
+    items,
+    n,
+    maxDepth,
+    treeWidth,
+    arrayWidth,
+    contentWidth,
+    arrayX0,
+    arrayTop,
+    width,
+    height: arrayTop + CELL + 24,
+  };
+}
+
+/**
+ * The natural box for one step — geometry only, no markup built. The heap grows
+ * the most of any renderer (80 → 326 units wide across its lesson run), which is
+ * why its box is frozen for the whole trace.
+ */
+const measure = (step: Step<HeapState>): Extent => {
+  const { width, height } = geometry(step);
+  return { w: width, h: height };
+};
+
+/**
+ * Centre-anchored horizontally: each tree level is already centred within the
+ * content width, so centring the drawing inside a wider frozen box keeps the
+ * root — the node the reader tracks through a sift — exactly where it was.
+ */
+const ANCHOR: Anchor = { x: 'center', y: 'top' };
+
+function draw(step: Step<HeapState>): Canvas {
+  // Every derived constant comes from the SAME call `measure` uses, so the box
+  // and the layout inside it can never disagree.
+  const { items, n, treeWidth, arrayX0, arrayTop, width, height } =
+    geometry(step);
 
   // Tree node centers by index (spread within level).
   const treeCx = (i: number): number => {
@@ -66,8 +149,6 @@ function draw(step: Step<HeapState>): Canvas {
   };
   const treeCy = (i: number): number => PAD + TOP + R + depthOf(i) * YSTEP;
 
-  const arrayTop = PAD + TOP + (maxDepth + 1) * YSTEP + 16;
-  const arrayX0 = PAD + (contentWidth - arrayWidth) / 2;
   const cellX = (i: number): number => arrayX0 + i * (CELL + CELL_GAP);
 
   // Which kind marks each index (compare / swap / active) → both views. Store the
@@ -159,7 +240,8 @@ function draw(step: Step<HeapState>): Canvas {
     );
   }
   if (n === 0) {
-    structure += text('empty heap', {
+    // Centred in the box `geometry` widened for it — same call, no drift.
+    structure += text(EMPTY_LABEL, {
       class: 'viz-null',
       x: width / 2,
       y: PAD + TOP + R,
@@ -206,7 +288,6 @@ function draw(step: Step<HeapState>): Canvas {
     });
   }
 
-  const height = arrayTop + CELL + 24;
   return {
     viewBox: `0 0 ${width} ${height}`,
     inner:
@@ -217,6 +298,7 @@ function draw(step: Step<HeapState>): Canvas {
 
 /** Registered heap renderer. */
 export const heapRenderer: RendererModule<HeapState> = {
-  create: () => createRenderer(draw),
-  renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  create: () => createRenderer(draw, ANCHOR),
+  renderStatic: (step, opts) => renderStaticSvg(draw, step, opts, ANCHOR),
+  measure,
 };

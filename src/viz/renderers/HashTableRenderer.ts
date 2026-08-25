@@ -22,7 +22,7 @@
  * Reduced motion inherited from the token layer; single atomic redraw per step
  * via the shared DOM helper. Value text/edges/markers reuse the M2 `viz-*` sheet.
  */
-import type { RendererModule, Step } from '../core/types';
+import type { Extent, RendererModule, Step } from '../core/types';
 import { entryId, slotId } from '../core/ids';
 import { applyHighlights } from '../core/highlight';
 import { group, line, polygon, rect, text } from '../core/svg';
@@ -72,6 +72,21 @@ const heightOf = (cap: number): number =>
 const widthOf = (maxChain: number): number =>
   firstEntryX + Math.max(maxChain, 1) * PITCH + PAD;
 
+/** The longest collision chain in this step — what the width is keyed on. */
+const maxChainOf = (buckets: HashEntry[][]): number =>
+  buckets.reduce((m, chain) => Math.max(m, chain.length), 0);
+
+/**
+ * The natural box for one step. Extracted from `draw` (which now calls it) so a
+ * caller can reduce a trace to its extent without building any markup. The width
+ * grows whenever a bucket collides, which is exactly the moment the reader is
+ * looking at the chain — hence the trace-wide freeze.
+ */
+const measure = (step: Step<HashTableState>): Extent => ({
+  w: widthOf(maxChainOf(step.state.buckets)),
+  h: heightOf(step.state.buckets.length),
+});
+
 /** Right-pointing arrowhead triangle ending at (x, y) — the `next` cue. */
 const arrowRight = (x: number, y: number): string =>
   polygon({
@@ -95,7 +110,6 @@ function draw(step: Step<HashTableState>): Canvas {
   const { buckets } = step.state;
   const cap = buckets.length;
   const classes = applyHighlights(step.highlights);
-  const maxChain = buckets.reduce((m, chain) => Math.max(m, chain.length), 0);
 
   let structure = '';
   for (let b = 0; b < cap; b += 1) {
@@ -244,8 +258,9 @@ function draw(step: Step<HashTableState>): Canvas {
     }
   }
 
+  const box = measure(step);
   return {
-    viewBox: `0 0 ${widthOf(maxChain)} ${heightOf(cap)}`,
+    viewBox: `0 0 ${box.w} ${box.h}`,
     inner:
       group(structure, { class: 'viz-cells' }) +
       group(markers, { class: 'viz-markers' }),
@@ -256,4 +271,5 @@ function draw(step: Step<HashTableState>): Canvas {
 export const hashTableRenderer: RendererModule<HashTableState> = {
   create: () => createRenderer(draw),
   renderStatic: (step, opts) => renderStaticSvg(draw, step, opts),
+  measure,
 };

@@ -47,14 +47,16 @@ import { expect, test, type Page } from '@playwright/test';
 /** The five key routes, with the snapshot name each writes. */
 const ROUTES: { name: string; path: string; hydrates: boolean }[] = [
   { name: 'home', path: '/', hydrates: false },
-  { name: 'learn-index', path: '/learn', hydrates: false },
+  { name: 'learn-index', path: '/learn/', hydrates: false },
   {
     name: 'lesson-binary-search',
-    path: '/learn/binary-search',
+    path: '/learn/binary-search/',
     hydrates: true,
   },
-  { name: 'glossary', path: '/glossary', hydrates: false },
-  { name: 'not-found', path: '/404', hydrates: false },
+  { name: 'glossary', path: '/glossary/', hydrates: false },
+  // `/404/`, not `/404` — see the note in `m7-brand.spec.ts`'s 404 test: the
+  // slashless form serves Astro's built-in error page, not this site's.
+  { name: 'not-found', path: '/404/', hydrates: false },
 ];
 
 /**
@@ -106,10 +108,13 @@ for (const { name, path, hydrates } of ROUTES) {
  * `aria-current` never appears in an aria snapshot, so a regression that stopped
  * marking the current nav item would leave all five baselines byte-identical and
  * green. Hence a direct assertion — and it belongs against the BUILT site, which
- * is what `playwright.config.ts` previews: `build.format: 'file'` emits `/learn`
- * as `learn.html`, so a nav that matches on `Astro.url.pathname` verbatim marks
- * the item correctly in `astro dev` and marks NOTHING in production. That is the
- * exact bug M7.1 fixed, and only a built-site assertion can catch its return.
+ * is what `playwright.config.ts` previews, because the URL shape is a build-time
+ * contract: a nav that compares `Astro.url.pathname` against a `NAV_ITEMS` href
+ * verbatim can mark the item in one shape and mark NOTHING in another. That is
+ * the exact bug M7.1 fixed (then `build.format: 'file'` emitting `learn.html`),
+ * and the one D1 re-armed by putting the trailing slash into the hrefs. The rule
+ * itself is unit-tested in `tests/unit/nav.test.ts`; what only a built-site
+ * assertion can catch is the rule being wired to the wrong pathname.
  */
 test.describe('nav location cues', () => {
   /** The header nav's own "Learn" link — `exact` so "LearnDSA" can't match. */
@@ -122,7 +127,7 @@ test.describe('nav location cues', () => {
   test('a lesson marks its section as the current item, visibly', async ({
     page,
   }) => {
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
 
     // "true" (current item in its set), not "page": the URL is a descendant of
     // /learn, not /learn itself.
@@ -144,7 +149,7 @@ test.describe('nav location cues', () => {
   test('the /learn index marks itself as the current page', async ({
     page,
   }) => {
-    await page.goto('/learn');
+    await page.goto('/learn/');
 
     await expect(headerLearn(page)).toHaveAttribute('aria-current', 'page');
     await expect(headerLearn(page)).toHaveCSS('box-shadow', /inset/);
@@ -153,7 +158,7 @@ test.describe('nav location cues', () => {
   test('the footer repeat of the nav never claims to be current', async ({
     page,
   }) => {
-    await page.goto('/learn');
+    await page.goto('/learn/');
 
     const footer = page.getByRole('contentinfo');
     const links = footer.locator('.nav-link');

@@ -132,11 +132,13 @@
    * un-scoped meta inserted *ahead* of them, which is why this literal OUTRANKS
    * the ones in BaseLayout for every user who ever clicked the toggle.
    *
-   * The two values below are the `--bg` of each theme. M7.3's elevation
-   * inversion moved light from #FFFFFF to #F8FAFC, and this pair is the third
-   * copy of it (tokens.css `:root`, BaseLayout's light meta, here) — change one,
-   * change all three, or the chrome silently diverges from the canvas exactly
-   * where it is hardest to notice: only after an explicit theme choice.
+   * The two values below are the `--bg` of each theme. They have moved twice —
+   * M7.3's elevation inversion took light from #FFFFFF to #F8FAFC, and the
+   * achromatic repaint took the pair to #FCFCFB / #0E0F12 — and this is the
+   * third copy of them (tokens.css `:root` and `[data-theme="dark"]`,
+   * BaseLayout's two media-scoped metas, here) — change one, change all three,
+   * or the chrome silently diverges from the canvas exactly where it is hardest
+   * to notice: only after an explicit theme choice.
    */
   function syncThemeColor(theme: Theme): void {
     const existing = document.head.querySelector<HTMLMetaElement>(
@@ -144,7 +146,7 @@
     );
     const meta = existing ?? document.createElement('meta');
     meta.name = 'theme-color';
-    meta.content = theme === 'dark' ? '#0B1220' : '#F8FAFC';
+    meta.content = theme === 'dark' ? '#0E0F12' : '#FCFCFB';
     if (!existing) {
       document.head.insertBefore(
         meta,

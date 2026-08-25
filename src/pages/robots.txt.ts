@@ -8,9 +8,12 @@
  * sitemap.
  */
 import type { APIRoute } from 'astro';
+import { deploymentUrl } from '../lib/deployment-url';
 
 export const GET: APIRoute = ({ site }) => {
-  const sitemap = new URL('/sitemap.xml', site).href;
+  // D3: joined, not `new URL`, so the pointer survives a sub-path deployment —
+  // and `/sitemap.xml` keeps its extension rather than gaining a trailing slash.
+  const sitemap = deploymentUrl(site!, '/sitemap.xml');
 
   const body = `User-agent: *
 Allow: /

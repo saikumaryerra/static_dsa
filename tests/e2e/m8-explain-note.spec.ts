@@ -213,7 +213,7 @@ test.describe('the prompt appears exactly where it was authored', () => {
     page,
   }) => {
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
 
     // Before the reader says they finished: no box, no prompt, nothing to
     // answer. The design places the note AFTER completion — self-explanation
@@ -274,7 +274,7 @@ test.describe('the prompt appears exactly where it was authored', () => {
       'every published lesson authors an explainPrompt',
     );
     const lesson = WITHOUT_PROMPT[0]!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
 
     // The field is optional per lesson (spec §7), so an unauthored lesson must
@@ -309,7 +309,7 @@ test.describe('the prompt appears exactly where it was authored', () => {
     );
 
     for (const lesson of WITH_PROMPT) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       await expect(
         textarea(page),
         `${lesson.slug} shows no note box`,
@@ -331,7 +331,7 @@ test.describe('what a save actually stores', () => {
     page,
   }) => {
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
     await saveNote(page, lesson.slug, NOTE);
 
@@ -368,7 +368,7 @@ test.describe('what a save actually stores', () => {
     // is reader-supplied text going into a shared 5 MB origin quota: unbounded,
     // one paste can cost the reader every other record on the device.
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
     await expect(textarea(page)).toHaveAttribute('maxlength', /^\d+$/);
     const limit = Number(await textarea(page).getAttribute('maxlength'));
@@ -391,7 +391,7 @@ test.describe('what a save actually stores', () => {
       intervalIndex: 1,
       lastReviewAt: daysAgo(2),
     };
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     // Written after the first navigation, not through an init script: an init
     // script re-runs on every `goto` and would overwrite the note this test is
     // about to save.
@@ -431,7 +431,7 @@ test.describe('what a save actually stores', () => {
     // Self-explanation is its own reward and is never graded: the design's one
     // currency is mastery, and writing a sentence is not retrieval practice.
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
 
     const pips = page.locator('[data-lesson-stage] [data-mastery-pips]');
@@ -458,7 +458,7 @@ test.describe('what a save actually stores', () => {
     expect((record.checks ?? []).filter((check) => check === 1)).toEqual([]);
 
     // …and the macro counters agree: a note moves no number on `/learn`.
-    await page.goto('/learn');
+    await page.goto('/learn/');
     await expect(
       page.locator('[data-track-progress] [data-track-mastery]').first(),
     ).toHaveText('Practiced 0 · Mastered 0');
@@ -480,14 +480,14 @@ test.describe('the note comes back at review time', () => {
       lastReviewAt: null,
       note: NOTE,
     };
-    await page.goto('/learn');
+    await page.goto('/learn/');
     await writeStorage(page, {
       [completeKey(lesson.slug)]: '1',
       [masteryKey(lesson.slug)]: JSON.stringify(due),
     });
 
     // The review path as the product defines it: the strip's deep link.
-    const surfaces = [`/learn/${lesson.slug}?review=1#practice`, '/learn'];
+    const surfaces = [`/learn/${lesson.slug}/?review=1#practice`, '/learn/'];
     const seen: string[] = [];
     let replay: string | null = null;
     for (const path of surfaces) {
@@ -518,7 +518,7 @@ test.describe('the promises around the note', () => {
     page,
   }) => {
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
 
     const block = await noteBlockText(page);
@@ -538,7 +538,7 @@ test.describe('the promises around the note', () => {
     // control's warning and announcement copy". A delete the reader confirms
     // must describe what actually goes.
     const lesson = SUBJECT!;
-    await page.goto('/learn');
+    await page.goto('/learn/');
     await writeStorage(page, {
       [masteryKey(lesson.slug)]: JSON.stringify({
         practicedAt: null,
@@ -565,7 +565,7 @@ test.describe('the promises around the note', () => {
     const errors = trackPageErrors(page);
     await blockStorage(page);
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
 
     const mark = page.locator('[data-mark-complete]');
     await mark.click();
@@ -607,7 +607,7 @@ test.describe('JavaScript disabled', () => {
     page,
   }) => {
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
 
     // Every M8 component ships its own `<noscript>` kill-switch. A note box
     // with no script cannot save anything, and a prompt with no box is an
@@ -639,7 +639,7 @@ test.describe('reachable by keyboard, and never a focus trap', () => {
     // focus stands the instant the note goes — and a real `disabled` would drop
     // that focus onto <body>, stranding a keyboard reader mid-page.
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
     await saveNote(page, lesson.slug, NOTE);
 
@@ -661,7 +661,7 @@ test.describe('reachable by keyboard, and never a focus trap', () => {
     page,
   }) => {
     const lesson = SUBJECT!;
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
 
     // Real focus, real keystrokes: `fill()` would set the value without ever
@@ -702,7 +702,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.addInitScript((value) => {
       localStorage.setItem('theme', value);
     }, theme);
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     await markComplete(page);
     await saveNote(page, lesson.slug, NOTE);
 

@@ -26,7 +26,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-const LESSON = '/learn/binary-search';
+const LESSON = '/learn/binary-search/';
 // Same wrapper the other binary-search specs scope to: the page hosts two array
 // visualizers, so an unscoped locator could resolve to the wrong transport.
 const VIZ = '#viz-binary-search';

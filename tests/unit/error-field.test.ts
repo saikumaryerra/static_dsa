@@ -74,9 +74,12 @@ interface CorpusEntry {
  *
  * Only three route to the target field, and the pattern is consistent: the
  * sentence's SUBJECT is the second field. Everything else either leads with the
- * first field ("Type an array and target, …" names both — first field wins) or
- * names no field at all, and both fall back to the first field, which is also
- * where every non-array structure (edges, keys, `n`) is typed.
+ * first field, or names no field at all, and both fall back to the first field,
+ * which is also where every non-array structure (edges, keys, `n`) is typed.
+ * The closest any shipped message comes to naming both is the hash-table
+ * lesson's "Type keys to insert, …" under its "Search key" label, where the one
+ * word `keys` serves both fields at the same index — a tie the heuristic
+ * resolves to the first field.
  */
 const CORPUS: CorpusEntry[] = [
   {
@@ -105,8 +108,8 @@ const CORPUS: CorpusEntry[] = [
   {
     algorithm: 'binary-search',
     messages: [
-      // Names both fields in its prose; the array is what is missing.
-      ['Type an array and target, e.g. [1,3,5,7] target=5', 'input'],
+      // Names the first field and only the first field.
+      ['Enter an array of whole numbers, e.g. 1,3,5,7', 'input'],
       ['Add a target, e.g. [1,3,5,7] target=5', 'target'],
       ['Use whole numbers only, e.g. [1,3,5,7]', 'input'],
       ['Keep the array to 30 numbers or fewer.', 'input'],
@@ -215,7 +218,7 @@ const CORPUS: CorpusEntry[] = [
   {
     algorithm: 'linear-search',
     messages: [
-      ['Type an array and target, e.g. [4,1,7,2] target=7', 'input'],
+      ['Enter an array of whole numbers, e.g. 4,1,7,2', 'input'],
       ['Add a target, e.g. [4,1,7,2] target=7', 'target'],
       ['Use whole numbers only, e.g. [4,1,7,2]', 'input'],
       ['Keep the array to 30 numbers or fewer.', 'input'],

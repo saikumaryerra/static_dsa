@@ -35,7 +35,7 @@ import {
 } from './utils/mastery';
 
 const LESSON = 'arrays';
-const LESSON_URL = `/learn/${LESSON}`;
+const LESSON_URL = `/learn/${LESSON}/`;
 
 /** One question's root — the component instance that owns a `checks[]` slot. */
 function question(page: Page, index: number) {
@@ -514,7 +514,7 @@ test.describe('the component reached every lesson', () => {
     expect(lessons.length).toBeGreaterThanOrEqual(15);
 
     for (const lesson of lessons) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       const shape = await page.evaluate(() => {
         const heading = document.getElementById('practice');
         const section: Element[] = [];

@@ -9,7 +9,7 @@
  *
  * Inline `Learn / Track / Lesson`, muted, wraps (never truncates) for long/i18n
  * titles. Every crumb but the last is a link (M7.1 IA-6): the track crumb
- * targets `/learn#track-{track}`, the anchor the /learn index puts on each
+ * targets `/learn/#track-{track}`, the anchor the /learn index puts on each
  * track section heading and the home track cards already link to.
  */
 import { trackLabel, type Track } from '../lib/tracks';
@@ -25,9 +25,9 @@ const label = trackLabel(track);
 
 <nav aria-label="Breadcrumb" class="breadcrumb">
   <ol>
-    <li><a href="/learn">Learn</a></li>
+    <li><a href="/learn/">Learn</a></li>
     <li aria-hidden="true" class="sep">/</li>
-    <li><a href={`/learn#track-${track}`}>{label}</a></li>
+    <li><a href={`/learn/#track-${track}`}>{label}</a></li>
     <li aria-hidden="true" class="sep">/</li>
     <li><span aria-current="page">{title}</span></li>
   </ol>

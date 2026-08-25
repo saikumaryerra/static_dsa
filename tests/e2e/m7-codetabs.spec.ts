@@ -16,8 +16,8 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-const LESSON = '/learn/binary-search';
-const OTHER_LESSON = '/learn/arrays';
+const LESSON = '/learn/binary-search/';
+const OTHER_LESSON = '/learn/arrays/';
 
 /** The tab for one language inside the nth CodeTabs group on the page. */
 function tab(page: Page, group: number, lang: string) {

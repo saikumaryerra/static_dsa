@@ -287,10 +287,11 @@ const titleId = `ch-title-${uid}`;
      forced colours, greyscale and every form of colour blindness (§12: never
      colour alone). The tint is MarkComplete's brand mix at half strength (6% of
      --brand, against this card's --surface rather than MarkComplete's
-     `transparent`), and --text stays far clear of AA on it: 16.33:1 light,
-     10.85:1 dark — recomputed with the same sRGB `color-mix` + WCAG luminance
+     `transparent`), and --text stays far clear of AA on it: 16.15:1 light,
+     12.99:1 dark — recomputed with the same sRGB `color-mix` + WCAG luminance
      math `tests/unit/tokens-contrast.test.ts` uses, because the numbers this
-     comment carried before (14.6 / 12.9) matched neither theme. */
+     comment carried at M8 (14.6 / 12.9) matched neither theme, and the
+     achromatic repaint moved both again. */
   .challenge[data-cleared] {
     border-color: var(--brand);
     background-color: color-mix(in srgb, var(--brand) 6%, var(--surface));

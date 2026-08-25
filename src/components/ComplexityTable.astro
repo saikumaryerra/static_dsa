@@ -12,11 +12,14 @@
  * M7.3 VD-3: the table is elevation level 1 (`--surface` + 1px `--border` +
  * resting `--shadow-1`, the `.track-card` recipe). It already had the border;
  * the shadow is what the inversion made necessary, because the fill alone is now
- * 1.05:1 against the canvas in light (1.28:1 dark), leaving the whole outer edge
- * to a `--border` hairline at 1.18:1 light / 1.81:1 dark. Text inside is
- * untouched by the change and still AA: `--text` on `--surface` is 17.85:1 light
- * / 11.87:1 dark, `--text-muted` (the header and row-label cells) 7.58:1 /
- * 5.71:1.
+ * 1.03:1 against the canvas in light (1.08:1 dark), leaving the whole outer edge
+ * to a `--border` hairline at 1.32:1 light / 1.36:1 dark. The achromatic repaint
+ * made that argument stronger, not weaker: the fill/canvas step got quieter in
+ * both themes (it was 1.05:1 / 1.28:1 on the slate palette) while the hairline
+ * got louder, so the shadow and the keyline are now the whole boundary. Text
+ * inside is untouched by the change and still AA: `--text` on `--surface` is
+ * 18.24:1 light / 15.00:1 dark, `--text-muted` (the header and row-label cells)
+ * 6.67:1 / 7.22:1.
  */
 interface Complexity {
   time: { best: string; average: string; worst: string };

@@ -22,10 +22,14 @@
  *
  * Trials consume the run the reader just watched — the `viz:run` event carries
  * the trace's final step — so nothing here re-runs an algorithm to grade it, and
- * every clearing input below is crafted in the visualizer's OWN "Try your own
- * input" form, exactly as a reader would.
+ * every clearing input below is crafted in the visualizer's OWN custom-input
+ * form, exactly as a reader would. Since the 2026-08 redesign that form is a
+ * `<details>` labelled "Run it on your own input — {algorithm}" rather than an
+ * always-open panel (amendment C-2), so the reader's act now begins with one
+ * click on a real control — which is what `runInput` opens with below.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   curriculum,
@@ -76,8 +80,18 @@ const BANNED =
 const TIMED =
   /\b(seconds? left|time left|timer|countdown|beat the clock|\d+:\d\d)\b/i;
 
-/** Runs a custom input through a visualizer's own form and waits for the run. */
+/**
+ * Runs a custom input through a visualizer's own form and waits for the run.
+ *
+ * Opens the disclosure the form now sits behind first (amendment C-2): it is a
+ * real `<details>`, so the fields are `display: none` — and therefore not
+ * fillable — until it is open. `openCustomInput` sets `open` rather than
+ * clicking the summary, so it is idempotent: the tests below that run a second
+ * input through the same instrument (miss-then-clear) do not toggle the form
+ * shut on the way in.
+ */
 async function runInput(viz: Locator, array: string): Promise<void> {
+  await openCustomInput(viz);
   await viz.locator('[data-viz-array]').fill(array);
   const target = viz.locator('[data-viz-target]');
   // The second field is opt-out (`showTarget`, default true), so a sort
@@ -101,7 +115,7 @@ async function openTrialLesson(
   lesson: string,
   algorithm: string,
 ): Promise<Locator> {
-  await page.goto(`/learn/${lesson}`);
+  await page.goto(`/learn/${lesson}/`);
   return hydrateViz(page.locator(`[data-viz][data-algorithm="${algorithm}"]`));
 }
 
@@ -120,7 +134,7 @@ async function track(page: Page, name: string): Promise<LessonRef[]> {
  */
 async function findFinalRunLesson(page: Page): Promise<string> {
   for (const lesson of await track(page, 'algorithms')) {
-    await page.goto(`/learn/${lesson.slug}`);
+    await page.goto(`/learn/${lesson.slug}/`);
     if ((await page.locator(FINAL).count()) > 0) return lesson.slug;
   }
   throw new Error(
@@ -136,7 +150,7 @@ test.describe('the trials reached the lessons they were written for', () => {
     const seen: string[] = [];
 
     for (const lesson of lessons) {
-      await page.goto(`/learn/${lesson.slug}`);
+      await page.goto(`/learn/${lesson.slug}/`);
       const ids = await page.evaluate(() =>
         [...document.querySelectorAll('[data-challenge]')].map(
           (card) => card.getAttribute('data-challenge-id') ?? '',
@@ -175,7 +189,7 @@ test.describe('the trials reached the lessons they were written for', () => {
     page,
   }) => {
     const readIntervals = await trackIntervals(page);
-    await page.goto(`/learn/${WORST_CASE.lesson}`);
+    await page.goto(`/learn/${WORST_CASE.lesson}/`);
     const card = page.locator(`[data-challenge-id="${WORST_CASE.id}"]`);
     await expect(card, `${WORST_CASE.id} must be on its lesson`).toHaveCount(1);
 
@@ -218,7 +232,7 @@ test.describe('the trials reached the lessons they were written for', () => {
   }) => {
     // Binary search's trial pins the array and asks for a target, so the reader
     // has to be able to reproduce the array exactly.
-    await page.goto('/learn/binary-search');
+    await page.goto('/learn/binary-search/');
     const card = page.locator('[data-challenge-id="binary-search/two-probes"]');
     await expect(card).toHaveCount(1);
     await expect(card.locator('code')).toHaveText(
@@ -366,13 +380,19 @@ test.describe('the Final Run: unlimited attempts, no first-try anything', () => 
     await expect(status).toContainText(
       (await card.getAttribute('data-answer-text'))!,
     );
-    // …beside the route into the visualization, which is a real link to a real
-    // heading on this page.
+    // …beside the route into the visualization, which is a real link to the
+    // INSTRUMENT itself. Amendment F-1 moved this anchor off the heading a
+    // <Visualizer> sat under and onto the instrument's own derived id
+    // (`instrumentIdFor`), because the drawing no longer lives a screenful below
+    // its own `##` — and on binary search there is no `## Visualizer` heading
+    // left to fall back to (amendment S-1). So the target is asserted to BE the
+    // instrument rather than merely to be some element that exists: a link that
+    // resolved to the heading again would still pass a bare count-of-1.
     const watch = card.locator('[data-final-run-watch]');
     await expect(watch).toBeVisible();
     const href = await watch.locator('a').getAttribute('href');
     expect(href).toMatch(/^#/);
-    await expect(page.locator(href!)).toHaveCount(1);
+    await expect(page.locator(`${href!}[data-viz]`)).toHaveCount(1);
 
     // A miss is not a mark: nothing is recorded and nothing is counted.
     expect(await readKey(page, FINAL_RUN_KEY)).toBeNull();
@@ -642,7 +662,7 @@ test.describe('the reset control clears the enrichment keys too', () => {
       [FINAL_RUN_KEY]: JSON.stringify({ [WORST_CASE.lesson]: { c: 1 } }),
       theme: 'dark',
     });
-    await page.goto('/learn');
+    await page.goto('/learn/');
 
     const toggle = page.locator('[data-reset-toggle]');
     await expect(toggle).toHaveAttribute('aria-disabled', 'false');
@@ -667,7 +687,7 @@ test.describe('degraded — no JS, no store', () => {
       // Both are JS-only by construction — a trial needs the run event and a
       // Final Run needs the check — so a JS-off visitor would otherwise meet a
       // puzzle and a question that can never be finished.
-      await page.goto(`/learn/${WORST_CASE.lesson}`);
+      await page.goto(`/learn/${WORST_CASE.lesson}/`);
       await expect(page.locator(`${TRIAL}:visible`)).toHaveCount(0);
       await expect(page.locator(`${FINAL}:visible`)).toHaveCount(0);
       const text = await page.locator('body').innerText();
@@ -713,7 +733,7 @@ test.describe('degraded — no JS, no store', () => {
     const errors = trackPageErrors(page);
     const slug = await findFinalRunLesson(page);
     await blockStorage(page);
-    await page.goto(`/learn/${slug}`);
+    await page.goto(`/learn/${slug}/`);
 
     const card = page.locator(FINAL);
     const answer = (await card.getAttribute('data-answer'))!;

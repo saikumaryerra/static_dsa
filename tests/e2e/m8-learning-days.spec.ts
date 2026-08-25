@@ -58,7 +58,7 @@ const DAYS_KEY = 'ld:days:v1';
 
 const LESSON = 'arrays';
 const SECOND_LESSON = 'stacks';
-const LEARN = '/learn';
+const LEARN = '/learn/';
 
 /** Milliseconds in a day. */
 const DAY_MS = 86_400_000;
@@ -300,7 +300,7 @@ async function findDaysLine(
   page: Page,
   count: number,
 ): Promise<{ path: string; text: string } | null> {
-  for (const path of [LEARN, '/', `/learn/${LESSON}`]) {
+  for (const path of [LEARN, '/', `/learn/${LESSON}/`]) {
     await page.goto(path);
     const text = await daysLineOn(page, count);
     if (text !== null) return { path, text };
@@ -312,7 +312,7 @@ test.describe('the count is true', () => {
   test('marking a lesson complete counts the day, stored as exactly { count, last }', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     expect(
       await readDays(page),
       'nothing may be stored before the reader acts',
@@ -326,14 +326,14 @@ test.describe('the count is true', () => {
   });
 
   test('a self-graded practice question counts the day', async ({ page }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     expectDayRecordShape(await waitForCount(page, 1));
   });
 
   test('two acts on the same day count once', async ({ page }) => {
     const startedOn = await localDay(page);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
 
     await learningAct(page, 0);
     const first = await waitForCount(page, 1);
@@ -357,13 +357,13 @@ test.describe('the count is true', () => {
   });
 
   test('a reload is not a second act', async ({ page }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 1);
 
     await page.reload();
     await page.goto(LEARN);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     expect(await daysCount(page)).toBe(1);
   });
 
@@ -377,7 +377,7 @@ test.describe('the count is true', () => {
     const errors = trackPageErrors(page);
     await page.goto('/');
     await page.goto(LEARN);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await page.mouse.wheel(0, 4_000);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await openQuestion(page, 0);
@@ -406,7 +406,7 @@ test.describe('it is not a streak', () => {
     // after a gap finds their number where they left it, one higher — and meets
     // no copy about the gap at all.
     const startedOn = await localDay(page);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 1);
 
@@ -414,7 +414,7 @@ test.describe('it is not a streak', () => {
     // written in the product's own stamp format.
     await shiftLastBack(page, 6, 5);
 
-    await page.goto(`/learn/${SECOND_LESSON}`);
+    await page.goto(`/learn/${SECOND_LESSON}/`);
     await learningAct(page);
     const record = await waitForCount(page, 6);
     expectDayRecordShape(record);
@@ -426,7 +426,7 @@ test.describe('it is not a streak', () => {
     expect(record['count'], 'the count must only ever go up').toBe(6);
 
     // Nothing anywhere frames the gap as a loss.
-    for (const path of [LEARN, `/learn/${SECOND_LESSON}`]) {
+    for (const path of [LEARN, `/learn/${SECOND_LESSON}/`]) {
       await page.goto(path);
       const body = withoutDisclaimer(await page.locator('body').innerText());
       const hits = body.split('\n').filter((line) => BANNED.test(line));
@@ -438,12 +438,12 @@ test.describe('it is not a streak', () => {
   test('the line states the number without a target, a chain or a comparison', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 1);
     // A long-running device: eleven days counted, the last of them 40 days ago.
     await shiftLastBack(page, 40, 11);
-    await page.goto(`/learn/${SECOND_LESSON}`);
+    await page.goto(`/learn/${SECOND_LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 12);
 
@@ -467,7 +467,7 @@ test.describe('it is not a streak', () => {
     // `trackIntervals` is installed before the first script runs and filters by
     // CALLER, so a dev server's own timers cannot mask a product one.
     const readIntervals = await trackIntervals(page);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 1);
 
@@ -490,7 +490,7 @@ test.describe('the delete half of the promise', () => {
   test('the reset control clears the count and says that it will', async ({
     page,
   }) => {
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 1);
 
@@ -534,7 +534,7 @@ test.describe('degraded states', () => {
   }) => {
     const errors = trackPageErrors(page);
     await blockStorage(page);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await markComplete(page);
     await page.goto(LEARN);
 
@@ -559,7 +559,7 @@ test.describe('degraded states', () => {
     expect(errors).toEqual([]);
 
     // …and an act writes a clean record over it rather than compounding it.
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     expectDayRecordShape(await waitForCount(page, 1));
   });
@@ -581,7 +581,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.addInitScript((value) => {
       localStorage.setItem('theme', value);
     }, theme);
-    await page.goto(`/learn/${LESSON}`);
+    await page.goto(`/learn/${LESSON}/`);
     await learningAct(page);
     await waitForCount(page, 1);
     await page.goto(LEARN);
@@ -607,7 +607,7 @@ test.describe('JavaScript disabled', () => {
     // Every M8 component ships its own `<noscript>` kill-switch: with no script
     // there is no storage read, so any number on screen would be a fiction the
     // build invented about a device it never saw.
-    for (const path of [LEARN, '/', `/learn/${LESSON}`]) {
+    for (const path of [LEARN, '/', `/learn/${LESSON}/`]) {
       await page.goto(path);
       const body = await page.locator('body').innerText();
       expect(

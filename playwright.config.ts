@@ -2,6 +2,25 @@
 // bytes) so `astro check` can type `process.env` in this Node-executed config.
 import { defineConfig, devices } from '@playwright/test';
 
+/**
+ * The sub-path the portability project mounts `dist/` at (Plan D §7, R3).
+ *
+ * TWO segments deep on purpose: a one-level prefix is satisfied by a pass that
+ * gets the arithmetic half right, and `/deployments/learndsa` is not.
+ *
+ * FIXED rather than random, which is the opposite of what "prove nothing is
+ * hardcoded" suggests — because this config file is re-imported by every worker
+ * process. A random prefix would be generated once for the server command and
+ * again, differently, for each worker's `baseURL`, and the suite would fail for
+ * a reason that has nothing to do with portability. The spec itself never spells
+ * the prefix: it navigates with relative URLs against `baseURL` and asserts only
+ * that it is NOT at the origin root, so a hardcoded path in the artifact still
+ * fails the test.
+ */
+const SUBPATH = '/deployments/learndsa';
+/** Port for the sub-path fixture; `astro preview` owns 4321. */
+const SUBPATH_PORT = 4322;
+
 export default defineConfig({
   testDir: 'tests/e2e',
   fullyParallel: true,
@@ -42,20 +61,46 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // The whole suite runs against the ROOT deployment, which is the other
+      // half of the portability proof: the same `dist/` the sub-path project
+      // walks is the one every other test here exercises at `/`.
+      testIgnore: /portable\.spec\.ts/,
+    },
+    {
+      // D2's requirement R3, served rather than argued: the same artifact under
+      // `http://localhost:4322/deployments/learndsa/`.
+      name: 'portable',
+      testMatch: /portable\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://localhost:${SUBPATH_PORT}${SUBPATH}/`,
+      },
     },
   ],
-  webServer: {
-    // e2e must exercise the real static output, so preview the built `dist/`.
-    // Locally this is self-contained (build then preview). On CI the workflow has
-    // already run `npm run build` as its own gate step, so rebuilding here would
-    // run `astro check` + build a second time for no benefit. Skipping it is safe:
-    // `astro preview` exits 1 with "The output directory ... does not exist" if
-    // `dist/` is missing, so a mis-ordered pipeline fails loudly, never silently.
-    command: process.env['CI']
-      ? 'npm run preview'
-      : 'npm run build && npm run preview',
-    url: 'http://localhost:4321',
-    reuseExistingServer: !process.env['CI'],
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      // e2e must exercise the real static output, so preview the built `dist/`.
+      // Locally this is self-contained (build then preview). On CI the workflow has
+      // already run `npm run build` as its own gate step, so rebuilding here would
+      // run `astro check` + build a second time for no benefit. Skipping it is safe:
+      // `astro preview` exits 1 with "The output directory ... does not exist" if
+      // `dist/` is missing, so a mis-ordered pipeline fails loudly, never silently.
+      command: process.env['CI']
+        ? 'npm run preview'
+        : 'npm run build && npm run preview',
+      url: 'http://localhost:4321',
+      reuseExistingServer: !process.env['CI'],
+      timeout: 120_000,
+    },
+    {
+      // Second, and second for a reason: Playwright starts these in order, so
+      // the build above has finished by the time this one is polled. It is a
+      // deliberately dumb static server (no extension guessing, no redirects) —
+      // the host class `build.format: 'directory'` exists to support.
+      command: `node tests/e2e/fixtures/static-server.mjs ${SUBPATH_PORT} ${SUBPATH}`,
+      url: `http://localhost:${SUBPATH_PORT}${SUBPATH}/`,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 120_000,
+    },
+  ],
 });

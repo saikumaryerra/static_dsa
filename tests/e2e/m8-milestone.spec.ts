@@ -72,7 +72,7 @@ test.describe('when it fires', () => {
     // only click that may celebrate — and only because the track was learned,
     // not merely ticked.
     const last = await readyToFinish(page, foundations);
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
 
     // Ships EMPTY: a live region has to be in the accessibility tree BEFORE its
     // first population for the announcement to fire reliably.
@@ -107,7 +107,7 @@ test.describe('when it fires', () => {
   }) => {
     const lessons = await curriculum(page);
     const last = await readyToFinish(page, lessons);
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
     await page.locator('[data-mark-complete]').click();
 
     // This click finishes a track AND the course; the design allows exactly one
@@ -123,7 +123,7 @@ test.describe('when it fires', () => {
   }) => {
     const foundations = await trackLessons(page, 'foundations');
     const last = await readyToFinish(page, foundations);
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
     await page.locator('[data-mark-complete]').click();
     await expect(milestone(page)).not.toHaveText('');
 
@@ -168,7 +168,7 @@ test.describe('when it must NOT fire', () => {
       foundations.slice(0, -1).map((lesson) => lesson.slug),
     );
     // No `progress:v1:*` record for ANY lesson — nothing was ever retrieved.
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
 
     const button = page.locator('[data-mark-complete]');
     await button.click();
@@ -190,7 +190,7 @@ test.describe('when it must NOT fire', () => {
     // retrieval records — and the line arrives.
     const foundations = await trackLessons(page, 'foundations');
     const last = await readyToFinish(page, foundations);
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
 
     await page.locator('[data-mark-complete]').click();
     await expect(page.locator('[data-mark-complete-note]')).toBeVisible();
@@ -215,7 +215,7 @@ test.describe('when it must NOT fire', () => {
       foundations.map((lesson) => lesson.slug),
     );
     const target = foundations[foundations.length - 3]!;
-    await page.goto(`/learn/${target.slug}`);
+    await page.goto(`/learn/${target.slug}/`);
 
     const button = page.locator('[data-mark-complete]');
     await button.click();
@@ -238,7 +238,7 @@ test.describe('when it must NOT fire', () => {
     // met, so the only reason no line appears is that arriving is not earning.
     await seedComplete(page, slugs);
     await seedPracticed(page, slugs);
-    await page.goto(`/learn/${foundations[0]!.slug}`);
+    await page.goto(`/learn/${foundations[0]!.slug}/`);
 
     // The track is already complete on this device, and the button correctly
     // reads as pressed — but nothing was EARNED by arriving here.
@@ -266,7 +266,7 @@ test.describe('when it must NOT fire', () => {
       ...foundations.map((lesson) => lesson.slug),
       algorithms[0]!.slug,
     ]);
-    await page.goto(`/learn/${algorithms[0]!.slug}`);
+    await page.goto(`/learn/${algorithms[0]!.slug}/`);
     await page.locator('[data-mark-complete]').click();
 
     await expect(page.locator('[data-mark-complete-note]')).toBeVisible();
@@ -280,7 +280,7 @@ test.describe('when it retires', () => {
   }) => {
     const foundations = await trackLessons(page, 'foundations');
     const last = await readyToFinish(page, foundations);
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
 
     const button = page.locator('[data-mark-complete]');
     await button.click();
@@ -300,7 +300,7 @@ test.describe('when it retires', () => {
   }) => {
     const foundations = await trackLessons(page, 'foundations');
     const last = await readyToFinish(page, foundations);
-    await page.goto(`/learn/${last.slug}`);
+    await page.goto(`/learn/${last.slug}/`);
     await page.locator('[data-mark-complete]').click();
     await expect(milestone(page)).not.toHaveText('');
 
