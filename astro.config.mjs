@@ -28,21 +28,44 @@ import tailwindcss from '@tailwindcss/vite';
 const SENTINEL = 'https://learndsa.invalid';
 const site = process.env.SITE_URL || SENTINEL;
 
-// THE SAFETY RULE: a real deployment must never silently ship the sentinel.
-// `CF_PAGES` is set on (and only on) a genuine Cloudflare Pages build, so an
-// unstamped one fails here instead of publishing 20 canonicals, 19 sitemap
-// <loc>s and an OG card that all name a domain that cannot exist. Local `npm
-// run build` and GitHub-Actions CI set neither variable and get the sentinel
-// with no failure — neither of them needs a real origin, and the e2e suite
-// tests the same artifact either way because it asserts on paths, not hosts.
+/**
+ * Hosting platforms that BUILD AND PUBLISH — the ones where an unstamped build
+ * becomes a live site. Each entry is an environment variable that platform sets
+ * on its own builders and nowhere else.
+ *
+ * THIS LIST IS THE FIX FOR A REAL INCIDENT (2026-08-24). It read `CF_PAGES`
+ * alone, which is set on Cloudflare *Pages* — and this project deploys through
+ * Cloudflare *Workers Builds*, which sets `WORKERS_CI` instead. So the guard
+ * written to stop exactly this silently did not fire, the build succeeded, and
+ * it printed `https://learndsa.invalid/`. Only an unrelated failure downstream
+ * stopped 21 canonicals naming an unresolvable domain from going live.
+ *
+ * The lesson generalized: naming ONE platform made the guard a statement about
+ * Cloudflare Pages when it needed to be a statement about deploying at all. Add
+ * a row when a host is adopted — the cost of a missing one is a silent bad
+ * deploy, and the cost of a spurious one is a build that says exactly what to set.
+ */
+const PUBLISHING_BUILDERS = [
+  ['CF_PAGES', 'Cloudflare Pages'],
+  ['WORKERS_CI', 'Cloudflare Workers Builds'],
+  ['NETLIFY', 'Netlify'],
+  ['VERCEL', 'Vercel'],
+];
+
+// THE SAFETY RULE: a real deployment must never silently ship the sentinel. An
+// unstamped build fails here instead of publishing 20 canonicals, 19 sitemap
+// <loc>s and an OG card that all name a domain that cannot exist. A local `npm
+// run build` and the GitHub-Actions gate set none of these and get the sentinel
+// with no failure — neither needs a real origin, and the e2e suite tests the
+// same artifact either way because it asserts on paths, not hosts.
 //
-// It fires on PREVIEW deployments too, because `CF_PAGES` is set for those as
-// well. That is deliberate and it preserves the previous behaviour: set
-// `SITE_URL` project-wide (both environments) in the Pages dashboard and a
-// preview canonicalizes to production, so it never competes with it in search.
-if (site === SENTINEL && process.env.CF_PAGES) {
+// It fires on PREVIEW deployments too, because these variables are set there as
+// well. That is deliberate: set `SITE_URL` project-wide and a preview
+// canonicalizes to production, so it never competes with it in search.
+const publisher = PUBLISHING_BUILDERS.find(([key]) => process.env[key]);
+if (site === SENTINEL && publisher) {
   throw new Error(
-    'SITE_URL is not set on a Cloudflare Pages build. Every canonical, og:url, sitemap <loc> and JSON-LD url would ship the unstamped sentinel https://learndsa.invalid. Set SITE_URL to the full deployment URL, sub-path included (e.g. https://learndsa.dev), as a build variable for BOTH environments — see docs/deployment.md §2.1.',
+    `SITE_URL is not set on a ${publisher[1]} build. Every canonical, og:url, sitemap <loc> and JSON-LD url would ship the unstamped sentinel ${SENTINEL}. Set SITE_URL to the full deployment URL, sub-path included (e.g. https://learndsa.dev), as a build variable for BOTH the production and preview environments — see docs/deployment.md §2.1.`,
   );
 }
 

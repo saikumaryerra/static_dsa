@@ -154,7 +154,7 @@ if it looks like an improvement.
 | `docs/m7-ux-overhaul.md`, `docs/m8-gamification.md`        | the UX overhaul and the mastery loop: design, what shipped, and the deviations/deferrals                          |
 | `docs/design-tokens-m1.md`                                 | the token system and its rationales (its code blocks are a retired M1 snapshot — `src/styles/tokens.css` is live) |
 | `docs/m2-*`, `docs/m3-*`, `docs/m5-*`, `docs/m6-design.md` | earlier milestones: lesson layout, viz framework, glossary/SEO, the DP lesson                                     |
-| `docs/deployment.md`                                       | production deploy: the deployment URL per host, Cloudflare Pages + GitHub Actions, Node pin, the DoD gate         |
+| `docs/deployment.md`                                       | production deploy: the deployment URL per host, Cloudflare Workers Builds + `wrangler.jsonc`, Node pin, DoD gate  |
 | `CLAUDE.md`, `Agents.md`                                   | how AI coding agents are expected to work in this repo — read these before running one                            |
 
 If a request conflicts with the spec, flag the conflict instead of guessing. If the spec is silent,
@@ -171,13 +171,17 @@ choose the simplest option that satisfies the goals and leave a `// SPEC-GAP:` c
 
 ## Deployment
 
-Cloudflare Pages is connected to the repository and runs its own `npm run build` on every push to
-`main`; the GitHub Actions workflow runs the checks Cloudflare does not (lint, format, unit, e2e +
-axe) and is meant to be a required status check. The workflow deliberately does not deploy — the two
-systems are independent, so without branch protection a red gate cannot stop a deploy. Response
-headers (security + caching) ship as `public/_headers`, which Cloudflare and Netlify honour and
-Vercel/GitHub Pages ignore. Details — the Node pin, how to regenerate the OG card, and a post-deploy
-checklist — are in `docs/deployment.md`.
+The site runs on **Cloudflare Workers with static assets**: Workers Builds is connected to the
+repository, runs its own `npm run build` on every push to `main` and then `npx wrangler deploy`. The
+committed **`wrangler.jsonc`** is what makes that deploy a plain asset upload — without a Wrangler
+config, `wrangler deploy` auto-configures the project and installs an Astro adapter this site must
+not have — and it also asks for the trailing-slash and 404-page handling Workers does not infer.
+The GitHub Actions workflow runs the checks Cloudflare does not (lint, format, unit, e2e + axe) and
+is meant to be a required status check. The workflow deliberately does not deploy — the two systems
+are independent, so without branch protection a red gate cannot stop a deploy. Response headers
+(security + caching) ship as `public/_headers`, which Cloudflare (Workers and Pages) and Netlify
+honour and Vercel/GitHub Pages ignore. Details — the Node pin, how to regenerate the OG card, and a
+post-deploy checklist — are in `docs/deployment.md`.
 
 **The artifact is origin- and path-agnostic.** Every internal link is relative (`npm run build` ends
 in `scripts/portablize.mjs`), so one `dist/` works at `learndsa.dev`, at a staging host, and under a
@@ -185,8 +189,9 @@ sub-path like `sample.com/learndsa` with no rebuild. Only the _declared_ URLs �
 sitemap `<loc>`, JSON-LD — need an origin, and they come from one input:
 
 - **A host with a build step** (Cloudflare, Netlify, Vercel, CI): set `SITE_URL` to the full
-  deployment URL, sub-path included. A Cloudflare Pages build without it **fails** rather than
-  shipping the placeholder.
+  deployment URL, sub-path included. On Cloudflare Workers Builds, Cloudflare Pages, Netlify and
+  Vercel a build without it **fails** rather than shipping the placeholder; on GitHub Actions and
+  anything else nothing catches the omission.
 - **A host without one** (nginx, S3, GitHub Pages, an offline copy): `npm run build` then
   `npm run rehost <deployment-url>`. Unstamped builds carry `https://learndsa.invalid`, which is
   reserved by RFC 2606 and can never resolve, so a placeholder that escapes is obvious and inert.

@@ -8,38 +8,42 @@ How to build and deploy LearnDSA to production. The site is a **fully static, pr
 
 > **Rewritten after Plan D stages D2 and D3 — the artifact is portable and the origin is a deploy-time input.** The model this document used to be organized around — *"the production origin is a build-time constant somebody has to remember to change"* — is gone, and with it the `CF_PAGES_URL` heuristic and the `PRODUCTION_URL` fallback that §2.1 described. Every internal URL in `dist/` is now document-relative, so one build runs at any origin **and any sub-path**; the only hostname left in the artifact is metadata, and it comes from one variable or from one command. §2.1 is new, §2.2 is corrected (the 404 now carries the deployment's base path), §2.4 is new, and §1, §3, §4, §5.3, §7, §9 and the appendix were re-checked against real command output rather than edited by hand. Every figure and every quoted message below was produced by running the thing.
 
-> ### The one thing you must not skip — on Cloudflare it is **mandatory**, not advisory
+> **Corrected after the 2026-08-24 production build — this project deploys through Cloudflare _Workers Builds_, not Cloudflare Pages.** The build log is unambiguous (`Executing user deploy command: npx wrangler deploy`, `Detected Project Settings: Worker Name: static-dsa, Framework: Astro`, and no `CF_PAGES` in the environment), and this document said "Pages git integration" throughout. Two failures followed and both are fixed in the repo: the unstamped-deploy guard keyed on `CF_PAGES` alone, so it did not fire and the build emitted the sentinel (`astro.config.mjs` now checks a list of four publishing platforms — §2.1); and `wrangler deploy`, finding no Wrangler config, **auto-configured the project** — installing the forbidden `@astrojs/cloudflare` adapter and relocating the build to `dist/client/`, which `scripts/portablize.mjs` threw on. **`wrangler.jsonc` is now committed** and its first job is to stop that from happening again (§4.3). The callout below, §0, §1, §2.1, §4.1–4.4, §5, §6, §7, §8, §9 and the appendix were corrected against the config, the build log and `npx wrangler@4 deploy --dry-run`.
+
+> ### The one thing you must not skip — on a host that builds **and** publishes it is **mandatory**, not advisory
 >
-> **Add `SITE_URL` as a build environment variable in the Cloudflare Pages dashboard, in _both_ the Production and Preview environments, set to the full deployment URL including any sub-path** (e.g. `https://learndsa.dev`). It is not optional and it is not a nicety:
+> **Add `SITE_URL` as a build variable on the Worker — dashboard → your Worker → _Settings_ → _Build_ → _Build variables and secrets_ — set to the full deployment URL including any sub-path** (e.g. `https://learndsa.dev`). It is not optional and it is not a nicety:
 >
-> - **Without it the Pages build FAILS.** `astro.config.mjs` throws when `CF_PAGES` is set and `SITE_URL` is not — by design, because the alternative is publishing 21 canonicals, 19 sitemap `<loc>`s and an OG card that all name a domain that cannot exist (§2.1).
-> - **`CF_PAGES` is set on previews too**, which is why the variable goes on both environments. That also reproduces the old behaviour: a preview canonicalizes to production, so it never competes with it in search.
+> - **Without it the Workers Builds build FAILS.** `astro.config.mjs` throws when any of `CF_PAGES`, `WORKERS_CI`, `NETLIFY` or `VERCEL` is set and `SITE_URL` is not — by design, because the alternative is publishing 21 canonicals, 19 sitemap `<loc>`s and an OG card that all name a domain that cannot exist (§2.1). Workers Builds injects `WORKERS_CI`.
+> - **Build variables and runtime variables are different lists on Workers.** *Settings → Variables and Secrets* is the **runtime** list, and this site reads no variable at runtime — putting `SITE_URL` there leaves the build failing exactly as before. Unlike Pages, Workers does not share one set between build and runtime.
+> - **One value covers previews too.** `WORKERS_CI` is injected on non-production branch builds as well (they are off unless enabled in *Settings → Build → Branch control*), so the same build variable makes a preview canonicalize to production instead of competing with it in search.
 > - **Moving to a custom domain is now this one dashboard edit plus a redeploy** — there is no origin in the repo to update, and nothing to rebuild by hand.
 >
-> Hosts with no build step never see that variable; they stamp the built artifact instead with `npm run rehost <deployment-url>` (§2.1 B).
+> **The caveat that used to say "an omission ships the sentinel silently" now applies only to hosts _outside_ that list of four** — GitHub Actions above all (§4.4, §5.3). Hosts with no build step never see the variable at all; they stamp the built artifact instead with `npm run rehost <deployment-url>` (§2.1 B).
 
 ---
 
 ## 0. Recommended mechanism (DevOps recommendation)
 
-**Primary: Cloudflare Pages building from the git integration, with GitHub Actions running the full DoD gate on every push and PR. Runner-up: Netlify** (near-identical fit — pick it if you're already in that ecosystem). §4 documents every host generically; this is the recommended pick for *this* repo, and two facts in the repo drive it:
+**Primary: Cloudflare Workers with static assets, built and deployed by Workers Builds from the git integration, with GitHub Actions running the full DoD gate on every push and PR. Runner-up: Netlify** (near-identical fit — pick it if you're already in that ecosystem). §4 documents every host generically; this is the recommended pick for *this* repo, and two facts in the repo drive it:
 
-1. **`public/_headers` already exists** — that format is honored by **Cloudflare Pages and Netlify only**; GitHub Pages silently ignores it, so the security headers this project ships would not take effect there.
+1. **`public/_headers` already exists** — that format is honored by **Cloudflare (Workers static assets and Pages alike) and Netlify**; Vercel and GitHub Pages silently ignore it, so the security headers this project ships would not take effect there.
 2. **`build.format: 'directory'` + `trailingSlash: 'always'`** publish every page at a slash URL (`/about/`, `/learn/binary-search/`) — the one shape *every* static host serves natively, plain ones included. This used to be the second reason to prefer Cloudflare/Netlify (`format: 'file'` needed a host that resolves `/about` → `about.html`); it is **no longer a differentiator at all**, so the tiebreak now rests on point 1 and on bandwidth. See amendment U-1 in `docs/redesign-2026-08/03-amendments.md`.
 
 **None of this is a lock-in.** Since Plan D the artifact is origin- and path-agnostic (§2.1), so changing host is a rebuild with a different `SITE_URL` — or one `npm run rehost` on the `dist/` you already have — not a migration. Pick on headers and bandwidth, not on switching cost.
 
-Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — ideal for an educational site that may get bursty traffic — at **$0**. Explicitly **not** recommended for this workload: Kubernetes/containers, Terraform/Bicep/IaC, an SSR adapter, or S3+CloudFront — there is no server, state, or runtime secret, so heavier infra adds cost and attack surface with zero benefit.
+Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — ideal for an educational site that may get bursty traffic — at **$0**. **Within Cloudflare, Workers rather than Pages is also Cloudflare's own recommendation:** its Workers best-practices guidance says Workers Static Assets is the recommended way to deploy static sites, that new projects should use Workers instead of Pages, and that Pages continues to work but new features and optimizations are focused on Workers. For a purely static site that means pointing `assets.directory` at the build output and shipping no Worker script — exactly what `wrangler.jsonc` does (§4.3). Explicitly **not** recommended for this workload: Kubernetes/containers, Terraform/Bicep/IaC, an SSR adapter, or S3+CloudFront — there is no server, state, or runtime secret, so heavier infra adds cost and attack surface with zero benefit.
 
-> ### ✅ Current setup: Cloudflare Pages **git integration**
+> ### ✅ Current setup: Cloudflare **Workers Builds** (git integration)
 >
-> The Pages project is connected directly to the GitHub repo, so **Cloudflare builds and deploys itself on every push to `main`** (and gives every PR a preview URL). Consequences:
+> The **Worker `static-dsa`** is connected directly to the GitHub repo, so **Cloudflare builds and deploys itself on every push to the production branch**. Workers Builds runs the build command and then the deploy command, which is `npx wrangler deploy` — that is what the 2026-08-24 build log shows, and it is why this section no longer says "Pages". Consequences:
 >
+> - **`wrangler.jsonc` is committed and must stay committed** (§4.3). Without it `wrangler deploy` auto-configures the project — Astro adapter and all — and the build breaks; with it, the deploy is a plain static-asset upload of `dist/`.
 > - **The committed workflow is the gate in §5.1** (`.github/workflows/ci.yml`) — it runs lint/format/unit/e2e, which Cloudflare's build does *not*, and it deliberately deploys nothing.
-> - **Do NOT add the §5.3 Actions+Wrangler workflow** — that is for the *Direct Upload* topology and would publish the site twice per push.
+> - **Do NOT add a second deploying workflow** — §5.3's Actions+Wrangler pipeline is an alternative topology, and running it alongside the git integration would publish the site twice per push.
 > - **Make `DoD gate` a required status check on `main`.** Without branch protection, Cloudflare will happily deploy a commit whose gate is red: the two systems are independent (§5.1).
-> - Domain is the free `*.pages.dev` subdomain until a custom one is added. No registration, TLS included.
-> - Dashboard build settings: build command `npm run build`, output directory `dist`, production branch `main`, Node from `.nvmrc` (or `NODE_VERSION=24`), and **`SITE_URL` on both environments** — the build fails without it (§2.1), which is the one dashboard setting this project cannot ship without.
+> - Domain is the Worker's free `*.workers.dev` subdomain (`static-dsa.<your-subdomain>.workers.dev`) until a custom one is added — `wrangler.jsonc` sets neither `workers_dev` nor `routes`, and that default is enabled. No registration, TLS included.
+> - Dashboard build settings (*your Worker → Settings → Build*): build command `npm run build`, deploy command `npx wrangler deploy`, production branch `main`, Node from `.nvmrc` (or `NODE_VERSION=24`), and **`SITE_URL` under _Build variables and secrets_** — the build fails without it (§2.1), which is the one dashboard setting this project cannot ship without.
 
 ---
 
@@ -47,12 +51,12 @@ Cloudflare wins the tiebreak over Netlify on **unlimited free bandwidth** — id
 
 | Requirement | Value | Notes |
 |---|---|---|
-| Node.js | **24** (floor: **≥ 22.12.0**) | Pinned in `.nvmrc` — the single source of truth read by Cloudflare Pages *and* `actions/setup-node`. **Astro 7 hard-requires `>=22.12.0` and refuses to build on Node 20**, so do not lower this (the ESLint Astro plugins additionally want `^22.22.3 \|\| ^24.16.0`). `package.json` `engines` states the floor. |
+| Node.js | **24** (floor: **≥ 22.12.0**) | Pinned in `.nvmrc` — the single source of truth read by the Workers Builds build image *and* `actions/setup-node`. **Astro 7 hard-requires `>=22.12.0` and refuses to build on Node 20**, so do not lower this (the ESLint Astro plugins additionally want `^22.22.3 \|\| ^24.16.0`). `package.json` `engines` states the floor. |
 | Package manager | **npm** | Commit-tracked `package-lock.json`; use `npm ci` in CI for reproducible installs. |
 | Build output | `dist/` | Static files; gitignored. This is the "publish directory" every host asks for. |
-| Server/adapter | **none** | Pure static. Do **not** add an SSR adapter (`@astrojs/node`, `@astrojs/vercel` serverless, etc.) — it's unnecessary and would change the output contract. |
+| Server/adapter | **none** | Pure static. Do **not** add an SSR adapter (`@astrojs/node`, `@astrojs/vercel` serverless, etc.) — it's unnecessary and would change the output contract. `wrangler.jsonc` is committed partly to stop `wrangler deploy` from installing `@astrojs/cloudflare` on your behalf (§4.3). |
 | Runtime env vars / secrets | **none** | Nothing to configure in a secrets manager; the shipped site reads no variable at all. |
-| Build-time variables | **`SITE_URL`** (one) | The full deployment URL, sub-path included. **Required on Cloudflare Pages** — the build throws without it (§2.1). Optional everywhere else: an unset build carries the sentinel `https://learndsa.invalid`, and `npm run rehost <url>` stamps it afterwards. No other variable exists. |
+| Build-time variables | **`SITE_URL`** (one) | The full deployment URL, sub-path included. **Required on Cloudflare Workers Builds** — and on Cloudflare Pages, Netlify and Vercel, which the same guard covers; the build throws without it (§2.1). Optional everywhere else: an unset build carries the sentinel `https://learndsa.invalid`, and `npm run rehost <url>` stamps it afterwards. No other variable exists. |
 | Browsers (tests + OG card only) | Playwright Chromium | Needed by `npm run test:e2e` and by `npm run og`, which rasterizes the OG card with it (§2.3): `npx playwright install --with-deps chromium`. **Not** needed to build or serve the site. |
 
 ---
@@ -81,7 +85,7 @@ Declared URLs cannot be relative — the sitemap protocol and every OG scraper r
 
 **Two ways to supply the deployment URL. Pick by whether the host builds.**
 
-#### A — the host has a build step (Cloudflare Pages, Netlify, Vercel, GitHub Actions)
+#### A — the host has a build step (Cloudflare Workers Builds, Cloudflare Pages, Netlify, Vercel, GitHub Actions)
 
 Set **`SITE_URL`** to the full deployment URL, sub-path included, and build. Astro emits correct metadata directly: there is nothing to stamp afterwards and no second step to forget, and the bytes the host publishes are the bytes the build produced.
 
@@ -139,21 +143,33 @@ An unstamped build carries **`https://learndsa.invalid`**. `.invalid` is reserve
 
 You have leaked it if any of these show `learndsa.invalid` **on a deployed site**: a page's `<link rel="canonical">` or `og:url`, `og:image`/`twitter:image`, a sitemap `<loc>`, robots' `Sitemap:` line, or a JSON-LD `url`. Nothing breaks for a reader — every link on the page is relative and works — but every crawler and every link preview is told the site lives at a domain that does not exist. See §9 for the fix per host.
 
-#### The hard-fail rule: `CF_PAGES` without `SITE_URL`
+#### The hard-fail rule: a publishing build without `SITE_URL`
 
-`CF_PAGES` is set on (and only on) a genuine Cloudflare Pages build, so an unstamped one **fails the build** rather than publishing the sentinel:
+`astro.config.mjs` keeps a `PUBLISHING_BUILDERS` list — platforms that **build and publish**, each identified by a variable it sets on its own builders and nowhere else:
+
+| Variable | Platform |
+|---|---|
+| `CF_PAGES` | Cloudflare Pages |
+| `WORKERS_CI` | Cloudflare Workers Builds |
+| `NETLIFY` | Netlify |
+| `VERCEL` | Vercel |
+
+If one of those is present and `SITE_URL` is not, the build **fails** rather than publishing the sentinel, naming the platform it detected:
 
 ```
 [astro] Unable to load your Astro config
 
-SITE_URL is not set on a Cloudflare Pages build. Every canonical, og:url, sitemap <loc> and JSON-LD url would
-ship the unstamped sentinel https://learndsa.invalid. Set SITE_URL to the full deployment URL, sub-path
-included (e.g. https://learndsa.dev), as a build variable for BOTH environments — see docs/deployment.md §2.1.
+SITE_URL is not set on a Cloudflare Workers Builds build. Every canonical, og:url, sitemap <loc> and JSON-LD url
+would ship the unstamped sentinel https://learndsa.invalid. Set SITE_URL to the full deployment URL, sub-path
+included (e.g. https://learndsa.dev), as a build variable for BOTH the production and preview environments —
+see docs/deployment.md §2.1.
 ```
 
-It fires the moment Astro loads its config — the first thing `astro check` does — so the deployment fails with nothing built and nothing written. It fires on **preview** deployments too, because `CF_PAGES` is set for those as well — which is exactly why the callout at the top of this document says *both environments*, and why a preview then canonicalizes to production instead of competing with it.
+It fires the moment Astro loads its config — the first thing `astro check` does — so the deployment fails with nothing built and nothing written. It fires on **preview / non-production branch** builds too, because these variables are set for those as well — which is why one project-wide `SITE_URL` is the right answer, and why a preview then canonicalizes to production instead of competing with it.
 
-**This guard is Cloudflare-only, and that is a real edge.** GitHub Actions, Netlify and Vercel set no `CF_PAGES`, so nothing stops them building a sentinel artifact and deploying it successfully — §4.1, §4.2 and §5.3 each carry the `SITE_URL` line that closes that gap for its topology.
+> **This list is the fix for a real incident (2026-08-24).** It read `CF_PAGES` alone — Cloudflare *Pages* — while this project deploys through Cloudflare *Workers Builds*, which injects `WORKERS_CI` (alongside `CI`, `WORKERS_CI_BUILD_UUID`, `WORKERS_CI_COMMIT_SHA` and `WORKERS_CI_BRANCH`). The guard written to stop exactly this did not fire: the build succeeded and emitted `https://learndsa.invalid`, and only an unrelated downstream failure kept it off the internet. `tests/unit/rehost.test.ts` now pins all four rows and the shape of the lookup, so adding a host is one line and deleting one fails the unit suite.
+
+**The gap that remains is hosts outside that list.** GitHub Actions sets none of the four, so nothing stops it building a sentinel artifact and deploying it successfully — §4.4 and §5.3 each carry the `SITE_URL` line that closes that gap for its topology. Hosts with no build step (§4.5) are covered by `npm run rehost`, which refuses to leave a sentinel behind.
 
 #### Verify
 
@@ -187,7 +203,7 @@ Deploying under a base path — a GitHub Pages *project* site `https://user.gith
 **So: never set `base`.** Not one supported deployment needs it —
 
 - a custom domain (`https://your-domain.com`)
-- Netlify / Vercel / Cloudflare Pages (they serve at root)
+- Cloudflare Workers / Cloudflare Pages / Netlify / Vercel (they serve at root)
 - a GitHub Pages **user/org** site (`https://user.github.io/`) — and, since D2, a **project** site (`https://user.github.io/repo/`) too
 - any sub-path at all (`https://example.com/learndsa`), which the pass below delivers *without* it
 
@@ -344,7 +360,7 @@ Or commit **`netlify.toml`** at the repo root:
   SITE_URL = "https://your-domain"   # full deployment URL, sub-path included (§2.1)
 ```
 
-> **Netlify sets no `CF_PAGES`, so §2.1's hard-fail cannot save you here.** Omit `SITE_URL` and the build succeeds and deploys an artifact whose every canonical, `og:url` and `<loc>` names `https://learndsa.invalid`. The check is one line in §7.
+> **Netlify sets `NETLIFY`, which §2.1's guard now covers.** Omit `SITE_URL` and the build **fails** with `SITE_URL is not set on a Netlify build` — it does not quietly deploy an artifact whose every canonical, `og:url` and `<loc>` names `https://learndsa.invalid`. (Before 2026-08-24 the guard listed `CF_PAGES` alone and this note said the opposite.) The post-deploy check is still one line in §7.
 
 **No `[[headers]]` block is needed** — Netlify reads the committed `public/_headers` (§6), which already carries the security headers, the immutable `/_astro/*` rule and the short-cache rules for the unhashed icons/OG card. Duplicating them in the TOML gives you two sources of truth for the same headers.
 
@@ -357,7 +373,7 @@ Netlify auto-serves `404.html` for unknown routes. No redirects needed for this 
 - Build command: `npm run build` (override if the preset differs)
 - Output directory: `dist`
 - Node version: **24** in Project Settings → General. **Not 20** — Astro 7 hard-requires `>=22.12.0` and refuses to build below it (§1).
-- Environment variable: `SITE_URL` = the full deployment URL (§2.1). Vercel sets no `CF_PAGES` either, so the hard-fail does not fire — an omission here ships the sentinel silently.
+- Environment variable: `SITE_URL` = the full deployment URL (§2.1). Vercel sets `VERCEL`, which the guard covers, so an omission **fails the build** (`SITE_URL is not set on a Vercel build`) rather than shipping the sentinel silently.
 
 > **Vercel does not read `public/_headers`.** Deploying here silently drops every security and cache header the repo ships (§6). Restate them in `vercel.json` or accept the loss knowingly:
 >
@@ -386,16 +402,40 @@ Netlify auto-serves `404.html` for unknown routes. No redirects needed for this 
 >
 > Keep it to headers — do **not** add serverless/SSR config; this is a static site.
 
-### 4.3 Cloudflare Pages
+### 4.3 Cloudflare — Workers Builds (the current setup), and Pages
 
-**Dashboard:** Create a project → connect the repo →
-- Framework preset: **Astro**
+**Dashboard:** Workers & Pages → create a Worker → connect the repo. Then, under *your Worker → Settings → Build*:
 - Build command: `npm run build`
-- Build output directory: `dist`
-- Environment variable: `NODE_VERSION = 24` (or let it read `.nvmrc`)
-- Environment variable: **`SITE_URL` = the full deployment URL, set on BOTH the Production and Preview environments. This one is mandatory — the build throws without it (§2.1), and that is deliberate.** It is also the only thing to change when a custom domain is added: edit the variable, redeploy, done.
+- Deploy command: `npx wrangler deploy` (the default)
+- Branch control: production branch `main`; enable *Builds for non-production branches* if you want preview URLs on PRs
+- Build variable: `NODE_VERSION = 24` (or let the build image read `.nvmrc`)
+- Build variable: **`SITE_URL` = the full deployment URL. This one is mandatory — the build throws without it (§2.1), and that is deliberate.** It is also the only thing to change when a custom domain is added: edit the variable, redeploy, done.
 
-Cloudflare Pages serves `404.html` for not-found routes automatically. **`public/_headers` is already committed** and is copied verbatim into `dist/`, so security headers and caching need no dashboard configuration — see §6 for what it sets and why. Cloudflare consumes that file rather than serving it, so it never appears as a public URL.
+There is **no build output directory setting** — the assets directory is `wrangler.jsonc`'s, and `wrangler deploy` reads it. Note that on Workers, *Settings → Build → Build variables and secrets* and *Settings → Variables and Secrets* are two different lists: the second is runtime-only, and this site reads nothing at runtime.
+
+#### `wrangler.jsonc` — committed, and its first job is to exist
+
+Deleting this file reintroduces both 2026-08-24 failures, so read its header comment before touching it.
+
+**Why it exists at all.** With no Wrangler config in the repo, `wrangler deploy` (4.68+, now GA) runs **automatic configuration**: it detects Astro, installs the `@astrojs/cloudflare` adapter, rewrites `astro.config.mjs`, adds package scripts, edits `.gitignore` and rebuilds. That adapter is forbidden by spec §4 — this site has no server — and it relocates the static output to `dist/client/`, which is what made `scripts/portablize.mjs` throw `client/404.html is not a directory-format page` on the production build. A committed config suppresses all of it.
+
+**What each key is for:**
+
+| Key | Value | Why |
+|---|---|---|
+| `name` | `static-dsa` | the Worker's name, and therefore its `*.workers.dev` hostname |
+| `compatibility_date` | `2026-08-25` | one of the two mandatory fields in a Worker config (with `name`). An assets-only Worker runs no code that depends on it, but it must be a pinned date rather than an implicit "today" |
+| `assets.directory` | `./dist` | the build output, uploaded as static assets. **No `main` and no `binding`** — there is no Worker script, and the `binding` key is only valid alongside `main` |
+| `assets.html_handling` | `force-trailing-slash` | pairs with `trailingSlash: 'always'` + `build.format: 'directory'`, so `/about` 301s to `/about/` and the URL every canonical and every sitemap `<loc>` names is the URL that is served |
+| `assets.not_found_handling` | `404-page` | **Workers does not infer this the way Pages did.** The default is `none`, which answers a bare 404 and never reaches `dist/404.html` — the site's own 404 page is dead without this line |
+
+Verified with `npx wrangler@4 deploy --dry-run`: the config is accepted, 116 files are read from `./dist`, and no automatic configuration is triggered.
+
+**`public/_headers` needs no change.** `_headers` and `_redirects` are supported natively by Workers static assets, exactly as they were on Pages; the file is copied verbatim into `dist/`, consumed by the host and never served as a public URL — see §6 for what it sets and why.
+
+#### Cloudflare Pages
+
+Pages still works and is still a valid target for this artifact — Cloudflare's guidance is that it continues to be supported while new work goes to Workers (§0). If you deploy there instead: Framework preset **Astro**, build command `npm run build`, build output directory `dist`, `NODE_VERSION = 24`, and **`SITE_URL` on BOTH the Production and Preview environments** (`CF_PAGES` is set on both, and the §2.1 guard covers it). Pages serves `404.html` for not-found routes automatically, so it needs no equivalent of `not_found_handling`. `wrangler.jsonc` carries no `pages_build_output_dir`, which is the key that makes a Wrangler file drive a Pages project's configuration, so it does not govern a Pages deployment — configure that one from the dashboard.
 
 ### 4.4 GitHub Pages (via GitHub Actions)
 
@@ -436,8 +476,9 @@ jobs:
           # The full deployment URL, sub-path included. A project site is
           # https://user.github.io/repo — the /repo half is what keeps canonicals,
           # the sitemap and 404.html's links inside the deployment (§2.1).
-          # GitHub Actions sets no CF_PAGES, so omitting this does NOT fail the
-          # build; it ships https://learndsa.invalid to a live URL.
+          # GitHub Actions sets none of the four variables §2.1's guard watches,
+          # so omitting this does NOT fail the build; it ships
+          # https://learndsa.invalid to a live URL.
           SITE_URL: https://user.github.io/repo
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -481,7 +522,7 @@ rsync -a dist/ user@host:/srv/www/learndsa/    # or `aws s3 sync`, or a USB stic
 
 ### 5.1 `.github/workflows/ci.yml` — the DoD gate (committed, in use)
 
-Cloudflare's git integration builds and deploys every push to `main` (§0), but its build only type-checks and builds. This workflow runs the four checks Cloudflare does not — **lint, format, unit tests, and the Playwright/axe e2e suite** — and it deliberately **does not deploy**: a Wrangler step here would publish the site twice. Read the file itself for the full reasoning; its shape is:
+Workers Builds builds and deploys every push to `main` from the git integration (§0), but its build only type-checks and builds. This workflow runs the four checks Cloudflare does not — **lint, format, unit tests, and the Playwright/axe e2e suite** — and it deliberately **does not deploy**: a Wrangler step here would publish the site twice. Read the file itself for the full reasoning; its shape is:
 
 | Piece | Value | Why |
 |---|---|---|
@@ -508,9 +549,11 @@ Doing those in the other order turns CI red: `playwright.config.ts` sets `update
 
 ### 5.3 Alternative topology: build **and** deploy from Actions
 
-Only relevant if you **disconnect Cloudflare's git integration** and switch the Pages project to **Direct Upload**. Do not commit this alongside §5.1's workflow while git integration is on — the site would be published twice per push, from two different builds.
+Only relevant if you **disconnect Cloudflare's git integration** so that Actions, not Cloudflare, builds and publishes. Do not commit this alongside §5.1's workflow while the git integration is on — the site would be published twice per push, from two different builds.
 
-> **This topology is the one place the sentinel can reach production unchallenged, so the `SITE_URL` line below is load-bearing.** §2.1's hard-fail keys on `CF_PAGES`, which Cloudflare sets on *its own* builds; a GitHub Actions runner has no such variable, so an unset `SITE_URL` here builds cleanly, passes the gate, and wrangler publishes an artifact that names `https://learndsa.invalid` at a real URL. Set it as an Actions **variable** (`vars.SITE_URL`, Settings → Secrets and variables → Actions) — it is not a secret, and a variable is visible in the workflow log, which is where you want it.
+> **The example below is written for a Cloudflare _Pages_ project in Direct Upload mode, which is not what this repo deploys to today** (§0). For the committed Workers topology the deploy step is `wrangler deploy` reading `wrangler.jsonc` (§4.3) rather than `pages deploy`, and the API token needs the matching Workers permission instead of the Pages one — set that up from Cloudflare's own Workers CI/CD documentation rather than from this snippet, which is kept as the worked example of the *shape*: gate first, upload the exact verified bytes second.
+
+> **This topology is the one place the sentinel can reach production unchallenged, so the `SITE_URL` line below is load-bearing.** §2.1's hard-fail keys on variables the *platform's own builders* set; a GitHub Actions runner sets none of them, so an unset `SITE_URL` here builds cleanly, passes the gate, and wrangler publishes an artifact that names `https://learndsa.invalid` at a real URL. Set it as an Actions **variable** (`vars.SITE_URL`, Settings → Secrets and variables → Actions) — it is not a secret, and a variable is visible in the workflow log, which is where you want it.
 
 ```yaml
 # .github/workflows/deploy.yml  — Direct Upload topology ONLY
@@ -565,13 +608,13 @@ jobs:
           command: pages deploy dist --project-name=learndsa --branch=${{ github.head_ref || github.ref_name }}
 ```
 
-Prerequisites: the GitHub remote (`origin`, already configured), a Cloudflare Pages project in **Direct Upload** mode, two Actions **secrets** — `CLOUDFLARE_API_TOKEN` (scope: Account → Cloudflare Pages → Edit) and `CLOUDFLARE_ACCOUNT_ID` — and the `SITE_URL` **variable** above. Both are deploy-time only and are never shipped to a browser; the site itself has no runtime secrets at all. The trade this topology buys: the deployed bytes are the exact bytes the full test suite passed against, instead of a second build the tests never saw.
+Prerequisites for that example: the GitHub remote (`origin`, already configured), a Cloudflare Pages project in **Direct Upload** mode, two Actions **secrets** — `CLOUDFLARE_API_TOKEN` (scope: Account → Cloudflare Pages → Edit) and `CLOUDFLARE_ACCOUNT_ID` — and the `SITE_URL` **variable** above. Both are deploy-time only and are never shipped to a browser; the site itself has no runtime secrets at all. The trade this topology buys: the deployed bytes are the exact bytes the full test suite passed against, instead of a second build the tests never saw.
 
 ---
 
 ## 6. Caching & headers — `public/_headers` (committed)
 
-One committed file drives all of this on Cloudflare Pages and Netlify. It is copied verbatim into `dist/`, consumed by the host, and never served as a URL. **Vercel and GitHub Pages ignore it** (§4.2 shows the Vercel equivalent). Four rule groups, each earning its place:
+One committed file drives all of this on Cloudflare — Workers static assets and Pages alike — and on Netlify. It is copied verbatim into `dist/`, consumed by the host, and never served as a URL. **Vercel and GitHub Pages ignore it** (§4.2 shows the Vercel equivalent). Four rule groups, each earning its place:
 
 | Path | Header | Why |
 |---|---|---|
@@ -634,7 +677,7 @@ The e2e suite already proves the behavior against a local build; this list is fo
 >
 > - The same person sees **different progress** on their phone and their laptop, and in a second browser on the same machine.
 > - **Clearing site data, "clear cookies", private/incognito windows, and aggressive privacy modes wipe or refuse it.** In a blocked-storage context the site degrades quietly — surfaces render as if nothing was recorded, never as an error.
-> - A **new domain is a new origin**: moving from `*.pages.dev` to a custom domain leaves existing readers' progress behind on the old origin. If you plan a domain change, do it before you have an audience to disappoint.
+> - A **new domain is a new origin**: moving from `*.workers.dev` to a custom domain leaves existing readers' progress behind on the old origin. If you plan a domain change, do it before you have an audience to disappoint.
 > - **The same origin is the same storage, whatever the path.** Two deployments of this artifact at `sample.com/learndsa` and `sample.com/learndsa-v2` share every progress key and each other's resets — `localStorage` is origin-scoped, not path-scoped (§2.4).
 >
 > A progress export/import code is the only no-backend answer to this and is deliberately deferred (spec §19) — revisit only if readers actually ask.
@@ -645,7 +688,7 @@ The e2e suite already proves the behavior against a local build; this list is fo
 
 Every deploy is an immutable static bundle, so rollback is instant and total — there is no database to un-migrate and no server state to reconcile. **Prefer the host-native rollback:** it is one click, needs no rebuild, and cannot fail on a test that has since gone red.
 
-- **Host-native (recommended):** Cloudflare Pages → the project's *Deployments* list → **Rollback / "Retry deployment"** on the last good build. Netlify and Vercel have the same control under their deploy lists. Effect is immediate; the git history is untouched, so fix forward at your own pace.
+- **Host-native (recommended):** the Worker's *Deployments* list → the three-dot menu on the version you want → **Rollback**, which immediately creates a new deployment carrying that version. `npx wrangler rollback` does the same from a terminal. Only the **100 most recent versions** are available, which is ample here; the binding caveats in Cloudflare's rollback docs do not apply, because this Worker has no bindings and no script — it is assets only. Netlify, Vercel and Cloudflare Pages have equivalent controls under their deploy lists. Effect is immediate; the git history is untouched, so fix forward at your own pace.
 - **Git-native:** `git revert <bad-commit>` (never a force-push to `main` — Cloudflare deploys what `main` points at, and a rewritten history makes "what is live?" unanswerable) and push. The gate runs, Cloudflare rebuilds, the site returns. Slower than the dashboard, but it is the one that also fixes the next deploy.
 - **Milestone checkpoints** — clean commits to land on if you need a known-good tree:
   - `5bc64ee` M8 hardening · `4f34cff` M8.2+M8.3 · `2b6b821` M8.1 · `12d2486` M7.3 · `80373a4` M7.2 · `7367685` M7.1
@@ -658,10 +701,12 @@ Every deploy is an immutable static bundle, so rollback is instant and total —
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| The Cloudflare Pages build **fails** with "SITE_URL is not set on a Cloudflare Pages build" | Working as designed (§2.1). The alternative is publishing 21 canonicals and 19 `<loc>`s naming a domain that cannot exist | Add `SITE_URL` = the full deployment URL as a build variable **on both the Production and Preview environments**, then retry the deployment. This is the mandatory dashboard setting in the callout at the top of this document. |
-| Canonical/OG/sitemap show `https://learndsa.invalid` in production | The sentinel shipped: `SITE_URL` was unset on a host whose build does **not** hard-fail — GitHub Actions, Netlify or Vercel (§2.1) | Set `SITE_URL` for that host (§4.1/§4.2/§5.3) and redeploy. For an artifact you cannot rebuild, `npm run rehost <url>` stamps it in place (§2.1 B). |
+| A build **fails** with `SITE_URL is not set on a … build` (the platform is named: Cloudflare Workers Builds, Cloudflare Pages, Netlify or Vercel) | Working as designed (§2.1). The alternative is publishing 21 canonicals and 19 `<loc>`s naming a domain that cannot exist | Add `SITE_URL` = the full deployment URL as a **build** variable and retry. On Workers Builds that is *your Worker → Settings → Build → Build variables and secrets* — **not** *Settings → Variables and Secrets*, which is the runtime list and does not reach the build. On Pages, both the Production and Preview environments. This is the mandatory dashboard setting in the callout at the top of this document. |
+| A Cloudflare build fails with `client/404.html is not a directory-format page` | `wrangler deploy` **auto-configured the project**: with no Wrangler config in the repo it detects Astro, installs the `@astrojs/cloudflare` adapter and rewrites `astro.config.mjs`, and the adapter moves the static output to `dist/client/`. The thrown message says so — it appends "The `client/` prefix means an Astro adapter has moved the build into `dist/client/` — see wrangler.jsonc, and do not add an adapter (spec §4)." | Restore `wrangler.jsonc` (§4.3) — its presence is what suppresses auto-configuration — and revert whatever the run added: the `@astrojs/cloudflare` dependency, the `adapter`/`output` edits to `astro.config.mjs`, the generated package scripts and `.gitignore` lines. This site has no server; the adapter is forbidden by spec §4. |
+| A deployed Cloudflare Worker answers a bad URL with a bare 404 instead of the site's 404 page | `assets.not_found_handling` is missing from `wrangler.jsonc`. Workers does **not** infer it the way Pages did — the default is `none` | Restore `"not_found_handling": "404-page"` (§4.3). `dist/404.html` is built on every run; without that line nothing ever serves it. |
+| Canonical/OG/sitemap show `https://learndsa.invalid` in production | The sentinel shipped: `SITE_URL` was unset on a host **outside** the guard's list of four — GitHub Actions above all, or a plain host that was never stamped (§2.1) | Set `SITE_URL` for that host (§4.4/§5.3) and redeploy. For an artifact you cannot rebuild, `npm run rehost <url>` stamps it in place (§2.1 B). |
 | Canonical/OG name the right **origin** but drop the sub-path (`sample.com/learn/x/`, not `sample.com/learndsa/learn/x/`) | `SITE_URL` or the `rehost` argument was the bare origin. Both take the **full deployment URL**, sub-path included | §2.1 — rebuild with the sub-path in the value. `rehost`'s own post-conditions catch this, so it is nearly always an origin-only `SITE_URL` on a host that builds. |
-| Canonical/OG show a **preview** URL | Someone set `SITE_URL` to the per-deployment preview URL | §2.1 — previews deliberately canonicalize to production, which is what setting the *same* `SITE_URL` on both environments achieves. |
+| Canonical/OG show a **preview** URL | Someone set `SITE_URL` to the per-deployment preview URL | §2.1 — previews deliberately canonicalize to production, which is what one project-wide `SITE_URL` achieves (on Pages, the same value on both environments). |
 | `npm run rehost` exits 1 with "dist/ carries no `https://learndsa.invalid`" | The artifact is already stamped — built with `SITE_URL` set, or rehosted before. Running again would give `404.html` a **second** base path | §2.1 B — if the URL it names is the deployment, ship it as is. Otherwise `npm run build && npm run rehost <url>`; the build is deterministic. |
 | `npm run rehost` exits 1 with "dist/ is HALF STAMPED" | A previous `rehost` died between two writes (unwritable file, full disk, Ctrl-C) | Not repairable in place, by design: `npm run build && npm run rehost <url>`. The message lists which files were already written. |
 | `npm run build` exits 1 with "not one root-absolute URL was found across 20 pages" | `scripts/portablize.mjs` was run a second time over one `dist/` (`node scripts/portablize.mjs` by hand after a build) | Rebuild. The pass is incremental for `404.html`, so it refuses to run twice rather than silently doubling a base path. |
@@ -689,8 +734,9 @@ Every deploy is an immutable static bundle, so rollback is instant and total —
 
 - **Framework/output:** Astro `output: 'static'` → `dist/` (prerendered HTML/CSS/JS), `build.format: 'directory'` + `trailingSlash: 'always'` — every page is `<route>/index.html` published at `/about/`, `/learn/binary-search/`. `dist/404.html` is the one file that stays at the root.
 - **Build:** `npm run build` = `astro check && astro build && node scripts/portablize.mjs` (the pass that makes every internal URL document-relative — §2.2). **Install:** `npm ci`. **Node:** 24 via `.nvmrc` (floor ≥ 22.12.0 — Astro 7 will not build on Node 20).
-- **Publish dir:** `dist`. **Server/adapter:** none. **Runtime secrets/env:** none. **Deploy-time secrets:** none in the committed topology (git integration); two Cloudflare secrets only in §5.3's Direct Upload alternative.
-- **Single build-time input:** **`SITE_URL`** — the full deployment URL, sub-path included — read in `astro.config.mjs` with no fallback chain. Unset, the build carries the sentinel `https://learndsa.invalid` (RFC 2606, can never resolve); unset **on Cloudflare** (`CF_PAGES` present) the build **throws**. `npm run rehost <url>` stamps a built `dist/` for hosts with no build step. Every declared URL is joined by `src/lib/deployment-url.ts` — never `new URL()`, which discards a sub-path (§2.1).
+- **Publish dir:** `dist` — on Workers it is `assets.directory` in `wrangler.jsonc`, not a dashboard field. **Server/adapter:** none. **Runtime secrets/env:** none. **Deploy-time secrets:** none in the committed topology (Workers Builds git integration); two Cloudflare secrets only in §5.3's Actions alternative.
+- **Deploy config:** `wrangler.jsonc` (committed, §4.3) — `assets.directory: ./dist`, no `main`/`binding`, `html_handling: force-trailing-slash`, `not_found_handling: 404-page`. Its first job is to suppress `wrangler deploy`'s automatic configuration, which would install the forbidden `@astrojs/cloudflare` adapter.
+- **Single build-time input:** **`SITE_URL`** — the full deployment URL, sub-path included — read in `astro.config.mjs` with no fallback chain. Unset, the build carries the sentinel `https://learndsa.invalid` (RFC 2606, can never resolve); unset on a **publishing builder** (`CF_PAGES`, `WORKERS_CI`, `NETLIFY` or `VERCEL` present) the build **throws**, naming the platform. `npm run rehost <url>` stamps a built `dist/` for hosts with no build step. Every declared URL is joined by `src/lib/deployment-url.ts` — never `new URL()`, which discards a sub-path (§2.1).
 - **`base` is never set** — sub-path hosting comes from the post-build relative pass, and `base` would not deliver it (§2.2). `dist/404.html` is the one document that keeps root-absolute links, prefixed with the deployment's base path by whichever stamping path knows it.
 - **Three limitations that ship with portability** (§2.4): a sub-path deployment's `robots.txt` is never read; `localStorage` is origin-scoped, so two deployments on one origin share progress; every deployment self-canonicalizes, so public mirrors compete in search.
 - **Pages built:** 21 — home, `/learn/`, `/glossary/`, `/about/`, 404, 15 lessons, and the prod-gated `/dev/renderers/`. **Sitemap:** 19 `<loc>` entries, all slashed (the 404 and the dev gallery are excluded and both carry `noindex`).

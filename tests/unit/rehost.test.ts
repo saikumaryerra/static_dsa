@@ -44,6 +44,46 @@ describe('the sentinel', () => {
   });
 });
 
+describe('the unstamped-deploy guard', () => {
+  /**
+   * THE INCIDENT THIS PINS (2026-08-24). The guard listed `CF_PAGES` alone —
+   * Cloudflare *Pages* — while this project deploys through Cloudflare *Workers
+   * Builds*, which sets `WORKERS_CI`. So the check written to stop an unstamped
+   * deploy did not run on the one platform that deploys this site: the build
+   * succeeded and emitted `https://learndsa.invalid`, and only an unrelated
+   * downstream failure kept it off the internet.
+   *
+   * Asserted against the config's SOURCE TEXT rather than by importing it,
+   * because `astro.config.mjs` pulls in `astro/config` and the integrations,
+   * none of which load under Vitest's node environment. Same technique, and the
+   * same reason, as the sentinel-literal test above.
+   */
+  const config = readFileSync('astro.config.mjs', 'utf8');
+
+  it.each([
+    ['CF_PAGES', 'Cloudflare Pages'],
+    ['WORKERS_CI', 'Cloudflare Workers Builds'],
+    ['NETLIFY', 'Netlify'],
+    ['VERCEL', 'Vercel'],
+  ])('fails an unstamped build on %s', (variable, label) => {
+    expect(config).toContain(`['${variable}', '${label}']`);
+  });
+
+  it('reads the variables off the environment rather than hardcoding one', () => {
+    // The bug was a single `process.env.CF_PAGES`. A lookup driven by the list
+    // is what makes adding a host a one-line change instead of a new branch.
+    expect(config).toContain(
+      'PUBLISHING_BUILDERS.find(([key]) => process.env[key])',
+    );
+  });
+
+  it('only throws when the site is still the sentinel', () => {
+    // A stamped build on any of those platforms must proceed. Pinned as text so
+    // the condition cannot be widened to "throw on every CI build" by accident.
+    expect(config).toContain('if (site === SENTINEL && publisher)');
+  });
+});
+
 describe('parseDeployment', () => {
   it('splits a sub-path deployment into prefix, origin and base path', () => {
     expect(parseDeployment(SUBPATH)).toEqual({

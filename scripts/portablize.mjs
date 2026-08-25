@@ -167,8 +167,18 @@ export function pageUrlOf(distRelative) {
   // A loose `.html` that is not the 404 means the build shape moved back to
   // `format: 'file'` (or something new appeared). Relativizing it would need a
   // different depth rule, so it fails loudly instead of being guessed at.
+  //
+  // The observed cause, named because it cost a deployment (2026-08-24): a
+  // `client/` prefix means an ASTRO ADAPTER is installed and has moved the
+  // static output to `dist/client/`. On that deploy `wrangler deploy` had
+  // auto-configured the project and added `@astrojs/cloudflare` — which spec §4
+  // forbids, this site having no server. `wrangler.jsonc` now exists to stop
+  // that, and its own comment explains why.
+  const adapter = distRelative.startsWith('client/')
+    ? ' The `client/` prefix means an Astro adapter has moved the build into `dist/client/` — see wrangler.jsonc, and do not add an adapter (spec §4).'
+    : '';
   throw new Error(
-    `${distRelative} is not a directory-format page. \`build.format: 'directory'\` (D1) emits <path>/index.html; only ${NOT_A_PAGE} is exempt, and it is skipped before this point.`,
+    `${distRelative} is not a directory-format page. \`build.format: 'directory'\` (D1) emits <path>/index.html; only ${NOT_A_PAGE} is exempt, and it is skipped before this point.${adapter}`,
   );
 }
 
