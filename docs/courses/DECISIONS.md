@@ -64,7 +64,21 @@ confirmed removed. PodSecurityPolicy was removed in 1.25 — Pod Security Admiss
 Lessons may state these; anything else version-specific must be re-verified before it is written.
 
 - **Native sidecar containers** (`initContainers` entry with `restartPolicy: Always`) are
-  **stable since 1.33**; `Always` is the only valid value for an init container's `restartPolicy`.
+  **stable since 1.33**. An entry with `restartPolicy: Always` keeps running for the life of the
+  Pod — that is what makes it a sidecar.
+- **CORRECTED 2026-08-26.** This entry previously said "`Always` is the only valid value for an
+  init container's `restartPolicy`". **That is false on 1.36**, and the error reached three
+  separate places in a lesson before a review caught it — the author had followed this file
+  faithfully, which is exactly why a wrong fact here is more expensive than a wrong fact in a
+  lesson. `ContainerRestartRules` is **beta and enabled by default**: an init container may carry
+  `Always`, `OnFailure` or `Never`, regular containers may carry a per-container `restartPolicy`
+  too, and `restartPolicyRules` can key a restart off specific exit codes. Verified two ways — a
+  reviewer applied both variants against a live 1.36.3 API server under `--validate=strict` and
+  they persisted, and the upstream v1.34 and v1.35 release posts describe the feature graduating.
+  What *is* still rejected: a `readinessProbe` on an init container that is not a sidecar.
+- **In-place Pod resize is GA on 1.36** (`InPlacePodVerticalScaling`), so a running container's
+  `resources` can change through the `pods/resize` subresource. "A Pod is immutable except for its
+  image" is no longer true; a Deployment still replaces the Pod when the template changes.
 - **1.36 graduated to GA**: User Namespaces, MutatingAdmissionPolicy, Declarative Validation,
   PSI metrics, Volume Group Snapshots, fine-grained kubelet API authorization, SELinux volume
   label changes.

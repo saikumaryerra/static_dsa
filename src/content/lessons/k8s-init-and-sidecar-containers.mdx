@@ -1,0 +1,248 @@
+---
+title: 'Init Containers and Sidecars'
+slug: 'k8s-init-and-sidecar-containers'
+course: 'kubernetes'
+track: 'k8s-workloads'
+order: 11
+summary: 'Init containers run in order and finish; a native sidecar is an init container that starts in order and keeps running — which is what finally made a proxy safe to put in a Job.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods', 'k8s-daemonsets-jobs-cronjobs']
+estimatedMinutes: 9
+tags: ['kubernetes', 'pods', 'init-containers', 'sidecars']
+explainPrompt: 'Why did a Job containing an old-style sidecar never complete, and what does a native sidecar change?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Order the events in a Pod that has init containers, sidecars and app
+  containers.
+- Write a native sidecar, and say what makes it different from a second entry
+  under `containers`.
+- Explain why sidecar resource requests and init container requests are counted
+  differently.
+- Decide when setup work belongs in an init container and when it belongs in the
+  image.
+
+## Intuition
+
+A Pod already gives its containers a shared network and shared volumes. What
+plain `containers` never gave you is **order**: they all start at once, and
+Kubernetes has no opinion about which is ready first.
+
+Two very different needs come out of that gap. Sometimes you want something to
+happen _before_ the application starts and then be finished — fetch a
+configuration file, wait for a dependency, fix the permissions on a volume. And
+sometimes you want a helper that must be up before the application and stay up
+alongside it — a proxy, a log shipper, a credential refresher.
+
+**Kubernetes answers both with one list.** Everything under `initContainers`
+starts in order, one at a time. An entry with no `restartPolicy` must exit
+successfully before the next one begins: that is an init container. An entry with
+`restartPolicy: Always` only has to _start_ before the next one begins, and then
+keeps running for the life of the Pod: that is a sidecar. Native sidecar
+containers are stable as of Kubernetes 1.33. `Always` is the value that makes a
+sidecar; the field accepts other values too, but they do not produce one.
+
+## How it works
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  volumes:
+    - name: config
+      emptyDir: {}
+  initContainers:
+    - name: fetch-config
+      image: busybox:1.37
+      command: ['sh', '-c', 'echo "server_tokens off;" > /work/app.conf']
+      volumeMounts:
+        - name: config
+          mountPath: /work
+    - name: log-shipper
+      image: busybox:1.37
+      restartPolicy: Always
+      command: ['sh', '-c', 'tail -F /work/app.conf']
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+      volumeMounts:
+        - name: config
+          mountPath: /work
+  containers:
+    - name: web
+      image: nginx:1.29
+      ports:
+        - containerPort: 80
+      resources:
+        requests:
+          cpu: 500m
+          memory: 256Mi
+      volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d
+```
+
+The sequence that produces:
+
+1. **`fetch-config` runs alone** and must exit zero. It writes into the shared
+   `emptyDir`, which is the only way its work outlives it — anything it changed
+   in its own image filesystem is gone with the container.
+2. **`log-shipper` starts** and the kubelet moves on as soon as it is up, because
+   it declared `restartPolicy: Always`. It does not have to exit, and it never
+   will.
+3. **`web` starts.** Regular containers all start together, after every entry in
+   `initContainers` has either finished or started.
+4. **On shutdown the order reverses.** The app containers are signalled first;
+   the sidecars are terminated after them, so the log shipper is still there to
+   flush what the application wrote on its way out.
+
+While step 1 is in progress the Pod is `Pending`, and `kubectl get pods` shows a
+status like `Init:0/2`. If an init container fails, the kubelet retries it under
+the Pod `restartPolicy` and nothing downstream starts — you get
+`Init:CrashLoopBackOff`, and the app container has never existed.
+
+```bash
+kubectl get pod web
+kubectl logs web -c fetch-config
+kubectl logs web -c log-shipper --follow
+kubectl describe pod web
+```
+
+<Callout variant="note">
+  A plain init container cannot carry readiness or liveness probes: it is either
+  running or finished, so there is nothing for readiness to mean. A sidecar can
+  carry all of them, which is how you make the app container wait for a proxy to
+  be genuinely usable rather than merely started.
+</Callout>
+
+**Resources are counted differently, and it makes sense once you see why.** An
+init container runs when nothing else in the Pod does, so it only has to fit on
+the node on its own. A sidecar runs _alongside_ the app containers, so its
+requests are added to theirs when the scheduler works out how much room the Pod
+needs. In the manifest above, the Pod needs a node with 550m of CPU free — 500m
+for the app plus 50m for the sidecar — and the init container is compared against
+that, not stacked on top of it.
+
+**Why this replaced the old pattern.** Before native sidecars a helper was
+another entry under `containers`, which caused two problems. It might
+not be ready when the app started, since nothing ordered them. And in a
+[Job](/learn/k8s-daemonsets-jobs-cronjobs/) it was fatal: the app container
+finished, the helper kept running because that is what helpers do, the Pod never
+reached `Succeeded`, and the Job hung forever. A native sidecar is terminated
+once the app containers are done, so the Pod completes and the Job with it.
+
+## Trade-offs
+
+**Use an init container when** the work must happen before the app, must happen
+on every start, and is cheap: waiting for a dependency to answer, rendering a
+config file into a volume, or chowning a mounted directory.
+
+**Do not use one when the work belongs in the image.** Installing packages at
+start-up pays the cost on every restart, every scale-up and every node failure,
+and it makes your Pod depend on a package mirror at the worst moment. Build it
+into the image instead.
+
+**Be careful with "wait for the database" init containers.** They make start-up
+ordered, and they do nothing for the case that matters more — the database going
+away an hour later. An application that retries its own connections handles both;
+an init container handles only the first minute. It is useful for genuinely one-directional setup,
+and a poor substitute for resilience.
+
+**A sidecar costs per Pod.** Two hundred Pods means two hundred copies of the
+proxy's memory footprint, where a DaemonSet agent costs one per node. The
+trade is real in both directions: the sidecar gets the Pod's network namespace and
+per-Pod configuration, which a node-level agent cannot have.
+
+**Do not make it a sidecar if it could be its own workload.** If the helper does
+not need this Pod's network, filesystem or lifetime, it is a separate Deployment
+that happens to be related.
+
+## Common pitfalls
+
+- **An init container that waits forever.** The Pod sits in `Pending` and the
+  only evidence is in that container's logs, which nobody reads first. Give the wait
+  a timeout and let it fail loudly.
+- **A non-idempotent migration in an init container.** Tempting, because it runs
+  before the app and looks like a deployment step. Three replicas run it three times, concurrently, and
+  every restart runs it again. Migrations belong in
+  a Job you can watch.
+- **The old sidecar pattern inside a Job.** A helper under `containers` never
+  exits, so the Pod never succeeds. Move it to `initContainers` with
+  `restartPolicy: Always`.
+- **Expecting an init container's filesystem to persist.** Only what it wrote to a
+  shared volume is visible to the app container. The rest was a separate image.
+- **Reaching for a helper `restartPolicy` you have not tested.** Per-container
+  restart rules beyond the sidecar case are a newer, still-moving area; if you
+  want a sidecar, `Always` is the value that means one.
+- **Giving a plain init container a `readinessProbe`.** The API rejects it —
+  `spec.initContainers[0].readinessProbe: Forbidden: may not be set for init
+containers without restartPolicy=Always` — because a container that is supposed
+  to finish has no readiness to report. Add `restartPolicy: Always` and it is a
+  sidecar, and the probe becomes meaningful.
+
+## Key takeaways
+
+- **`initContainers` is one ordered list with two behaviours**: an entry with no
+  `restartPolicy` must exit successfully before the next begins; an entry with
+  `restartPolicy: Always` is a sidecar and only has to start.
+- Native sidecars are **stable since Kubernetes 1.33**: an `initContainers`
+  entry with `restartPolicy: Always` is one.
+- **Shutdown reverses the order** — app containers first, sidecars after — which
+  is what lets a Job with a sidecar complete.
+- **A sidecar's requests are added to the app containers for scheduling; an init
+  container only has to fit on its own.**
+- Setup that could happen at build time should; an init container pays its
+  cost on every Pod start.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Job runs a data export and includes a metrics proxy as a second entry under `containers`. The export finishes in a minute and the Job never completes. Explain, and give the fix.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  A Pod reaches `Succeeded` only when *every* container has terminated, and the
+  proxy is designed never to terminate — so the Pod stays `Running` with one
+  container finished, the Job never counts a completion, and it sits there until
+  `activeDeadlineSeconds` or a human intervenes. The fix is to make the proxy a
+  native sidecar: move it into `initContainers` with `restartPolicy: Always`. It
+  then starts before the export container, runs alongside it, and is terminated
+  by the kubelet once the export container exits — so the Pod succeeds and the
+  Job finishes normally.
+</PracticeCheck>
+
+**2. Your team wants an init container that polls the database until it accepts connections. What does that genuinely buy, and what does it not?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It buys an ordered start: the app container is not created until the
+  dependency has answered once, so you avoid a burst of crash-looping Pods on a
+  cold start and the confusing logs that come with it. It buys nothing after
+  that first minute. If the database restarts an hour later, the init container
+  has long since exited, and an application that cannot survive a dropped
+  connection will fail exactly as it would have without it. Connection retry
+  with backoff in the application handles both cases; the init container is a
+  nicety on top, and it needs its own timeout so a missing dependency shows up
+  as a failure rather than a Pod stuck in `Pending`.
+</PracticeCheck>
+
+**3. A Pod has an app container requesting 2 CPUs, a sidecar requesting 500m, and an init container requesting 1 CPU. How much CPU does the scheduler need to find?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  2.5 CPUs. The sidecar runs at the same time as the app container, so its
+  request is added to the app request — that pair is what the Pod needs for its
+  whole running life. The init container runs before either of them and has
+  exited by the time they start, so it does not stack on top; it only has to
+  fit, and 1 CPU is comfortably less than 2.5. The practical consequence: a
+  large init container is cheap and a large sidecar is not, because the sidecar
+  is part of the footprint for every replica, forever.
+</PracticeCheck>

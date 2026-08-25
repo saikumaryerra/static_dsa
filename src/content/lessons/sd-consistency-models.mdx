@@ -1,0 +1,250 @@
+---
+title: 'Consistency Models, CAP and PACELC'
+slug: 'sd-consistency-models'
+course: 'system-design'
+track: 'sd-properties'
+order: 7
+summary: 'A consistency model is the contract about what a read may return. Strong, eventual and the session guarantees between them — what a partition forces, and what PACELC says about the other 99.9% of the time.'
+difficulty: 'intermediate'
+prerequisites: ['sd-availability-and-durability']
+estimatedMinutes: 11
+tags: ['system-design', 'consistency', 'cap-theorem', 'replication']
+explainPrompt: 'Why is CAP a statement about behaviour during a partition rather than a menu of three properties from which you pick two?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a read may return under strong, eventual and session consistency.
+- State CAP as the choice a partition forces, not as "pick two of three".
+- Use PACELC to describe what a configuration costs when nothing is broken.
+- Choose a consistency model per operation rather than per system.
+
+## Intuition
+
+A **consistency model** is the contract a storage system offers about which
+values a read is allowed to return, given the writes that have already happened.
+It is not the C in ACID — that one is about invariants holding inside a
+transaction. This one is about copies: the moment data lives on more than one
+machine, "the current value" stops being a single well-defined thing, and the
+model is what tells you what you may assume instead.
+
+**A replicated system is a room of people each holding a copy of a document.**
+Under strong consistency nobody answers until everyone has agreed on the latest
+edit: every answer is right, and every answer is slow. Under eventual
+consistency each person answers from their own copy at once and edits circulate
+afterwards: answers are fast, and some are out of date. Every other model is a
+rule about which stale answers are allowed.
+
+Two named ends, and a useful middle:
+
+- **Strong, or linearizable.** Every read returns the most recently acknowledged
+  write, and the system behaves as if there were one copy with operations in one
+  order. It costs coordination — at least a round trip to a majority. ("Strong
+  consistency" is used loosely for several models, including sequential
+  consistency and serializability; this course means linearizability by it.)
+- **Eventual.** Replicas converge if writes stop. A read may return a stale
+  value, and nothing bounds how stale. "Eventually" is not a duration.
+- **Session guarantees** (Terry et al., 1994), which promise nothing globally
+  but everything within one client's session: _read-your-writes_ (you never see a
+  value older than your own last write), _monotonic reads_ (once you have read a
+  value, no later read in the session returns an older one), _monotonic writes_
+  (your own writes are applied in the order you issued them) and
+  _writes-follow-reads_ (a write you make after reading a value lands after that
+  value).
+- **Staleness bounds**, which are a different axis — they limit how far behind a
+  read may be, for everyone, rather than promising anything per session:
+  _consistent prefix_ (writes appear in the order they were made, possibly
+  missing the newest) and _bounded staleness_ (reads are at most
+  so many seconds or versions behind).
+
+## How it works
+
+Replicated stores usually express the model as quorum sizes. With three copies,
+the question is how many must answer a write and how many must answer a read:
+
+```text
+N = 3 replicas, write quorum W, read quorum R
+
+W = 2, R = 2  →  W + R = 4 > N, so every read set overlaps every write set:
+                 at least one replica in the read set has the newest write.
+W = 1, R = 1  →  W + R = 2, not > N: a read can hit a replica that has
+                 never seen the write. Fast, and stale without warning.
+```
+
+Overlap is necessary, not sufficient: the read must also be able to tell which
+of the copies it collected is newest, which is what version numbers exist for. A
+quorum of values with no ordering between them is a pile of values.
+
+And overlap is **not linearizability**. It gives you recency against the last
+_completed_ write, which leaves two cases uncovered: a write that failed
+part-way through is on some replicas and not others, so two reads can disagree
+about whether it happened; and two concurrent writes still need a conflict rule,
+because overlap tells you the values are different, not which should win.
+
+The failure teams meet first is usually a session guarantee going missing:
+
+```text
+t0  user sets their display name        → write goes to the primary, acknowledged
+t1  user reloads their profile page     → read is routed to a follower
+t2  the follower is 400 ms behind       → the page shows the old name
+```
+
+Nothing here is broken. The write is durable, the follower will catch up, and
+the user is looking at a page saying their change did not happen.
+**Read-your-writes** is the guarantee that would have prevented it, and it is
+cheap: route a session's reads to the primary for a few seconds after it writes,
+or hand the client the version its write produced and require any replica
+serving that session to have reached it.
+
+<Callout variant="warning">
+  **CAP is not "pick two of three".** A network partition is not a property you
+  choose; it is a thing that happens to you, and a design that assumes messages
+  are never lost is not a design. What CAP actually says is: *while a partition
+  is in progress*, a system cannot be both linearizable and available to every
+  node. The real question it poses is therefore narrow — when the two halves of
+  your cluster cannot talk, does the side without a quorum still answer?
+</Callout>
+
+The two answers have names. A **CP** system refuses: the minority side stops
+accepting writes _and_ stops serving reads it cannot prove are current — a stale
+local read breaks the single-copy illusion exactly as a divergent write does — so
+there is never more than one value and some clients are turned away until the
+partition heals. An **AP** system keeps
+serving on both sides, so the two sides diverge and something must merge them
+afterwards — last-write-wins, version vectors, conflict-free replicated data
+types, or a human.
+
+Note that "available" in CAP is narrower than the word in
+[the availability lesson](/learn/sd-availability-and-durability/): it means
+every non-failing node returns a non-error response, all or nothing. A CP system
+is therefore not an unreliable one — partitions are rare, so a store that
+refuses writes during them can still measure 99.99% over a month.
+
+CAP says nothing about the overwhelming majority of the time, when the network
+is fine. That gap is what **PACELC** fills, in Abadi's 2012 formulation: _if
+there is a Partition, choose between Availability and Consistency; Else, choose
+between Latency and Consistency._ The second half is the one you live with
+daily, because agreement costs a round trip even when nothing is wrong:
+
+```text
+two regions 5,000 km apart, light in fibre ≈ 200,000 km/s
+round trip = 10,000 km ÷ 200,000 km/s ≈ 50 ms, before any processing
+
+a write that must reach the far region before acknowledgement
+cannot have a p99 below 50 ms, no matter what it runs on
+```
+
+So a majority-quorum store spread across three regions and configured for
+linearizable reads and writes is **PC/EC**: it refuses during a partition and
+pays the round trip when there is none. Loosen reads to one local replica and
+the same software becomes **PC/EL** — still refusing during a partition, now
+fast and possibly stale the rest of the time. **PACELC describes a
+configuration, not a product**, which is why it is worth working out for your
+own system rather than looking up.
+
+## Trade-offs
+
+**Strong consistency buys correctness with latency and a failure mode.** The
+coordination that makes every read current is the coordination that must stop
+when nodes cannot reach each other. You cannot keep one and discard the other.
+
+**Eventual consistency does not remove the problem, it relocates it.** Conflict
+resolution moves into your application, where it becomes product design: which
+edit wins, and what the user sees when two devices disagree.
+
+**Session guarantees are usually the best value.** Read-your-writes and
+monotonic reads cost routing rather than consensus, and they remove most of what
+users would otherwise report as data loss.
+
+**Choose per operation.** Inside one product, a payment balance, a seat
+reservation and a unique username want linearizability; a follower count and a
+recommendation list are fine eventually consistent. One model for the whole
+system means overpaying for most of it, or under-serving the part that matters.
+
+## Common pitfalls
+
+- **Declaring "we are AP" as an identity.** Tempting because it sounds decisive.
+  CAP describes the behaviour of one operation on one data set during a
+  partition; a real system is a mixture.
+- **Confusing ACID's C with CAP's C.** Same letter, unrelated claims: one is
+  about invariants inside a transaction, the other about copies agreeing.
+- **Reading "eventually" as "within a few milliseconds".** Usually it is. The
+  model promises no bound at all, so anything that needs one must ask for
+  bounded staleness explicitly.
+- **Last-write-wins on wall-clock timestamps.** Tempting because it needs no
+  code, and it silently discards a write whenever two clocks disagree.
+- **Putting a cache in front of a linearizable store** and still calling the
+  result linearizable. The weakest link sets the model.
+
+## Interview notes
+
+Name the model per operation, then say what the user sees when it is violated.
+"Follower counts are eventually consistent, so after a follow the count can lag
+a few seconds; the follow itself is read-your-writes, so the button never flips
+back" is a complete answer, and it shows the two decisions were made separately.
+Follow it with the PACELC half — what the design costs when the network is
+healthy — because that is the part most candidates leave out and the part that
+is true every day.
+
+## Key takeaways
+
+- A consistency model is **the contract about what a read may return**, and it
+  is not ACID's C.
+- **Linearizable** means every read sees the last acknowledged write, paid for
+  in coordination; **eventual** means replicas converge with no bound on
+  staleness.
+- Quorums intersect when read and write quorums together exceed the replica
+  count — **necessary, but useless without versions to order the copies**.
+- **CAP applies during a partition only**: the choice is whether the side
+  without a quorum answers or refuses.
+- **PACELC covers the rest of the time**, trading consistency against latency —
+  and a cross-region round trip sets a floor of tens of milliseconds.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A candidate says "we chose AP over CP, so we get availability and partition tolerance but not consistency". What is wrong with the framing?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Partition tolerance is not chosen — networks drop messages whether or not you
+  planned for it, so P is a fact of deployment rather than a purchased property.
+  CAP constrains behaviour only _while a partition is in progress_, and the real
+  decision is what the side without a quorum does: serve possibly divergent
+  data, or return errors. Outside a partition the theorem says nothing, so the
+  label also fails to describe a normal day. The precise version is "during a
+  partition the minority side keeps serving, and we reconcile with version
+  vectors afterwards" — which invites the better question of what a conflict
+  looks like to a user.
+</PracticeCheck>
+
+**2. Users report that changing their display name "does not save", but the value is correct after a refresh a few seconds later. The write path is a primary and reads are load-balanced across three followers. What is happening, and what are two fixes?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Read-your-writes is being violated. The write is acknowledged by the primary
+  and replicated asynchronously; the immediate re-read lands on a follower that
+  has not applied it yet, so the page renders the old value. Nothing is lost,
+  and the data is correct once replication catches up — which is why it looks
+  like a phantom bug. Two fixes: pin a session's reads to the primary for a
+  short window after it writes, or return the version the write produced and
+  require any replica serving that session to have reached it. Both cost routing
+  rather than consensus.
+</PracticeCheck>
+
+**3. A team runs three replicas with a write quorum of 1 and a read quorum of 1, because it is fast. A colleague proposes a write quorum of 3 to make reads current. What does each configuration cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  With one write and one read the quorums sum to 2 against three replicas, so a
+  read set need not overlap the write set at all: a read can land on a replica
+  that has never seen the write, and it will not know. That buys the lowest
+  possible latency and gives up any guarantee of recency. Writing to all three
+  does make the sets overlap — the sum is 4 — but it ties write availability to
+  every replica being reachable, so one restarting node stops writes entirely
+  and every write pays the slowest replica's latency. The usual answer is the
+  middle, two and two: still overlapping, and tolerating one replica being gone
+  on each path.
+</PracticeCheck>

@@ -37,8 +37,8 @@ Kafka.
 
 The second idea matters as much: **a design is a set of trade-offs, not a set of
 choices.** "We use a cache" is not a decision. "We cache the catalogue for 60
-seconds, which costs up to a minute of staleness after an edit and saves roughly
-95% of catalogue reads" is. The first sentence cannot be disagreed with; the
+seconds, which costs up to a minute of staleness after an edit and removes
+roughly 99% of catalogue reads from the primary" is. The first sentence cannot be disagreed with; the
 second can, and that is what makes it engineering.
 
 <Callout variant="note">
@@ -74,7 +74,8 @@ Thirteen steps. Each one produces something the next step consumes.
 
 **Steps 1 and 2 — requirements and scope.** Separate _functional_ requirements
 (upload a video, follow a channel) from _non-functional_ ones (99.9% available,
-p99 under 300 ms, durable for ten years). The non-functional list is where the
+p99 latency under 300 ms — percentiles get their own lesson in the next module —
+durable for ten years). The non-functional list is where the
 architecture comes from: "playback must never stall" forces a CDN long before you
 have chosen a language. Scope is the other half — writing down "no live
 streaming, no monetisation" is what stops the design sprawling.
@@ -84,15 +85,17 @@ streaming, no monetisation" is what stops the design sprawling.
 
 ```text
 10,000,000 users × 20 reads = 200,000,000 reads/day
-200,000,000 ÷ 86,400 s      ≈ 2,300 reads/second average
-peak ≈ 3× average           ≈ 7,000 reads/second
-writes at 1% of reads       ≈ 70 writes/second
+a day ≈ 100,000 s           ≈ 2,000 reads/second average
+peak ≈ 3× average           ≈ 6,000 reads/second
+writes at 1% of reads       ≈ 20/second average, ≈ 60/second peak
 ```
 
-That single calculation has already made decisions for you. Seven thousand reads
-per second is comfortably one cached read path; seventy writes per second is a
-single well-indexed relational primary. Had it come out at 700,000 reads per
-second, the shape of every later step would differ. **This is why step 3 comes
+Rounding the day to 100,000 seconds rather than 86,400 costs 16% and buys
+arithmetic you can do while talking; the assumption of "20 reads per user" is
+wrong by more than that. That single calculation has already made decisions for
+you. Six thousand reads per second is comfortably one cached read path; sixty
+writes per second is a single well-indexed relational primary. Had it come out
+at 600,000 reads per second, the shape of every later step would differ. **This is why step 3 comes
 before step 6** — the number is what makes "PostgreSQL" or "a partitioned
 key-value store" an argued answer rather than a preference.
 
@@ -148,8 +151,9 @@ away.
 ## Interview notes
 
 In an interview this workflow is also a script, and the first two steps are
-graded hardest. Spending three minutes narrowing "design Twitter" to "a read-heavy
-timeline for 10 million daily users, no DMs, no search" reads as seniority,
+graded hardest. Spending three minutes narrowing "design a Twitter-like timeline" to "a
+read-heavy timeline for 10 million daily users, no DMs, no search" reads as
+seniority,
 because it is what the job actually is.
 
 Two habits carry disproportionate weight. **Say the number out loud** — the

@@ -222,6 +222,23 @@ const VIZ_COUPLED = [
   'ComplexityTable',
 ];
 
+/**
+ * CONTENT_STYLE §1's ban list, split by how certain the call is.
+ *
+ * It was a rule nothing checked, so three reviewers found it by hand in three
+ * modules — which is the definition of a rule that belongs in a test. This repo
+ * already enforces its calm-vocabulary rules the same way (see the banned-word
+ * regexes in `tests/unit/challenges.test.ts` and `tests/unit/mastery-ui.test.ts`).
+ *
+ * ALWAYS is filler or marketing: there is no sentence these improve.
+ * SOMETIMES has honest uses — "easier to packet-capture than X" is a real
+ * comparison, "just before the probe fires" is ordinary English — so those warn
+ * and a human decides, rather than provoking a fight with the checker.
+ */
+const BANNED_ALWAYS =
+  /\b(simply|seamless(?:ly)?|leverage[sd]?|utili[sz]e[sd]?|cutting-edge|effortless(?:ly)?|robust|powerful)\b/i;
+const BANNED_SOMETIMES = /\b(just|easy|easier|easily)\b/i;
+
 /** Non-lesson internal paths a lesson may link to. */
 const STATIC_PATHS = ['/', '/learn/', '/glossary/', '/about/'];
 
@@ -260,17 +277,31 @@ function proseOf(body) {
 }
 
 /**
- * Counts words the way `src/lib/reading-time.ts` does — prose only.
+ * Counts the words of a lesson's TEACHING prose — what SPEC §5's 600–1,500 band
+ * is about.
  *
- * A token with no letter or digit in it is not a word: a markdown table's cell
- * separators are five `|` per row, which on a thirteen-row table is eighty
- * "words" of punctuation. Counting them made the ceiling a tax on tables.
+ * Two things are excluded, both because counting them measured the wrong thing:
+ *
+ * - **A token with no letter or digit is not a word.** A markdown table's cell
+ *   separators are five `|` per row, so a thirteen-row table contributed eighty
+ *   "words" of punctuation and the ceiling became a tax on tables.
+ * - **`<PracticeCheck>` answers are not reading prose.** They ship collapsed,
+ *   the reader opens them after working the question out, and the site's own
+ *   model already treats them separately: CONTENT_STYLE §3 computes
+ *   `estimatedMinutes` as reading time *plus* exercise time. Counting them
+ *   inside the reading budget cost every lesson about 300 words of teaching —
+ *   measured across the first nineteen, teaching prose ran 945–1,485 words while
+ *   the totals ran 1,160–1,852, and one author landed on *exactly* 1,500, which
+ *   is a metric shaping the writing rather than checking it.
+ *
+ * This is not a relaxation. The 600-word floor now applies to teaching prose
+ * too, where before a lesson could reach it on practice answers alone.
  *
  * @param {string} body - The MDX body.
- * @returns {number} Word count.
+ * @returns {number} Teaching-prose word count.
  */
 function wordCount(body) {
-  return proseOf(body)
+  return proseOf(body.replace(/<PracticeCheck[\s\S]*?<\/PracticeCheck>/g, ''))
     .replace(/`[^`]*`/g, '')
     .split(/\s+/)
     .filter((token) => /[A-Za-z0-9]/.test(token)).length;
@@ -528,6 +559,59 @@ export function validateContent(root, options = {}) {
         warnings.push(
           `${file}: ${words} prose words, above the ${WORD_CEILING}-word ceiling`,
         );
+      }
+    }
+
+    // 5d. CONTENT_STYLE §1's ban list, over prose only — a flag or an
+    // identifier in a code fence is not the author's word choice.
+    //
+    // NEW COURSES ONLY, like the section and word rules above. Four of the
+    // fifteen algorithm lessons trip it ("simply" in three, "powerful" in one);
+    // they predate CONTENT_STYLE and rewording shipped prose is not what this
+    // expansion was asked to do (SPEC §2, "preserve"). Recorded in PROGRESS.md
+    // rather than silently fixed or silently ignored.
+    if (isNew) {
+      const prose = proseOf(body);
+      const always = BANNED_ALWAYS.exec(prose);
+      if (always) {
+        errors.push(
+          `${file}: banned word ${JSON.stringify(always[0])} — CONTENT_STYLE §1`,
+        );
+      }
+      const sometimes = BANNED_SOMETIMES.exec(prose);
+      if (sometimes) {
+        warnings.push(
+          `${file}: ${JSON.stringify(sometimes[0])} is on the §1 ban list — keep it only if it is doing real work (a genuine comparison, or "just" meaning "exactly")`,
+        );
+      }
+      const inSummary = BANNED_ALWAYS.exec(
+        `${data.summary ?? ''} ${data.explainPrompt ?? ''}`,
+      );
+      if (inSummary) {
+        errors.push(
+          `${file}: banned word ${JSON.stringify(inSummary[0])} in frontmatter — CONTENT_STYLE §1`,
+        );
+      }
+    }
+
+    // 5c. estimatedMinutes is computed, not guessed (CONTENT_STYLE §3)
+    //
+    // A BAND, not an equality: the formula is reading time plus exercise time,
+    // and exercise time is a judgement — 2 minutes for a lesson with practice
+    // questions, up to 5 for one that has the reader build something. Demanding
+    // an exact number would either forbid that judgement or force a second
+    // frontmatter field to declare it. The band still catches what matters: a
+    // guessed number, and a lesson whose length changed after the number was
+    // written. Warned rather than failed for the same reason.
+    if (isNew) {
+      const declared = Number(data.estimatedMinutes);
+      const reading = Math.round(wordCount(body) / 200);
+      if (Number.isFinite(declared)) {
+        if (declared < reading + 2 || declared > reading + 5) {
+          warnings.push(
+            `${file}: estimatedMinutes ${declared} is outside ${reading + 2}–${reading + 5} — CONTENT_STYLE §3 is round(words/200) + 2..5 exercise minutes`,
+          );
+        }
       }
     }
 

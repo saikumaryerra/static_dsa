@@ -1,0 +1,252 @@
+---
+title: 'Back-of-Envelope Estimation'
+slug: 'sd-capacity-estimation'
+course: 'system-design'
+track: 'sd-foundations'
+order: 3
+summary: 'A five-step method that turns stated assumptions into QPS, storage and bandwidth, plus the table of reference numbers to estimate against.'
+difficulty: 'beginner'
+prerequisites: ['sd-design-workflow', 'sd-requirements']
+estimatedMinutes: 9
+tags: ['system-design', 'estimation', 'capacity', 'scale']
+explainPrompt: 'Why does required storage keep climbing after QPS has levelled off?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Convert stated assumptions into a request rate, a storage figure and a bandwidth figure.
+- Estimate against a table of reference latencies, throughput ceilings and conversions.
+- Say what a result means for the design instead of stopping at the number.
+
+## Intuition
+
+**A capacity estimate is a unit conversion, not a prediction.** You are not
+forecasting the future; you are taking stated assumptions — 10 million daily
+users, 20 reads each, a row of about 500 bytes — and converting them into the
+units a design decision is made in: queries per second (QPS), terabytes, gigabits
+per second. The only creative act is choosing the assumptions, and they are
+written where a reader can disagree.
+
+That reframing removes what makes people avoid estimation: the feeling of
+inventing numbers. You are not inventing them; you are stating assumptions and
+doing arithmetic, and a wrong assumption makes the estimate wrong in a way
+anybody can point at.
+
+The second idea is **round hard, early**. Work to one significant figure, and
+treat a day as 100,000 seconds rather than 86,400: the 16% error is far smaller
+than the error in "20 reads per user", and the round number lets you divide in
+your head while talking. An estimate right to within a factor of two answers the
+only question you will ask of it — one machine, one rack, or a fleet?
+
+## How it works
+
+Five steps. Each one produces a line you can read aloud.
+
+**1. State the assumptions as round numbers.** Users, actions per user per day,
+size of one stored item, retention period, read-to-write ratio. Label them as
+assumptions so they are challengeable, as the requirements sheet in
+[Functional and Non-Functional Requirements](/learn/sd-requirements/) does.
+
+**2. Convert totals into rates.** Divide the per-day figure by 100,000 for the
+average per second, then multiply by 3 for peak. Real traffic is not flat — a
+consumer product concentrates its day into a few evening hours, and the system
+has to survive the peak.
+
+**3. Size one item, then multiply, then multiply again.** Storage is the step
+people underestimate, because two multipliers hide at the end of it: the
+retention window and the replication factor. Note the asymmetry — **a request
+rate plateaus when user growth does, but storage is the running total of every
+write accepted, so it climbs on flat traffic.**
+
+**4. Turn rates into bandwidth.** Rate times item size. Keep network figures in
+bits per second and storage figures in bytes, and convert deliberately; a factor
+of eight is the most common arithmetic error in this work.
+
+**5. Say what the number means.** An estimate that ends in a figure has not
+finished. End it in a sentence: "5,000 reads per second is one cache tier and a
+single primary", or "2 Tbps cannot come from origin servers".
+
+**The reference numbers.** These are _generally accepted industry reference
+figures, rounded to orders of magnitude_, not measurements of any specific
+hardware — a modern device beats several of them. Treat a factor of two or three
+as noise.
+
+| Operation                          | Order of magnitude |
+| ---------------------------------- | ------------------ |
+| Read from L1 cache                 | 1 ns               |
+| Read from main memory              | 100 ns             |
+| Read 1 MB sequentially from memory | 100 µs             |
+| Random read from an SSD            | 100 µs             |
+| Read 1 MB from an SSD              | 1 ms               |
+| Round trip inside one datacentre   | 0.5 ms             |
+| Seek on a rotational disk          | 10 ms              |
+| Round trip between continents      | 150 ms             |
+
+| Throughput ceiling, one node                | Order of magnitude        |
+| ------------------------------------------- | ------------------------- |
+| Application server, modest work per request | a few thousand requests/s |
+| In-memory cache node                        | 100,000 operations/s      |
+| Relational primary, indexed writes          | a few thousand writes/s   |
+| NVMe SSD                                    | 100,000 IOPS, 1 GB/s      |
+| 10 Gbps network interface                   | 1 GB/s                    |
+| 100 Gbps network interface                  | 12 GB/s                   |
+
+| Conversion                        | Value                    |
+| --------------------------------- | ------------------------ |
+| Seconds in a day                  | 86,400, round to 100,000 |
+| Seconds in a year                 | 30 million               |
+| 1 million events per day          | 10 per second            |
+| 1 billion events per day          | 10,000 per second        |
+| Peak against daily average        | 3 times                  |
+| One row of user or metadata       | 100 B to 1 KB            |
+| One JSON API response             | 1 to 10 KB               |
+| One photograph                    | 1 MB                     |
+| One minute of 1080p video, 5 Mbps | 40 MB                    |
+| 1 TB of storage                   | 1 billion rows of 1 KB   |
+
+**Worked estimate: a link shortener.**
+
+```text
+Assumptions
+  5,000,000 new links per day
+  100 redirects per link over its life, most in the first week
+  A row is a code, a target URL, an owner id and two timestamps
+
+Writes
+  5,000,000 ÷ 100,000 s    =       50 writes/s average
+  peak ≈ 3 × average       =      150 writes/s
+
+Reads
+  5,000,000 × 100          =  500,000,000 redirects/day
+  500,000,000 ÷ 100,000 s  =    5,000 reads/s average
+  peak ≈ 3 × average       =   15,000 reads/s
+
+Storage
+  one row ≈ 500 B with index overhead
+  5,000,000 × 500 B        =  2.5 GB/day
+  × 365                    ≈  900 GB/year
+  × 5 years × 3 replicas   ≈  14 TB
+```
+
+Read the last step. A hundred and fifty writes per second is one relational
+primary. Fifteen thousand reads per second is several times what one application
+server handles, and reads outnumber writes 100 to 1, so the read path is a
+cache — and a week of links is 35 million rows at 500 B, about 18 GB, which
+fits in memory on a small cache tier. Fourteen terabytes over five years is one
+storage decision, not a sharding project.
+
+**Worked estimate: a video platform.**
+
+```text
+Assumptions
+  10,000,000 daily viewers, 30 minutes each
+  3 Mbps average delivered bitrate across all resolutions
+  100,000 new videos per day, 10 minutes each
+  a rendition ladder of 0.6 / 1.5 / 3 / 6 Mbps  ≈ 12 Mbps stored per video-second
+
+Egress bandwidth
+  10,000,000 × 1,800 s     =  18,000,000,000 watch-seconds/day
+  18,000,000,000 ÷ 100,000 =  180,000 average concurrent streams
+  180,000 × 3 Mbps         =  540,000 Mbps  =  540 Gbps average
+  peak ≈ 3 × average       ≈  2 Tbps
+
+Storage
+  600 s × 12 Mbps          =  7,200 Mbit  =  900 MB   round to 1 GB
+  100,000 × 1 GB           =  100 TB/day
+  × 365                    ≈  36 PB/year
+```
+
+Two terabits per second is the number that decides the architecture. At 100 Gbps
+per interface that is twenty of them saturated, before redundancy — a fleet-sized
+commitment rather than an impossible one. What settles it is the second row of
+the latency table: viewers are not all on one continent, and no origin can put
+bytes 150 ms away and still start playback quickly. The bytes have to sit close
+to readers. And 36 PB a year, almost all of it rarely watched, justifies tiered
+storage on the spot.
+
+<Callout variant="tip">
+  Estimate in the unit the system is sized in: concurrent streams for video, QPS
+  for an API, rows per second for a database. Choosing the wrong unit is a more
+  expensive mistake than rounding badly.
+</Callout>
+
+## Common pitfalls
+
+- **False precision.** "6,847 reads per second" claims an accuracy the
+  assumptions cannot support, and invites an argument about the wrong digit.
+- **Sizing for the average.** A system that survives its mean load but not its
+  evening peak is down every evening.
+- **Forgetting the multipliers on storage.** Replication, index overhead and
+  retention each multiply the raw figure, and together they routinely turn a 4 TB
+  estimate into 14 TB.
+- **Mixing bits and bytes.** Networks are quoted in bits, disks in bytes, and a
+  factor of eight changes the answer.
+- **Stopping at the number.** An estimate nobody turns into a design consequence
+  was arithmetic practice.
+
+## Interview notes
+
+Narrate the arithmetic. The interviewer is assessing how you reason and the
+division is the visible part of it, so say "five million a day over roughly a
+hundred thousand seconds, call it fifty a second" rather than going quiet.
+
+Two conversions carry most estimates on their own: 100,000 seconds in a day, and
+peak at 3 times average. And when a result surprises you, say so and check it —
+noticing that 2 Tbps is implausible for origin servers is a better signal than
+producing the figure without comment.
+
+## Key takeaways
+
+- An estimate is a **unit conversion from stated assumptions**: its correctness
+  is the assumptions plus the arithmetic, and both are on the page.
+- **Round to one significant figure**, treat a day as 100,000 seconds, and take
+  peak as roughly 3 times average.
+- **QPS plateaus; storage accumulates.** Retention and replication are the
+  multipliers that make storage several times the raw figure.
+- Keep network figures in bits and storage figures in bytes.
+- Finish with what the number **decides** — one machine, one tier, or a delivery
+  network.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A messaging feature expects 200 million messages a day, each about 1 KB stored. Estimate the write rate and the first year of storage.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  200,000,000 over roughly 100,000 seconds is about 2,000 messages per second on
+  average and around 6,000 at peak. That is at the ceiling for a single
+  relational primary — close enough that you would measure rather than assume,
+  and far enough that partitioning or a store built for writes belongs on the
+  table. Storage is 200,000,000 × 1 KB = 200 GB per day, about 73 TB of raw rows
+  in a year; add index overhead and three replicas and the honest figure is a
+  few hundred terabytes. The rate sizes today; the accumulation sizes next year.
+</PracticeCheck>
+
+**2. Traffic is flat for eighteen months. Why does the capacity plan still change over that time?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because a request rate and a stored volume are different kinds of quantity.
+  QPS is a rate: if the same users do the same things, it stays where it is, and
+  the servers sized for it stay sized for it. Storage is the running total of
+  every write ever accepted, so on flat traffic it grows by the same amount
+  every day and never levels off on its own. Only a retention policy that
+  deletes or tiers old data flattens it, which is why "we are not growing" is
+  never an answer to a storage question.
+</PracticeCheck>
+
+**3. An estimate gives 900 Gbps of average egress and someone proposes serving it from three well-connected origin datacentres. What does the reference table say about that?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  That the bandwidth alone is a fleet-sized commitment, and the latency row is
+  what settles it. 900 Gbps average implies roughly 2.7 Tbps at peak: at 100
+  Gbps per interface that is around 27 saturated links across three sites before
+  any redundancy — expensive and buildable, not impossible. The decisive row is
+  the other one. A round trip between continents is about 150 ms, so a distant
+  viewer pays that on every request no matter how much capacity the origin has,
+  and no amount of interfaces removes it. Cache the bytes close to readers.
+</PracticeCheck>

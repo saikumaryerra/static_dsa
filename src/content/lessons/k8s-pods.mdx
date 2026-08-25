@@ -1,0 +1,228 @@
+---
+title: 'Pods and the Pod Lifecycle'
+slug: 'k8s-pods'
+course: 'kubernetes'
+track: 'k8s-workloads'
+order: 6
+summary: 'A Pod is one small shared machine — a single address, a single set of volumes, a single scheduling decision — and it moves through five phases that the status column deliberately does not show you.'
+difficulty: 'beginner'
+prerequisites: ['k8s-objects-and-manifests', 'k8s-desired-state']
+estimatedMinutes: 9
+tags: ['kubernetes', 'pods', 'workloads', 'lifecycle']
+explainPrompt: 'Why does Kubernetes schedule Pods rather than individual containers?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a Pod gives its containers that two separate Pods cannot give each other.
+- Name the five Pod phases, and what moves an object between them.
+- Read `restartPolicy`, container state and `CrashLoopBackOff` as three separate
+  pieces of information.
+- Decide when a bare Pod is the right object, and when it is not.
+
+## Intuition
+
+Everything so far has been about objects and the loops that reconcile them. This
+is the object that actually runs your code.
+
+The name is misleading if you read it as "a wrapper around a container".
+**A Pod is a machine, not a wrapper.** It is the smallest slice of a node
+Kubernetes will hand out: one IP address, one `localhost`, one hostname, a set
+of volumes anything inside it can mount, and one lifetime. Containers in the same
+Pod reach each other on `127.0.0.1`, cannot both bind the same port, always land
+on the same node, and die together.
+
+That explains why the scheduler places Pods and not containers. Some containers
+are useless apart from each other — a log shipper reading files the application
+writes, a proxy that intercepts the application's connections. They need the same
+node, the same disk and the same lifetime, and "the same node, disk and lifetime"
+is precisely what a Pod is. Anything that could equally well run on another
+machine should be its own Pod instead.
+
+<Callout variant="note">
+  A Pod is never moved. If its node loses power, the Pod does not migrate — it
+  is eventually marked as gone and something else creates a **new** Pod, with a
+  new name and a new address, somewhere else. Nothing about a Pod survives its
+  node, which is why the object you actually maintain is almost always a
+  controller holding a Pod template.
+</Callout>
+
+## How it works
+
+Here is a Pod with two containers that genuinely belong together, sharing a
+volume that exists only as long as the Pod does:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  restartPolicy: Always
+  volumes:
+    - name: logs
+      emptyDir: {}
+  containers:
+    - name: server
+      image: nginx:1.29
+      ports:
+        - containerPort: 80
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      volumeMounts:
+        - name: logs
+          mountPath: /var/log/nginx
+    - name: log-shipper
+      image: busybox:1.37
+      command: ['sh', '-c', 'tail -F /logs/access.log']
+      volumeMounts:
+        - name: logs
+          mountPath: /logs
+```
+
+Two containers, one `metadata`, one IP. The shipper reads a file the server
+writes because both mount `logs`, and neither knows anything about the other.
+
+**The five phases.** `status.phase` is a deliberately coarse summary of where the
+Pod is in its life:
+
+- **Pending** — the API server accepted it, but not every container is running
+  yet. This covers waiting for a node _and_ pulling images, which are very
+  different problems.
+- **Running** — bound to a node, every container created, at least one running or
+  restarting.
+- **Succeeded** — every container exited zero and none will be restarted.
+- **Failed** — every container stopped and at least one failed or was killed.
+- **Unknown** — the node could not be reached to report.
+
+The detail lives one level down, in two places. **Conditions** —
+`PodScheduled`, `Initialized`, `ContainersReady`, `Ready` — say which stage
+completed; `Ready` is the one a Service uses to decide whether to send traffic.
+**Container statuses** give each container a state of `Waiting`, `Running` or
+`Terminated`, and a `Waiting` state carries the reason you actually want:
+`ContainerCreating`, `ImagePullBackOff`, `CrashLoopBackOff`.
+
+```bash
+kubectl get pod web -o jsonpath='{.status.phase}{"\n"}'
+kubectl get pod web -o jsonpath='{range .status.containerStatuses[*]}{.name}{"\t"}{.ready}{"\n"}{end}'
+kubectl describe pod web
+kubectl logs web -c server --previous
+```
+
+**`restartPolicy` is an instruction to one kubelet.** `Always` (the default),
+`OnFailure` or `Never` tells the kubelet on that node what to do when a container
+in the Pod exits. It restarts the container **in place**, on the same node, in
+the same Pod, backing off exponentially up to a cap of a few minutes.
+`CrashLoopBackOff` is that waiting period given a name — not a phase, not a
+separate failure. The Pod is still `Running`; the information you need is the
+previous container's exit code and its logs.
+
+One more thing worth knowing early: the `STATUS` column of `kubectl get pods` is
+not the phase. It is a summary that prefers the most specific thing it knows, so
+it prints `ImagePullBackOff`, `Init:1/2` or `Terminating` — none of which appear
+in the list of five above.
+
+## Trade-offs
+
+**When a bare Pod is right.** Debugging, mostly. A throwaway shell in the cluster
+is a legitimate Pod you create by hand:
+
+```bash
+kubectl run debug --image=busybox:1.37 --restart=Never --rm -it -- sh
+```
+
+**What it costs.** Nobody recreates it. Drain the node and it is gone; lose the
+node and it is gone; delete it by accident and it is gone. That is why nearly
+every Pod in a real cluster is written by a controller from a template, and why
+the template is the thing you edit.
+
+A Pod is also mostly immutable once created. You can change
+`spec.containers[*].image`, and very little else — a controller responds to a
+changed template by making a new Pod, not by editing the one that exists.
+
+**Multiple containers cost coupling.** They scale together, restart together and
+compete for the same node resources, and you cannot update one without replacing
+the Pod. Put two containers together only when they need the same node, the same
+volume or the same lifetime. An application and its database need none of those.
+
+## Common pitfalls
+
+- **Reading `Running` as healthy.** `Running` says containers exist. Readiness
+  says traffic should arrive. A Pod can sit `Running` and `1/2` ready for hours
+  while a Service ignores it entirely.
+- **Expecting a Pod to move.** `restartPolicy: Always` is tempting to read as
+  "Kubernetes keeps this running". It means one kubelet restarts a container on
+  one node. If the node is gone, so is the kubelet that would have acted.
+- **Treating `CrashLoopBackOff` as the diagnosis.** It only says the container
+  keeps exiting. The exit code, the events and `kubectl logs --previous` say why,
+  and they are three different sources.
+- **Packing a whole stack into one Pod.** It is tempting because everything
+  starts with one `apply` and can talk over `localhost`. You have also made your
+  cache restart whenever your API crashes, and made both unscalable.
+- **Two containers binding the same port.** They share a network namespace, so
+  the second one fails to bind — with an error from your process, not from
+  Kubernetes.
+
+## Key takeaways
+
+- A **Pod is a shared execution environment** — one IP, one `localhost`, shared
+  volumes, one node, one lifetime — and it is the smallest thing the scheduler
+  places.
+- `status.phase` has exactly five values: **Pending, Running, Succeeded, Failed,
+  Unknown**. `Pending` covers both "not scheduled" and "still pulling an image".
+- **Ready is not Running.** Conditions and container statuses carry the detail
+  the phase leaves out, and readiness is what a Service acts on.
+- `restartPolicy` restarts a **container inside an existing Pod on its existing
+  node**. It never recreates a Pod elsewhere.
+- Bare Pods are for debugging. Anything that must survive a node belongs to a
+  controller that owns a Pod template.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Both containers in a Pod are configured to listen on port 8080. The second one exits immediately with an "address already in use" error. Why, and what are the two ways out?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Containers in one Pod share a network namespace, so there is a single port
+  space and a single `localhost` between them — exactly as if the two processes
+  ran on one machine. The first bind wins and the second fails. Either configure
+  the second container to listen on a different port, or ask whether these two
+  containers belong in the same Pod at all: needing separate ports is often a
+  sign they do not share a lifetime either, and two Pods behind two Services is
+  the simpler answer.
+</PracticeCheck>
+
+**2. The node running your Pod loses power. Trace what happens if the Pod was created by hand, and what changes if it was created by a controller.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  In both cases the Pod itself is finished: `restartPolicy` was an instruction
+  to a kubelet that is no longer running, and Kubernetes does not move a Pod.
+  The control plane eventually stops hearing from the node, marks it unhealthy,
+  and the Pod object is marked for deletion. A hand-created Pod ends there —
+  nothing is watching for it. A controller sees its count fall below the desired
+  number and creates a *replacement* Pod, which the scheduler places on a
+  healthy node. The replacement has a new name, a new IP address and none of the
+  previous container filesystem.
+</PracticeCheck>
+
+**3. `kubectl get pods` has shown `web 1/2 Running` for ten minutes. What is the phase, what is the column telling you, and what do you run next?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The phase is `Running` — at least one container is up, which is all that phase
+  claims. The `1/2` is the ready count: one of the two containers is not passing
+  its readiness check, so any Service selecting this Pod is not sending it
+  traffic. Run `kubectl describe pod web` to read the per-container state and
+  the events, then `kubectl logs web -c log-shipper` — naming the container that
+  is not ready — for the application side of the story. The phase was never
+  going to tell you which container is unhappy; that is what container statuses
+  are for.
+</PracticeCheck>

@@ -23,20 +23,30 @@ concrete, unhurried, and willing to say what a thing costs.
 - **Concrete before abstract.** Show the manifest, then say what it means.
 - **Say the trade-off.** Every recommendation names what it costs. A lesson that
   only lists capabilities is a brochure.
-- **No hype, no filler.** Ban: "simply", "just", "easy", "powerful", "seamless",
-  "leverage", "utilize", "robust", "cutting-edge", "in today's fast-paced world".
+- **No hype, no filler.** The validator enforces this, in two tiers.
+  **Rejected outright** — "simply", "seamless", "leverage", "utilize", "robust",
+  "powerful", "cutting-edge", "effortless": there is no sentence these improve,
+  and they are rejected in frontmatter too. **Warned** — "just", "easy",
+  "easier", "easily": keep one only when it is doing real work, such as a genuine
+  comparison ("cheaper to packet-capture than an overlay") or "just" meaning
+  "exactly". As a claim about difficulty, "easy" is the reader's call to make,
+  not yours. Also avoid "in today's fast-paced world" and its relatives.
 - **No second-person scolding.** "A common mistake is…" not "You probably think…".
 - **British or American spelling** — match the existing site, which is British
   ("behaviour" appears in prose, "color" only in code and CSS). Consistency
   inside a lesson matters more than the choice.
 
-Prose length: **600–1,500 words**, excluding code blocks and diagram markup.
-Below the floor is an **error**; above the ceiling is a **warning**, because a
-lesson carrying a large reference table or long practice answers can be over it
-and still be tight. `sd-design-workflow` is the worked example: 1,286 words of
-teaching prose, plus a thirteen-row table and three practice answers. Project and
-troubleshooting lessons may run longer by design. A thin lesson is worse than no
-lesson; so is a padded one.
+Prose length: **600–1,500 words of TEACHING prose**. Code blocks, diagram markup
+and `<PracticeCheck>` answers do not count — the answers ship collapsed and are
+budgeted as exercise time in §3, not as reading. In practice that puts a healthy
+lesson around 1,100–1,400 words, with another 250–350 in its answers.
+
+Below the floor is an **error**. Above the ceiling is a **warning**, because a
+lesson carrying a genuinely large reference table can be over it and still be
+tight; project and troubleshooting lessons may run longer by design. **Do not
+write to the number.** A thin lesson is worse than no lesson, and so is a padded
+one — if you find yourself adding a clause to reach 600 or cutting one to reach
+1,500, the count is not the problem.
 
 ---
 
@@ -127,13 +137,19 @@ published: true
 ### `estimatedMinutes` is computed, never guessed
 
 ```
-estimatedMinutes = round(prose_words / 200) + exercise_minutes
+estimatedMinutes = round(teaching_words / 200) + exercise_minutes
 ```
 
-`prose_words` excludes code blocks and diagram markup (the site's own
-`readingTimeMinutes` uses 200 wpm and strips fences the same way).
-`exercise_minutes` is 2 for a lesson with Practice questions only, 3–5 if it has
-a hands-on exercise with commands to run. Round to a whole number.
+`teaching_words` is what the validator counts: prose without code blocks, diagram
+markup or `<PracticeCheck>` answers (the site's own `readingTimeMinutes` uses the
+same 200 wpm and strips fences the same way). `exercise_minutes` is **2** for a
+lesson with Practice questions only, up to **5** for one that has the reader
+build or run something.
+
+The validator warns when your number falls outside `round(words/200) + 2…5`. It
+is a band rather than an equality because the exercise term is a judgement — but
+a number outside it is either a guess or a leftover from before the lesson
+changed length.
 
 ---
 
@@ -278,6 +294,11 @@ Every architectural statement carries one of three labels, in the prose itself:
    microservices and chaos engineering, Spotify's engineering blog, the 2016
    RecSys paper *Deep Neural Networks for YouTube Recommendations* (Covington,
    Adams, Sargin), and YouTube's published resumable-upload API documentation.
+   **Named academic and industry literature counts too**, cited the same way —
+   author and year, no URL: Dean and Barroso's *The Tail at Scale* (CACM, 2013),
+   Abadi's PACELC paper (2012), Terry et al. on session guarantees (1994),
+   Brewer's CAP conjecture and the Gilbert–Lynch proof (2002). Add to this list
+   when you cite something new, so the next author can reuse it.
 2. **Generally accepted industry architecture** — the shape any team would
    arrive at, not a claim about one company.
 3. **A teaching assumption** — something we are choosing to keep the example

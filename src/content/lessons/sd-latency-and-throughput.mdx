@@ -1,0 +1,233 @@
+---
+title: 'Latency and Throughput'
+slug: 'sd-latency-and-throughput'
+course: 'system-design'
+track: 'sd-properties'
+order: 5
+summary: 'Latency is a distribution and throughput is a rate. Percentiles, queueing and the arithmetic tying the two together — and why p99, not the average, is the number a design is judged on.'
+difficulty: 'beginner'
+prerequisites: ['sd-design-workflow']
+estimatedMinutes: 10
+tags: ['system-design', 'latency', 'throughput', 'performance', 'scalability']
+explainPrompt: 'Why can a service with a healthy average response time still be slow for a large share of page loads?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Read a latency distribution and say what p50, p95 and p99 each tell you.
+- Predict the point where rising utilisation turns into rising latency.
+- Convert between throughput, latency and concurrency, and size a pool from it.
+- State what "scalable" means as a measurable claim rather than a compliment.
+
+## Intuition
+
+Two numbers describe any request path, and they answer different questions.
+**Latency** is how long one operation takes, measured end to end from the
+caller's point of view. **Throughput** is how much work completes per unit of
+time — for a request path, QPS, queries per second. A system can have excellent
+throughput and terrible latency, and the reverse; improving one often damages
+the other.
+
+**Latency is a distribution, not a number.** Every request in a window has its
+own duration, and the useful summary is a percentile: p50 is the value half of
+requests come in at or below, p99 the value 99% come in at or below. An average
+collapses that distribution into a single figure that may describe no request
+that actually happened.
+
+The mental model for throughput is **a counter with a queue**. The server is the
+person at the counter; service time is how long one customer takes; utilisation
+is the fraction of the time the counter is busy. Throughput is customers served
+per minute — but the customer's experience is service time _plus_ the wait, and
+the wait is governed by how busy the counter already is.
+
+## How it works
+
+Start with why the average misleads. Take a thousand requests where nearly all
+are fast and a few are not:
+
+```text
+1,000 requests: 980 at 40 ms, 20 at 4,000 ms
+mean = (980 × 40 + 20 × 4,000) ÷ 1,000 = 119 ms
+p50  = 40 ms       (the median request)
+p99  = 4,000 ms    (2% were slow, so the 99th percentile sits in the slow group)
+```
+
+The mean of 119 ms is a duration no request took: slower than the typical
+experience, and a hundred times faster than the worst. Both halves of that
+sentence are reasons not to alert on it.
+
+The tail matters more than its share suggests, because pages are assembled from
+many calls. Say a page needs 20 backend responses and each call is slow 1% of
+the time:
+
+```text
+20 calls per page, each slow 1% of the time
+all 20 fast = 0.99^20 ≈ 0.82
+so ≈ 18 page loads in 100 contain at least one slow call
+```
+
+A 1% tail in one service became an 18% tail on the page. This is why fan-out
+architectures are judged on p99 and p99.9: the service's rare case is the page's
+common case. The standard name for the effect is tail latency, from Dean and
+Barroso's 2013 article _The Tail at Scale_.
+
+Where does the tail come from? Mostly from queueing. For a single server with
+randomly arriving work, waiting time grows with utilisation like this:
+
+```text
+service time 10 ms, one server, random arrivals
+50% busy → wait ≈ 10 × 0.5 ÷ 0.5   =  10 ms   (total ≈  20 ms)
+90% busy → wait ≈ 10 × 0.9 ÷ 0.1   =  90 ms   (total ≈ 100 ms)
+99% busy → wait ≈ 10 × 0.99 ÷ 0.01 = 990 ms   (total ≈ 1,000 ms)
+```
+
+That formula is the textbook single-server queue — a teaching model, not a
+description of any real service, whose burstier arrivals make the effect worse
+rather than better. The lesson survives the simplification: **the last slice of
+capacity costs almost all of the latency.** Going from 50% to 90% busy
+multiplies the response time by five; 90% to 99% multiplies it by ten again.
+Utilisation is not a number to maximise.
+
+The third piece of arithmetic ties the two properties together. Concurrency —
+the number of requests in flight at once — equals throughput multiplied by
+latency. This is Little's Law, and it is the fastest way to size a pool:
+
+```text
+2,000 requests/second × 50 ms  = 2,000 × 0.05 = 100 requests in flight
+2,000 requests/second × 250 ms = 2,000 × 0.25 = 500 requests in flight
+```
+
+A connection pool of 200 is comfortable in the first line and a wall in the
+second. Nothing about the traffic changed; a dependency got five times slower
+and the pool you sized for the fast case became the bottleneck. Most capacity
+surprises are this calculation, run too late.
+
+Finally, budget the latency you have promised, hop by hop:
+
+```text
+p99 budget 300 ms for one page
+  network to the edge, TLS        60 ms
+  gateway and authentication      20 ms
+  service fan-out, slowest call  120 ms
+  serialisation and render        40 ms
+  headroom                        60 ms
+```
+
+The split is a teaching assumption; the discipline is general. Every hop gets a
+number a named team owns, and headroom is a line item rather than an accident.
+
+<Callout variant="note">
+  **Scalability, stated as a claim you can check.** A system is scalable when
+  adding resources raises throughput roughly in proportion while latency stays
+  inside its budget. Scaling *vertically* — a bigger machine — is the simplest
+  change available and has a ceiling plus a single failure domain. Scaling
+  *horizontally* — more machines — has no ceiling in principle, but only if the
+  work can be split and the shared state behind it does not become the new
+  bottleneck. Note what horizontal scaling does not do: ten servers serve ten
+  times the requests, and each request still takes exactly as long.
+</Callout>
+
+## Trade-offs
+
+**Throughput and latency pull against each other.** Batching, compression and
+larger queues all raise throughput by making individual operations wait longer.
+A batch window of 20 ms is 20 ms added to every request in it, bought in
+exchange for fewer round trips.
+
+**Each further percentile costs more than the last.** p99.9 is the rarest one
+request in a thousand, and it is usually made of garbage collection pauses, cold
+caches, a retried packet or a node that is about to fail. Squeezing it means
+duplicating work or over-provisioning.
+
+**Flat latency is bought with idle capacity.** The queueing table above is also a
+price list: running at 50% utilisation means paying for roughly twice the
+hardware in use at any instant. That is what a stable p99 costs, and it is a
+budget decision as much as an engineering one.
+
+## Common pitfalls
+
+- **Alerting on the mean.** Tempting because every tool offers it as the default
+  and it is one number. It hides exactly the requests users complain about.
+- **Averaging percentiles.** The mean of ten servers' p99 values is not the p99
+  of the fleet, and yesterday's p99 averaged with today's is not this week's.
+  Dashboards will do this happily; percentiles must be computed from the
+  underlying distribution.
+- **Measuring inside the server.** A timer started when the handler begins
+  excludes the time the request spent in the accept queue — which is the part
+  that grows first under load. Measure at the client, or at the edge.
+- **Coordinated omission in load tests.** A generator that waits for each
+  response before sending the next one stops sending during a stall, so the
+  stall is missing from its own results — the tool reports health during the
+  outage it caused.
+- **Sizing pools, threads and timeouts for the fast case.** Little's Law says
+  the in-flight count moves with latency, so every pool is implicitly sized for
+  a latency you have assumed rather than promised.
+
+## Interview notes
+
+Say targets with three parts: a percentile, a scope and a window. "p99 under
+300 ms for the feed read path, measured at the client, over five minutes" is a
+requirement someone can test. "Low latency" is not.
+
+The other habit that reads well is separating the two words on purpose. When
+someone says "make it faster", ask whether each request should finish sooner or
+the system should handle more of them — the fixes point in opposite directions,
+caching and fewer hops for the first, batching and more workers for the second.
+
+## Key takeaways
+
+- Latency is a **distribution**; report percentiles, and never the mean alone.
+- A small tail becomes a large one under fan-out: **20 calls at 1% slow each
+  make roughly 18% of pages slow.**
+- Waiting time grows with utilisation, steeply near the top. **Running hot is
+  paid for in p99**, not in throughput.
+- **Concurrency = throughput × latency.** Every pool size is a bet on a latency.
+- Horizontal scaling raises throughput; it does not make a single request
+  faster.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A dashboard shows average response time 119 ms, and users report the site "sometimes hangs for seconds". Both can be true — how?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the mean is a summary of a distribution with a long tail. In the
+  worked example, 980 of 1,000 requests took 40 ms and 20 took 4 seconds; the
+  mean of 119 ms describes neither group, and the 2% who waited four seconds are
+  the people filing the reports. The p50 (40 ms) shows the typical experience
+  and the p99 (4,000 ms) shows the complaint. The mean cannot tell you *which*
+  requests moved — the same 119 ms would come from 2% of users waiting four
+  seconds or from every user being slightly slower — and those two situations
+  need completely different work, which is why a mean is not a number to alert
+  on.
+</PracticeCheck>
+
+**2. A service runs at 85% utilisation. A new feature adds 10% to the work each request does. Why is the latency risk much larger than 10%?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because utilisation rises with the work, and waiting time rises far faster
+  than utilisation does. At 85% busy the queueing multiplier is 0.85 ÷ 0.15 ≈
+  5.7 service times of waiting. Adding 10% to each request pushes utilisation to
+  about 93.5%, where the multiplier is 0.935 ÷ 0.065 ≈ 14.4 — and each of those
+  service times is now 10% longer. The wait roughly triples for a 10% change in
+  work. This is the shape of most "it was fine until suddenly it wasn't"
+  incidents: the system was already on the steep part of the curve.
+</PracticeCheck>
+
+**3. A service handles 2,000 requests per second with a 200-connection pool to its database, where calls average 50 ms. The database slows to 250 ms. What happens, and why is it not a 5× slowdown?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  By Little's Law the service needs throughput × latency = 2,000 × 0.25 = 500
+  connections in flight to sustain the same rate, and it has 200. The pool
+  therefore caps throughput at 200 ÷ 0.25 = 800 requests per second, so 1,200
+  requests per second arrive with nowhere to go. They queue in front of the
+  pool, and waiting time grows without bound while arrivals exceed service — so
+  latency does not settle at 250 ms, or even at 1,250 ms; it climbs until
+  something times out or sheds load. A 5× dependency slowdown became an outage
+  because a fixed pool turned it into an overload.
+</PracticeCheck>
