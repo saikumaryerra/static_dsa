@@ -186,6 +186,11 @@ no matching term, and the glossary is curated separately (decision D-12).
   instead.
 - **`apiVersion`/`kind` pairs come from the DECISIONS D-02 allowlist.** Anything
   on the deny list fails the validator. Never `PodSecurityPolicy`.
+- The allowlist also carries a short **ecosystem** section — `kind`'s cluster
+  config, `kustomization.yaml`, Argo CD, KEDA, Kyverno and the Prometheus
+  operator's CRDs — because the curriculum teaches those and a lesson that
+  cannot show its own subject's YAML is teaching around it. Showing one does not
+  excuse you from saying, in the prose, that it is not core Kubernetes.
 - **Commands use real flags** and real output shapes. If you show output, it must
   be what the command actually prints.
 - **Units:** `Mi`/`Gi` for memory, `m` for millicores, `1Gi` not `1G`.

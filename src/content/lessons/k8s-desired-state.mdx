@@ -1,0 +1,226 @@
+---
+title: 'Desired State and Reconciliation'
+slug: 'k8s-desired-state'
+course: 'kubernetes'
+track: 'k8s-foundations'
+order: 3
+summary: 'A controller reads the whole object rather than the event that woke it — which is why it recovers from a dropped message, a restart, and a situation nobody designed for.'
+difficulty: 'beginner'
+prerequisites: ['k8s-what-kubernetes-is', 'k8s-objects-and-manifests']
+estimatedMinutes: 9
+tags: ['kubernetes', 'controllers', 'reconciliation', 'declarative']
+explainPrompt: 'Why does a controller re-read the object instead of acting on the change notification that woke it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Describe the four steps a controller repeats, and what it reads at each one.
+- Explain why level-triggered logic survives a dropped event and edge-triggered
+  logic does not.
+- Compare `metadata.generation` with `status.observedGeneration` to tell whether
+  a controller has caught up with you.
+
+## Intuition
+
+[What Kubernetes Is](/learn/k8s-what-kubernetes-is/) gave you the thermostat.
+This lesson opens it up.
+
+A thermostat has an important property that is worth naming, because the whole
+system is built on it. **A controller acts on what is true now, never on what
+happened.** In electronics that distinction has names: an _edge-triggered_
+circuit reacts to a transition, and a _level-triggered_ one reads the current
+level and acts on it, over and over.
+
+The everyday version is a doorbell against a doorstep. A doorbell is
+edge-triggered: it rings once, and if you were out, nobody rings again — the
+parcel is on the step and the system has no memory that it should be dealt with.
+Looking at the doorstep is level-triggered: whether you heard a bell is
+irrelevant, because the parcel is either there or it is not.
+
+Kubernetes controllers are level-triggered, and this single choice explains most
+of the behaviour that surprises people. There is no queue of commands to replay,
+no "did that instruction get through?", and no state a controller has to
+remember between passes. A controller that crashes mid-rollout and restarts
+picks up correctly, because there was nothing to pick up: it reads `spec`, reads
+the world, and works out the next step from scratch.
+
+<Callout variant="note">
+  Controllers do subscribe to change notifications, and that is not a
+  contradiction. The notification says **when to look**; it never says **what to
+  do**. A controller that is told "this Deployment changed" throws the payload
+  away, fetches the object fresh, and decides from the fetched copy. That one
+  discipline is what makes a dropped or duplicated notification harmless.
+</Callout>
+
+## How it works
+
+Every controller in the cluster runs the same four steps, forever.
+
+1. **List, then watch.** On startup it lists every object of its kind, then opens
+   a watch from the `resourceVersion` that list returned, so no change in the gap
+   is missed. The watch is a hint stream.
+2. **Read the current world.** The key of a changed object goes on a work queue;
+   when the key comes off, the controller looks the object up again and reads
+   whatever else it needs — for the ReplicaSet controller, the Pods matching its
+   selector.
+3. **Compare and act.** Desired minus current. Then take **one step**: create a
+   Pod, delete a Pod, scale a ReplicaSet. Not the whole job — one step, because
+   the loop will run again.
+4. **Record.** Write what it saw into `status`, and go back to step 2.
+
+Watch a scale-up and you can see the steps separate:
+
+```bash
+kubectl scale deployment web --replicas=5
+kubectl get deployment web -o jsonpath='{.metadata.generation} {.status.observedGeneration}'
+kubectl get deployment web --watch
+```
+
+The first command returns immediately, because all it did was change `spec`. The
+second prints the pair of numbers that tells you whether anyone has noticed yet:
+
+```yaml
+metadata:
+  generation: 4
+status:
+  observedGeneration: 4
+  replicas: 5
+  readyReplicas: 5
+```
+
+The API server increments `metadata.generation` every time your `spec` changes.
+The controller writes the generation it acted on into
+`status.observedGeneration`. When the two differ, your change has not been
+processed. When they match and `readyReplicas` still lags, the controller has
+seen you and is working — or cannot succeed. Those are two different problems,
+and this pair of numbers is how you tell them apart before reading a single log
+line.
+
+**Controllers chain, and none of them knows about the next.** The Deployment
+controller creates and scales ReplicaSets; it never creates a Pod. The ReplicaSet
+controller creates Pods and has never heard of Deployments. What connects them is
+written on the object itself:
+
+```yaml
+metadata:
+  name: web-7c9d4b8f6d
+  ownerReferences:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: web
+      uid: 0e5d1a2f-9c3b-4a7e-8d21-6f4b0c9a1e33
+      controller: true
+```
+
+`controller: true` marks the one owner responsible for reconciling this object,
+so two controllers cannot both claim it. The same field drives cascading
+deletion: delete the Deployment and the garbage collector removes everything
+whose owner reference points at that `uid`, which is why deleting one object can
+remove hundreds.
+
+Two controllers writing to one object would still collide, and the API server
+settles it with optimistic concurrency. Every write carries the
+`resourceVersion` the writer read; if the stored version has moved on, the write
+is rejected with a conflict. The controller does not merge or retry blindly — it
+goes back to step 2 and reconciles again from the current object. Being
+re-runnable is not a nicety here; it is the error handling.
+
+## Trade-offs
+
+**What you give up.** Nothing is transactional across objects. There is no moment
+when the cluster is "consistent"; there is only a gap that is currently small.
+You cannot ask "is my change applied?" as a yes-or-no question, only compare
+`spec` against `status`. And when something is wrong, the fault is in one loop
+out of dozens, so debugging starts with working out which controller owns the
+step that is not happening.
+
+**What level-triggering forbids.** A controller must be able to derive the right
+action from current state alone, which rules out "remember what I did last time".
+Anything that genuinely needs history has to store that history as objects: a
+Deployment's rollout history is old ReplicaSets kept on purpose, and a
+StatefulSet's is a set of `ControllerRevision` objects. History that is not in the
+API does not exist.
+
+**What you get.** Crash safety at no cost, idempotent operations, and a system
+that behaves correctly from a state nobody anticipated — a half-finished rollout,
+a cluster restored from a backup, a node that came back after an hour.
+
+## Common pitfalls
+
+- **Reading a stuck rollout as a broken controller.** A controller with nothing it
+  can do and a controller that is not running look identical from `kubectl get`.
+  Check `observedGeneration` first, then `kubectl describe` for the events: an
+  image that does not exist and a scheduler that cannot place the Pod both
+  present as "nothing is happening".
+- **Editing an object that has an owner.** Scaling a ReplicaSet directly works for
+  a few seconds, and then its Deployment reconciles and puts the number back.
+  Tempting because the command succeeds and prints no warning.
+- **Treating `status` as a promise.** `readyReplicas: 5` means five were ready
+  when the controller last looked, at some point in the recent past. It is a
+  report, not a guarantee about now.
+- **Expecting ordering.** Two changes applied a second apart may be observed as
+  one, because the controller reads the object rather than the changes. That is
+  usually what you want, and it is occasionally surprising.
+
+## Key takeaways
+
+- A controller loops: **list and watch, read the current world, compare and take
+  one step, record in `status`** — forever, with no memory between passes.
+- **Change notifications say when to look, not what to do.** Because the
+  controller re-reads the object, a dropped, duplicated or reordered
+  notification changes nothing.
+- **`metadata.generation` against `status.observedGeneration`** tells you whether
+  a controller has processed your change, which separates "not seen yet" from
+  "seen and unable to finish".
+- `ownerReferences` with `controller: true` names the single owner of an object,
+  and is what makes deletion cascade.
+- Level-triggered logic buys crash safety and idempotency, and costs you
+  transactions, ordering guarantees and any state a controller might have wanted
+  to remember.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A network blip drops the watch notification for a Deployment you have scaled from three replicas to five. Why does it not sit at three forever?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because no step of the loop depends on that notification having arrived. The
+  watch is a hint about when to look; the decision comes from re-reading the
+  object. A broken watch is re-established from the last `resourceVersion` seen,
+  the controller's cache is periodically re-synchronised from a fresh list, and
+  either path presents the controller with a Deployment wanting five and a
+  ReplicaSet holding three — the same gap it would have seen instantly. The
+  outcome is identical; only the latency changed. An edge-triggered design would
+  have lost the instruction with the message.
+</PracticeCheck>
+
+**2. `kubectl scale deployment web --replicas=5` returned a second ago and `kubectl get pods` still shows three. Which two numbers do you read, and what does each answer tell you?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  `metadata.generation` and `status.observedGeneration`. If they differ, your
+  change is stored but no controller has acted on it yet — wait, or find out why
+  the controller manager is unhealthy. If they match, the Deployment controller
+  has already processed the change and the delay is downstream: the ReplicaSet
+  exists at five, and the new Pods are pending scheduling, pulling an image, or
+  failing to start. That is the value of the pair — it splits "not yet seen"
+  from "seen, and stuck somewhere else", which are investigated in completely
+  different places.
+</PracticeCheck>
+
+**3. You scale a ReplicaSet that a Deployment owns to ten. Trace what happens, and say which field made it happen.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The ReplicaSet controller obliges and creates seven more Pods. Within a pass
+  or two the Deployment controller reconciles: its `spec.replicas` is three, the
+  ReplicaSet it owns says ten, so it writes three back and the extra Pods are
+  deleted. The field that made the Deployment controller care is the
+  `ownerReferences` entry on the ReplicaSet with `controller: true` — it marks
+  that Deployment as the one controller responsible for this object. The lesson
+  is general: edit the object at the top of the ownership chain, because every
+  object below it is a controller's output, not your input.
+</PracticeCheck>

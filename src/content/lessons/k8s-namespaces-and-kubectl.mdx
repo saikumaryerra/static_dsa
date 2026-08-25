@@ -1,0 +1,252 @@
+---
+title: 'Namespaces and kubectl Essentials'
+slug: 'k8s-namespaces-and-kubectl'
+course: 'kubernetes'
+track: 'k8s-foundations'
+order: 4
+summary: 'A namespace is a scope for names, not a wall between tenants — and every kubectl command you will ever type is a verb, a kind, a name, a namespace and a context.'
+difficulty: 'beginner'
+prerequisites: ['k8s-objects-and-manifests']
+estimatedMinutes: 9
+tags: ['kubernetes', 'namespaces', 'kubectl', 'rbac']
+explainPrompt: 'Why is a namespace not a security boundary on its own?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Decide whether an object is namespaced or cluster-scoped, and check rather than
+  guess.
+- Address any object from the command line: context, namespace, kind, name.
+- Add the three objects a namespace needs before it isolates anything.
+
+## Intuition
+
+A cluster is a set of machines — **nodes** — sharing one control plane and one
+API. Nodes are physical: a node exists because a machine registered itself. A
+**namespace** is the opposite; it is a label on a name.
+
+**A namespace is a folder for names, not a wall between tenants.** What it
+guarantees is narrow and precise: two objects of the same kind may share a name
+if they are in different namespaces, and a request that does not say which
+namespace it means gets one. That is the whole of it. Isolation, a resource
+budget, restricted access — none of those arrive with the namespace. Each is a
+separate object you create inside it.
+
+The second model is about the tool. **`kubectl` is a URL builder with a
+memory.** Every command resolves five things: which cluster (the _context_),
+which namespace, which kind, which name, and which verb. Flags stop being a list
+to memorise once you can see which of the five each one is setting — `-n` is the
+namespace, `--context` is the cluster, everything else is verb, kind or name.
+
+## How it works
+
+Some kinds belong to a namespace and some belong to the cluster. Pods, Services,
+Deployments, ConfigMaps and Secrets are namespaced. Nodes, PersistentVolumes,
+StorageClasses, ClusterRoles and Namespaces themselves are not — a machine cannot
+be "in" a folder of names. Ask the cluster rather than remembering:
+
+```bash
+kubectl api-resources --namespaced=false
+```
+
+Four namespaces exist in a fresh cluster. `default` is where your objects land
+when you do not say otherwise. `kube-system` holds the cluster's own components,
+and is a place to read, not to write. `kube-public` is readable without
+authentication and holds cluster information a joining node needs.
+`kube-node-lease` holds one small Lease object per node, updated constantly as
+that node's heartbeat, kept separate so heartbeats do not churn the rest of the
+API.
+
+Creating one is a manifest like any other:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments
+  labels:
+    team: payments
+```
+
+Names inside it become addressable. A Service called `api` in the `payments`
+namespace has the DNS name `api.payments.svc.cluster.local`; a Pod in the same
+namespace can reach it as `api`, and a Pod elsewhere needs at least
+`api.payments`. The short name working is the namespace doing its one job.
+
+Now the part people expect for free. To make `payments` a boundary you add three
+objects, each covering a different axis:
+
+- **A `ResourceQuota`** caps what the namespace may consume.
+- **A `Role` and `RoleBinding`** decide who may do what inside it. Without them,
+  a subject with cluster-wide permissions still has them here.
+- **A `NetworkPolicy`** restricts traffic. Without one, every Pod in the cluster
+  can reach every other Pod, namespace or not.
+
+The quota is the one you will write first:
+
+```yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: payments-compute
+  namespace: payments
+spec:
+  hard:
+    requests.cpu: '2'
+    requests.memory: 4Gi
+    limits.cpu: '4'
+    limits.memory: 8Gi
+    pods: '20'
+```
+
+<Callout variant="warning">
+  A `ResourceQuota` on CPU or memory makes those requests **mandatory**: once
+  one exists, a Pod that declares no `requests` is rejected rather than admitted
+  with no budget, unless a `LimitRange` in the same namespace supplies defaults
+  for it. Adding a quota to a namespace full of running workloads is therefore a
+  change to every manifest in it, or a `LimitRange` you write first.
+</Callout>
+
+**Driving it from the command line.** Your kubeconfig — `~/.kube/config`, or
+whatever `KUBECONFIG` points at — holds clusters, credentials, and the contexts
+that pair them. The current context decides which cluster answers, and it can
+carry a default namespace:
+
+```bash
+kubectl config get-contexts
+kubectl config use-context kind-learn
+kubectl config set-context --current --namespace=payments
+```
+
+After that third command, every command you type is scoped to `payments` with
+nothing on screen saying so. That is convenient and it is the source of a whole
+category of accidents, so `kubectl config current-context` before anything
+destructive is a cheap habit.
+
+The verbs are few, and each answers a different question:
+
+| Command                | The question it answers                            |
+| ---------------------- | -------------------------------------------------- |
+| `kubectl get`          | What exists, and in what state?                    |
+| `kubectl describe`     | Why is it in that state? Spec, plus recent events. |
+| `kubectl logs`         | What did the container print?                      |
+| `kubectl exec`         | What does the container see from inside?           |
+| `kubectl apply`        | Make this the desired state.                       |
+| `kubectl delete`       | Remove this desired state.                         |
+| `kubectl port-forward` | Reach it from my machine, without exposing it.     |
+| `kubectl explain`      | What fields does this kind have?                   |
+
+And the output flags turn `get` from a summary into an answer:
+
+```bash
+kubectl get pods -n payments -o wide
+kubectl get pods --all-namespaces
+kubectl get deployment api -n payments -o yaml
+kubectl get pods -n payments -o jsonpath='{.items[*].spec.nodeName}'
+kubectl describe pod api-7c9d4b8f6d-2xk4t -n payments
+```
+
+`-o wide` adds the node and the Pod IP. `--all-namespaces`, which also spells as
+`-A`, ignores the current namespace entirely and is the fastest way to find
+something you have misplaced. `describe` is the one to reach for when a state is
+unexplained, because its tail is the recent events for that object — the
+scheduler's reason for not placing a Pod, the kubelet's reason for a failed image
+pull.
+
+## Trade-offs
+
+**Namespace per team, or per environment?** Per team is the shape namespaces were
+designed for, and it still leaks: cluster-scoped objects are shared, so two teams
+installing conflicting `CustomResourceDefinition`s or fighting over
+`StorageClass` names find out that half the API was never namespaced.
+
+Per environment inside one cluster — `dev`, `staging`, `prod` as three namespaces
+— is cheap and is usually the wrong boundary. The three share a control plane, a
+Kubernetes version, a set of nodes and one upgrade. A bad afternoon in `dev` can
+starve `prod` of scheduling capacity, and an upgrade cannot be rehearsed because
+there is nothing to rehearse it on. Separate clusters cost more money and
+multiply the upgrades you run; that is the price of the boundary being real.
+
+**The cost of many namespaces.** Cross-namespace references mostly do not exist.
+A Pod cannot mount a Secret or a ConfigMap from another namespace, and an Ingress
+routes to Services in its own namespace. Splitting an application across
+namespaces means duplicating configuration.
+
+## Common pitfalls
+
+- **Forgetting `-n`.** Tempting because `default` always answers and never
+  errors: `kubectl get pods` returning nothing looks like "no Pods" rather than
+  "you are looking in the wrong folder". Reach for `-A` when a result surprises
+  you.
+- **`kubectl delete namespace`.** It cascades to everything inside, including
+  PersistentVolumeClaims, and with most StorageClasses that deletes the volume
+  and the data with it. It is the fastest destructive command in the tool, and it
+  asks for no confirmation.
+- **Assuming the namespace isolates.** A Pod in `payments` can open a connection
+  to a Pod in `kube-system` unless a `NetworkPolicy` says otherwise, and a token
+  with cluster-wide read can read every Secret in every namespace.
+- **A manifest and a flag that disagree.** `kubectl apply -f api.yaml -n staging`
+  on a file containing `namespace: payments` fails rather than choosing one.
+  Leaving `metadata.namespace` out of the file and setting it at apply time keeps
+  one manifest usable in several namespaces.
+
+## Key takeaways
+
+- **A namespace scopes names and nothing else.** Isolation comes from a
+  `ResourceQuota`, RBAC and a `NetworkPolicy` — three objects you add.
+- **Not everything is namespaced.** Nodes, PersistentVolumes, StorageClasses and
+  ClusterRoles are cluster-scoped; `kubectl api-resources --namespaced=false`
+  settles any argument.
+- A Service is addressable as `name.namespace.svc.cluster.local`, and as the bare
+  `name` from inside the same namespace.
+- **Every `kubectl` command is a context, a namespace, a kind, a name and a
+  verb.** The context and the namespace are the two that are invisible once set,
+  and they are the two that cause accidents.
+- `kubectl describe` ends with the object's recent events, which is where most
+  unexplained states are explained.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team asks for "a namespace so their workloads are isolated from ours". What do you tell them, and what do you actually create?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  That the namespace by itself gives them a private set of names and nothing
+  more: their Pods can still reach yours, still compete for the same nodes, and
+  anyone with cluster-wide permissions still reads their Secrets. What you
+  create alongside it is a `ResourceQuota` so they cannot starve the cluster, a
+  `Role` and `RoleBinding` so their credentials work only inside the namespace,
+  and a `NetworkPolicy` so traffic in and out is deliberate. If the requirement
+  is genuinely "isolated" — different tenants, different trust — a separate
+  cluster is the honest answer, because the control plane, the node pool and the
+  Kubernetes version stay shared no matter how many namespaces you add.
+</PracticeCheck>
+
+**2. `kubectl get deployments` prints nothing, but you are sure you applied one an hour ago. Name two things that could be wrong, and the one command that distinguishes them.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Either you are in the wrong namespace — the context's default, or one set with
+  `kubectl config set-context --current --namespace=payments`, neither of which
+  is visible in the command you typed — or you are talking to the wrong cluster
+  entirely, because the context changed. `kubectl get deployments -A` answers
+  the first: if the Deployment appears with a namespace beside it, the object is
+  fine and your scope was wrong. If `-A` still shows nothing, run `kubectl
+  config get-contexts` and check which cluster the asterisk is on.
+</PracticeCheck>
+
+**3. A Pod in the `payments` namespace cannot resolve `api`, but `api.payments` works from a Pod in `default`. What does that tell you?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  That the Service exists and DNS is healthy — the fully qualified lookup
+  succeeded from another namespace, so both facts are established. The failing
+  lookup is the short-name one, which only resolves inside the Service's own
+  namespace, so the Pod that failed is not in `payments` after all. The usual
+  cause is a manifest with no `metadata.namespace` applied while the context
+  pointed somewhere else. `kubectl get pods -A` and reading the namespace column
+  confirms it in one command.
+</PracticeCheck>

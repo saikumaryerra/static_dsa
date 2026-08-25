@@ -143,6 +143,31 @@ const API_ALLOWLIST = {
     'VolumeSnapshotClass',
     'VolumeSnapshotContent',
   ],
+
+  // ---- ECOSYSTEM, not core Kubernetes ----
+  //
+  // These are not served by the Kubernetes API at all: two are tool
+  // configuration files that never reach a cluster, and the rest are CRDs a
+  // reader installs. They are here because the curriculum genuinely teaches
+  // them — a local-cluster lesson that cannot show a multi-node `kind` config,
+  // or a Kustomize lesson that cannot show a `kustomization.yaml`, is teaching
+  // around its own subject. CONTENT_STYLE §8 still requires each to be labelled
+  // as ecosystem in the prose; this list only says the YAML is not a mistake.
+  //
+  // Verified current on 2026-08-26. `v1alpha1`/`v1alpha4` are the versions these
+  // projects actually ship, not stale ones — unlike the Kubernetes `v1beta`
+  // entries on the deny list below, which are removed.
+  'kind.x-k8s.io/v1alpha4': ['Cluster'], // the kind CLI's config file
+  'kustomize.config.k8s.io/v1beta1': ['Kustomization', 'Component'],
+  'argoproj.io/v1alpha1': ['Application', 'ApplicationSet', 'AppProject'],
+  'keda.sh/v1alpha1': ['ScaledObject', 'ScaledJob', 'TriggerAuthentication'],
+  'kyverno.io/v1': ['ClusterPolicy', 'Policy'],
+  'monitoring.coreos.com/v1': [
+    'ServiceMonitor',
+    'PodMonitor',
+    'PrometheusRule',
+    'Prometheus',
+  ],
 };
 
 /** API versions that are removed or deprecated — never valid (DECISIONS D-02). */

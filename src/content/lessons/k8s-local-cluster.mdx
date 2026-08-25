@@ -1,0 +1,252 @@
+---
+title: 'A Local Cluster for the Exercises'
+slug: 'k8s-local-cluster'
+course: 'kubernetes'
+track: 'k8s-foundations'
+order: 5
+summary: 'Ten minutes to a real API server on your own machine with kind, minikube or k3d — plus an honest list of what none of them reproduce.'
+difficulty: 'beginner'
+prerequisites: ['k8s-namespaces-and-kubectl']
+estimatedMinutes: 11
+tags: ['kubernetes', 'kind', 'minikube', 'k3d', 'setup']
+explainPrompt: 'Why does a Service of type LoadBalancer behave differently on a laptop cluster than in a cloud?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Create a working cluster with one of three tools, and prove it works.
+- Get an image you built yourself into a cluster that cannot reach a registry.
+- Name what a local cluster does not reproduce, so you do not learn a wrong
+  lesson from it.
+
+## Intuition
+
+**A local cluster is a real control plane with a pretend datacentre behind it.**
+The kube-apiserver, etcd, the scheduler, the controller manager and the kubelet
+are the same programs that run in production, and they behave the same way.
+What is absent is everything _outside_ the cluster: a cloud to hand out load
+balancers, a network between separate machines, a registry, storage that outlives
+the host, and enough hardware for a failure to be interesting.
+
+That split tells you exactly what a local cluster is evidence for. Anything that
+is an argument between you and the API server reproduces faithfully — a manifest
+that will not validate, a selector matching nothing, an RBAC rule that denies
+you, a probe that fails, a rollout that stalls because the image tag is wrong.
+Anything involving the world beyond the cluster does not, and treating it as
+though it did is how a change passes locally and fails on the first real
+deployment.
+
+## How it works
+
+Three tools do the same job differently. All three are tools around Kubernetes
+rather than parts of it, and all three need a container runtime — Docker,
+Podman or an equivalent — already working on your machine.
+
+| Tool     | What it is                                                                     | What a node is                            | What it costs you                                                                                                           |
+| -------- | ------------------------------------------------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| kind     | "Kubernetes in Docker", from the Kubernetes project's own SIG organisation     | a container running a full node image     | images must be loaded in explicitly; no load balancer without an add-on                                                     |
+| minikube | the Kubernetes project's long-standing local cluster, with an add-on catalogue | a VM or a container, chosen by `--driver` | the heaviest of the three to start and to keep running                                                                      |
+| k3d      | a community wrapper around k3s, a lightweight distribution                     | a k3s node in a container                 | k3s is not upstream: its default datastore is not etcd, and it bundles its own ingress controller and service load balancer |
+
+Pick one. Each of these creates a cluster and points `kubectl` at it:
+
+```bash
+kind create cluster --name learn
+kubectl config use-context kind-learn
+```
+
+```bash
+minikube start --profile learn --kubernetes-version=v1.36.2
+kubectl config use-context learn
+```
+
+```bash
+k3d cluster create learn --agents 2
+kubectl config use-context k3d-learn
+```
+
+Every one of them switches your current context to the new cluster, which is
+worth knowing before you run something destructive in a terminal you left open
+yesterday. Prove the cluster is alive:
+
+```bash
+kubectl cluster-info
+kubectl get nodes -o wide
+kubectl get pods --all-namespaces
+```
+
+`get nodes` should show `Ready`, and `--all-namespaces` should show the control
+plane's own Pods in `kube-system`. Now a smoke test that exercises the whole
+chain from the previous lessons — a namespace, a Deployment and a Service:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: smoke
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          ports:
+            - containerPort: 80
+```
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: smoke
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 80
+```
+
+```bash
+kubectl create namespace smoke
+kubectl apply -f deployment.yaml -f service.yaml
+kubectl get pods -n smoke -o wide
+kubectl port-forward -n smoke service/web 8080:80
+```
+
+`port-forward` holds the terminal open, so run `curl -s localhost:8080` in a
+second one. Nginx's welcome page is the expected outcome: two Pods `Running`,
+one Service, and traffic reaching a container through a selector you wrote.
+
+**Getting your own image in.** A local cluster has no access to your container
+runtime's image store — the node is a separate container or VM with its own. A
+Deployment referring to an image you built a minute ago fails to pull it. Each
+tool has a command to push it across:
+
+```bash
+docker build -t myapp:dev .
+kind load docker-image myapp:dev --name learn
+minikube image load myapp:dev --profile learn
+k3d image import myapp:dev --cluster learn
+```
+
+Use a tag other than `latest`. The default `imagePullPolicy` for an explicit tag
+is `IfNotPresent`, so the loaded copy is used; for `latest` the default is
+`Always`, so the kubelet goes to a registry that does not have your image and the
+Pod sits in `ImagePullBackOff`.
+
+<Callout variant="warning">
+  **What a local cluster cannot show you.** Cloud load balancers: no cloud
+  exists to provision one, and the three tools paper over it differently — kind
+  needs an add-on, minikube has `minikube tunnel`, k3s ships a service load
+  balancer of its own — so `kubectl port-forward` is the only portable way to
+  reach a workload in these exercises. Storage: the default StorageClass is a
+  directory on the node, which satisfies a PersistentVolumeClaim but has none of
+  a cloud volume's access-mode limits, so a manifest asking for `ReadWriteMany`
+  can work here and fail there. Machines: `--agents 2` gives you containers on
+  one kernel sharing one CPU budget, so anti-affinity and topology spread appear
+  to work without having been tested. And scale: your laptop has a couple of
+  cores, so nothing you observe about scheduling under contention transfers to
+  two hundred nodes.
+</Callout>
+
+## Trade-offs
+
+**Which tool.** kind creates and deletes fastest and stays closest to upstream
+Kubernetes, and it charges you the image-loading step and the missing load
+balancer. minikube gives you the widest set of add-ons and driver choices, and
+charges the most memory and the slowest start. k3d starts quickest of all, and
+charges you the difference between k3s and upstream — a bug you hit there may be
+a k3s bug that nobody with a normal cluster can reproduce.
+
+**Local against a shared development cluster.** Local is free, offline,
+disposable, and yours to break at 2 a.m. What it cannot reproduce is your
+organisation's cluster: its Kubernetes version, its admission policies, its RBAC,
+its network plugin, its storage. A shared cluster reproduces all of that and
+costs money, coordination and other people's afternoons when you break it. Most
+teams use both, and the useful rule is that local proves a manifest is correct
+while a shared cluster proves a deployment is.
+
+## Common pitfalls
+
+- **Starving it.** Two CPUs and about 4 GiB available to the container runtime is
+  a workable floor. Below that, Pods sit `Pending`, and `kubectl describe pod`
+  names the resource that did not fit — read that line rather than assuming the
+  cluster is broken.
+- **Expecting a locally built image to be found.** It is the most common first
+  failure, because the build succeeded and the tag is right there. Kubernetes
+  never looks at your machine's images; load them in.
+- **Leaving clusters running.** Each one holds CPU and memory for as long as it
+  exists. `kind get clusters`, `minikube profile list` and `k3d cluster list`
+  show what you have; delete with `kind delete cluster --name learn`,
+  `minikube delete --profile learn` or `k3d cluster delete learn`.
+- **Generalising from it.** "It worked on kind" is strong evidence about a
+  manifest and weak evidence about anything touching load balancers, storage
+  classes, node failure or multi-node scheduling.
+
+## Key takeaways
+
+- A local cluster runs the **real control plane components**, so API behaviour,
+  RBAC, controllers, probes and rollouts reproduce faithfully.
+- It does **not** reproduce anything outside the cluster: cloud load balancers,
+  real storage, separate machines, node failure or production scale.
+- **Load your images.** The node has its own image store, and a tag other than
+  `latest` gets you the `IfNotPresent` pull policy that uses the loaded copy.
+- `kubectl port-forward` is the portable way to reach a workload locally, because
+  `type: LoadBalancer` behaves differently on all three tools.
+- Creating a cluster switches your current context. Check
+  `kubectl config current-context` before anything destructive.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You apply a Deployment using `myapp:latest`, built on your machine a minute ago and loaded into the cluster. The Pod is in `ImagePullBackOff`. Why?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the `latest` tag changes the default pull policy. With any explicit
+  tag the kubelet defaults to `imagePullPolicy: IfNotPresent` and uses the copy
+  you loaded onto the node; with `latest` it defaults to `Always`, so it
+  contacts a registry every time — and no registry has your local build. Rebuild
+  and load under a real tag such as `myapp:dev`, or set `imagePullPolicy:
+  IfNotPresent` explicitly. The habit is worth keeping in production too: a
+  mutable `latest` tag means two Pods of the same Deployment can be running
+  different code.
+</PracticeCheck>
+
+**2. Your Service is `type: LoadBalancer` and its external address never arrives on your local cluster, though the same manifest works in your cloud. What is actually different?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Nothing about Kubernetes. A `LoadBalancer` Service is a request to a
+  cloud-provider integration outside the cluster, which creates a real load
+  balancer and writes its address back into the Service's `status`. On a laptop
+  there is no such integration, so nothing ever writes the address — the Service
+  itself is correct and reachable in-cluster the whole time. Each tool patches
+  around it differently, which is why the exercises use `kubectl port-forward`
+  instead: it needs no integration and behaves the same on all three.
+</PracticeCheck>
+
+**3. A colleague says their anti-affinity rule "is tested — it works on kind with three nodes". What is the flaw in that evidence?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Three kind nodes are three containers on one kernel, one CPU budget and one
+  physical host. The rule proves the scheduler parsed the manifest and spread
+  the Pods across three objects it considers nodes, which is genuinely worth
+  knowing — the selector and the label keys are correct. It proves nothing about
+  what anti-affinity is for, which is surviving the loss of a machine, a rack or
+  a zone, because there is exactly one machine and no zones at all. The test is
+  evidence about the manifest, not about the availability it was written to buy.
+</PracticeCheck>
