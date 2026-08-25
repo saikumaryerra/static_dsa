@@ -239,6 +239,46 @@ const BANNED_ALWAYS =
   /\b(simply|seamless(?:ly)?|leverage[sd]?|utili[sz]e[sd]?|cutting-edge|effortless(?:ly)?|robust|powerful)\b/i;
 const BANNED_SOMETIMES = /\b(just|easy|easier|easily)\b/i;
 
+/**
+ * Figures that were corrected after lessons had already reused them.
+ *
+ * `sd-capacity-estimation` is the single source for this course's worked
+ * numbers, and five later lessons quote them. When a review corrected that
+ * lesson mid-run — a divisor, and a video ladder whose assumptions could not
+ * both hold — three lessons that had faithfully copied the old values silently
+ * disagreed with it. Nothing failed; the course simply contradicted itself in
+ * three places.
+ *
+ * A general cross-lesson consistency checker is not worth building, but a
+ * denylist of values *known to be wrong* is cheap and exact. Add a row whenever
+ * a shared figure changes, and the next reuse of the old one fails instead of
+ * shipping.
+ *
+ * MATCH THE SPELLED-OUT FORM TOO. The first version of this list matched digits
+ * only, and "Fifteen petabytes a year" walked straight past it into a lesson
+ * whose own fence three lines above said 36 PB — a reviewer found it by hand,
+ * which is the work this list exists to save.
+ */
+const STALE_FIGURES = [
+  [/18,000 (?:reads|redirects)/, '15,000 — the link-shortener peak read rate'],
+  [/600 Gbps/, '540 Gbps — the video-platform average egress'],
+  [/\b15 PB\b|fifteen petabytes/i, '36 PB — the video-platform yearly storage'],
+  [
+    /40 TB\/day|forty terabytes a day/i,
+    '100 TB/day — the video-platform daily storage',
+  ],
+  [
+    /six hundred Gbps|\b600 Gbps\b/i,
+    '540 Gbps — the video-platform average egress',
+  ],
+  [
+    /eighteen thousand (?:reads|redirects)/i,
+    '15,000 — the link-shortener peak read rate',
+  ],
+  [/2,300 reads/, '2,000 — the workflow example at 100,000 s/day'],
+  [/7,000 reads/, '6,000 — the workflow example peak at 100,000 s/day'],
+];
+
 /** Non-lesson internal paths a lesson may link to. */
 const STATIC_PATHS = ['/', '/learn/', '/glossary/', '/about/'];
 
@@ -558,6 +598,17 @@ export function validateContent(root, options = {}) {
       ) {
         warnings.push(
           `${file}: ${words} prose words, above the ${WORD_CEILING}-word ceiling`,
+        );
+      }
+    }
+
+    // 5e. figures superseded by a correction to their source lesson
+    for (const [pattern, correction] of STALE_FIGURES) {
+      const hit = pattern.exec(body);
+      if (hit) {
+        const line = body.slice(0, hit.index).split('\n').length;
+        errors.push(
+          `${file}:${line}: ${JSON.stringify(hit[0])} was superseded — use ${correction}`,
         );
       }
     }

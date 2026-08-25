@@ -1,0 +1,214 @@
+---
+title: 'Object Storage'
+slug: 'sd-object-storage'
+course: 'system-design'
+track: 'sd-data'
+order: 16
+summary: 'A durable key-to-blob store reachable over HTTP — where images, video and backups belong, why a database row should hold a key rather than the bytes, and the four filesystem habits it does not support.'
+difficulty: 'beginner'
+prerequisites: ['sd-capacity-estimation', 'sd-relational-databases']
+estimatedMinutes: 8
+tags: ['system-design', 'object-storage', 'blobs', 'durability', 'storage']
+explainPrompt: 'Why should a database row hold an object key rather than the bytes of the file itself?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what object storage promises and what it deliberately does not.
+- Split a large item between a metadata row and an object, and keep the two in step.
+- Recognise the four filesystem habits that become expensive against an object store.
+
+## Intuition
+
+**Object storage is a very large, very durable map from a key to a blob of
+bytes, reachable over HTTP.** You `PUT` a key and some bytes, you `GET` a key and
+receive them back, and you `DELETE`. The store replicates each object across
+failure domains for you, and the durability it offers is the number nothing else
+in a design comes close to — this is where bytes go when losing them is not
+recoverable by re-running anything.
+
+It exists because the alternatives are worse in specific ways. A relational
+database can hold a blob, but every one you store inflates the backup, the
+replication stream and the buffer memory that its rows were competing for. A
+shared filesystem can hold one too, but it wants a mount, a capacity you chose in
+advance, and a story about what happens when the machine holding it dies.
+
+**The mental model that saves the most trouble is: it is a hash map that speaks
+HTTP, not a disk.** Everything that surprises people follows from that one
+sentence. There are no directories — a key may contain slashes, and listing "a
+folder" is a prefix scan over a sorted key space. There is no partial write: to
+change one byte you upload the object again. There is no rename, because a rename
+would be a copy followed by a delete of possibly gigabytes. And every operation
+is an HTTP request that costs something, so a million tiny objects and one large
+one are priced very differently even at the same size.
+
+## How it works
+
+The split that makes it work is always the same. The database holds the facts you
+query on; the object store holds the bytes; the row holds the key.
+
+```sql
+CREATE TABLE videos (
+  id           BIGSERIAL   PRIMARY KEY,
+  owner_id     BIGINT      NOT NULL,
+  title        TEXT        NOT NULL,
+  object_key   TEXT        NOT NULL UNIQUE,
+  bytes        BIGINT      NOT NULL,
+  status       TEXT        NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+A row here is a few hundred bytes and is queryable, sortable and joinable. The
+object it points at — `videos/2026/03/9f2a4c/1080p.mp4` — is hundreds of
+megabytes and is never queried, only fetched. Take the video-platform figures
+from [Back-of-Envelope Estimation](/learn/sd-capacity-estimation/) and the
+asymmetry is the entire argument:
+
+```text
+Assumptions (the video-platform estimate)
+  100,000 new videos/day, ~1 GB of renditions each
+  one metadata row ≈ 500 B with index overhead
+
+Bytes in object storage
+  100,000 × 1 GB    =  100 TB/day   →  ~36 PB/year
+
+Bytes in the database
+  100,000 × 500 B   =  50 MB/day    →  ~18 GB/year
+```
+
+Eighteen gigabytes a year is a single primary that anyone can back up and restore
+in an afternoon. Thirty-six petabytes a year is a bill and a lifecycle policy, and
+it belongs somewhere that treats it as ordinary. Put the blobs in the database
+and you have merged the two columns — every backup, replica and failover now
+moves petabytes.
+
+Three mechanisms make the pattern practical.
+
+**Bytes never travel through the application server.** The client asks your API
+for a time-limited signed URL, then uploads to or downloads from the object store
+directly. Your servers handle a request per file rather than a file per request,
+which is what keeps them sized for logic instead of bandwidth. Delivery to
+readers is then a caching problem for a content delivery network, not a
+throughput problem for your fleet.
+
+**Large uploads are split into parts.** A multipart upload sends a large object
+in chunks that can be retried and parallelised, and the object becomes visible
+only when the upload is completed — so a failed upload leaves no half-written
+object, and a resumed one costs the failed chunk rather than the file.
+
+**Old objects move down a tier.** Storage classes trade retrieval time and
+retrieval cost against a much lower price per byte, and a lifecycle rule moves
+objects between them by age. In the estimate above, most of that 36 PB is watched
+rarely, which is the exact condition tiering is for.
+
+<Callout variant="warning">
+  **Keep the row and the object in step, in a deliberate order.** Write the
+  object first and the row second: an object with no row is invisible garbage a
+  sweeper can collect, while a row with no object is a broken page. On delete,
+  reverse it — remove the row, then delete the object asynchronously. There is
+  no transaction spanning the two systems, so the order *is* the design.
+</Callout>
+
+## Trade-offs
+
+**Use it for** anything large, mostly immutable and rarely queried by content:
+uploads, images, video renditions, audio, generated reports, logs and archives,
+backups, and static assets served through a delivery network.
+
+**Do not use it for** small records you look up in bulk, anything you need to
+query by its contents, anything mutated in place many times a day, or anything
+that must change atomically alongside a database row.
+
+**What it costs.** Latency is HTTP latency — tens of milliseconds, not the
+microseconds of a local disk. Requests are billed as well as bytes, so access
+patterns matter as much as size. Getting the data back out to another provider is
+usually the expensive direction. And listings are an index over the key space:
+some stores make a new key visible to a listing immediately and others do not, so
+a system that depends on it becomes wrong the moment it is deployed elsewhere.
+Treat a listing as possibly lagging and keep the authoritative inventory in your
+database, where you already have one. That stance is _generally accepted industry
+architecture_, not a claim about a particular product.
+
+## Common pitfalls
+
+- **Proxying bytes through the application.** Tempting because it keeps
+  authorisation in familiar code. It puts every uploaded gigabyte through your
+  request path and turns an autoscaling decision about CPU into one about
+  network. Signed URLs move the bytes and keep the authorisation.
+- **Using `LIST` as a directory walk.** Tempting because the console shows
+  folders. It is a paginated scan of a sorted key space, billed per request, and
+  it is the first thing to fall over at a few million keys — query your metadata
+  table instead.
+- **Expecting rename to be free.** Moving `tmp/x` to `final/x` copies the whole
+  object and deletes the original. Choose the final key before the upload, or
+  keep an immutable key and let the database hold the human-facing name.
+- **Millions of tiny objects.** Per-request cost and per-object overhead dominate
+  below roughly a kilobyte, and the listing gets slower as well. Batch small
+  items into larger objects, or keep them in a database.
+- **Deleting the row and forgetting the object.** The bytes stay, unreferenced
+  and billed, for years. A sweeper that reconciles keys against rows is a
+  scheduled job every mature system eventually writes; write it early.
+
+## Key takeaways
+
+- Object storage is a **durable key-to-blob map over HTTP**, not a filesystem —
+  no directories, no partial writes, no cheap rename.
+- **The row holds the key, the store holds the bytes.** That split keeps the
+  database in gigabytes while the content grows into petabytes.
+- **Bytes move directly between client and store** via signed URLs, so
+  application servers are sized for logic rather than bandwidth.
+- **Requests are billed as well as bytes**, which makes many tiny objects a worse
+  shape than the same data in fewer large ones.
+- There is **no transaction across the two systems**: object before row on write,
+  row before object on delete, and a sweeper for the gap.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team stores uploaded profile photographs as binary columns in the users table, because it keeps everything in one place and one transaction. What does that cost them at a million users?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  At roughly 1 MB a photograph, a million users is about a terabyte of blobs
+  inside a database whose actual rows would be a few hundred megabytes. Every
+  cost that scales with database size now scales with the photographs: backups
+  and restores move a terabyte, the replication stream carries every image to
+  every replica, and the buffer memory that was caching hot rows is competing
+  with binary data nobody queries. Their one gain is real — the photograph and
+  the row commit together — so the honest trade is to give that up and replace
+  it with ordering: write the object, then the row, and sweep orphans. The
+  transaction was buying atomicity for a file whose absence is a broken image
+  rather than a corrupted record.
+</PracticeCheck>
+
+**2. An upload service writes an object under `uploads/tmp/` and, once processing succeeds, renames it to `videos/final/`. Why does this get expensive, and what should it do instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because object storage has no rename. The operation is a full server-side copy
+  of every byte followed by a delete of the original, so a 400 MB video is 400
+  MB of copying, billed and taking time, for a change that a filesystem would
+  have done by editing a directory entry. At 100,000 videos a day that is
+  another 40 TB of pointless data movement. The fix is to stop encoding state in
+  the key: write the object once under its final immutable key, and let the
+  database row's `status` column carry "processing" or "published". The key
+  names the bytes; the row names the state.
+</PracticeCheck>
+
+**3. A worker lists the bucket every minute to find newly uploaded files to process. Name two reasons this fails as the system grows.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  First, a listing is a paginated scan over a sorted key space, billed per
+  request: at a few million keys the minute-by-minute sweep becomes slow and
+  costly, and it re-reads almost entirely unchanged data to find a handful of
+  new keys. Second, the listing is an index that may lag the write, so a freshly
+  uploaded object can be missing from a listing that a `GET` on its key would
+  have served — the worker silently skips it, and whether that happens depends
+  on which store you are running against. Both point the same way: the database
+  already records every upload, so drive the worker from a row's status or from
+  an explicit event, and use the object store only to fetch the bytes by key.
+</PracticeCheck>

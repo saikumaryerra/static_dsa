@@ -1,0 +1,239 @@
+---
+title: 'NoSQL Databases'
+slug: 'sd-nosql-databases'
+course: 'system-design'
+track: 'sd-data'
+order: 15
+summary: 'Four families — key-value, document, wide-column and graph — each giving up a different relational guarantee to buy a different property, and how to pick one from your access patterns instead of from the label.'
+difficulty: 'intermediate'
+prerequisites: ['sd-relational-databases', 'sd-consistency-models']
+estimatedMinutes: 9
+tags: ['system-design', 'databases', 'nosql', 'data-modeling', 'trade-offs']
+explainPrompt: 'Why does a wide-column store make you design the table from the query rather than from the entity?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name what each of the four NoSQL families buys and what it gives up.
+- Model data from an access pattern rather than from an entity diagram.
+- Say what denormalisation costs on the write path and at update time.
+
+## Intuition
+
+**"NoSQL" names four unrelated families, not one technology.** They share only a
+negative — none offers the full relational package of a fixed schema, joins
+across tables and general-purpose transactions — and they spend what they give up
+in four different ways. Treating them as one category is what produces the
+question "should we use NoSQL?", which has no answer.
+
+The move they have in common is worth stating once.
+**A [relational database](/learn/sd-relational-databases/) lets you ask questions
+you have not thought of yet; these stores make you name the question first, and
+give you a predictable access path in return.** That is the
+whole bargain. When you know the access patterns, naming them buys you a
+guaranteed cost per operation and a natural way to spread data across machines.
+When you do not, you have traded away the flexibility that would have saved you.
+
+The four families:
+
+- **Key-value.** A distributed hash map: `put(key, value)` and `get(key)`. The
+  value is opaque bytes. Nothing else is possible, and that is the point — every
+  operation is one lookup on one partition.
+- **Document.** A key-value store that understands the value. A document is JSON,
+  it holds a whole aggregate rather than a normalised row, and secondary indexes
+  can be built over its fields. Joins across documents are not offered.
+- **Wide-column.** Rows grouped into partitions by a partition key and sorted
+  inside the partition by a clustering key. A query reads one partition and a
+  contiguous range within it. Write-optimised storage underneath.
+- **Graph.** Edges are first-class and stored with their nodes, so a traversal
+  follows pointers instead of joining. The cost of "friends of friends of
+  friends" depends on the neighbourhood, not on the size of the database.
+
+## How it works
+
+A document is the family most people meet first, and the shape carries the idea:
+
+```json
+{
+  "_id": "order:4711",
+  "customer": { "id": 88, "name": "R. Okafor", "tier": "gold" },
+  "lines": [
+    { "sku": "A-14", "qty": 2, "unit_cents": 1250 },
+    { "sku": "B-02", "qty": 1, "unit_cents": 900 }
+  ],
+  "status": "shipped",
+  "created_at": "2026-03-04T09:12:00Z"
+}
+```
+
+One read returns the entire order, lines included, with no join. The copy of the
+customer's name and tier is the cost: it is duplicated into every order that
+customer places, so a name change is a write to every one of them. That is
+**denormalisation**, and it is the central trade in every one of these families —
+you move work from read time to write time, permanently.
+
+Wide-column modelling makes the "name the question first" rule explicit. The
+primary key is two parts, and they do different jobs:
+
+```text
+Table: messages_by_room
+
+  partition key   room_id          decides which node holds the data
+  clustering key  sent_at DESC     decides the order inside the partition
+
+  One query it serves in one hop:
+    the most recent 50 messages in room 17
+
+  One query it cannot serve at all:
+    every message a given user sent, across all rooms
+
+  The fix is a second table, messages_by_user, written at the same time.
+```
+
+Nothing in that store will join the two tables for you, so the application writes
+both — the same row's worth of data in two shapes, kept in step by the writer.
+The reward is that each read is one partition on one node, which is why the read
+cost stays flat as the data grows.
+
+Key-value is the same idea with the value left opaque, which is what makes it the
+fastest of the four and the least helpful when your question is not "give me this
+key". Graph is the opposite specialisation: it stores the edges so that
+multi-hop questions — recommendations, permissions inheritance, fraud rings —
+stay traversals rather than becoming a self-join per hop.
+
+Consistency defaults differ too, and they are configuration rather than identity.
+Many of these stores let you pick quorum sizes per operation, so the same cluster
+can serve a read that must be current and a read that may be stale — the
+machinery is in
+[Consistency Models, CAP and PACELC](/learn/sd-consistency-models/). What matters
+here is that a default of "one replica answers" is common, so read-your-writes is
+something you ask for rather than something you have.
+
+<Callout variant="note">
+  The line between the families has blurred, which is *generally accepted
+  industry architecture* rather than a claim about any product. Several document
+  and wide-column stores now offer multi-item transactions; relational engines
+  ship JSON column types and horizontal partitioning. Choosing by the label on
+  the box has been unreliable for years — read what the specific store promises
+  about its index behaviour, its transaction scope and its consistency defaults.
+</Callout>
+
+## Trade-offs
+
+**What you buy.** A predictable cost per operation, because every access is
+scoped to one partition; horizontal scaling that follows from the key, because
+partitions are the unit of distribution; and a data model that can hold irregular
+or rapidly changing shapes without a migration.
+
+**What you give up.** Joins, which move into your application as extra round
+trips. Transactions across items, which are limited or absent, so multi-item
+invariants become your problem. Ad-hoc queries, because a question nobody
+designed a key for is a scan. And schema enforcement — "schemaless" does not
+remove the schema, it moves it into every piece of code that reads the data,
+where several versions of it can disagree.
+
+**When to use one.** The access patterns are known and few; the volume is past
+what a single primary handles; the item is self-contained; or the shape is
+genuinely graph-like or genuinely irregular.
+
+**When not to.** The queries are still being discovered; correctness depends on
+invariants spanning several items; the write rate is moderate and the entities
+have real relationships. At 300 writes per second with joins that matter, a
+relational primary is the argued answer and a distributed store is a preference.
+
+## Common pitfalls
+
+- **Choosing for a scale that has not arrived.** Tempting because it feels like
+  planning ahead. It costs the joins and transactions you have today for write
+  capacity you may never need, and the migration back is worse than the
+  migration forward.
+- **Modelling relationally, storing documentally.** Splitting entities into
+  separate documents with ids between them, then joining in the application. You
+  now pay N round trips for what the relational engine did in one query.
+- **Forgetting the update fan-out.** Denormalising the customer's name into a
+  million orders is a fine read decision and a background job the day the name
+  changes. Decide which copies must be corrected and which may stay stale.
+- **Unbounded item growth.** An array inside a document, or a partition keyed by
+  something with no natural limit, grows until one item or one partition is too
+  large to read. Give every collection a bound at design time.
+- **Reading "schemaless" as "no migrations".** The migration still happens; it
+  happens lazily, in reader code, and the version that forgot to handle the old
+  shape is a production incident rather than a failed deploy.
+
+## Interview notes
+
+Say the access patterns before the store, in the store's own vocabulary: "reads
+are always the latest 50 messages in a room, writes are 20,000 per second, and
+there is no query that spans rooms — so partition by room, cluster by time
+descending". That sentence chooses a wide-column store without ever naming one,
+which is the right order.
+
+Then name the second table you will have to maintain, and who writes it. Every
+candidate remembers to design the primary access path; noticing that the second
+access pattern costs a second copy, and saying how the two stay in step, is the
+part that shows you have used one of these.
+
+## Key takeaways
+
+- **NoSQL is four families, not one choice**: key-value, document, wide-column
+  and graph, each giving up something different.
+- The shared bargain is **name the query first, get a predictable access path** —
+  which is a bad deal when the queries are still being discovered.
+- **Denormalisation moves work from read time to write time**, and the bill
+  arrives as update fan-out.
+- **A wide-column table is designed from the query**: the partition key chooses
+  the node, the clustering key chooses the order, and a second query shape means
+  a second table your application keeps in step.
+- "Schemaless" relocates the schema into reader code; **it does not remove it**.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team stores each order as a document that embeds a copy of the customer's name and tier. A customer changes their name. What happens, and was embedding a mistake?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Every order document holding that copy now carries a stale name, and
+  correcting them is a write to each one — a background job whose size is that
+  customer's order count, not a single update. Embedding was not a mistake by
+  itself: it is what makes "show me this order" one read with no join, which is
+  presumably the dominant access pattern for orders. What the design owes is a
+  decision about the copies: an invoice arguably *should* keep the name as it
+  was at purchase, while a customer-facing order list probably should not.
+  Denormalisation is a trade of read cost for write cost, and the fan-out job is
+  the write cost coming due.
+</PracticeCheck>
+
+**2. A wide-column table is partitioned by `room_id` and clustered by `sent_at DESC`. Product asks for "every message a user sent, across all rooms". Why is this not a query you can add, and what are the options?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because the partition key decides which node holds a row, and `user_id` is not
+  part of it: a user's messages are scattered across every room partition they
+  have ever written in, so answering the question means contacting every
+  partition and merging — a full scan wearing a query's clothes. There is no
+  index that fixes this without changing where data lives. The options are a
+  second table, `messages_by_user`, partitioned by `user_id` and written at the
+  same time as the first; a secondary index if the store offers one,
+  understanding that it is a scatter-gather with its own cost; or exporting to a
+  system built for arbitrary queries. The first is the usual answer, and its
+  price is that the application is now responsible for keeping two copies in
+  step.
+</PracticeCheck>
+
+**3. A service does 400 writes and 4,000 reads per second on five entity types with foreign keys between them, and the queries are still changing month to month. Which store should back it, and why is that answer not "it depends on scale"?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A relational primary — none of the four NoSQL families is the better fit here.
+  Four hundred writes per second is inside one indexed primary's range, so no
+  write ceiling is forcing the move, and the read side at ten to one is a
+  caching and replica question rather than a storage-engine one. The decisive
+  detail is the last one: queries still changing month to month is precisely the
+  condition under which "name the query first" is the wrong bargain, because
+  every new question would need a new table and a backfill. Scale is not what is
+  choosing here; the access patterns are, and they are unsettled. Revisit if the
+  write rate approaches a primary's ceiling and the query set has stabilised.
+</PracticeCheck>

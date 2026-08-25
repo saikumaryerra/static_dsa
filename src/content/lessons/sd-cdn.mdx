@@ -1,0 +1,255 @@
+---
+title: 'Content Delivery Networks'
+slug: 'sd-cdn'
+course: 'system-design'
+track: 'sd-edge'
+order: 10
+summary: 'A CDN is a fleet of caching reverse proxies near your readers. What it buys — distance and origin offload — plus cache keys, Vary, what must never be cached, and the fetch storm you cause yourself.'
+difficulty: 'beginner'
+prerequisites: ['sd-capacity-estimation', 'sd-load-balancers']
+estimatedMinutes: 9
+tags: ['system-design', 'cdn', 'caching', 'edge', 'bandwidth']
+explainPrompt: 'Why can a CDN with a 99% hit ratio still take the origin down after a release?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say which of two problems a CDN solves for a given workload: distance or fan-out.
+- Design a cache key, and predict what `Vary` does to a hit ratio.
+- Identify responses that must never reach a shared cache.
+- Distinguish an ordinary miss from an origin fetch storm, and prevent the storm.
+
+## Intuition
+
+A **content delivery network** is a fleet of caching reverse proxies placed in
+data centres near readers, plus the routing that sends each reader to a near one.
+Everything in the [load balancer lesson](/learn/sd-load-balancers/) still applies
+— these are reverse proxies — with one addition: they keep copies of the answers.
+
+**The mental model is a warehouse in every city.** You do not ship every order
+from the factory; you ship pallets to regional warehouses and orders travel the
+last few miles. Two different savings fall out of that, and they are worth
+separating because a given workload usually needs only one.
+
+**Distance.** From the reference table, a round trip between continents is about
+150 ms, and a TLS handshake costs several. A reader in Sydney fetching from a
+London origin pays that on every request no matter how fast the origin is;
+physics is not a capacity problem and cannot be fixed by buying servers.
+
+**Fan-out.** The video estimate in
+[back-of-envelope estimation](/learn/sd-capacity-estimation/) came out at roughly
+540 Gbps average and 2 Tbps peak. That is bandwidth an origin fleet would have to
+own and pay for continuously, at 100 Gbps per interface around twenty saturated
+links before redundancy. A CDN turns one origin fetch into millions of
+deliveries, so the origin pays for the fetch and the edge pays for the fan-out.
+
+As documented by Netflix's Open Connect programme, the well-known example is
+taking this to its conclusion: purpose-built caching appliances placed inside
+internet service providers' own networks, so popular titles are already sitting
+one hop from the viewer.
+
+## How it works
+
+A request travels through more caches than most people picture:
+
+```text
+reader → browser cache        (private, one user)
+       → edge PoP             (shared, near the reader)
+       → mid-tier "shield"    (shared, near the origin)
+       → origin
+```
+
+Getting the reader to a near edge is done with anycast routing or DNS-based
+steering — generally accepted industry architecture, and the provider's problem
+rather than yours. The tiers are yours to care about, because the shield is what
+collapses misses from a hundred edges into one origin fetch.
+
+**The cache key decides everything.** By default a shared cache keys on the
+request method, host and full path including the query string. Two requests with
+the same key share one stored copy; two requests with different keys do not. So
+every element you add to the key multiplies the number of stored copies and
+divides the hit ratio.
+
+`Vary` is how a response adds request headers to that key. Used narrowly it is
+correct and cheap:
+
+```http
+HTTP/1.1 200 OK
+Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=30
+Vary: Accept-Encoding
+ETag: "9c1e-a41"
+```
+
+`Vary: Accept-Encoding` yields two or three variants — compressed and not — which
+is fine. `Vary: User-Agent` yields thousands, one per browser build, so a hot
+object becomes thousands of cold ones and the hit ratio collapses to roughly
+nothing. The rule: vary on headers with a handful of values, never on headers
+that identify a client.
+
+Note the directives in that response, because they are the whole contract.
+`public` says a shared cache may store it. `max-age` is how long the browser may
+reuse it; `s-maxage` overrides that for shared caches, which is how you keep the
+edge copy fresh for five minutes while browsers hold it for one. And
+`stale-while-revalidate` permits the edge to answer with an expired copy while it
+refreshes in the background — a reader never waits for an origin fetch.
+
+<Callout variant="warning">
+  **What must never reach a shared cache.** Anything keyed to one person: a
+  logged-in page, a response gated by an `Authorization` header, anything
+  carrying `Set-Cookie`. The classic incident is one user's account page served
+  to another because the cache key ignored the session cookie — a data breach
+  produced by a performance change. Mark those responses `Cache-Control:
+  private, no-store` explicitly rather than relying on a default you did not
+  read. When private *bytes* genuinely need edge delivery, the standard answer
+  is a signed URL with a short expiry: the object is public to whoever holds the
+  signature, and the authorisation check happens once, at your origin, when the
+  URL is minted.
+</Callout>
+
+**A miss is not a storm.** A miss is one edge fetching one object once, and it is
+how a cache fills; a healthy CDN misses constantly. A **fetch storm** is many
+simultaneous misses arriving at the origin for the same or newly-invalid objects,
+and it is nearly always self-inflicted:
+
+```text
+edge fleet 100 PoPs, hot object, 20,000 requests/second worldwide
+
+steady state, 5-minute TTL
+  ≈ 100 origin fetches per 5 minutes  →  about 0.3 requests/second at origin
+
+a purge-everything release at 20:00
+  every object invalid at every PoP at the same instant
+  →  the origin briefly sees a large share of 20,000 requests/second
+     against capacity sized for 0.3
+```
+
+Four defences, and you want more than one. **Request coalescing** at the edge
+sends one origin fetch for concurrent misses on the same key and shares the
+answer. **Tiered caching** puts the shield between edges and origin. **Jittered
+TTLs** stop objects expiring in lockstep. And **versioned URLs** — a content hash
+in the filename, served `Cache-Control: public, max-age=31536000, immutable` —
+make invalidation unnecessary for static assets, because a new release changes
+the URL and old URLs stay valid for anyone still holding them.
+
+Explicit purge is the fourth invalidation option and the weakest: it propagates
+across a global fleet in seconds to minutes rather than instantly, providers rate
+limit it, and using it as a release step is how you build the storm above. Purge
+narrow things, rarely.
+
+## Trade-offs
+
+**Staleness for reach.** The TTL is a written promise about how wrong an edge may
+be. Shorter is fresher and costs origin fetches; there is no setting that is both.
+
+**Hit ratio versus personalisation.** Every element of the cache key divides the
+cache. A page personalised per user cannot be cached at the edge at all — but its
+shell, its images and its scripts can, and splitting a page along that line is
+usually the real win.
+
+**Cost.** Egress from a CDN is normally cheaper per byte than from your origin,
+so a high hit ratio saves money twice. A low hit ratio means paying for both,
+plus a hop.
+
+**Debuggability.** An answer may come from the browser, an edge or a shield, so
+"it works for me" becomes genuinely hard to reason about, and reproducing a
+report starts with establishing which cache answered.
+
+**When a CDN buys little.** A write-heavy or highly personalised API gets almost
+nothing from edge caching; strongly consistent reads cannot be served from one at
+all; and a single-region audience sitting near the origin gains bandwidth
+protection but not much latency.
+
+## Common pitfalls
+
+- **Caching a personalised response.** Tempting because it is the hottest page on
+  the site, and its failure mode is showing one user another's data.
+- **`Vary` on a high-cardinality header.** Looks like correctness; behaves like
+  turning the cache off while still paying for it.
+- **Purging everything on release.** Tempting because it feels safe. Versioned
+  URLs give the same guarantee with no invalidation at all.
+- **Treating a purge as instant.** It is eventually consistent across the fleet,
+  so a rollback that depends on it being immediate is not a rollback.
+- **Cookies on static assets.** A `Set-Cookie` on an image makes it uncacheable
+  in many configurations, and every asset request then carries the cookie back.
+- **Measuring one overall hit ratio.** The number that matters is per object
+  class: 99% on images and 4% on HTML is a different system from 70% on both.
+
+## Interview notes
+
+Say which of the two problems you are solving. "The catalogue is read globally
+and changes hourly, so the CDN is about distance" and "playback is 2 Tbps at
+peak, so the CDN is the only way the bytes leave the building" lead to different
+designs, and saying which one you mean shows the CDN is a decision rather than a
+reflex.
+
+Then say what you will not cache, unprompted. Naming the authenticated surface
+and how it is marked is the detail that separates someone who has run a CDN from
+someone who has read about one.
+
+## Key takeaways
+
+- A CDN is **caching reverse proxies near readers**, and it buys two separable
+  things: shorter round trips and origin offload.
+- **The cache key is method, host and path plus whatever `Vary` adds.** Every
+  addition divides the hit ratio.
+- **Never let a shared cache store a per-user response**; use signed URLs with
+  short expiries for private bytes.
+- A miss is ordinary; **a storm is many simultaneous misses**, usually caused by a
+  purge or by synchronised expiry.
+- **Versioned, immutable URLs remove the invalidation problem** for static assets;
+  purge is slow, rate limited and a poor release step.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team adds `Vary: User-Agent` so it can return differently-sized images to phones and desktops. The images are correct, but origin traffic rises sharply and edge hit ratio falls. Why?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  `Vary` adds the named header to the cache key, and `User-Agent` has thousands
+  of distinct values in real traffic — every browser, version and device string
+  is its own key. One hot object that used to have a single cached copy per PoP
+  now has hundreds of near-identical copies, each of which must be fetched from
+  the origin the first time some particular string appears and each of which
+  expires on its own. The responses are correct, which is why nobody suspects
+  the header; the cache has been fragmented into mostly-cold entries. The fix is
+  to key on something with few values: either negotiate size through distinct
+  URLs, or vary on a small normalised hint header with two or three possible
+  values.
+</PracticeCheck>
+
+**2. A release purges every URL at 20:00. The origin falls over within seconds, although reader traffic is no higher than it was an hour earlier. Explain, and give three changes.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Reader traffic is beside the point, because the origin never sees it — the
+  edges do. In steady state the origin gets roughly one fetch per object per PoP
+  per TTL, so it is provisioned for a tiny fraction of reader load, and that is
+  why an unchanged reader load can still destroy it. A global purge makes every
+  object invalid at every PoP at the same instant, so the next request for each
+  object at each PoP is a miss and the whole fan-out lands on the origin at
+  once. Three changes: version the URLs so a release changes filenames instead
+  of purging anything; put a shield tier between edges and origin so a hundred
+  PoP misses become one origin fetch; and enable request coalescing plus
+  `stale-while-revalidate` so concurrent misses share a single fetch and readers
+  are served the old copy meanwhile. Adding TTL jitter prevents the same shape
+  happening without a purge.
+</PracticeCheck>
+
+**3. A logged-in dashboard is slow. Someone proposes putting it behind the CDN with a 60-second TTL, arguing that the underlying data really does change only every few minutes. What breaks, and what is the safe version of the idea?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The staleness argument is fine — a minute-old dashboard is acceptable here.
+  What breaks is identity: the default cache key is method, host and path, and
+  every signed-in user requests the *same* path, so the first user's response is
+  stored and served to everyone else who asks within the TTL. That is a data
+  breach, not a stale read, and no TTL makes it safe. The safe version keeps the
+  personalised document out of the shared cache with `Cache-Control: private,
+  no-store` and moves the caching elsewhere: cache the shell, scripts and images
+  at the edge, let the browser hold the private response for its own user, and
+  cache the expensive per-user query server-side under a key that contains the
+  user id.
+</PracticeCheck>

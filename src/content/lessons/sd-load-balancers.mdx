@@ -1,0 +1,231 @@
+---
+title: 'Load Balancers and Reverse Proxies'
+slug: 'sd-load-balancers'
+course: 'system-design'
+track: 'sd-edge'
+order: 9
+summary: 'A load balancer is one job a reverse proxy does. What L4 and L7 can each see, how health checking decides who receives traffic, and the work a proxy does that has nothing to do with spreading load.'
+difficulty: 'beginner'
+prerequisites: ['sd-latency-and-throughput', 'sd-availability-and-durability']
+estimatedMinutes: 9
+tags:
+  ['system-design', 'load-balancing', 'reverse-proxy', 'edge', 'availability']
+explainPrompt: 'Why can a health check that only confirms the process is listening make an outage last longer rather than shorter?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Choose between an L4 and an L7 balancer from what each one can see.
+- Configure a health check and say how long it takes to notice a dead instance.
+- Name what a reverse proxy does besides distributing requests.
+- Say when a load balancer is the wrong answer to the problem in front of you.
+
+## Intuition
+
+A **reverse proxy** is a server that accepts a client's connection, then makes
+its own connection to one of your servers and relays the answer back. The client
+never learns which machine served it. **Load balancing is one decision that proxy
+makes** — which server — and everything else in this lesson is the rest of the
+work it is already positioned to do.
+
+The name matters: a _forward_ proxy sits with the client and hides the client
+from the internet, while a reverse proxy sits with the servers and hides the
+servers from the client. That is where its powers come from — it is the only
+component that sees every request before your application does, and the only one
+that knows about every instance.
+
+**The mental model is a receptionist.** Callers reach one number, and somebody
+who knows which colleagues are at their desks decides who takes each call, never
+rings a desk that will not answer, and can absorb a department moving without the
+caller noticing. Remove that person and every caller needs the internal
+directory, which is exactly what happens when clients hold a list of server
+addresses.
+
+## How it works
+
+The first decision is which layer of the network stack the proxy works at, which
+is really a decision about how much it is allowed to see.
+
+|                | **L4 (transport)**                       | **L7 (application)**                           |
+| -------------- | ---------------------------------------- | ---------------------------------------------- |
+| Sees           | IP addresses, ports, TCP or UDP segments | Method, path, headers, cookies, body           |
+| Decides per    | connection                               | request                                        |
+| Needs TLS keys | no — it can pass encrypted bytes through | yes, to read anything                          |
+| Can do         | forward, hash, weight                    | route by path, retry, rewrite, limit, compress |
+| Costs          | very little CPU; microseconds            | TLS work, parsing, a place data is decrypted   |
+
+An L4 balancer moves bytes: fast, protocol-agnostic — it carries a database
+connection as happily as HTTP — and it pins a connection to one backend for that
+connection's whole life. An L7 balancer parses the request, so it can send
+`/api/` to one pool and `/static/` to another, retry a failed idempotent request
+elsewhere, and enforce limits before any application code runs. The price is CPU
+and one more place your traffic exists in plaintext.
+
+Distribution itself is a small algorithm. **Round robin** takes turns and assumes
+every request costs the same. **Least connections** picks the instance with the
+fewest requests in flight, which is better whenever request costs vary, because
+by [Little's Law](/learn/sd-latency-and-throughput/) in-flight count is a live
+reading of how loaded an instance is. **Hashing on a key** — client address,
+session id, cache key — sends the same key to the same instance every time, which
+buys cache affinity and stops being even as soon as the keys are skewed.
+
+**Health checking turns a list of addresses into a pool.** An _active_ check
+probes each instance on an interval; a _passive_ check watches real traffic and
+ejects an instance whose errors or timeouts cross a threshold. Four numbers
+govern both, and they are your detection time:
+
+```text
+interval 2 s, timeout 1 s, unhealthy after 3 consecutive failures
+  worst case ≈ 3 × 2 s + 1 s ≈ 7 s of served errors before removal
+
+healthy again after 2 consecutive passes
+  ≈ 4 s after recovery before it takes traffic again
+```
+
+Seven seconds at an instance taking 2,000 requests per second is roughly 14,000 failed requests, so
+the interval is not cosmetic. Tightening it costs probe traffic and risks
+ejecting an instance that was briefly busy rather than broken.
+
+<Callout variant="warning">
+  **What the check checks is the whole design.** A `/healthz` that returns 200
+  whenever the HTTP server is listening passes while the database pool is
+  exhausted and every real request fails — the pool stays full of instances that
+  cannot work. A check that verifies every dependency has the opposite failure:
+  when the shared database wobbles, *every* instance reports unhealthy at once
+  and the pool empties, converting a degraded dependency into a total outage.
+  The usual resolution is a check that tests only what this instance can do for
+  itself, plus a *fail-open* rule — when too little of the pool is healthy, send
+  traffic to all of it anyway, because a degraded backend beats no backend. Both
+  halves are generally accepted industry practice, not one product's feature.
+</Callout>
+
+Now the part the name hides. Beyond choosing an instance, a reverse proxy
+**terminates TLS**, so certificates live in one tier rather than on every server.
+It **reuses connections**, multiplexing tens of thousands of client connections
+onto a small keep-alive pool, so the application never sees the connection churn
+of the open internet. It **buffers slow clients**, reading a request fully before
+passing it on, so a client dribbling bytes over a minute occupies the proxy
+instead of an application worker. It **routes** by path, host or header, which
+lets one hostname front many services. And it **drains** on deploy — no new
+connections, in-flight ones finish — which is the difference between a rolling
+release and a burst of errors.
+
+## Trade-offs
+
+**L4 is cheap and blind; L7 is expensive and useful.** Choose L4 for non-HTTP
+protocols, very high packet rates, or where you must not decrypt at the edge;
+choose L7 for HTTP APIs, where per-request routing, retries and limits are the
+point.
+
+**Every proxy is a hop**, adding a round trip inside the datacentre plus its own
+work, and one more configuration that can be wrong.
+
+**The balancer is a failure domain.** Everything behind one address means that
+address must be more available than anything behind it — in practice a redundant
+tier reached by anycast or DNS, not a box.
+
+**Sticky sessions buy convenience and cost you evenness.** Pinning a user to an
+instance lets it keep session state in memory; in exchange, restarts drop
+sessions, load skews toward whoever holds the busy users, and new instances stay
+idle. It postpones making the application stateless.
+
+**When not to reach for one.** A balancer adds availability only if what sits
+behind it is genuinely redundant, so a single instance with a supervised restart
+gains nothing. Static bytes belong in a
+[content delivery network](/learn/sd-cdn/), not behind a proxy fronting web
+servers. And internal service-to-service calls can balance in the client instead,
+which is what service discovery is for in a later module.
+
+## Common pitfalls
+
+- **A shallow health check.** Tempting because it always passes and never wakes
+  anyone. It is also why the pool keeps routing to instances that cannot serve.
+- **A deep health check shared by the whole fleet.** The mirror-image mistake:
+  one dependency's blip ejects every instance simultaneously.
+- **Long-lived connections behind an L4 balancer.** Connections are assigned once,
+  so instances added by autoscaling receive nothing until existing clients
+  reconnect. Cap connection lifetime, or balance per request at L7.
+- **Mismatched idle timeouts.** If the backend closes an idle keep-alive
+  connection sooner than the proxy expects, the proxy reuses a dead socket and
+  the client gets a `502`. Make the backend's idle timeout the longer one.
+- **Retrying at the proxy without thinking about idempotency.** A retry on a
+  `POST` that already succeeded is a duplicate write; see
+  [idempotency and retries](/learn/sd-idempotency-and-backpressure/).
+- **Expecting the balancer to create capacity.** Spreading 10,000 requests per
+  second over a fleet that can serve 6,000 produces an evenly overloaded fleet.
+
+## Interview notes
+
+Say the layer and the reason in one sentence — "L7, because we need path routing
+and per-request retries" — then say what it costs, which is TLS termination and a
+decryption point at the edge.
+
+The detail that reads as experience is health checking: what the check verifies,
+how many seconds pass before a dead instance stops receiving traffic, and what
+happens when every instance fails at once. Adding "and we drain connections on
+deploy" covers the most common source of release-time errors.
+
+## Key takeaways
+
+- A load balancer is **one job a reverse proxy does**; TLS termination,
+  connection reuse, buffering, routing and draining are the rest.
+- **L4 balances connections and cannot read requests; L7 balances requests and
+  must decrypt them.** The choice is about visibility, not speed.
+- **Detection time is interval × threshold plus one timeout**, and every second of it is served
+  errors.
+- A check that is too shallow keeps broken instances in the pool; one that is too
+  deep **empties the pool during a shared dependency's blip**.
+- Sticky sessions are a way to keep server-side state, and they cost even
+  distribution and clean restarts.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team's `/healthz` returns 200 whenever the HTTP server is listening. During an incident the database pool was exhausted, every request failed, and the balancer kept sending traffic to all twenty instances. What did the check miss — and what would checking the database instead have cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The check measured the wrong thing: it confirmed the process was accepting
+  connections, which stayed true the whole time, while the ability to serve a
+  request had gone. Because no instance ever failed the check, the pool never
+  shrank and the balancer had nothing to route around. Checking the database
+  directly would have fixed this case and created a worse one — the pool is
+  shared, so all twenty instances would have failed the same check within one
+  interval and the balancer would have had zero healthy backends, turning a
+  degraded dependency into a hard outage. The usual answer is a check that tests
+  what the instance can do for itself, plus a fail-open rule that keeps sending
+  traffic when too much of the pool is unhealthy at once.
+</PracticeCheck>
+
+**2. Clients hold one long-lived connection each through an L4 balancer. Autoscaling adds four instances during a traffic peak, and an hour later those four are still idle while the original six are saturated. Why, and what are two fixes?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  An L4 balancer chooses a backend once per *connection*, not once per request.
+  Every existing client is already pinned to one of the six original instances,
+  so no distribution algorithm can move them; the four new instances can only
+  receive connections that are opened after they joined, and long-lived clients
+  do not open any. Two fixes: cap connection lifetime — have the server or the
+  proxy close connections after a bounded time or request count so clients
+  reconnect and get rebalanced — or move to an L7 proxy that makes the choice
+  per request, at the cost of parsing and terminating TLS. The general lesson is
+  that with L4, rebalancing happens only at connection setup, so connection
+  lifetime is a capacity setting.
+</PracticeCheck>
+
+**3. An HTTP-only service needs `/admin` on an isolated pool, and wants a timed-out read retried on a different instance. Which layer, and what does that choice cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Both requirements are about the content of a request, so both need L7: an L4
+  balancer sees packets and ports and cannot know that a connection carries
+  `/admin`, nor tell one request from the next inside a reused connection. The
+  costs are real and worth stating. The proxy must terminate TLS, so private
+  keys live there and traffic exists in plaintext at that tier; parsing and
+  re-encrypting costs CPU, which sizes the proxy tier; and the retry is only
+  safe for operations that can be repeated, so it should be restricted to reads
+  and to writes carrying an idempotency key. A retried non-idempotent `POST` is
+  a duplicate write that the client never asked for.
+</PracticeCheck>
