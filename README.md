@@ -205,5 +205,10 @@ and the per-host settings.
 
 ## License
 
-The site footer says "Free and open source", but **no `LICENSE` file has been committed yet** — so
-the terms are formally unstated. Adding one is an owner decision, not a code change.
+[MIT](LICENSE), © 2026 saikumaryerra — which is what the site footer's "Free and open source" now
+points at.
+
+It covers the **whole repository**, prose included: the 15 lessons, the visualization pipeline and
+the tooling are all under the same terms. That is a deliberate simplification over the usual
+code-MIT / content-CC-BY split — one file, nothing to explain, and reuse of the teaching material is
+as unencumbered as reuse of the code.
