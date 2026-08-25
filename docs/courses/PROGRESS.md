@@ -50,27 +50,53 @@ listed under "Next actions" as not started.
 
 ## Verification
 
-| Check | Command | Commit | Result |
-|---|---|---|---|
-| Build | `npm run build` | `9b44d75` | ✅ 21 pages, portablize clean |
-| Lint | `npm run lint` | `9b44d75` | ✅ |
-| Format | `npm run format:check` | `9b44d75` | ✅ |
-| Unit | `npm run test` | `9b44d75` | ✅ 63 files / 1103 tests |
-| E2E | `npm run test:e2e` | `9b44d75` | ⚠️ 444 passed, 14 failed under load — **all 14 re-run green single-worker** |
-| Validator | not built yet | — | — |
+At commit `6a50deb`, on a quiet machine:
 
-## Known issues
+| Check | Command | Result |
+|---|---|---|
+| Build | `npm run build` | ✅ 26 pages, portablize clean |
+| Lint | `npm run lint` | ✅ |
+| Format | `npm run format:check` | ✅ |
+| Unit | `npm run test` | ✅ 65 files / 1117 tests |
+| Validator | `npm run validate:content` | ✅ 17 lessons clean, 3 warnings, 187 coverage topics pending |
+| Fonts | `npm run fonts` | ✅ regenerates identically — 352 chars, 77,704 bytes, no new glyph from the two exemplars |
+| Visual baselines | re-seeded in `playwright:v1.61.1-noble`, then compared | ✅ 15 passed, 0 flaky |
+| E2E | `npm run test:e2e` | ⏳ run 3 pending; run 2 was 449 passed / 9 failed, all nine since fixed or classified |
 
-**There are none in the baseline.** The first e2e run reported 14 failures, but it was executed
-while four reconnaissance subagents were saturating a 4-core box, and `playwright.config.ts:28`
-sets `retries: 0` locally with `fullyParallel: true`. Re-running exactly those eight spec files
-with `--workers=1` on a quiet machine gave **117 passed, 0 failed** (2.4 min).
+### The e2e failure ledger (runs 1 and 2)
 
-So the true baseline at `9b44d75` is **all five DoD commands green**, and any e2e failure from here
-is mine until proven otherwise.
+Run 1 found 17 failures, run 2 found 9. Every one is now fixed or classified:
 
-**Operating rule learned:** never run `npm run test:e2e` while subagents are running. The suite is
-timing-sensitive; concurrent agents turn axe scans and chunk loads into false failures.
+**Fixed — mine.** Five aria baselines (re-seeded, diffs read); the home tab-path's
+hardcoded lesson count; `/learn` assertions that had to follow the cards to the
+course page across eight specs; the sitemap route set; the last-lesson card and
+the track-crossing walk, now per course; the predict suite's "every lesson ships a
+visualization", now scoped to the course where that is true; a reset assertion
+that navigated and so re-ran `seedStorage`'s init script; the portable walk, which
+grew a hop and needed to settle before judging what failed to load.
+
+**Fixed — structural, would have got worse.** Three specs walk every lesson with a
+browser navigation each. At 17 lessons they began timing out on the 30 s default;
+at 127 they would always. The one whose claim genuinely covers every lesson got
+the budget it needs; the two about Trace Trials and `<StepLink>` are scoped to the
+`dsa` course, which is safe *because* the validator now rejects a viz-coupled
+component in a prose lesson. The axe scans on the heaviest lesson pages take
+4–13 s quiet and had no headroom either; their budget is raised.
+
+**Classified — load flakes, not regressions.** `m4-lessons` axe on
+`sorting-basics` and `m8-explain-note`'s delete test, both timeouts, both green on
+a quiet machine, and `m7-print-hcm`'s Practice-answer reveal, which the test's own
+comment already documents as a race. **Never run the e2e suite while subagents or
+other heavy processes are running** — `retries: 0` locally with full parallelism
+on 4 cores turns any of these into a false red.
+
+## Deferred to Phase 5 (integration polish)
+
+- Home's "See all N lessons →" now lands on a catalogue of courses — reword it,
+  and update the two test regexes that match the string.
+- Glossary terms for the new courses, pointing *at* lessons (decision D-12).
+- Watch CI's 30-minute ceiling as the per-lesson walks iterate 127 lessons.
+- `docs/site-spec.md` needs the amendments this expansion made to §5, §6, §7 and §8.
 
 ---
 
