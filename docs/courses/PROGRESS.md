@@ -14,48 +14,45 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 | 0 — Recon and baseline | **done** (`b1c347c`) |
 | 1 — Vertical slice | **done** (`ae15428`) |
 | 2 — Curriculum, style guide, exemplars | **done** (`ae15428`) |
-| 3 — Content production | **done** — 112 of 112 written, reviewed and corrected (`d7e7438`..`0fca9f6`) |
+| 3 — Content production | **done** — 112 of 112 written, reviewed and corrected |
 | 4 — Diagrams | **done** — 11 of 11 (`e134327`) |
-| 5 — Integration polish | **in progress** — glossary and the home CTA done; site-spec amendments running |
-| 6 — Verification gate | **in progress** |
-| 7 — Final report | not started |
+| 5 — Integration polish | **done** |
+| 6 — Verification gate | **done** — the §8 checklist below is fully ticked |
+| 7 — Final report | **done** — `docs/courses/REPORT.md` |
 
 ## Catalogue as built
 
 | | Courses | Modules | Lessons | Pages in `dist/` |
 |---|---|---|---|---|
 | Before | 1 | 6 | 15 | 26 |
-| Now | 3 | 29 | 127 | 135 |
+| Now | 3 | 29 | 127 | 136 |
 
 The 112 new lessons are 67 Kubernetes (14 modules) and 45 System Design
 (9 modules). Full plan in `CURRICULUM.md`; every Appendix A/B topic maps to a
 lesson in `coverage.json`, which `validate:content --strict` enforces on CI.
 
-## In progress
+## How Phase 6 was run
 
-Phase 6 is running in this order, because each step feeds the next:
+In this order, because each step fed the next, and the order mattered:
 
-1. Pre-flight greps — done. The two home-CTA regexes follow the new string; the
-   `home` **aria** baseline does not, and still asserts a link matching
-   `See all N lessons`, so it is a known red until re-seeded.
-2. `tests/e2e/courses.spec.ts` — the gate's own SPEC-8 requirements (three widths,
-   horizontal overflow, console errors, catalogue -> course -> module -> lesson,
-   diagrams present, axe) written **before** the full run, so one run validates it.
-3. Baselines. Pixel: re-seed all 14 in `playwright:v1.61.1-noble`; exactly six
-   PNGs should change (home x4 for the CTA, glossary x2 for the 35 new terms) and
-   any other change gets read before it is committed. Aria: `home` must be
-   re-seeded; `glossary` is stale-but-passing, because `toMatchAriaSnapshot`
-   matches a **subset** and 35 new terms are invisible to it.
-4. The full e2e suite, machine quiet, single stream. It has not run since the 112
-   lessons landed; the wall-clock is also the datum for the deferred CI
-   30-minute-ceiling question.
-5. The manual half: browser walk at 375/768/1280 with the console open, a
-   keyboard-only walk, and the rendered read of all 112 lessons.
+1. **Pre-flight greps**, before anything expensive. They found the `home` aria
+   baseline still asserting a home-page string this branch had changed — two
+   guaranteed reds caught for the cost of a grep.
+2. **`tests/e2e/courses.spec.ts` written first**, so one run validated it: three
+   widths with a horizontal-overflow check, console and `pageerror` capture,
+   catalogue → course → module → lesson by following real links, all eleven
+   figures, and axe with every `<details>` forced open.
+3. **The manual half**, while agents were still running: 36 screenshots across
+   three widths and both themes, a keyboard-only walk, and a rendered read of all
+   112 lessons by twelve agents.
+4. **The findings repaired** — 9 major by hand, 51 minor by eight agents under a
+   verify-or-refuse contract.
+5. **Both baselines re-seeded and read**, not regenerated. Four aria files and
+   twelve of the fourteen PNGs moved.
+6. **The e2e suite**, four times, ending in the pinned container. See the ledger.
 
-Four background lanes precede step 4 and must all be finished before it starts —
-the rendered read (12 agents), the site-spec amendments, and the external link
-check. **Never run the e2e suite while subagents are running**; the run-1/run-2
-ledger below is what that rule was learnt from.
+**Standing rule, and the reason for step 3's ordering:** never run the e2e suite
+while subagents are running.
 
 ## Verification
 
@@ -180,19 +177,21 @@ suite while subagents or other heavy processes are running. `retries: 0` locally
 with full parallelism on 4 cores turns any of the fourteen above into a false
 red, and a red run under load is not evidence of anything.
 
-## Deferred to Phase 5 (integration polish)
+## Phase 5 (integration polish) — closed
 
-- [x] Home's "See all N lessons" now reads "Browse all 3 courses" (`faa6b1b`); both
-      test regexes follow it. The `home` **aria baseline still does not** — that is
-      Phase 6 step 3, not this line.
+- [x] Home's "See all N lessons" now reads "Browse all 3 courses" (`faa6b1b`);
+      both test regexes and the `home` aria baseline follow it.
 - [x] Glossary terms for the new courses, pointing *at* lessons (decision D-12) —
       35 added in `3ec3702`, the existing 46 untouched.
-- [ ] `docs/site-spec.md` amendments to sections 5, 6, 7 and 8 — running.
-- [ ] Watch CI's 30-minute ceiling as the per-lesson walks iterate 127 lessons.
-      The Phase 6 e2e wall-clock is the datum.
-- [ ] Three validator warnings to settle before the report: `k8s-networking-model`
-      uses a ban-list word, and `sd-consistency-models` (1581) and
-      `sd-idempotency-and-backpressure` (1505) are over the 1500-word prose ceiling.
+- [x] `docs/site-spec.md` amended (`9f8c5f8`) across §1, §2, §4, §5, §6, §7, §8,
+      §9, §16, §18 and §19. Two claims from AMENDMENTS.md were deliberately left
+      out because they could not be verified from the repo.
+- [x] CI's 30-minute ceiling — **answered**: 6.3 minutes in the pinned container,
+      13.2 on a busy four-core host. Headroom, and recorded in REPORT.md §5 as
+      the term that grows.
+- [x] The three validator warnings — settled. Two lessons trimmed, one rewritten,
+      and the remaining over-ceiling lessons moved into `OVER_CEILING_ACCEPTED`
+      with a written reason each, printed as notes rather than warnings.
 
 ---
 

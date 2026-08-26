@@ -2,7 +2,7 @@
 
 Two production-quality courses added to the LearnDSA catalogue: **Kubernetes**
 (67 lessons, 14 modules) and **System Design** (45 lessons, 9 modules). The
-branch is `feat/kubernetes-and-system-design-courses`, 38 commits, local only —
+branch is `feat/kubernetes-and-system-design-courses`, 42 commits, local only —
 nothing pushed, no PR opened, per SPEC §3.
 
 ---
@@ -96,7 +96,7 @@ the browser** — nothing in `src/` imports it.
 renamed (verified by grep across `src/`), no lesson frontmatter rewritten. The
 only regenerated artifacts are the two regression baselines, re-seeded and read.
 
-**Scale.** 38 commits, 211 files, +39,393 / −865.
+**Scale.** 42 commits, 214 files, +39,770 / −873.
 
 ---
 
@@ -112,7 +112,7 @@ only regenerated artifacts are the two regression baselines, re-seeded and read.
 | Formatting | `npm run format:check` | ✅ |
 | Unit + component | `npm run test` | ✅ 1,126 tests |
 | Content validator | `npm run validate:content -- --strict` | ✅ 127 lessons clean, 5 accepted notes |
-| Fonts | `npm run fonts` | ✅ regenerates identically |
+| Fonts | `npm run fonts` | ✅ regenerates identically after all 112 lessons — the subsets are a fixed point, not merely a superset |
 | Aria baselines | re-seeded, generalisations restored, re-run | ✅ 8 passed |
 | Pixel baselines | re-seeded in `playwright:v1.61.1-noble`, compared single-worker | ✅ 15 passed |
 | End-to-end | whole suite in `playwright:v1.61.1-noble`, `CI=1 VISUAL_BASELINE=1` | ✅ **503 passed, 0 failed, 6.3 min** |
@@ -165,6 +165,9 @@ inside that image with `CI=1` and `VISUAL_BASELINE=1`, the suite is **503 passed
 0 failed in 6.3 minutes** — 503 rather than 489 because the flag arms the
 fourteen pixel comparisons that skip on a bare local run, so the pixel gate is
 inside that green.
+
+Every commit after that container run is documentation-only, so the code it
+certified is byte-identical to the code at `HEAD`.
 
 **Two defects only a rendered read could find.** A tools table opened with a
 *closing* curly quote on both sides of a phrase — the source has straight quotes
