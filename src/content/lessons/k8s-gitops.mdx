@@ -126,7 +126,7 @@ Two repositories is the other structural decision. Application source — code,
 tests, the image build — lives in one; the manifests live in a delivery
 repository the agent watches. CI's last step is to commit the new image tag
 there, or to open a pull request doing so. That is the clean division the
-delivery chapter has been building towards: continuous integration proves the
+delivery module has been building towards: continuous integration proves the
 artifact, continuous delivery reconciles the cluster, and the artifact's
 identity is the immutable tag from
 [Immutable Images and Tagging](/learn/k8s-images-and-tags/).

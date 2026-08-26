@@ -217,8 +217,10 @@ Work each one out before opening the answer.
   with limits equal to requests, and `logger` sets neither a CPU request nor any
   limits, so the Pod misses that bar — but it is not BestEffort either, because
   BestEffort means no container specifies anything and both of these do. Under
-  node memory pressure the kubelet evicts BestEffort Pods first, then Burstable
-  Pods in order of how far above their requests they are sitting. Since
+  node memory pressure the kubelet ranks candidates by whether they are using
+  more than they requested, then by Pod priority, then by how far over they are
+  — a BestEffort Pod requested nothing, so it sorts to the front, and this Pod
+  stays behind it only for as long as it is inside its requests. Since
   `logger`'s memory is capped by nothing, it is the container most likely to
   push this Pod over its 320Mi of total requests and into that queue — one
   under-specified sidecar decides the fate of the whole Pod.

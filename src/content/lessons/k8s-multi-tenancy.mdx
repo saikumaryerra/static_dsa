@@ -110,13 +110,16 @@ That references a _ClusterRole_ from a _RoleBinding_, which grants the built-in
 `edit` permissions inside `tenant-atlas` and nowhere else. Reusing the
 cluster-wide role definition is the intended pattern; binding it with a
 `ClusterRoleBinding` instead would grant it in every namespace, and the two
-manifests differ by one word.
+manifests differ only by the kind and the namespace line.
 
 ### What tenants share regardless
 
 <Callout variant="warning">
   These six are not configuration gaps. They are properties of running on one
-  cluster, and no combination of namespaced objects removes them.
+  cluster, and no combination of namespaced objects removes them. The first
+  three are the cluster-scoped list from [Multi-Environment
+  Strategy](/learn/k8s-multi-environment/) again, with tenants in the namespaces
+  instead of environments; the last three are what the tenancy framing adds.
 </Callout>
 
 - **The kernel.** Pods on a node share it, so a container escape is a node
@@ -181,8 +184,9 @@ each.
 - **Reading a namespace as a boundary.** It is the object that makes tenancy
   _look_ solved, because the tenants get separate names and separate `kubectl`
   output while sharing everything underneath.
-- **A `ClusterRoleBinding` where a RoleBinding would do.** It is one word
-  shorter and grants the same role in every namespace in the cluster.
+- **A `ClusterRoleBinding` where a RoleBinding would do.** It is one line
+  shorter — the namespace goes away — and grants the same role in every
+  namespace in the cluster.
 - **Quota without a LimitRange.** A quota on `requests.cpu` makes a Pod that
   declares no CPU request invalid, so the tenant's first deploy fails on a quota
   error that has nothing to do with capacity.

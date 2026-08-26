@@ -31,7 +31,7 @@ candidate-generation stage because it was fashionable.
 **An architecture is a function, and the workload is its argument.** Feed the
 same requirement — "a user presses play and media arrives" — three different
 workloads, and three different architectures come out. Taste has room only where
-the function is flat, which is far less of a design than most arguments assume.
+the function is flat.
 
 Four dials account for most of it, all measurable before anything is built:
 
@@ -48,7 +48,7 @@ table is downstream of these six.
 
 Take the dials one at a time, each to the mechanism it forces. Except where a
 source is named, the mechanisms below are _generally accepted industry
-architecture_ rather than claims about any company's internals.
+architecture_, not claims about any company's internals.
 
 **Item shape decides which resource binds.** Two quantities come out of a day of
 use, and they move in opposite directions.
@@ -76,7 +76,7 @@ funnel.** Tens of thousands of items are a few hundred megabytes of metadata: ho
 it in memory, and score the whole catalogue per user. A hundred million or a
 billion items cannot be scored per request inside a latency budget, so
 recommendation splits into cheap candidate generation over everything and
-expensive ranking over a few thousand survivors — the structure the 2016 RecSys
+expensive ranking over a few hundred survivors — the structure the 2016 RecSys
 paper _Deep Neural Networks for YouTube Recommendations_ (Covington, Adams,
 Sargin) describes publicly, and the one the
 [video-sharing recommender](/learn/sd-youtube-recommendations/) is built on. **Use a candidate stage** when scoring the corpus
@@ -126,9 +126,10 @@ thousands of increments landing on one row. **Use an append-only event stream,
 aggregated in windows**, for anything displayed: an event id makes a redelivery
 harmless, and a replay restates history when the counting rule
 changes. **Sharded counters** summed on read are the simpler alternative above a
-few hundred writes a second on one key, and they do neither — so **do not** rest
-money on one, where the answer is that same log, deduplicated on a
-client-generated event id.
+few hundred writes a second on one key, but they can neither deduplicate a
+redelivery nor restate history — so **do not** count a number that pays somebody
+on one. There the answer is that same log, deduplicated on a client-generated
+event id.
 
 <Callout variant="note">
   **Trust is a workload input, not a policy layer.** Who produces the content
@@ -223,7 +224,7 @@ Work each one out before opening the answer.
   a cache in front rather than a copy per process. Recommendation changes
   second: scoring the whole catalogue per request no longer fits a latency
   budget, so ranking splits into candidate generation over everything and
-  ranking over a few thousand survivors. Search changes third — a linear scan or
+  ranking over a few hundred survivors. Search changes third — a linear scan or
   a small index becomes a distributed inverted index with its own freshness lag.
   What need not change is delivery: bytes per item and items per session are
   untouched by the row count, so segment sizes, the rendition ladder and the

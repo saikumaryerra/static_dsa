@@ -33,7 +33,7 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 ## Intuition
 
 A request to a checkout endpoint is not one piece of work. It is a call to a cart
-service, a call to pricing, a call to payments, two database queries and a call to
+service, a call to pricing, a call to payments, a database query and a call to
 an external acquirer — spread over six processes on four nodes, most of which
 have no idea the others exist. Each of them has metrics, and each set of metrics
 describes that service's population of requests. None of them describes _your_

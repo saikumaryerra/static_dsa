@@ -213,9 +213,12 @@ Work each one out before opening the answer.
   Service now load-balances across both versions, `kubectl get pods -l app=web`
   cannot tell them apart, and a NetworkPolicy meant for one covers both. The fix
   is a selector that is genuinely distinct — add a second label such as
-  `variant: canary` to both the selector and the template of the new object. (A
-  *hand-made* Pod carrying `app: web` and owned by nobody is a different story:
-  a ReplicaSet will adopt it, and delete it when it is over count.)
+  `variant: canary` to both the selector and the template of the new object.
+  (Neither ReplicaSet would adopt a *hand-made* Pod carrying only `app: web`,
+  because the Deployment controller adds a `pod-template-hash` label to each
+  ReplicaSet's selector. A bare ReplicaSet you wrote yourself, whose selector is
+  exactly `app: web`, is the one that will adopt such a Pod — and delete it when
+  it is over count.)
 </PracticeCheck>
 
 **2. A Pod is misbehaving and you want to take it out of its Service without losing it for debugging. What do you do, and what else happens as a result?**

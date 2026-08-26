@@ -135,10 +135,10 @@ in the filename, served `Cache-Control: public, max-age=31536000, immutable` —
 make invalidation unnecessary for static assets, because a new release changes
 the URL and old URLs stay valid for anyone still holding them.
 
-Explicit purge is the fourth invalidation option and the weakest: it propagates
-across a global fleet in seconds to minutes rather than instantly, providers rate
-limit it, and using it as a release step is how you build the storm above. Purge
-narrow things, rarely.
+Explicit purge is the weakest invalidation option: it propagates across a global
+fleet in seconds to minutes rather than instantly, providers rate limit it, and
+using it as a release step is how you build the storm above. Purge narrow things,
+rarely.
 
 ## Trade-offs
 

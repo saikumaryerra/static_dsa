@@ -144,7 +144,7 @@ kubectl get events -n shop --field-selector reason=FailedCreate
 
 ```text
 ReplicaFailure | True | FailedCreate | pods "web-69b5f85bdf-z7mxl" is forbidden:
-  exceeded quota: tiny, requested: pods=1, used: pods=9, limited: pods=9
+  exceeded quota: tiny, requested: pods=1, used: pods=4, limited: pods=4
 ```
 
 The signature is a Deployment reading `4/12` with nothing pending, plus a

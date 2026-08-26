@@ -51,7 +51,7 @@ container runtime: inside each node, a CRI runtime still starts your containers.
 
 | Tool     | What it is                                                                     | What a node is                            | What it costs you                                                                                                           |
 | -------- | ------------------------------------------------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| kind     | "Kubernetes in Docker", from the Kubernetes project's own SIG organisation     | a container running a full node image     | images must be loaded in explicitly; no load balancer without an add-on                                                     |
+| kind     | “Kubernetes in Docker”, from the Kubernetes project's own SIG organisation     | a container running a full node image     | images must be loaded in explicitly; no load balancer without an add-on                                                     |
 | minikube | the Kubernetes project's long-standing local cluster, with an add-on catalogue | a VM or a container, chosen by `--driver` | the heaviest of the three to start and to keep running                                                                      |
 | k3d      | a community wrapper around k3s, a lightweight distribution                     | a k3s node in a container                 | k3s is not upstream: its default datastore is not etcd, and it bundles its own ingress controller and service load balancer |
 

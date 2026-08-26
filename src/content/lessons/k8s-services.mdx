@@ -209,7 +209,7 @@ Work each one out before opening the answer.
   nothing to say about membership. Read the slice properly, though: it lists
   every matching Pod, ready or not, and the readiness lives in a per-endpoint
   `conditions.ready` that the table columns do not print. So use
-  `kubectl get endpointslices -l kubernetes.io/service-name=api -o
+  `kubectl get endpointslices -l kubernetes.io/service-name=web -o
   jsonpath='{.items[*].endpoints[*].conditions.ready}'`. No addresses at all
   means the selector matches nothing; addresses with `ready: false` means the
   selector is right and the readiness probe is failing. Those are different

@@ -26,11 +26,11 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 
 ## Intuition
 
-You have twelve HTTP services and the previous lesson has already told you not to
-give each one a LoadBalancer. What you want is one external address that reads
-the incoming request and decides where it goes — routing by hostname and path,
-terminating TLS once, and sending the result to the ClusterIP Services you
-already have.
+You have twelve HTTP services and the [Services](/learn/k8s-services/) lesson
+has already told you not to give each one a LoadBalancer. What you want is one
+external address that reads the incoming request and decides where it goes —
+routing by hostname and path, terminating TLS once, and sending the result to
+the ClusterIP Services you already have.
 
 **An Ingress is a rulebook, and the rulebook is all Kubernetes gives you.** The
 object holds hostnames, paths and certificate references, and the API server

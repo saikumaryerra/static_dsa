@@ -201,16 +201,16 @@ Work each one out before opening the answer.
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Add the windows rather than taking the largest. Detection is 5 × 3 = 15
   seconds plus the failing probe's own timeout before the instance is declared
-  unhealthy, then the change has to propagate to whatever answers queries, and
-  then a client that resolved the name a moment before the change keeps its
-  cached answer for up to another 30 seconds — so roughly 45 to 50 seconds in
-  the worst case, and longer for a client that caches beyond the TTL, which many
-  runtimes do. Shortening the interval and the TTL narrows the window and costs
-  more checks and more lookups; it never closes it, because a healthy instance
-  can die immediately after passing a check. The behaviour that actually fixes
-  it belongs to the caller: connect with a short timeout, retry the next address
-  on a connection failure, and use a retry budget so a widespread failure does
-  not become a retry storm.
+  unhealthy, then the change has to propagate to whatever answers queries
+  (another 5 seconds or so), and then a client that resolved the name a moment
+  before the change keeps its cached answer for up to another 30 seconds — so
+  roughly 50 seconds in the worst case, and longer for a client that caches
+  beyond the TTL, which many runtimes do. Shortening the interval and the TTL
+  narrows the window and costs more checks and more lookups; it never closes it,
+  because a healthy instance can die immediately after passing a check. The
+  behaviour that actually fixes it belongs to the caller: connect with a short
+  timeout, retry the next address on a connection failure, and use a retry
+  budget so a widespread failure does not become a retry storm.
 </PracticeCheck>
 
 **2. A team runs a 5-node consensus cluster for leader election and configuration. They propose storing per-user session data in it too, "since it is already replicated and consistent". What do you tell them?**

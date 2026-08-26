@@ -238,9 +238,9 @@ Work each one out before opening the answer.
   for a payment that succeeded — two wrong answers to the same missing
   information. The fix has to be in place before you need it: the client sends
   an idempotency key on the first attempt and repeats that key, so a duplicate
-  returns the original stored response or is told the first attempt is still
-  running. Without a key, the only correct move is to query the payment by a
-  client-side reference and reconcile.
+  either returns the original stored response or blocks on the key until the
+  first attempt commits and then returns it. Without a key, the only correct
+  move is to query the payment by a client-side reference and reconcile.
 </PracticeCheck>
 
 **2. Service A calls B, which calls C. Each layer retries up to three times with backoff. C becomes slow. Describe what C experiences, and where the retries should live.**

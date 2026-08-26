@@ -74,11 +74,12 @@ Thirteen steps. Each one produces something the next step consumes.
 
 **Steps 1 and 2 — requirements and scope.** Separate _functional_ requirements
 (upload a video, follow a channel) from _non-functional_ ones (99.9% available,
-p99 latency under 300 ms — percentiles get their own lesson in the next module —
-durable for ten years). The non-functional list is where the
-architecture comes from: "playback must never stall" forces a CDN long before you
-have chosen a language. Scope is the other half — writing down "no live
-streaming, no monetisation" is what stops the design sprawling.
+p99 latency under 300 ms — percentiles get their own lesson in [Latency and
+Throughput](/learn/sd-latency-and-throughput/) — durable for ten years). The
+non-functional list is where the architecture comes from: "playback must never
+stall" forces a CDN long before you have chosen a language. Scope is the other
+half — writing down "no live streaming, no monetisation" is what stops the
+design sprawling.
 
 **Step 3 — estimate scale.** Order of magnitude, with the arithmetic shown. If
 10 million daily users each read 20 items:

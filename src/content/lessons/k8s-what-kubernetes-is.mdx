@@ -134,8 +134,9 @@ and finding zero, and creates three. The scheduler notices three unassigned Pods
 and assigns each to a node. Three kubelets notice Pods assigned to them and start
 containers.
 
-Five independent loops, no coordination, no order of operations you had to get
-right. Delete one of those Pods and the third loop runs again by itself.
+Four independent loops, no coordination, no order of operations you had to get
+right. Delete one of those Pods and the ReplicaSet controller's loop runs again
+by itself.
 
 ## Trade-offs
 
@@ -143,7 +144,7 @@ Orchestration is not free, and Kubernetes is a large thing to adopt.
 
 **What it costs.** A real vocabulary before anything works, and the indirection
 that makes the system recoverable also makes it harder to debug: when your container
-is not running, the answer is somewhere in a chain of five loops rather than in
+is not running, the answer is somewhere in a chain of four loops rather than in
 one command's output. A cluster is infrastructure that itself needs upgrading,
 securing and paying for.
 

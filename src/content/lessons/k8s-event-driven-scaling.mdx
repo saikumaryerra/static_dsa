@@ -109,10 +109,13 @@ spec:
 That object does not replace the HPA — it **creates one**. KEDA generates a
 HorizontalPodAutoscaler owned by the `ScaledObject`, pointed at the same
 Deployment, targeting the external metric it serves. `kubectl get hpa` shows it,
-and everything from the previous lesson still applies: the ratio, the tolerance
-band, the stabilization window, the conditions. The credentials live in a
-separate `TriggerAuthentication` object referenced by `authenticationRef`, so the
-queue's password is not a field in the scaling policy.
+and everything from [The Horizontal Pod
+Autoscaler](/learn/k8s-horizontal-pod-autoscaler/) still applies: the ratio, the
+tolerance band, the stabilization window, the conditions, and the scale-up cap
+of doubling the fleet or adding four Pods, whichever is greater. The credentials
+live in a separate `TriggerAuthentication` object referenced by
+`authenticationRef`, so the queue's password is not a field in the scaling
+policy.
 
 For work that is a set of discrete items rather than a stream, `ScaledJob` is the
 other shape: instead of scaling a long-lived Deployment, it creates a Job per
@@ -211,12 +214,16 @@ Work each one out before opening the answer.
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   It asks for 40: the total is divided by the per-replica target, `ceil(1200 /
   30)`, and the current count of 4 does not enter that calculation because the
-  target is an average rather than a fixed value. As 40 consumers work through
-  the backlog the measured depth falls, so the quotient falls with it — 600
-  messages wants 20 replicas, 300 wants 10 — and the fleet steps down behind the
-  drain, subject to the stabilization window that keeps it from shedding
-  replicas on a momentary dip. That self-correcting shape is exactly the
-  property the previous lesson demanded of a signal: it falls as replicas rise.
+  target is an average rather than a fixed value. Asking is not arriving,
+  though: the default scale-up policy from the HPA lesson still caps each step
+  at doubling the fleet or adding four Pods, whichever is greater, so from 4 it
+  climbs through 8, 16 and 32 over successive periods — and the drain is already
+  lowering the number it is climbing towards. As the consumers work through the
+  backlog the measured depth falls, so the quotient falls with it — 600 messages
+  wants 20 replicas, 300 wants 10 — and the fleet steps down behind the drain,
+  subject to the stabilization window that keeps it from shedding replicas on a
+  momentary dip. That self-correcting shape is exactly the property the HPA
+  lesson demanded of a signal: it falls as replicas rise.
 </PracticeCheck>
 
 **2. A team wants to scale a public HTTP API to zero overnight to save money. What breaks, and what would you propose instead?**

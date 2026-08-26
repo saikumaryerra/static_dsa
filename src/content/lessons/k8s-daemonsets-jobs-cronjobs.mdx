@@ -268,9 +268,8 @@ Work each one out before opening the answer.
   forever: the container would never be observed as terminated-successfully, so
   the Job could never count a completion, and a Job that cannot ever finish is a
   contradiction. `OnFailure` restarts the container inside the same Pod, `Never`
-  creates a fresh Pod each time — the second gives you more to debug with — each
-  attempt leaves its own Pod and its own logs, because each attempt leaves its
-  own Pod and its own logs.
+  creates a fresh Pod each time — the second gives you more to debug with,
+  because each attempt leaves its own Pod and its own logs.
 </PracticeCheck>
 
 **3. You need a metrics agent on every node, including nodes added by the autoscaler tomorrow and the control-plane nodes. Which object, and which two parts of the manifest are doing the work?**

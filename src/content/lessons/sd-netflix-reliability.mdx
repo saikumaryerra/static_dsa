@@ -42,9 +42,9 @@ fits in edge caches almost in its entirety — is a reliability property and not
 only a cost one.
 
 The second idea is that **degradation is something you design, not something you
-discover.** Every dependency will be slow or absent eventually, and the system's
-response is either a path chosen in advance or an incident. Degradation nobody
-designed is called an outage.
+discover** — the general case is
+[Observability, Failure Handling and DR](/learn/sd-observability-and-recovery/);
+this lesson turns it into a ranked ladder for one product.
 
 The third: **a failure path you have never run does not work.** It compiles, it
 has a test, and it has never been executed with real traffic behind it. Chaos

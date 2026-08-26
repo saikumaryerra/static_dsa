@@ -100,14 +100,14 @@ every night and weekend.
 
 ### The levers, and when not to pull them
 
-| Lever                                    | What it recovers                                                                      | When not to                                                                                     |
-| ---------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Right-size requests toward observed peak | the idle-request gap, usually the biggest                                             | when the peak is periodic (a nightly batch) or memory is a cliff rather than a curve            |
-| Lower the HPA floor off-peak             | replicas nobody was served by                                                         | when a cold start is slower than the traffic ramps                                              |
-| Cluster autoscaler, scale-to-zero pools  | whole machines                                                                        | when scale-up latency sits on a user's request path                                             |
-| Spot or preemptible nodes                | a large share of node price, varying by provider                                      | for stateful workloads, long jobs, or anything without a disruption budget and topology spread  |
-| Change the node shape                    | stranded CPU or memory                                                                | when the largest Pod stops fitting, or one node's failure becomes a big fraction of the cluster |
-| Switch non-production off out of hours   | roughly two-thirds of that bill — a working week is about a third of the week's hours | when colleagues in another time zone rely on it                                                 |
+| Lever                                    | What it recovers                                                                                | When not to                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Right-size requests toward observed peak | the idle-request gap, usually the biggest                                                       | when the peak is periodic (a nightly batch) or memory is a cliff rather than a curve            |
+| Lower the HPA floor off-peak             | replicas nobody was served by                                                                   | when a cold start is slower than the traffic ramps                                              |
+| Cluster autoscaler, scale-to-zero pools  | whole machines                                                                                  | when scale-up latency sits on a user's request path                                             |
+| Spot or preemptible nodes                | a large share of node price, varying by provider                                                | for stateful workloads, long jobs, or anything without a disruption budget and topology spread  |
+| Change the node shape                    | stranded CPU or memory                                                                          | when the largest Pod stops fitting, or one node's failure becomes a big fraction of the cluster |
+| Switch non-production off out of hours   | roughly two-thirds of that bill — a 12-hour weekday window is about a third of the week's hours | when colleagues in another time zone rely on it                                                 |
 
 ### Give the number an owner
 

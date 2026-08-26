@@ -168,8 +168,9 @@ pages, and that a row can be built from yesterday's model. Both are deliberate.
 ## Common pitfalls
 
 - **Sizing for the average.** Thirty terabits per second is comfortable and
-  irrelevant; the system exists at ninety. Every capacity figure in this module is
-  a peak figure for that reason.
+  irrelevant; the system exists at ninety. Read every rate in this module as an
+  average unless it is labelled a peak, and size for the peak — about three times
+  the average on these assumptions.
 - **Treating watch history as one thing.** The mutable resume position and the
   append-only history have different write rates, different durability needs and
   different consistency requirements, and merging them into one table is what
@@ -208,8 +209,8 @@ different storage tiers and different recommendation architectures.
   is not the problem here, unlike a platform whose users upload.
 - **Playback start is the availability target**; discovery is allowed to be one
   nine less and slightly stale.
-- Continue watching generates about **240,000 writes per second**, a data-plane
-  rate inside a control-plane feature.
+- Continue watching generates about **240,000 writes per second sustained**, a
+  data-plane rate inside a control-plane feature.
 
 ## Practice
 

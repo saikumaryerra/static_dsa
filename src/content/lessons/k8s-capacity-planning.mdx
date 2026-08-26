@@ -128,7 +128,7 @@ thread pools, the connection pools and every queue on the path.
 
 <Callout variant="warning">
   **Headroom is not waste.** Queueing gets worse in a curve, not a line: as
-  utilization approaches 100%, waiting time rises steeply, so a fleet planned to
+  utilisation approaches 100%, waiting time rises steeply, so a fleet planned to
   sit at 95% of its ceiling is one that already has bad latency. On top of that,
   a rolling update adds Pods before it removes any, and a fleet with no spare
   replica is one lost Pod from being short: those two are the 50% the estimate
@@ -187,7 +187,7 @@ team's autoscaler from consuming the headroom everyone else was counting on.
   the surge of a rolling update are ordinary, not exceptional.
 - **Replicas multiply their dependencies.** Connection counts, third-party rate
   limits and queue partitions all scale with the fleet.
-- **Headroom buys latency.** Queueing degrades in a curve as utilization
+- **Headroom buys latency.** Queueing degrades in a curve as utilisation
   approaches 100%, so a cluster planned to be full is already slow.
 
 ## Practice
@@ -228,7 +228,7 @@ Work each one out before opening the answer.
 **3. A team plans capacity so the fleet sits at 90% of its measured maximum throughput at peak, arguing that anything less is wasted money. What does that plan cost them?**
 
 <PracticeCheck slug={frontmatter.slug} index={3} total={3}>
-  Latency first. Waiting time rises in a curve as utilization approaches the
+  Latency first. Waiting time rises in a curve as utilisation approaches the
   limit, so a fleet at 90% is already serving noticeably slower than the same
   fleet at 60% — the capacity is technically there and the experience is not.
   Then resilience: the plan has about a tenth of its throughput spare, so losing
@@ -236,6 +236,6 @@ Work each one out before opening the answer.
   grows faster than it drains. Rolling updates run in that same margin, and a
   cluster autoscaler cannot help within it, because a new node takes minutes to
   boot, join and start pulling images. The saving is also smaller than it looks:
-  the difference between 60% and 90% target utilization on a modest fleet is a
+  the difference between 60% and 90% target utilisation on a modest fleet is a
   few machines, set against every incident that margin would have absorbed.
 </PracticeCheck>

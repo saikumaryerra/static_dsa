@@ -28,9 +28,8 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 Two numbers describe any request path, and they answer different questions.
 **Latency** is how long one operation takes, measured end to end from the
 caller's point of view. **Throughput** is how much work completes per unit of
-time — for a request path, QPS, queries per second. A system can have excellent
-throughput and terrible latency, and the reverse; improving one often damages
-the other.
+time — for a request path, QPS. A system can have excellent throughput and
+terrible latency, and the reverse; improving one often damages the other.
 
 **Latency is a distribution, not a number.** Every request in a window has its
 own duration, and the useful summary is a percentile: p50 is the value half of
@@ -57,7 +56,7 @@ p99  = 4,000 ms    (2% were slow, so the 99th percentile sits in the slow group)
 ```
 
 The mean of 119 ms is a duration no request took: slower than the typical
-experience, and a hundred times faster than the worst. Both halves of that
+experience, and more than thirty times faster than the worst. Both halves of that
 sentence are reasons not to alert on it.
 
 The tail matters more than its share suggests, because pages are assembled from

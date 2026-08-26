@@ -143,9 +143,11 @@ replacement to be scheduled and become ready elsewhere. On a large workload that
 is the difference between minutes and hours per node.
 
 **Percentages behave differently under scale.** `maxUnavailable: 25%` follows
-the replica count as it changes and rounds in the workload's favour;
-`minAvailable: 4` is a fixed floor that becomes almost the whole workload if
-someone scales down to five.
+the replica count as it changes, and a fraction is rounded up — on ten replicas
+it permits three evictions rather than two, so the rounding favours the drain
+and not the workload (the rollout strategy's field of the same name rounds
+down); `minAvailable: 4` is a fixed floor that becomes almost the whole
+workload if someone scales down to five.
 
 ## Common pitfalls
 

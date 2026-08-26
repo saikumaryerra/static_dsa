@@ -243,20 +243,20 @@ Work each one out before opening the answer.
 
 <PracticeCheck slug={frontmatter.slug} index={2} total={3}>
   Runs overlap at once, and then accumulate. At 12:05 a second run starts while
-  the first is still going; at 12:10 a third _start_, overlapping the second. At
-  a steady 6 minutes that is two copies for one minute out of every five — never
-  more, and permanently — reading and writing the same rows at once. It does not
-  stay steady, because each copy is slower than the last while they compete for
-  the same database and the same downstream calls. The duration grows under the
-  contention, so the overlap grows too: past 10 minutes a third copy joins, and
-  by 12:30 it is a loop that ends in lock waits or duplicated writes rather than
-  in recovery. One fix is a lease held for the run's duration: a second start
-  finds it taken, skips, and increments a "skipped because still running"
-  metric; the cost is that under sustained load the job effectively runs every 6
-  minutes instead of every 5, and you must alarm on repeated skips or the lag
-  hides. The other is to make the job idempotent and partition its work by key
-  so overlapping copies touch different rows; the cost is a more complex job,
-  and it does not bound how far behind the work drifts.
+  the first is still going; at 12:10 a third _starts_, overlapping the second.
+  At a steady 6 minutes that is two copies for one minute out of every five —
+  never more, and permanently — reading and writing the same rows at once. It
+  does not stay steady, because each copy is slower than the last while they
+  compete for the same database and the same downstream calls. The duration
+  grows under the contention, so the overlap grows too: past 10 minutes a third
+  copy joins, and by 12:30 it is a loop that ends in lock waits or duplicated
+  writes rather than in recovery. One fix is a lease held for the run's
+  duration: a second start finds it taken, skips, and increments a "skipped
+  because still running" metric; the cost is that under sustained load the job
+  effectively runs every 6 minutes instead of every 5, and you must alarm on
+  repeated skips or the lag hides. The other is to make the job idempotent and
+  partition its work by key so overlapping copies touch different rows; the cost
+  is a more complex job, and it does not bound how far behind the work drifts.
 </PracticeCheck>
 
 **3. A team wants a report generated for each of 500,000 accounts at 00:00 daily. Their worker fleet sustains 2,000 jobs per second. Is that a problem?**

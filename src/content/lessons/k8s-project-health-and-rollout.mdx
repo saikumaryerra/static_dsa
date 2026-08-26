@@ -198,7 +198,7 @@ kubectl get hpa web -n shop
 kubectl get pods -n shop -l app=web
 ```
 
-This is the apply the Callout warned about, and it is worth watching. The
+This is the apply the warning above flagged, and it is worth watching. The
 `replicas` line is gone, so the Deployment drops to the default of one replica
 and the HPA's REPLICAS column reads 1 for a few seconds before its next pass
 takes the fleet back to `minReplicas: 3`. Wait for three `1/1 Running` Pods
