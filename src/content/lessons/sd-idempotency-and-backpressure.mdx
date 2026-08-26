@@ -103,10 +103,9 @@ charges the customer twice, the exact failure the mechanism was bought to
 prevent. That is also why there is no "still in progress" state to check: an
 uncommitted row is invisible to everyone else, so a duplicate arriving mid-flight
 does not read a marker, it **blocks on the unique index** until the first attempt
-commits and then reads the stored response. Correct, and worth knowing: for a
-slow effect that duplicate is holding a connection for the whole duration. And
-the fingerprint check catches a key reused for different content, a bug worth
-failing loudly. Keys are kept for a bounded window, commonly around 24
+commits and then reads the stored response — holding a connection, for a slow
+effect, the whole time. And the fingerprint check catches a key reused for
+different content, a bug worth failing loudly. Keys are kept for a bounded window, commonly around 24
 hours, trading storage against how late a retry may arrive.
 
 <Callout variant="note">

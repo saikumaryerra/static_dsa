@@ -118,8 +118,8 @@ exist and why the last lesson in this module argues for turning them on early.
 underlying network, including one you do not administer, because it only ever
 needs node-to-node reachability — but every packet carries extra headers, which
 costs throughput and lowers the usable MTU. A routed setup has no encapsulation
-overhead and is easier to packet-capture, and it requires that the network
-already knows where Pod addresses live. Managed clusters usually route inside
+overhead and its packets appear on the wire as the Pod sent them, and it
+requires that the network already knows where Pod addresses live. Managed clusters usually route inside
 the provider's virtual network; clusters on hardware you own more often overlay.
 
 **Pod CIDR sizing is close to irreversible.** The range and the per-node slice

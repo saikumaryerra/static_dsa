@@ -27,8 +27,7 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 
 A **consistency model** is the contract a storage system offers about which
 values a read is allowed to return, given the writes that have already happened.
-It is not the C in ACID — that one is about invariants holding inside a
-transaction. This one is about copies: the moment data lives on more than one
+It is about copies: the moment data lives on more than one
 machine, "the current value" stops being a single well-defined thing, and the
 model is what tells you what you may assume instead.
 
@@ -76,8 +75,7 @@ W = 1, R = 1  →  W + R = 2, not > N: a read can hit a replica that has
 ```
 
 Overlap is necessary, not sufficient: the read must also be able to tell which
-of the copies it collected is newest, which is what version numbers exist for. A
-quorum of values with no ordering between them is a pile of values.
+of the copies it collected is newest, which is what version numbers exist for.
 
 And overlap is **not linearizability**. It gives you recency against the last
 _completed_ write, which leaves two cases uncovered: a write that failed
