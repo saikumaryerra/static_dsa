@@ -279,6 +279,39 @@ const STALE_FIGURES = [
   [/7,000 reads/, '6,000 — the workflow example peak at 100,000 s/day'],
 ];
 
+/**
+ * The characters the committed webfont subsets actually draw.
+ *
+ * `public/fonts/*.woff2` are cut to exactly the characters this repo contains,
+ * so a lesson that introduces a new glyph either needs `npm run fonts` re-run and
+ * the subsets recommitted, or needs the glyph replaced. `tests/unit/font-charset.test.ts`
+ * already enforces this — but it runs in `npm run test`, which an author writing
+ * a lesson does not, so two box-drawing characters reached committed content
+ * before anyone noticed. Checking it here moves the failure to the person who
+ * can fix it in one keystroke.
+ *
+ * Read out of the generated file rather than re-derived, so there is one source.
+ *
+ * @param {string} root - Repository root.
+ * @returns {Set<string>} Every covered character.
+ */
+function fontCharset(root) {
+  const source = readFileSync(
+    path.join(root, 'src', 'styles', 'font-charset.ts'),
+    'utf8',
+  );
+  const line = source
+    .split('\n')
+    .find((l) => l.startsWith('export const FONT_CHARSET'));
+  if (!line) return new Set();
+  const literal = line.slice(line.indexOf('=') + 1).trim().replace(/;$/, '');
+  try {
+    return new Set(JSON.parse(literal));
+  } catch {
+    return new Set();
+  }
+}
+
 /** Non-lesson internal paths a lesson may link to. */
 const STATIC_PATHS = ['/', '/learn/', '/glossary/', '/about/'];
 
@@ -408,6 +441,7 @@ export function validateContent(root, options = {}) {
   /** @type {string[]} */
   const pending = [];
 
+  const covered = fontCharset(root);
   const dir = path.join(root, 'src', 'content', 'lessons');
   const files = readdirSync(dir).filter((f) => f.endsWith('.mdx'));
 
@@ -598,6 +632,21 @@ export function validateContent(root, options = {}) {
       ) {
         warnings.push(
           `${file}: ${words} prose words, above the ${WORD_CEILING}-word ceiling`,
+        );
+      }
+    }
+
+    // 5f. every glyph must be one the committed font subsets draw
+    if (covered.size > 0) {
+      /** @type {Set<string>} */
+      const unseen = new Set();
+      for (const ch of body) {
+        const cp = ch.codePointAt(0) ?? 0;
+        if (cp >= 0x21 && cp <= 0xffff && !covered.has(ch)) unseen.add(ch);
+      }
+      for (const ch of unseen) {
+        errors.push(
+          `${file}: ${JSON.stringify(ch)} (U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}) is outside the committed font subsets — use a covered character, or re-run \`npm run fonts\` and commit public/fonts/*.woff2 with the regenerated src/styles/font-charset.ts`,
         );
       }
     }

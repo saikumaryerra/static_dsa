@@ -211,6 +211,11 @@ no matching term, and the glossary is curated separately (decision D-12).
   be what the command actually prints.
 - **Units:** `Mi`/`Gi` for memory, `m` for millicores, `1Gi` not `1G`.
 - Keep a fence under ~25 lines. Two focused manifests beat one long one.
+- **ASCII only in a fence's own drawing.** The site's webfonts are subset to the
+  characters this repo contains, so box-drawing glyphs (`│ └ ├ ─`) are not
+  covered and would fall back to a system font — in a block whose entire value is
+  that the columns line up. Use `|`, `'` and `-`. The validator rejects any
+  character outside the subset.
 - Use `bash` for commands, and do **not** prefix them with `$`.
 
 ---

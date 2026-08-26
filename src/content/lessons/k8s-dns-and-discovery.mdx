@@ -47,10 +47,10 @@ parts:
 
 ```text
 web.default.svc.cluster.local
-│   │       │   └── the cluster's DNS domain
-│   │       └────── "svc": this is a Service, not a Pod
-│   └────────────── the namespace
-└────────────────── the Service name
+|   |       |   '--- the cluster's DNS domain
+|   |       '------- "svc": this is a Service, not a Pod
+|   '--------------- the namespace
+'------------------- the Service name
 ```
 
 An A record for a normal Service resolves to its **ClusterIP** — one address, no
