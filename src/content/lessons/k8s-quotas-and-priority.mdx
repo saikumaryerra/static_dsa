@@ -1,0 +1,257 @@
+---
+title: 'Quotas, Limits, Priority and Preemption'
+slug: 'k8s-quotas-and-priority'
+course: 'kubernetes'
+track: 'k8s-scheduling'
+order: 30
+summary: 'A ResourceQuota caps what a namespace may ask for and a LimitRange fills in what its authors forgot, while PriorityClasses decide whose Pod gets the last free space — and whose Pod is removed to make it.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-namespaces-and-kubectl', 'k8s-requests-and-limits']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scheduling', 'quota', 'priority']
+explainPrompt: 'Why is preemption a different mechanism from eviction, even though both end with a Pod being deleted?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Cap a namespace with a `ResourceQuota` and supply defaults with a
+  `LimitRange`.
+- Explain why a quota rejection never produces a `Pending` Pod.
+- Tell preemption, node-pressure eviction and API-initiated eviction apart.
+
+## Intuition
+
+A cluster is a shared pool, and sharing needs two different kinds of rule.
+
+**A quota is a budget; a priority is a queue position.** The budget is checked
+before anything is created: a namespace has been promised so much and may not
+ask for more, whoever is asking and however urgent it is. The queue position
+applies once everyone is inside the budget and the cluster still cannot hold
+them all — someone has to go first, and someone has to wait.
+
+The two act at different moments, which is the source of most confusion here. A
+quota is enforced by **admission**, when the object is written. A Pod that
+breaks a quota is never created at all, so nothing is ever `Pending` and nothing
+appears in `kubectl get pods`. Priority is enforced by **the scheduler**, long
+after the Pod exists.
+
+And priority has a second, sharper power. When a high-priority Pod cannot be
+placed anywhere, the scheduler may remove lower-priority Pods to make room. That
+is preemption, and it is worth being precise about, because it is one of three
+separate ways a Pod can be deleted by the system rather than by you.
+
+## How it works
+
+A `ResourceQuota` caps totals inside one namespace. It counts compute, storage
+and object counts:
+
+```yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-budget
+  namespace: payments
+spec:
+  hard:
+    requests.cpu: '8'
+    requests.memory: 16Gi
+    limits.cpu: '16'
+    limits.memory: 32Gi
+    pods: '40'
+    count/deployments.apps: '15'
+    persistentvolumeclaims: '10'
+```
+
+Exceed one and the create request fails with a `403` naming the quota and the
+resource. The Pod does not exist afterwards, which is why a Deployment that
+cannot fit its replicas shows the failure on the ReplicaSet rather than on any
+Pod:
+
+```bash
+kubectl describe quota team-budget -n payments
+kubectl describe rs web-7d9f -n payments
+```
+
+<Callout variant="warning">
+  A quota on `requests.cpu` or `requests.memory` makes those fields
+  **mandatory** for every Pod in the namespace: with no request there is nothing
+  to charge the budget, so the API rejects the Pod. Adding a quota to a busy
+  namespace is therefore a change to every manifest in it — unless a
+  `LimitRange` supplies the missing numbers first, as [the namespaces
+  lesson](/learn/k8s-namespaces-and-kubectl/) warned.
+</Callout>
+
+A `LimitRange` is the other half. It fills in defaults and bounds each container:
+
+```yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-defaults
+  namespace: payments
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: '4'
+        memory: 8Gi
+      min:
+        cpu: 10m
+        memory: 16Mi
+```
+
+`defaultRequest` and `default` are applied at admission to any container that
+did not set them, and `min`/`max` reject the ones that set something outside the
+band. The values are stamped into the Pod as it is created, so editing a
+`LimitRange` changes nothing about the Pods already running — the next rollout
+picks up the new numbers.
+
+**Priority is a number on a cluster-scoped object**, referenced by name:
+
+```yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: payments-critical
+value: 100000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: 'Checkout path. May displace batch work.'
+```
+
+A Pod sets `spec.priorityClassName: payments-critical`, and admission copies the
+value into `spec.priority`. That number does two things. It orders the
+scheduler's queue, so a high-priority Pod is considered before a low-priority
+one that has been waiting longer. And it enables preemption, unless the class
+sets `preemptionPolicy: Never` — a useful combination for a Pod that deserves to
+be considered early but should never displace anybody.
+
+**Preemption, precisely.** When a Pod cannot be scheduled, the scheduler looks
+for a node where deleting one or more lower-priority Pods would make it fit. It
+picks the node that causes the least damage, deletes those victims through a
+normal graceful termination, and records `status.nominatedNodeName` on the
+pending Pod. The nomination is a hint, not a reservation: by the time the space
+exists another Pod may have taken it, and the pending Pod is scheduled again
+from scratch.
+
+<Callout variant="note">
+  Three different mechanisms delete a running Pod, and calling them all
+  "eviction" is how teams end up debugging the wrong one. **Node-pressure
+  eviction** is the kubelet reclaiming memory or disk on its own node, ordered
+  by QoS class. **Preemption** is the scheduler making room for a specific
+  pending Pod, ordered by priority. **API-initiated eviction** is a client — a
+  drain, an autoscaler — asking politely, and it is the only one a
+  [PodDisruptionBudget](/learn/k8s-disruption-budgets/) can refuse.
+</Callout>
+
+Priority also reaches back into quota. A quota's `scopeSelector` can restrict it
+to Pods of particular priority classes, which is how a cluster stops every team
+from labelling its own work critical: the high-priority classes get a small
+budget of their own.
+
+## Trade-offs
+
+**A quota moves the failure earlier and makes it louder.** Instead of a cluster
+that gradually fills up, you get a clear rejection at the moment someone asks
+for more than their share, addressed to the person who can act. The cost is real
+friction — a legitimate scale-up fails at three in the morning because a budget
+set six months ago was never revisited, and quota is the one control where the
+error message is in a place people do not look.
+
+**Priority is a scarce currency and it inflates.** It works when a small number
+of workloads are genuinely more important than the rest. As soon as every team
+may pick their own number, everything is critical, the ordering means nothing,
+and the only lasting effect is that batch jobs are killed unpredictably. Whoever
+runs the cluster should own the set of classes.
+
+**Preemption buys latency for the important thing at the cost of predictability
+for everything else.** A batch job that can be restarted is a good victim. A job
+holding an hour of uncheckpointed work is not, and `preemptionPolicy: Never` on
+the high-priority class is the honest choice when you cannot tell.
+
+## Common pitfalls
+
+- **Looking for a `Pending` Pod after a quota rejection.** There is no Pod. Read
+  the ReplicaSet, the Job or the events in the namespace instead.
+- **Adding a compute quota without a `LimitRange`.** Every Pod without explicit
+  requests stops being admitted, including the ones that were running fine
+  yesterday, the next time anything recreates them.
+- **Editing a `LimitRange` and expecting running Pods to change.** The defaults
+  were written into each Pod at creation. Nothing rewrites them.
+- **`globalDefault: true` on a class that preempts.** It is tempting as a
+  convenience and it makes every Pod in the cluster, including throwaway
+  debugging Pods, a potential preemptor.
+- **Assuming a PodDisruptionBudget stops preemption.** The scheduler tries to
+  respect one, and will preempt anyway if that is the only way to place the Pod.
+
+## Key takeaways
+
+- **A quota is enforced at admission** — an over-budget Pod is rejected, never
+  created, and never `Pending`.
+- A compute quota **makes requests mandatory** in that namespace; a
+  `LimitRange` supplies defaults and bounds, stamped in at creation.
+- `PriorityClass` sets a number that both **orders the scheduling queue** and
+  **enables preemption**, which `preemptionPolicy: Never` turns off.
+- **Preemption is not eviction.** The scheduler removes lower-priority Pods to
+  place one pending Pod; the kubelet evicts under node pressure by QoS; a drain
+  evicts through the API.
+- A preempted Pod gets its **normal graceful termination**, and the preemptor's
+  `nominatedNodeName` is a hint rather than a reservation.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team's Deployment is set to `replicas: 12`. Only 7 Pods exist, `kubectl get pods` shows nothing pending, and there are no `FailedScheduling` events. Where do you look?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  At the ReplicaSet and at the namespace's quota — `kubectl describe rs` and
+  `kubectl describe quota`. A quota is enforced by admission, so the five
+  missing Pods were rejected when the ReplicaSet controller tried to create them
+  and no Pod object was ever written. That is precisely why there is nothing
+  pending and no scheduling event: the scheduler never saw them, because they
+  did not exist. The ReplicaSet records the failure as a `FailedCreate` event
+  with the quota's message, and the Deployment carries a `ReplicaFailure`
+  condition. The fix is either a smaller replica count, smaller requests, or a
+  larger budget — whichever the team can defend.
+</PracticeCheck>
+
+**2. A batch Pod running a two-hour job disappears with no node problem and no OOM kill. A high-priority Pod appeared on the same node a moment earlier. What happened, and what would have prevented it?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It was preempted. The high-priority Pod could not be placed anywhere, the
+  scheduler found a node where removing this lower-priority Pod would make room,
+  and it deleted it — with a normal grace period, which is why it looks like an
+  ordinary termination rather than a kill. Note what this is not: the node was
+  healthy, so it was not node-pressure eviction, and nothing asked through the
+  eviction API, so no PodDisruptionBudget was ever consulted. The preventions
+  are on the other Pod's side: `preemptionPolicy: Never` on the high-priority
+  class lets it queue first without displacing anyone, or the batch work gets a
+  priority of its own rather than the default of zero. Checkpointing the job is
+  the answer that survives whatever the cluster decides.
+</PracticeCheck>
+
+**3. Your namespace has a quota on `requests.cpu`. A colleague adds a container with no `resources` block at all and it is rejected. They point out that the same container has run for a year in another namespace. Reconcile the two facts.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Both are true, and the difference is the quota. A CPU quota has to charge
+  every Pod against the budget, and a container with no CPU request offers
+  nothing to charge — so rather than admitting an unbounded Pod into a bounded
+  namespace, admission rejects it. The other namespace has no quota, so an
+  unspecified container is admitted and lands in the Burstable or BestEffort
+  class instead. The repair is either explicit requests on the container, which
+  is the better habit anyway, or a `LimitRange` in this namespace with a
+  `defaultRequest` so unspecified containers are given a number at creation.
+  Note the second one changes nothing for Pods already running: the default is
+  applied as the Pod is created.
+</PracticeCheck>

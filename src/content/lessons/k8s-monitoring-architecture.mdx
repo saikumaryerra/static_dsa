@@ -1,0 +1,245 @@
+---
+title: 'Monitoring Architecture and Alerting'
+slug: 'k8s-monitoring-architecture'
+course: 'kubernetes'
+track: 'k8s-observability'
+order: 43
+summary: 'Assemble logs, metrics and traces into one pipeline, then page on the handful of symptoms a user can feel — because an alert nobody can act on trains people to ignore the ones they can.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-metrics', 'k8s-tracing']
+estimatedMinutes: 9
+tags: ['kubernetes', 'observability', 'alerting', 'monitoring', 'sre']
+explainPrompt: 'Why is an alert on node memory worse than an alert on checkout error rate, even though memory is what actually broke?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Lay out the collection pipeline the three signals share.
+- Choose symptom alerts over cause alerts, and say why.
+- Write an alert rule that names an action, a severity and an owner.
+- Decide what to page on, what to ticket, and what belongs on a dashboard only.
+
+## Intuition
+
+The three previous lessons each produced a record. This one is about the system
+that carries them and the small number of moments it should wake somebody.
+
+Every signal takes the same journey, and it is worth naming the stages because
+each is a place things break: **instrument** in the application, **collect** with
+an agent, **store** in something built for that signal's shape, **query** from
+dashboards, **evaluate** rules against the stored data, and **notify** a person.
+Most of an observability project is stages two and three; almost all of its value
+is in the last one being correct.
+
+**Alert on the symptom the user feels, not on the cause you happen to be able to
+measure.** A cause-based alert fires when a thing you monitor looks unusual. A
+symptom-based alert fires when the service is not doing its job. The difference
+decides whether the person woken up has something to do.
+
+Consider a node running low on memory. Alerting on the cause pages somebody
+immediately — and if Kubernetes rescheduled the Pods and nobody noticed, the page
+was noise. Alerting on the symptom stays quiet through the successful recovery
+and fires only if checkout error rate rises, which is a real problem regardless
+of whether memory was the cause. Symptom alerts are fewer, they correlate with
+harm, and they keep working when the cause is something you never thought to
+monitor.
+
+The vocabulary for choosing them comes from the SRE literature: the four **golden
+signals** are latency, traffic, errors and saturation. Applied to a service they
+are often written as RED — rate, errors, duration — and applied to a resource as
+USE — utilization, saturation, errors. Two or three rules per user-facing service
+covers most of what should ever page.
+
+## How it works
+
+### The pipeline
+
+| Stage      | In a cluster                                       | Note                                  |
+| ---------- | -------------------------------------------------- | ------------------------------------- |
+| Instrument | SDKs and `/metrics` endpoints in your code         | The only stage you cannot buy         |
+| Collect    | scrape targets, a log DaemonSet, an OTLP Collector | Ecosystem agents, not core Kubernetes |
+| Store      | a time series database, a log store, a trace store | Three shapes, three cost curves       |
+| Query      | dashboards and ad-hoc queries                      | For the investigation, not the page   |
+| Evaluate   | rules over stored metrics                          | Where alerts are decided              |
+| Notify     | routing, grouping, escalation                      | Where an incident becomes a person    |
+
+The three stores are separate because the data is genuinely different: metrics
+are small, regular and aggregated; logs are large and irregular; traces are
+sampled trees. What ties them together is shared identifiers — the same
+`service.name`, the same Pod and namespace labels, a trace id in the log line —
+so you can move between them without re-deriving where you are.
+
+### An alert rule
+
+Rules are usually shipped as a **PrometheusRule**, a custom resource from the
+Prometheus operator, which is ecosystem software rather than core Kubernetes:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: checkout-slo
+  namespace: shop
+spec:
+  groups:
+    - name: checkout
+      rules:
+        - alert: CheckoutErrorRateHigh
+          expr: |
+            sum(rate(http_requests_total{job="checkout",code=~"5.."}[5m]))
+              / sum(rate(http_requests_total{job="checkout"}[5m])) > 0.02
+          for: 10m
+          labels:
+            severity: page
+            team: payments
+          annotations:
+            summary: 'checkout is failing more than 2% of requests'
+            runbook: 'runbooks/checkout-error-rate'
+```
+
+Read what each part is doing. The expression is a **ratio**, not a count, so it
+means the same thing at three in the morning as at peak. `for: 10m` requires the
+condition to hold continuously before the alert fires, which removes the flapping
+that a single bad scrape would otherwise cause. The `severity` label is what the
+notifier routes on, `team` is who owns it, and the annotations are what the
+person reads at the moment they are least able to think — a sentence saying what
+is wrong, and a pointer to what to do about it. Most teams use a `runbook_url`
+annotation and let their notifier render it as a link.
+
+<Callout variant="tip">
+  The test for an alert is one question: what does the person woken up by it do
+  next? If the answer is "look at a graph and go back to sleep", it is a
+  dashboard, not an alert. If it is "raise a ticket for Monday", it is a ticket.
+  Only "act now, and here is the first step" earns a page. Applying this
+  honestly usually deletes more rules than it writes.
+</Callout>
+
+### Making one incident one page
+
+A single failure produces many firing rules — one per replica, one per node, one
+per dependent service. Alertmanager, the routing component of the Prometheus
+project and also ecosystem software, exists for that: it **groups** alerts
+sharing labels into one notification, **inhibits** lower-severity alerts while a
+higher-severity one is active, and **silences** a set during known maintenance.
+Without those, the first minute of an incident is forty messages and the person
+on call is reading rather than fixing.
+
+### Alerting on a budget rather than a threshold
+
+Error-rate thresholds are arbitrary and they age badly. The alternative is to
+state a **service level objective** — 99.9% of checkout requests succeed over 30
+days — which allows an **error budget** of 0.1%, and then to alert on how fast
+that budget is being spent. A burn rate of one uses the budget exactly over the
+window; a burn rate of fourteen exhausts it in two days and deserves a page,
+while a slow burn deserves a ticket. One family of rules replaces a drawer of
+thresholds, and the severity comes out of the arithmetic instead of a
+negotiation.
+
+Turning a page into a diagnosis — the order to check a Pod that will not start,
+and how to read what you find — is the Troubleshooting module's material. This
+lesson stops at getting the right person the right notification with the right
+first step.
+
+## Trade-offs
+
+**Retention and cardinality are the bill.** High-resolution metrics for a year,
+every log line kept, every trace stored — each is defensible alone and together
+they cost more than the service they watch. The usual settlement is short
+high-resolution retention with downsampled history behind it, log sampling on
+the noisy paths, and tail-sampled traces.
+
+**Coverage against signal.** A rule per failure mode feels thorough and produces
+an inbox nobody reads, and the cost is not the noise itself but that a real page
+arrives among thirty and is treated like the other twenty-nine. Fewer, better
+alerts is a reliability decision, not a tidiness one.
+
+**Buy against run.** A hosted platform removes the pipeline you would otherwise
+operate — and every observability system has an awkward property: it must be more
+reliable than what it watches, and it must keep working during the incident.
+Running your monitoring inside the cluster it monitors is the arrangement that
+fails exactly when you need it, which is why the alerting and notification path
+usually lives somewhere else.
+
+## Common pitfalls
+
+- **Paging on causes.** Node memory, container restarts, a queue above a number.
+  Each is measurable, which is why they get written, and each fires without
+  anybody being harmed.
+- **An alert with no owner.** A `severity: page` with no team label reaches
+  whoever is nearest, who has no context and no authority to change the service.
+- **No `for` duration.** A single scrape failure fires the rule, the next scrape
+  clears it, and the notification arrives after the condition has gone.
+- **Alerting on a raw count.** "More than 50 errors in five minutes" is a
+  different service at midnight than at noon; a ratio is not.
+- **Monitoring the cluster from inside the cluster only.** The one failure you
+  most need to know about is the one that takes the monitoring down with it.
+- **Dashboards as the alerting strategy.** A wall of graphs is an investigation
+  tool. Nobody is watching it at 4 a.m.
+
+## Key takeaways
+
+- The pipeline is **instrument, collect, store, query, evaluate, notify**, and
+  the three signals share it while needing three different stores.
+- **Alert on symptoms users feel** — the golden signals of latency, traffic,
+  errors and saturation — not on the causes that are convenient to measure.
+- **Every alert needs an action, an owner and a severity.** If nobody acts on it,
+  it is a dashboard or a ticket.
+- **Ratios over counts, and a `for` duration**, so a rule means the same thing at
+  every hour and does not fire on one bad scrape.
+- **Grouping and inhibition turn one incident into one page**, and an error
+  budget replaces a drawer of arbitrary thresholds with one burn-rate rule.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A cluster has 40 alert rules, most of them on node CPU, node memory and container restart counts. The team says they are alert-fatigued but afraid to delete any. What is the argument for deleting most of them?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Those rules fire on causes, and a cause is only interesting when it produces a
+  symptom. Kubernetes is built to absorb most of them — a restarted container is
+  a restarted container, a saturated node gets its Pods rescheduled — so the
+  rules fire routinely while users notice nothing, and the team learns to
+  dismiss notifications. That learned dismissal is the actual danger, because it
+  applies to the real page as well. Replacing them with two or three
+  symptom-based rules per user-facing service means every notification
+  corresponds to something a user is experiencing, so acting on it is the
+  default again. The causes are not lost: they stay as metrics and dashboards,
+  which is where they are read during the investigation the symptom alert
+  started.
+</PracticeCheck>
+
+**2. A rule alerts when checkout returns more than 50 errors in five minutes. Give two ways it misleads, and what to write instead.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It is a count, so it means something different at every traffic level. At
+  peak, 50 errors out of half a million requests is a healthy service and the
+  page is noise; at 3 a.m., 50 errors may be every request that arrived and the
+  service is entirely down while the rule stays quiet a moment longer than it
+  should. Second, a count over five minutes has no notion of duration, so one
+  bad deploy that self-corrects in thirty seconds fires the same alert as a
+  sustained outage. Write it as a ratio of failed requests to total requests
+  over a rolling window, with a `for` duration requiring the condition to
+  persist. Then the threshold expresses a share of users affected, which is the
+  thing you actually care about, and it holds at every hour without adjustment.
+</PracticeCheck>
+
+**3. Your monitoring stack runs in the same cluster it monitors. Name what this design cannot tell you, and the smallest change that helps.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  It cannot tell you that the cluster is gone. A control-plane failure, a
+  network partition or a node-pool problem large enough to matter takes the
+  monitoring Pods with it, so alerts stop being evaluated and notifications stop
+  being sent — and silence is indistinguishable from health. It also cannot
+  reliably alert on its own failures, since the component that would notice is
+  the one that failed. The smallest useful change is an external check that has
+  to hear from the cluster: a heartbeat alert that fires when an expected signal
+  stops arriving, evaluated somewhere outside the cluster, plus an external
+  probe of the user-facing endpoint. That turns absence into a page. Moving the
+  whole notification path out of the cluster is the fuller answer, and it is the
+  same reasoning applied to every stage.
+</PracticeCheck>

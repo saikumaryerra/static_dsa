@@ -1,0 +1,239 @@
+---
+title: 'Graceful Shutdown'
+slug: 'k8s-graceful-shutdown'
+course: 'kubernetes'
+track: 'k8s-reliability'
+order: 34
+summary: 'Deleting a Pod starts two clocks that nobody synchronises — endpoint removal spreading across the cluster, and the kubelet counting down to SIGKILL — and the gap between them is where dropped requests come from.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-services', 'k8s-probes']
+estimatedMinutes: 10
+tags: ['kubernetes', 'reliability', 'shutdown', 'sigterm']
+explainPrompt: 'Why can a container receive requests after it has already been sent SIGTERM?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Order the events that follow a Pod deletion, and name the two that race.
+- Use `preStop` and `terminationGracePeriodSeconds` for what each is actually
+  for.
+- Explain why a container that ignores SIGTERM always takes the full grace
+  period to die.
+
+## Intuition
+
+Every rollout, every scale-down, every drain and every preemption ends the same
+way: a Pod is deleted. If your service drops requests during deployments, this
+is where they are dropped.
+
+**Two clocks start at the same moment, and nothing synchronises them.**
+
+The first is _routing_. The Pod is marked as terminating, the endpoints
+controller removes it from its Service's EndpointSlice, and every node's
+kube-proxy then reprograms its own dataplane. That is a distributed update: it
+propagates node by node, and an Ingress controller or cloud load balancer with
+its own target list may be slower still.
+
+The second is _termination_. The kubelet on that node runs the `preStop` hook if
+there is one, sends SIGTERM to each container, and starts counting down the
+grace period.
+
+Neither waits for the other. The kubelet does not know how far the endpoint
+removal has travelled, and the endpoints controller does not know the container
+has been signalled. So a client that resolved the endpoint list a moment ago
+happily opens a connection to a container that has already been told to stop —
+and that request is the one your users see fail.
+
+## How it works
+
+The sequence, in order:
+
+1. Something deletes the Pod. The API server records a `deletionTimestamp` and
+   the grace-period countdown begins.
+2. **Concurrently**: the Pod's `Ready` condition goes false, the endpoints
+   controller removes it from every EndpointSlice, and kube-proxy on each node
+   catches up.
+3. **Concurrently**: the kubelet runs `preStop`, then sends SIGTERM to PID 1 of
+   each container.
+4. When the grace period expires, anything still running is sent SIGKILL.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: web
+          image: ghcr.io/shop/web:1.4.2
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ['sleep', '15']
+```
+
+**That `sleep` is the fix for step 2, and it is not a hack.** There is nowhere
+else to put the wait. The container keeps serving normally during the sleep —
+`preStop` runs _before_ SIGTERM — so those fifteen seconds are spent handling
+requests from clients that have not yet heard the news, while the endpoint
+removal propagates. Then SIGTERM arrives and the process drains what is left.
+The command needs a `sleep` binary in the image; a `sleep` action is also
+available in the lifecycle hook for images that have no shell.
+
+<Callout variant="warning">
+  The grace-period countdown starts at step 1, **before** `preStop` runs, not
+  when SIGTERM is sent. A 15-second `preStop` inside a 30-second grace period
+  therefore leaves the application 15 seconds to drain, not 30. If `preStop` is
+  still running when the period expires, the kubelet grants a short extension —
+  a couple of seconds — and then kills the container regardless.
+</Callout>
+
+**SIGTERM is only useful if something is listening for it.** The signal goes to
+PID 1 of the container, which is whatever `command` starts. Write
+`command: ['sh', '-c', 'myapp --serve']` and PID 1 is a shell that does not
+forward signals; the application never hears SIGTERM, sits there until the grace
+period expires, and is SIGKILLed on every single deployment. The fix is to make
+the application PID 1 — `exec` in the shell form, or no shell at all. The
+symptom is distinctive: terminations that always take exactly
+`terminationGracePeriodSeconds`, to the second.
+
+What the application should do on SIGTERM: stop accepting new connections,
+finish the requests in flight, close its connections and exit. Exiting promptly
+matters — the grace period is a deadline, not a schedule, and a process that
+exits in two seconds ends the Pod in two seconds.
+
+```bash
+kubectl delete pod web-abc --grace-period=30
+kubectl get pod web-abc -o jsonpath='{.metadata.deletionTimestamp}{"\n"}'
+kubectl describe pod web-abc
+```
+
+**Long-lived connections need explicit attention.** Removing a Pod from the
+endpoint list stops _new_ connections being routed to it, and does nothing to
+the HTTP keep-alive connections already open, which clients will happily reuse
+for minutes. A draining server has to close them itself — a `Connection: close`
+on the way out, or a GOAWAY frame — or those clients keep sending until SIGKILL
+answers for you.
+
+**A node shutting down is the same problem one level up.** The kubelet can be
+configured to terminate its Pods gracefully when the node itself is going down,
+giving them their grace periods in priority order. Without that configuration a
+node reboot is an involuntary disruption: the containers are killed with the
+machine.
+
+## Trade-offs
+
+**The grace period is a budget you pay in deployment time.** It has to cover the
+`preStop` wait plus the longest request you are willing to finish, so a service
+with 30-second requests wants a period well past that. The cost is that every
+rollout, every drain and every scale-down is now that much slower per Pod, and
+a drain of a busy node is the sum of them.
+
+**`--force --grace-period=0` is not a faster shutdown.** It removes the API
+object without waiting for any confirmation that the container stopped, which
+for a stateless web service means dropped connections and for anything holding a
+lock or a disk means two processes believing they own it.
+
+**A `preStop` sleep is a fixed cost for a variable problem.** Fifteen seconds is
+a guess at how long endpoint propagation takes in your cluster; too short drops
+requests, too long slows every deployment. It is still the best available answer,
+because the alternative — knowing when every kube-proxy and load balancer has
+caught up — is not information the Pod has.
+
+## Common pitfalls
+
+- **No `preStop` at all.** The most common cause of a handful of 502s at every
+  deploy, and the hardest to see, because each individual Pod terminated
+  correctly.
+- **A shell as PID 1.** Signals are swallowed, every termination takes the full
+  grace period, and the container is eventually SIGKILLed with work in flight.
+- **A `preStop` longer than the grace period.** The application then gets no
+  time at all, because the countdown covers both.
+- **Relying on readiness to drain.** Failing the readiness probe removes the Pod
+  from the endpoint list, which is step 2 all over again — it does not close
+  existing connections and it does not tell the process to finish.
+- **`terminationGracePeriodSeconds: 0`.** It is equivalent to an immediate kill,
+  and it is occasionally set to make tests run faster before quietly reaching
+  production.
+
+## Key takeaways
+
+- Deleting a Pod starts **endpoint removal and container termination at the same
+  time**, and neither waits for the other.
+- **`preStop` runs before SIGTERM** and is where the wait for endpoint
+  propagation belongs — the container is still serving during it.
+- The grace-period countdown **includes `preStop`**, and ends in SIGKILL.
+- **A shell as PID 1 swallows SIGTERM**; the tell is a termination that always
+  takes exactly the grace period.
+- Removing a Pod from the endpoint list does nothing to **connections that are
+  already open** — the server has to close them.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Every deployment produces a small burst of 502s. Each Pod logs a clean shutdown, finishes its in-flight requests and exits well inside its grace period. Where are the 502s coming from?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  From requests that arrived after the Pod stopped serving but before every
+  router had heard about it. Endpoint removal and termination start together and
+  proceed independently: the kubelet signalled the container promptly and the
+  container did everything right, while the removal was still propagating
+  through each node's kube-proxy and through whatever load balancer sits in
+  front. Connections opened in that window reach a process that is closing down,
+  and the front end reports 502. Nothing in the Pod's own logs can show this,
+  which is why the shutdown looks clean. The fix is a `preStop` sleep of ten to
+  fifteen seconds so the container keeps serving through the propagation window,
+  with the grace period raised to cover the sleep plus the drain.
+</PracticeCheck>
+
+**2. A container's termination always takes exactly 30 seconds, whatever it is doing at the time. Its entrypoint is `command: ['sh', '-c', 'python app.py']`. Explain, and give the fix.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Thirty seconds is the default grace period, and a termination that takes
+  exactly the grace period every time means nothing responded to SIGTERM. The
+  signal is delivered to PID 1, and here PID 1 is the shell, not Python: `sh -c`
+  runs the command as a child and does not forward signals to it, so the
+  application never learns it is being shut down. The kubelet waits out the
+  period and sends SIGKILL, which the process cannot handle at all — so
+  in-flight requests are cut and any cleanup is skipped, on every deployment.
+  The fix is to make the application PID 1, either `command: ['python',
+  'app.py']` or, if a shell really is needed, `sh -c 'exec python app.py'` so
+  the shell replaces itself with the process. Then a SIGTERM handler in the
+  application can drain properly.
+</PracticeCheck>
+
+**3. A service has `terminationGracePeriodSeconds: 30` and a `preStop` that sleeps for 25. Its longest requests take about 10 seconds. What happens during a rollout?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The countdown covers the hook, so the arithmetic is 25 seconds of sleeping and
+  5 seconds left for the application — half of what its longest request needs.
+  SIGTERM arrives at the 25-second mark, the process starts draining, and at 30
+  seconds it is SIGKILLed with requests still in flight. Those requests are cut
+  mid-response, which is the outcome the whole configuration was meant to
+  prevent, and it will look like an application bug because the shutdown code
+  clearly ran. Two numbers need to move: the sleep only has to cover endpoint
+  propagation, so 10 to 15 seconds is enough, and the grace period has to cover
+  the sleep plus the longest request plus a margin — around 45 seconds here.
+</PracticeCheck>

@@ -1,0 +1,230 @@
+---
+title: 'Logs and Events'
+slug: 'k8s-logs-and-events'
+course: 'kubernetes'
+track: 'k8s-observability'
+order: 40
+summary: 'A log is your application talking about itself; an event is the cluster talking about your object — two different records, both stored badly on purpose, and both gone sooner than you expect.'
+difficulty: 'beginner'
+prerequisites: ['k8s-pods']
+estimatedMinutes: 8
+tags: ['kubernetes', 'observability', 'logs', 'events', 'kubectl']
+explainPrompt: 'Why does the evidence for an overnight incident disappear before morning, and which of the two records goes first?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say where a container log physically lives and who serves it to `kubectl`.
+- Read events, and know how long they last.
+- Choose which of the two records answers the question you are holding.
+- Explain what a log shipper adds that `kubectl logs` cannot.
+
+## Intuition
+
+Two records exist about a running workload, and they come from different authors.
+
+**A log is the application's account of itself. An event is the cluster's account
+of what it did to your object.** Your code decides what goes in the first one.
+The scheduler, the kubelet and the controllers decide what goes in the second.
+Neither can answer the other's question: an event will never tell you which
+customer got the 500, and a log will never tell you why the Pod is still
+`Pending`.
+
+The habit worth forming is to pick the record before opening a terminal. "Why is
+this not running" is an events question; the container may never have started, so
+there are no logs to read. "It is running and the answers are wrong" is a logs
+question, and the events will be an unbroken row of `Normal`.
+
+Both are stored with the same philosophy: cheaply, locally, and not for long.
+Kubernetes is not a logging system and does not pretend to be one.
+
+## How it works
+
+### Logs
+
+A container's log is whatever it writes to standard output and standard error.
+The container runtime captures those streams into a file on the node, and the
+kubelet serves that file through the API server when you ask:
+
+```bash
+kubectl logs web-9f8c4d7b6-2xk5v -n shop
+kubectl logs web-9f8c4d7b6-2xk5v -n shop -c sidecar --since=15m --tail=100
+kubectl logs web-9f8c4d7b6-2xk5v -n shop --previous
+kubectl logs -l app=web -n shop --prefix --tail=20
+```
+
+`-c` picks a container in a multi-container Pod. `--previous` reads the log of
+the _previous_ instance of a container that has restarted, which is where the
+crash you are investigating actually is — the running container started after the
+crash and knows nothing about it. The last form matches every Pod behind a label
+and prefixes each line with its source.
+
+Three properties follow from "it is a file on a node":
+
+- **The kubelet rotates it.** Past a size threshold the older lines are dropped,
+  so a chatty container overwrites its own history within minutes.
+- **It dies with the Pod.** Delete the Pod object and the log is unreachable, no
+  matter how carefully the node is still running.
+- **Nothing indexes it.** There is no search across Pods, no query, no retention
+  policy beyond the rotation.
+
+Writing to a file inside the container instead of to standard output puts the log
+outside all of this: `kubectl logs` shows nothing, and the file fills a writable
+layer nobody is watching. Write to standard output.
+
+<Callout variant="note">
+  Making logs outlive the Pod means shipping them off the node. The standard
+  shape is a DaemonSet — Fluent Bit and Vector are the common agents, and both
+  are ecosystem software rather than core Kubernetes — that reads the node log
+  files, adds the Pod, namespace and container names, and forwards to a store
+  you query. That store, not `kubectl logs`, is where you look at anything older
+  than the current Pod.
+</Callout>
+
+Structured logging is what makes that store worth having. A line of JSON with a
+level, a message and a few fields can be filtered and aggregated; a line of
+free-form English can be searched and nothing more. The decision belongs in the
+application, and it is the difference between a log store you query and one you
+scroll.
+
+### Events
+
+An Event is an API object, in a namespace, describing something that happened to
+another object. The kubelet writes them, so does the scheduler, so does every
+controller. They carry a type — `Normal` or `Warning` — a machine-readable
+`reason`, a human `message`, the object involved, and a count with first and last
+timestamps, because repeats are aggregated rather than duplicated.
+
+```bash
+kubectl get events -n shop --sort-by=.lastTimestamp
+kubectl events --for pod/web-9f8c4d7b6-2xk5v -n shop
+kubectl describe pod web-9f8c4d7b6-2xk5v -n shop
+```
+
+```text
+LAST SEEN   TYPE      REASON      OBJECT                    MESSAGE
+2m14s       Normal    Scheduled   pod/web-9f8c4d7b6-2xk5v   Successfully assigned shop/web-9f8c4d7b6-2xk5v to node-2
+2m12s       Normal    Pulled      pod/web-9f8c4d7b6-2xk5v   Container image "ghcr.io/shop/web:1.4.2" already present on machine
+90s         Warning   BackOff     pod/web-9f8c4d7b6-2xk5v   Back-off restarting failed container web
+```
+
+Sorting matters: the default listing is not chronological, which is why the
+`--sort-by` flag appears in every runbook that mentions this command. And
+`kubectl describe` on an object ends with the events for that object, which is
+usually the fastest route to them.
+
+**Events are retained for about an hour by default, then deleted.** They live in
+etcd like any other object and the API server expires them, because a cluster
+producing thousands of events an hour would otherwise fill its datastore with
+history nobody reads. This is the single most common surprise in this module: the
+`FailedScheduling` warning that explains last night's outage is not there in the
+morning, and no flag brings it back.
+
+Events are also **best-effort**. Components rate-limit what they emit, so a
+component producing a flood will drop some of it. An absent event is not evidence
+that nothing happened.
+
+Keeping them means exporting them as they arrive — the same DaemonSet-and-store
+shape used for logs, or a small controller that watches the events API and
+forwards. Doing this is cheap and it is the difference between a post-incident
+review with evidence and one with recollections.
+
+Turning these two records into a diagnosis — the order to check things in when a
+Pod will not start — is the Troubleshooting module's material, and it assumes
+what this lesson establishes: which record holds the answer, and how long you
+have to get it.
+
+## Trade-offs
+
+**Local and cheap against durable and queryable.** Kubernetes keeping logs as
+node files and events as short-lived objects costs the control plane almost
+nothing, which is why it scales to thousands of Pods. Everything you want during
+an incident — history, search, correlation across Pods — is the thing that was
+traded away, and buying it back means running a log pipeline whose storage bill
+grows with your chattiest service.
+
+**Verbosity against usefulness.** Debug logging in production is tempting because
+it is one environment variable, and it accelerates rotation until the window
+`kubectl logs` shows is shorter than the time it takes you to notice a problem.
+Level the logs, sample the noisy paths, and keep the ones that describe decisions
+rather than progress.
+
+## Common pitfalls
+
+- **Reading the current container's log after a crash.** The container that
+  crashed is gone; the one you are reading started afterwards. `--previous` is
+  the flag, and forgetting it produces a confident wrong conclusion.
+- **Expecting events to still be there.** An hour is short compared to how long
+  it takes an alert to reach a person, and shorter than a night.
+- **Logging to a file in the container.** It looks tidy and it makes the log
+  invisible to every tool in this lesson.
+- **Treating an absent warning as an all-clear.** Events are rate-limited and
+  best-effort, so "there were no events" means very little.
+- **Debugging a `Pending` Pod with `kubectl logs`.** There is no container yet,
+  so the command has nothing to return; the explanation is a `FailedScheduling`
+  event.
+
+## Key takeaways
+
+- **A log is written by your application; an event is written by Kubernetes about
+  your object.** They answer different questions and neither substitutes.
+- `kubectl logs` reads a **file on the node**, rotated by the kubelet and deleted
+  with the Pod — use `--previous` to read the instance that crashed.
+- **An events object is not a log**: it is an API object, aggregated by count,
+  rate-limited, and **retained for about an hour by default**.
+- Durability for either record means **shipping it off the cluster** as it is
+  produced, which is ecosystem tooling rather than a Kubernetes feature.
+- **Write to standard output**, and write structure, because the store you
+  eventually run can only query what your application made queryable.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Pod has restarted eleven times overnight. `kubectl logs` on it shows a healthy startup and nothing else. Where is the evidence, and what may already be gone?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The command is reading the container that is running now, which started after
+  the most recent restart and therefore has no record of why the previous one
+  ended. `kubectl logs --previous` reads the log of the immediately preceding
+  instance, which is where the failure is — but only the last one, since earlier
+  instances are not retained. The events would say why the kubelet restarted it,
+  with a `BackOff` warning and a count of eleven, except that events expire
+  after roughly an hour, so an overnight sequence has almost certainly aged out
+  and only the most recent remains. What survives is the restart count on the
+  Pod itself and whatever a log shipper forwarded. The lesson for next time is
+  that both records had to be exported while they existed.
+</PracticeCheck>
+
+**2. Why can `kubectl logs` return nothing for a Pod that has existed for ten minutes, without anything being broken about logging?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because there may be no container running to have written anything. A Pod
+  stuck in `Pending` was never scheduled, so no kubelet has been asked to start
+  it and no log file exists; a Pod in `ImagePullBackOff` has a node but no
+  image, so the container has never run. In both cases the record with the
+  answer is the events — `FailedScheduling` naming the resource or taint that
+  blocked placement, or `Failed` naming the pull error. The other honest
+  possibility is that the container is running and writing to a file inside
+  itself rather than to standard output, in which case the runtime captured
+  nothing and the log exists somewhere no tool is looking.
+</PracticeCheck>
+
+**3. Your team wants to keep a year of events for compliance. Why is this not a retention setting, and what does the answer look like?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Events are ordinary API objects stored in etcd, and etcd is the cluster's
+  live-state datastore rather than an archive — a busy cluster emits thousands
+  of events an hour, so keeping a year of them would grow the datastore that
+  every control-plane component reads and writes. The roughly one-hour expiry is
+  there to protect that. Keeping them means moving them out as they arrive: a
+  watch on the events API, or a node agent, forwarding each event into a store
+  built for volume and retention, exactly as logs are shipped. The design point
+  is the same one this lesson keeps making — Kubernetes produces the record and
+  deliberately does not keep it, so durability is a pipeline you run rather than
+  a flag you set.
+</PracticeCheck>

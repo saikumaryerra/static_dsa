@@ -1,0 +1,242 @@
+---
+title: 'Pod Security Admission'
+slug: 'k8s-pod-security-admission'
+course: 'kubernetes'
+track: 'k8s-security'
+order: 36
+summary: 'Three Pod Security Standards, three modes, and a pair of namespace labels — a built-in admission controller that rejects a Pod at creation and never touches the ones already running.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods', 'k8s-namespaces-and-kubectl']
+estimatedMinutes: 8
+tags: ['kubernetes', 'security', 'admission', 'pod-security', 'namespaces']
+explainPrompt: 'Why does a Deployment apply cleanly under an enforced Restricted namespace and then produce no Pods at all?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name the three Pod Security Standards and say what each one forbids.
+- Enforce, audit or warn on a standard with two namespace labels.
+- Predict where the rejection appears when a workload controller creates the Pod.
+- Roll a standard out to a live namespace without breaking it.
+
+## Intuition
+
+A Pod spec can ask for things a container has no business having: the node's
+network namespace, the node's process table, a directory from the node's disk, a
+container that runs privileged. Every one of those is a legitimate request for
+some workload — a CNI agent needs the host network — and a disaster in an
+application Pod. Somebody has to decide which namespaces are allowed to ask.
+
+**Pod Security Admission is a bouncer at the door of a namespace, reading from a
+fixed list of three guest lists.** It is built into the API server, it runs when
+a Pod is created or updated, and it compares that Pod's spec to whichever
+standard the namespace has asked for. It changes nothing and repairs nothing; it
+says yes or no.
+
+The three standards are cumulative:
+
+| Standard     | What it means                                                                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `privileged` | No restrictions. The escape hatch, for infrastructure workloads.                                                                                   |
+| `baseline`   | Blocks the known privilege escalations: host namespaces, `hostPath` volumes, privileged containers, dangerous added capabilities, host ports.      |
+| `restricted` | Baseline plus hardening: run as non-root, drop all capabilities, no privilege escalation, a seccomp profile, a short list of allowed volume types. |
+
+Most application namespaces belong on `restricted` and most teams arrive there
+through `baseline`. The fields a Pod has to set to satisfy `restricted` are the
+subject of [Security Contexts](/learn/k8s-security-contexts/); this lesson is
+about which namespaces are held to which standard.
+
+<Callout variant="note">
+  PodSecurityPolicy was removed in Kubernetes 1.25. Pod Security Admission is
+  its replacement, and it is deliberately less capable: three fixed levels
+  instead of arbitrary rules, no mutation, and no ordering problem between
+  policies. Anything beyond the three levels is a job for [Admission
+  Control](/learn/k8s-admission-control/).
+</Callout>
+
+## How it works
+
+A namespace opts in with labels. There are three modes, and a namespace may set
+all three at once with different levels:
+
+| Mode      | Effect on a violating Pod                                      |
+| --------- | -------------------------------------------------------------- |
+| `enforce` | The request is rejected.                                       |
+| `audit`   | Allowed, and an annotation is written into the audit log.      |
+| `warn`    | Allowed, and a warning is returned to the client that sent it. |
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+```
+
+That namespace refuses anything below `baseline` today, and tells you in the
+terminal every time somebody applies something that `restricted` would refuse
+tomorrow. It is the shape to reach for, because it separates the rule you are
+holding people to from the rule you are moving towards.
+
+**Pin the `-version` label.** Without it the level defaults to `latest`, which
+means the standard is re-read from whatever the cluster is running — so a
+control-plane upgrade can start rejecting Pods that applied yesterday. Pinning
+to a version makes the upgrade a decision you take rather than one that arrives.
+
+A rejection is a plain `Forbidden`, and it names the rule and the field:
+
+```text
+Error from server (Forbidden): error when creating "probe.yaml": pods "probe" is
+forbidden: violates PodSecurity "baseline:v1.36": host namespaces (hostNetwork=true)
+```
+
+### The surprise: it checks Pods, not Deployments
+
+Pod Security Admission enforces on the Pod. When you apply a Deployment, the
+object the API server admits is a Deployment, and it contains a Pod _template_,
+not a Pod. The Deployment is stored. Then the controllers run, the ReplicaSet
+controller tries to create a Pod, and _that_ request is refused — in a
+controller, minutes later, with nothing on your terminal.
+
+```bash
+kubectl get deployment web -n shop
+kubectl get replicaset -n shop
+kubectl describe replicaset web-6d9f8c74b6 -n shop
+```
+
+The Deployment shows `0/3` ready, the ReplicaSet shows zero Pods, and the
+explanation is in the ReplicaSet's events as a `FailedCreate` warning quoting the
+same `violates PodSecurity` message. This is the single most common confusion
+with the feature, and the reason `warn` earns its place: the `warn` mode also
+inspects the Pod template inside a workload object, so the person applying the
+Deployment sees the problem while they are still looking at their terminal.
+
+### Rolling it out to a live namespace
+
+Enforcement is not retroactive. Pods already running when you add the label keep
+running untouched — the check happens on create and update, so nothing is
+re-evaluated until something makes a new Pod. That is a mercy and a trap: the
+namespace reports a standard it is not actually meeting, and the truth surfaces
+during the next rollout, which may be an emergency one.
+
+Find out first:
+
+```bash
+kubectl label namespace shop \
+  pod-security.kubernetes.io/enforce=restricted \
+  --overwrite --dry-run=server
+```
+
+A server-side dry run runs the admission check without saving the label, and the
+API server answers with a warning for every existing Pod that would violate the
+new level. That output is your work list. The order that keeps a namespace
+online is: set `warn` and `audit` to the target level, wait a release cycle
+while the warnings tell people what to fix, dry-run the enforce label, fix what
+it lists, then enforce.
+
+Exemptions exist for the workloads that genuinely need `privileged` — by
+username, by RuntimeClass, or by namespace — but they are configured in the API
+server's admission configuration file, not in an object you can apply, so they
+belong to whoever runs the control plane. On a managed cluster, `kube-system` is
+already exempt.
+
+## Trade-offs
+
+**Three levels is the feature, not a limitation.** A fixed vocabulary means
+every namespace in the fleet is one label away from being auditable, and no two
+policies can contradict each other. The cost is that Pod Security Admission
+cannot express anything you invent — no "images must come from our registry", no
+"every Pod needs a team label", no per-team variation on `restricted`.
+
+**No mutation, ever.** It will not add `runAsNonRoot` for you. Some teams find
+that frustrating and reach for a policy engine that mutates; the counter-argument
+is that a Pod spec which was silently rewritten no longer describes what is
+running, and the next reader is misled.
+
+**`privileged` on a namespace is a real decision.** It is the right answer for a
+node agent and the wrong answer for the namespace an application happens to
+share with one. Splitting that agent into its own namespace costs an afternoon
+and buys back the standard for everything else.
+
+## Common pitfalls
+
+- **Labelling the namespace and calling it done.** Running Pods are never
+  re-checked, so a namespace can carry `enforce: restricted` for months while
+  hosting a privileged Pod admitted before the label existed.
+- **Omitting `-version`.** `latest` is tempting because it sounds current, and it
+  hands your cluster upgrade the ability to reject workloads that were fine.
+- **Looking for the error on the wrong object.** `kubectl apply` succeeded, so
+  people re-read the Deployment. The message is in the ReplicaSet's events, or
+  the Job's, or the StatefulSet's.
+- **Enforcing `restricted` on a namespace containing a DaemonSet agent.** The
+  agent needs host access by design, the standard refuses it, and the fix is a
+  separate namespace rather than a weaker standard for everyone.
+
+## Key takeaways
+
+- **PodSecurityPolicy was removed in 1.25**; Pod Security Admission replaces it
+  and is built into the API server, with nothing to install.
+- The three standards — **`privileged`, `baseline`, `restricted`** — are
+  cumulative, and a namespace selects one per mode with labels.
+- **`enforce` rejects, `audit` records, `warn` tells the client**, and setting
+  `warn` above `enforce` is how you see tomorrow's failures today.
+- **The check runs on Pods.** A workload controller creating the Pod means the
+  rejection lands in that controller's events, not in your `kubectl apply`.
+- **Enforcement is not retroactive**, so `--dry-run=server` on the label change
+  is how you learn what the namespace is already running.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You add `pod-security.kubernetes.io/enforce: restricted` to a namespace. `kubectl apply -f deployment.yaml` reports the Deployment configured, and no Pods appear. Where is the error, and why is it not on your terminal?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Pod Security Admission evaluates Pods. The request you sent created a
+  Deployment, whose Pod template is not itself a Pod, so nothing in that request
+  violated anything and the API server stored it. The Deployment controller then
+  made a ReplicaSet, and the ReplicaSet controller tried to create Pods — those
+  requests were rejected. Because the rejected requests came from a controller,
+  the failure is recorded where that controller reports, so `kubectl describe
+  replicaset` shows a `FailedCreate` warning event carrying the `violates
+  PodSecurity` message and the fields at fault. Setting the `warn` mode as well
+  is what puts that message on your terminal at apply time, because `warn` does
+  inspect the template inside the workload object.
+</PracticeCheck>
+
+**2. A namespace has carried `enforce: baseline` for six months. An audit finds a running Pod with `hostPath` mounted from the node. How can both be true?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The check runs at admission — on create and on update — and never again, so a
+  Pod admitted before the label was added is never re-evaluated and keeps
+  running indefinitely. `hostPath` is one of the things `baseline` forbids, so
+  that Pod could not be created today, but nothing deletes or re-checks it. The
+  same happens to a Pod created while the label was briefly removed. The way to
+  find these is to run the enforce label change through `--dry-run=server`,
+  which reports every existing Pod that would violate the level, and then to
+  force a fresh Pod — a rollout restart — so the surviving spec has to pass the
+  door it never walked through.
+</PracticeCheck>
+
+**3. Your platform team wants "every Pod must run non-root, and every image must come from our own registry". How much of that can Pod Security Admission do?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The first half, and none of the second. `restricted` requires the Pod or
+  container to set `runAsNonRoot: true`, so labelling the namespace `enforce:
+  restricted` covers the non-root requirement and several others alongside it.
+  The registry rule is outside the feature entirely: Pod Security Admission
+  checks a Pod spec against three fixed standards that say nothing about image
+  references, and there is no way to extend or parameterise them. A rule of your
+  own invention needs admission control that runs your logic — a CEL policy in
+  the API server, or a policy engine — which is the next lesson. The two
+  coexist: the standards handle the settled, universal rules, and the policy
+  engine handles the ones specific to your organisation.
+</PracticeCheck>

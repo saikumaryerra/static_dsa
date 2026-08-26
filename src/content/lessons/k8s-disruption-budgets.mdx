@@ -1,0 +1,228 @@
+---
+title: 'PodDisruptionBudgets'
+slug: 'k8s-disruption-budgets'
+course: 'kubernetes'
+track: 'k8s-reliability'
+order: 33
+summary: 'A PodDisruptionBudget is a veto held by the eviction API: it makes a request to remove a Pod fail, which protects you from a node drain and does nothing whatsoever about a node that dies.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments', 'k8s-taints-and-spread']
+estimatedMinutes: 9
+tags: ['kubernetes', 'reliability', 'disruption', 'drain']
+explainPrompt: 'Why does a PodDisruptionBudget protect a workload from a node drain but not from a node failure?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say which disruptions a PodDisruptionBudget constrains and which it cannot.
+- Write `minAvailable` or `maxUnavailable` for a workload and read
+  `ALLOWED DISRUPTIONS`.
+- Diagnose a `kubectl drain` that never finishes.
+
+## Intuition
+
+Pods are removed for two very different kinds of reason, and only one of them
+involves anybody asking.
+
+**Voluntary disruption** is somebody choosing: an operator draining a node
+before a kernel upgrade, a cluster autoscaler consolidating onto fewer machines,
+a node pool being replaced. All of these go through the same door — the
+**eviction API**, a request that says "please remove this Pod" and can be
+refused.
+
+**Involuntary disruption** is the world happening: a power failure, a kernel
+panic, a network partition, a hardware fault. Nothing asks, because there is
+nobody to ask.
+
+**A PodDisruptionBudget is a veto on the first door.** It does not protect Pods;
+it makes an eviction _request_ fail when granting it would take the workload
+below the availability you declared. Nothing about it can influence a machine
+that has stopped existing — which is not a limitation to work around, it is a
+statement of what the object is for. Surviving hardware failure is what
+replicas, spread and anti-affinity are for.
+
+## How it works
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: default
+spec:
+  minAvailable: 4
+  selector:
+    matchLabels:
+      app: web
+```
+
+Exactly one of `minAvailable` and `maxUnavailable`, either an integer or a
+percentage, plus a selector naming the Pods it covers. `minAvailable: 4` on a
+five-replica Deployment allows one Pod to be evicted at a time; the fifth
+eviction request is refused until a replacement is running and ready.
+
+```bash
+kubectl get pdb web
+kubectl drain worker-2 --ignore-daemonsets --delete-emptydir-data
+```
+
+```text
+NAME   MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE
+web    4               N/A               1                     6d
+```
+
+`ALLOWED DISRUPTIONS` is the number that matters: how many evictions would be
+granted right now. Zero means the next drain touching these Pods will block, and
+zero is the normal reading when the workload is already degraded.
+
+`kubectl drain` does two things in order. It cordons the node — adding the
+`node.kubernetes.io/unschedulable:NoSchedule` taint so nothing new lands there —
+and then evicts every Pod on it through the eviction API. A refused eviction is
+retried rather than abandoned, so drain does not fail, it waits:
+
+```text
+evicting pod default/web-0
+error when evicting pods/"web-0" -n "default" (will retry after 5s):
+Cannot evict pod as it would violate the pod's disruption budget.
+```
+
+That message is a well-behaved system, not a bug. It means the budget is
+holding the node open until your workload can afford to lose a Pod — and if the
+workload can never afford it, the drain waits for ever.
+
+<Callout variant="warning">
+  **A PodDisruptionBudget does not constrain a rolling update.** The Deployment
+  controller deletes its own Pods directly rather than through the eviction API,
+  so the budget is never consulted; the rollout's own `maxUnavailable` is what
+  bounds it. Two budgets, two mechanisms, two fields with almost the same name —
+  and a workload that needs both protections has to set both.
+</Callout>
+
+**Choosing the number is a question about the workload's shape.** A stateless
+service that is scaled up and down wants `maxUnavailable` as a percentage, so
+the budget follows the replica count instead of being reinterpreted every time
+someone scales. A quorum system — three or five members, where losing a majority
+means losing the whole thing — wants `minAvailable` set to the quorum size,
+because the floor is a property of the algorithm and not of the current replica
+count. And a workload the budget covers needs a controller behind it: eviction
+deletes a Pod and something has to create the replacement, so a budget over bare
+Pods blocks at the first eviction and never recovers.
+
+**Preemption respects it only as far as it can.** When the scheduler preempts
+lower-priority Pods to place an urgent one it tries to avoid violating a budget,
+but it is best-effort: if the only way to place the Pod breaks the budget, the
+budget loses. [Priority and preemption](/learn/k8s-quotas-and-priority/) has the
+mechanism.
+
+**Unhealthy Pods and the deadlock they cause.** By default a budget counts only
+healthy Pods towards its availability, which means a Pod that is broken and
+will never become ready is still protected from eviction — the one Pod you most
+want removed is the one the budget refuses to release. The
+`unhealthyPodEvictionPolicy` field exists for exactly this: set it to
+`AlwaysAllow` and Pods that are not ready may always be evicted, at the cost of
+losing the protection in the moment when the workload is already fragile.
+
+## Trade-offs
+
+**A budget converts an availability risk into an operations delay.** That is a
+good trade when the delay is bounded and someone is watching. It is a poor one
+when nobody is: an unattended node-pool upgrade that stalls at 3 a.m. on one
+namespace's budget leaves a half-upgraded cluster and no alert, because nothing
+failed.
+
+**The tighter the budget, the slower every maintenance action.** `minAvailable`
+equal to replicas minus one drains a node one Pod at a time, each waiting for a
+replacement to be scheduled and become ready elsewhere. On a large workload that
+is the difference between minutes and hours per node.
+
+**Percentages behave differently under scale.** `maxUnavailable: 25%` follows
+the replica count as it changes and rounds in the workload's favour;
+`minAvailable: 4` is a fixed floor that becomes almost the whole workload if
+someone scales down to five.
+
+## Common pitfalls
+
+- **A budget on a single-replica workload.** `minAvailable: 1` with one replica
+  means `ALLOWED DISRUPTIONS: 0` for ever, and every drain of that node hangs.
+  The object cannot make one Pod highly available; only a second replica can.
+- **`minAvailable: 100%`.** Written as a statement of importance, it is a
+  permanent block on all maintenance.
+- **Assuming the budget survived the node.** A node that fails takes its Pods
+  with it regardless of any budget, and the budget's only effect afterwards is
+  to slow down the _next_ voluntary action.
+- **Overlapping budgets.** Two objects whose selectors both match a Pod is a
+  configuration to avoid; write one budget per workload, selecting exactly its
+  Pods.
+- **Forgetting the budget exists.** It is written once during a reliability
+  push and then only ever noticed as a mysterious hang during an upgrade,
+  months later.
+
+## Key takeaways
+
+- A PodDisruptionBudget constrains **voluntary disruption only** — evictions
+  through the API. A node that fails does not consult it.
+- Set exactly one of **`minAvailable` or `maxUnavailable`**, and read
+  `ALLOWED DISRUPTIONS` to know what the next drain will do.
+- **`kubectl drain` retries a refused eviction rather than failing**, so a
+  budget that can never be satisfied produces a hang, not an error.
+- **A rolling update ignores the budget**; the Deployment's own
+  `maxUnavailable` is what bounds it.
+- By default an unhealthy Pod is still protected — `unhealthyPodEvictionPolicy`
+  is what changes that.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A node fails at 2 a.m. Three of your service's five replicas were on it, and your PodDisruptionBudget says `minAvailable: 4`. What did the budget do?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Nothing at all, and nothing was broken. A budget is enforced by the eviction
+  API, which is a request some client makes and the API server may refuse. A
+  node that fails makes no request — there is no process left to make one — so
+  the three Pods are gone with the machine, and the workload runs on two
+  replicas until their replacements are scheduled elsewhere and become ready.
+  The budget's only effect afterwards is on the next *voluntary* action: with
+  two healthy Pods against a floor of four, `ALLOWED DISRUPTIONS` is zero, so a
+  drain of another node holding these Pods will now block until the workload
+  recovers. If you want three simultaneous replica losses to be impossible, that
+  is a placement problem — anti-affinity or a topology spread constraint so five
+  replicas do not sit three-to-a-node.
+</PracticeCheck>
+
+**2. `kubectl drain worker-3` has been printing "will retry after 5s" for twenty minutes. `kubectl get pdb` shows `ALLOWED DISRUPTIONS: 0` for a budget covering a Pod on that node. How do you work out whether to wait?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Ask why the number is zero, because the answer decides everything. If the
+  workload is at its floor and a replacement Pod is on its way — scheduled,
+  pulling an image, working through a startup probe — then waiting is correct
+  and the drain will proceed on its own once that Pod is ready. If instead the
+  replacement cannot be scheduled, or a Pod is stuck unready and will never
+  recover, then the number will stay at zero for ever and waiting is pointless.
+  So check the workload's other Pods: are any pending, and why. The repairs
+  differ accordingly — fix the scheduling problem, scale up temporarily so the
+  budget has slack, or set `unhealthyPodEvictionPolicy: AlwaysAllow` if the
+  blocker is a Pod that is not ready and never will be. Deleting the Pod by hand
+  bypasses the budget entirely, which is worth knowing and rarely the right
+  answer.
+</PracticeCheck>
+
+**3. Your team sets `maxUnavailable: 0` on a PodDisruptionBudget so that "no Pod is ever unavailable". What have they actually configured?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A permanent block on every voluntary disruption for that workload. The budget
+  says no eviction may ever take the number of available Pods down at all, so
+  `ALLOWED DISRUPTIONS` is zero under all conditions, and every node drain
+  touching these Pods hangs indefinitely — kernel upgrades, node-pool
+  replacements and autoscaler consolidation included. It also does not deliver
+  what the name suggests: involuntary disruption is untouched, so a node failure
+  still takes the Pods, and a rolling update still replaces them within its own
+  `maxUnavailable`. The intent is better served by a budget that leaves room for
+  one eviction at a time, `maxUnavailable: 0` on the *rollout strategy* where it
+  really does mean surge-before-remove, and enough replicas spread across nodes
+  that losing one is not an event.
+</PracticeCheck>

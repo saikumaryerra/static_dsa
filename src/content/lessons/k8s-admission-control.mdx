@@ -1,0 +1,312 @@
+---
+title: 'Admission Control'
+slug: 'k8s-admission-control'
+course: 'kubernetes'
+track: 'k8s-security'
+order: 39
+summary: 'The stage between authorization and storage where the cluster gets to have opinions of its own — mutating webhooks that rewrite an object, validating webhooks that refuse it, and the CEL policies that need no webhook at all.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pod-security-admission', 'k8s-objects-and-manifests']
+estimatedMinutes: 9
+tags: ['kubernetes', 'admission', 'webhooks', 'policy', 'security']
+explainPrompt: 'Why can a single unavailable admission webhook stop a cluster from accepting any new Pod?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Place admission in the API server's request path, and say what runs before it.
+- Tell a mutating webhook from a validating one, and know which runs first.
+- Write a rule of your own without running a webhook, using a CEL policy.
+- Configure a webhook that cannot take the cluster down with it.
+
+## Intuition
+
+RBAC answers "may this requester do this". Pod Security Admission answers "does
+this Pod meet one of three fixed standards". Neither can answer "does every
+Deployment carry a team label", "do images come from our registry", or "is this
+Pod requesting memory it will never use". Those are your rules, and Kubernetes
+has a place to put them.
+
+**Admission control is the review stage between the door and the filing
+cabinet.** The request has already been authenticated and authorized; it has not
+yet been written to etcd. Admission plugins get to see the object, change it,
+and refuse it — and every write to the API server passes through them, whoever
+sent it.
+
+The path a write takes, in order:
+
+| Stage                | Question                                    |
+| -------------------- | ------------------------------------------- |
+| Authentication       | Who is asking?                              |
+| Authorization        | May they do this verb on this resource?     |
+| Mutating admission   | Does anything want to change this object?   |
+| Schema validation    | Is the resulting object a valid API object? |
+| Validating admission | Does anything want to refuse it?            |
+| Persist              | Write to etcd.                              |
+
+**Mutation runs before validation, and everything.** A sidecar injector adds a
+container; the result is then schema-checked and offered to every validating
+plugin, so a mutation cannot smuggle an object past a rule. Ordering among the
+mutating plugins themselves is not guaranteed, which is the reason two webhooks
+that both rewrite the same field is a design to avoid rather than a puzzle to
+solve.
+
+Some plugins are compiled into the API server: Pod Security Admission,
+`ResourceQuota`, `LimitRanger`, `NamespaceLifecycle`, `ServiceAccount`. The rest
+of this lesson is about adding your own.
+
+## How it works
+
+### Webhooks
+
+A webhook is an HTTPS service you run. The API server sends it an
+`AdmissionReview` describing the request and reads the verdict from the response.
+You tell the API server about it with an object:
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: image-policy
+webhooks:
+  - name: images.shop.example.com
+    admissionReviewVersions: ['v1']
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ['kube-system', 'policy']
+    rules:
+      - apiGroups: ['']
+        apiVersions: ['v1']
+        operations: ['CREATE']
+        resources: ['pods']
+    clientConfig:
+      service:
+        namespace: policy
+        name: image-policy
+        path: /validate
+```
+
+`MutatingWebhookConfiguration` has the same shape and a response that may return
+a patch. Four fields decide how the cluster behaves when things go wrong:
+
+- **`failurePolicy`** — `Fail` refuses the request when the webhook is
+  unreachable or times out; `Ignore` allows it. `Fail` is the secure choice and
+  the dangerous one.
+- **`timeoutSeconds`** — how long the API server waits, up to 30. This is added
+  latency on every matching write, so keep it small.
+- **`namespaceSelector`** and **`objectSelector`** — narrow what the webhook
+  sees. Excluding `kube-system` and the webhook's own namespace is not
+  optional; it is what leaves you a way back in.
+- **`sideEffects`** — declares whether the webhook changes anything outside the
+  request, so that `kubectl apply --dry-run=server` knows whether it is safe to
+  call.
+
+<Callout variant="warning">
+  A `failurePolicy: Fail` webhook matching `pods` in every namespace is a single
+  point of failure for the whole cluster. If its own Pods are evicted during a
+  node drain, no Pod can be created anywhere — including the webhook's
+  replacement Pods — and the cluster cannot recover on its own. Run more than
+  one replica, exclude `kube-system` and the webhook's own namespace, and keep
+  the matching rules as narrow as the policy allows.
+</Callout>
+
+### Policies without a webhook
+
+Most rules are a boolean expression over the object, and running a service to
+evaluate one is a poor trade. `ValidatingAdmissionPolicy` puts the expression
+inside the API server, written in CEL — the Common Expression Language:
+
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: require-team-label
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ['apps']
+        apiVersions: ['v1']
+        operations: ['CREATE', 'UPDATE']
+        resources: ['deployments']
+  validations:
+    - expression: "has(object.metadata.labels) && 'team' in object.metadata.labels"
+      message: 'every Deployment must carry a team label'
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: require-team-label
+spec:
+  policyName: require-team-label
+  validationActions: ['Deny']
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: shop
+```
+
+The split is deliberate: the policy is the rule, the binding says where it
+applies and how hard. `validationActions` accepts `Deny`, `Warn` and `Audit`, so
+the same staged rollout that works for Pod Security Admission works here — bind
+with `Warn` first, read the complaints, then bind with `Deny`.
+
+There is no service to run, no certificate to rotate and no failure mode where
+the policy is unreachable, because it evaluates in the API server. Kubernetes
+1.36 extends the same idea to mutation, so simple rewrites no longer need a
+webhook either. What still needs one is any decision requiring information the
+request does not carry — verifying an image signature against a registry, for
+instance.
+
+### Policy engines
+
+The ecosystem answer to writing dozens of these is a policy engine, and the two
+common ones are **Kyverno** and **OPA Gatekeeper**. Both are ecosystem software
+rather than core Kubernetes: they install a webhook, a controller and a set of
+custom resources. Gatekeeper expresses rules in Rego, OPA's language, and suits
+teams already using OPA elsewhere. Kyverno expresses them in YAML that looks
+like the resources it is matching:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-team-label
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-team-label
+      match:
+        any:
+          - resources:
+              kinds: ['Deployment']
+      validate:
+        message: 'every Deployment must carry a team label'
+        pattern:
+          metadata:
+            labels:
+              team: '?*'
+```
+
+What an engine adds over a hand-written policy is the surrounding machinery:
+reports on existing objects that would fail, mutation and generation rules,
+policy exceptions with an owner, and a test framework. What it costs is the
+webhook it installs, which is now in the path of your writes.
+
+```bash
+kubectl get validatingwebhookconfigurations
+kubectl get validatingadmissionpolicy
+```
+
+Those two commands list everything with an opinion about your writes. Run them
+on a cluster whose behaviour surprises you.
+
+## Trade-offs
+
+**In-process policy against out-of-process policy.** CEL policies cost nothing to
+operate and cannot be unavailable, and they can only see the request. A webhook
+can consult anything and brings a service, certificates, replicas and a failure
+mode. Prefer CEL until the rule genuinely needs the outside world.
+
+**Mutation is convenient and dishonest.** Defaulting a missing resource limit
+means every Deployment applies cleanly, and the object in Git no longer describes
+what is running. Validation refuses and tells the author what to fix. Mutate
+where the value is genuinely infrastructure — an injected sidecar, a scheduler
+name — and validate where it is a decision the author should be making.
+
+**Every policy is latency on every matching write.** One webhook at 50 ms is
+invisible. Six of them, on `pods`, in a cluster doing a large rollout, is a
+rollout that takes noticeably longer and a control plane that looks slow for
+reasons no dashboard attributes to policy.
+
+## Common pitfalls
+
+- **`failurePolicy: Fail` with one replica.** It is the correct setting for a
+  security control, which is why people set it, and with a single Pod behind it
+  the webhook's own outage becomes the cluster's.
+- **Matching `*` on resources.** Every write in the cluster, including the ones
+  the control plane makes to leases and endpoints thousands of times a minute.
+- **Expecting admission to fix what is already stored.** It runs on writes only,
+  so existing objects are untouched until something updates them. Engines that
+  produce a report of non-compliant objects exist precisely for this gap.
+- **Two mutating webhooks editing one field.** Ordering between them is not
+  guaranteed, so the result depends on scheduling rather than on your intent.
+- **Forgetting that the API server needs to trust the webhook's certificate.**
+  A `caBundle` that does not match is an unreachable webhook, and with
+  `failurePolicy: Fail` that is an outage rather than an error message.
+
+## Key takeaways
+
+- Admission runs **after authorization and before storage**, and every write goes
+  through it.
+- **Mutating plugins run first, then schema validation, then validating
+  plugins** — so a mutation cannot bypass a rule.
+- **`ValidatingAdmissionPolicy` evaluates CEL inside the API server**: no
+  service, no certificate, no unavailability.
+- **A webhook's `failurePolicy`, timeout and selectors are its blast radius.**
+  `Fail` plus a broad match plus one replica is a cluster-wide outage waiting
+  for a node drain.
+- **Kyverno and OPA Gatekeeper are ecosystem policy engines**, not core
+  Kubernetes; they add reporting, mutation and exceptions on top of the same
+  webhook mechanism.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team installs a validating webhook matching all Pods in all namespaces, with `failurePolicy: Fail` and a single replica. A node is drained for maintenance. Describe the outage and why it does not resolve itself.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Draining the node evicts the webhook's only Pod. From that moment the API
+  server calls an endpoint that does not answer for every Pod creation, and
+  `failurePolicy: Fail` turns each timeout into a rejection — so no Pod can be
+  created anywhere in the cluster. That includes the replacement Pod for the
+  webhook itself, which its own Deployment is trying to schedule, so the
+  mechanism that would restore service is blocked by the failure it is meant to
+  fix. Recovery means an administrator deleting or editing the
+  `ValidatingWebhookConfiguration` by hand, because that is a write to a
+  different resource and is not matched by the rule. The configuration that
+  avoids it is more than one replica, a `namespaceSelector` excluding
+  `kube-system` and the webhook's own namespace, and a PodDisruptionBudget so
+  the drain cannot take the last replica.
+</PracticeCheck>
+
+**2. You need two rules: every Deployment must carry a `team` label, and every image must be signed by your build pipeline. Which one should be a CEL policy and which needs a webhook?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The label rule is a CEL policy. Everything it needs is in the request — the
+  object carries its own labels — so a `ValidatingAdmissionPolicy` evaluates it
+  inside the API server with no service to run and no way for it to be
+  unavailable. The signature rule needs a webhook, because deciding it means
+  fetching a signature and a certificate from a registry or a transparency log
+  and verifying them, and the request contains none of that. That is exactly the
+  case where the cost of a webhook is justified: an outside lookup. It also
+  inherits the webhook problems — latency on every Pod creation, a
+  `failurePolicy` decision, and a dependency on a registry being reachable from
+  the control plane.
+</PracticeCheck>
+
+**3. A platform team defaults every Pod with no memory limit to 512Mi using a mutating webhook. What breaks about reasoning over the cluster, and what would validation have done instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The manifest in Git and the object in the cluster now disagree, and nothing
+  signals it. A developer reads their own Deployment, sees no memory limit, and
+  concludes the container is unlimited; the container is capped at 512Mi and is
+  being terminated for exceeding it. Every later change to that number has to be
+  made in the webhook rather than in the file the owner controls, and a rollback
+  of the manifest does not roll back the applied value. Validation instead
+  refuses the Deployment with a message naming the missing field, so the author
+  sets a number they chose, in the file they own, and the object describes what
+  is running. Mutation earns its place for genuinely infrastructural additions —
+  an injected sidecar, a scheduler name — where the author has no opinion to
+  express and no reason to know.
+</PracticeCheck>

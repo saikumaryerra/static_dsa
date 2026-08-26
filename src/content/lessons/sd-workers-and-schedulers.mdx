@@ -1,0 +1,270 @@
+---
+title: 'Workers and Schedulers'
+slug: 'sd-workers-and-schedulers'
+course: 'system-design'
+track: 'sd-async'
+order: 21
+summary: 'Workers run the work the request path handed off; schedulers decide when work appears with no request behind it. Leases, overlap, missed fires, and why a triggered job still has to be idempotent.'
+difficulty: 'intermediate'
+prerequisites: ['sd-message-queues']
+estimatedMinutes: 9
+tags: ['system-design', 'workers', 'schedulers', 'cron', 'asynchrony']
+explainPrompt: 'Why is a scheduled job still delivered at least once rather than exactly once?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Size a worker fleet and give the user a way to see work that is not finished.
+- Set a lease that matches the job, and say what an expiring one produces.
+- Replace cron on one box with something that survives that box.
+- Handle overlap, missed fires and the midnight herd on purpose.
+
+## Intuition
+
+**A worker is a consumer with a job description; a scheduler is what makes work
+appear when nothing asked for it.** They come as a pair because they answer two
+halves of "later": a worker executes deferred work, and a scheduler is one of
+the two things that can create it. The other is an event.
+
+That is the useful split. **Event-triggered** work exists because something
+happened — an upload finished, an order was placed — and it arrives through a
+[message queue](/learn/sd-message-queues/) or an
+[event stream](/learn/sd-event-streams/). **Time-triggered** work exists because
+the clock said so: a nightly report, an hourly reconciliation, an expiry sweep.
+The worker cannot tell the difference, and should not have to; the difference is
+entirely in what put the job there.
+
+Workers solve the problem that a request has a deadline of a few hundred
+milliseconds and some work does not fit in it. Schedulers solve a different one:
+work nobody will ever request, which must happen anyway, and which nothing will
+notice failing unless you arrange for it.
+
+## How it works
+
+**A worker pool is sized from the rate and the duration.** Concurrency equals
+throughput multiplied by latency, so the arithmetic is short and the honesty is
+in the assumptions:
+
+```text
+Assumptions
+  2,000,000 jobs/day             (image thumbnails and index updates)
+  one job takes ~300 ms
+  peak ≈ 3 × average
+
+Rate
+  2,000,000 ÷ 100,000 s          =  20 jobs/s average
+  peak                           =  60 jobs/s
+
+Concurrency
+  60 × 0.3 s                     =  18 jobs in flight at peak
+  at 4 concurrent jobs per process → 5 processes, run 8 for headroom
+```
+
+Around that pool sit four decisions. The **lease**, exactly as a queue's
+visibility timeout: it must exceed the slowest realistic run, or a long job is
+handed to a second worker while the first is still on it. Long jobs **heartbeat**
+to extend the lease, or are split into steps that each checkpoint, so a crash
+resumes rather than restarts. **Priority is separate queues**, not a field —
+one queue per class of work, with its own workers, because a single queue sorted
+by priority starves the bottom of it and a burst of urgent jobs takes the whole
+fleet. And **autoscaling reads the backlog**, not the CPU: a worker fleet with
+nothing to do is idle at 5% CPU, and the same fleet an hour behind is also at
+5% if the bottleneck is a downstream call.
+
+The user needs to see the work, so give the job an identity and a state:
+
+```json
+{
+  "job_id": "job_01J8Z3K5Q7V2",
+  "type": "thumbnail.render",
+  "asset_id": "asset_8812",
+  "state": "running",
+  "attempt": 2,
+  "lease_expires_at": "2026-08-26T09:14:32Z",
+  "created_at": "2026-08-26T09:13:58Z"
+}
+```
+
+That row is what a status endpoint reads, what an operator queries, and what
+makes "did my upload work?" answerable without a log search.
+
+**Now the scheduler, and start with what everybody builds first.** Cron on one
+box is a single point of failure with no retry: if the box is down at 02:00 the
+run does not happen, and nothing reports that a thing which did not happen did
+not happen. There is no record of past runs, no attempt count, and no way to ask
+whether last night's job succeeded.
+
+The second problem is overlap, and it needs no failure at all:
+
+```text
+schedule    every 5 minutes
+duration    6 minutes on a busy day
+
+12:00  run A starts
+12:05  run B starts — A is still going
+12:06  A finishes; B is one minute in
+12:10  run C starts — B still running
+12:15  run D starts — B and C both running
+       each cycle adds a copy, all reading and writing the same rows
+```
+
+Three fixes, in order of preference: make the job hold a lease for its expected
+duration so a second start finds the lease taken and skips with a metric; make
+the job idempotent and partition its work so overlapping copies cannot collide;
+or run it less often than it takes. "Every 5 minutes" is a claim about duration
+as much as frequency.
+
+A scheduler that survives its own box needs three things: a **durable record of
+every run** keyed by the logical fire time, a **claim** on that record so only
+one worker executes it, and an **election** so only one node is doing the firing
+— which is
+[Service Discovery and Coordination](/learn/sd-service-discovery/). Keying the
+run record by logical time is what makes the whole thing safe: `digest-2026-08-26`
+inserts once, and a scheduler that crashed after firing but before recording it
+fires again, finds the row already present, and does nothing.
+
+<Callout variant="note">
+  **A scheduled trigger is at-least-once, like every other trigger.** A
+  scheduler that has fired and then crashed cannot know whether it fired, so it
+  either repeats the run or skips it, and repeating is the safer default. That
+  makes idempotency the job's responsibility, exactly as it is a queue
+  consumer's — see [Idempotency, Retries and
+  Backpressure](/learn/sd-idempotency-and-backpressure/). "Exactly once" here
+  means at-least-once firing plus a job that recognises its own previous run.
+</Callout>
+
+Two more time problems. **Missed fires** after downtime: when the scheduler
+returns at 09:00 having been out since 02:00, does it run the seven skipped
+hourly jobs? Catching up all seven at once is a self-inflicted burst; skipping
+silently loses seven hours of reconciliation. The answer is per job, written
+down. And **the herd**: everything scheduled at midnight fires at midnight.
+
+```text
+500,000 users × one nightly digest, all at 00:00
+worker fleet sustains 2,000 jobs/s
+  500,000 ÷ 2,000     =  250 s flat out — while every other
+                         nightly job is also firing
+
+spread the same work across the hour instead
+  500,000 ÷ 3,600 s   ≈  140 jobs/s, a rate nothing notices
+```
+
+## Trade-offs
+
+**Use a worker** when the caller does not need the result, when the work is
+long or bursty, or when it may fail and be retried. **Do not** when the user
+must see the outcome before continuing — an asynchronous "we'll email you"
+where a 200 ms synchronous answer was possible is worse for everybody — or when
+the job costs less than the bookkeeping around it. The permanent price is a
+second execution model to operate, no synchronous error path, and a status
+surface you now owe the user.
+
+**Use a scheduler** for work with no event behind it: expiry sweeps,
+reconciliation, reports, retries of things that failed permanently, and the
+periodic proof that a rare path still works. **Do not** use one to poll for
+something an event already tells you. Polling every minute for new rows costs a
+query every minute and adds up to a minute of latency, where a queue message
+costs one write and arrives in milliseconds. The scheduler's real trade-off is
+that time-triggered work is invisible: it has no user waiting, so a job that has
+silently failed for three weeks is a normal discovery, which is why every
+scheduled job needs an alarm on its **last successful completion** rather than
+on its errors.
+
+## Common pitfalls
+
+- **Cron on one box.** It is the fastest thing to set up and the least
+  observable thing to own: no retry, no history, no alarm, and a machine whose
+  replacement quietly drops the crontab.
+- **A lease shorter than the job.** Tempting because a short lease recovers
+  quickly from crashes, and it means the slowest jobs are always running twice.
+- **Overlapping runs.** "Every 5 minutes" reads as a promise about the schedule
+  and behaves as an assumption about the duration.
+- **Retry without idempotency.** A retried report that appends rather than
+  replaces produces double figures that nobody can explain a month later.
+- **Everything on the hour.** Round numbers are what people pick, so every
+  system's peak lands in the same minute — including the dependencies you share.
+- **No status for the user.** Once work is deferred, "it is running", "it
+  failed" and "it never started" look identical from outside.
+
+## Interview notes
+
+When you move work off the request path, say what the user sees in the gap. A
+job id returned immediately, a status endpoint, and a notification when it
+finishes is three sentences and it turns a hand-wave into a design.
+
+For anything periodic, say where the schedule lives and how a missed run is
+noticed. "The scheduler is leader-elected, each fire inserts a run row keyed by
+the logical hour so a repeat is a no-op, and we alarm when the newest successful
+run is more than two hours old" answers the failure question before it is asked
+— and the alarm on last success, rather than on failures, is the part most
+answers leave out.
+
+## Key takeaways
+
+- **Concurrency is throughput times duration**: size the pool from the peak
+  rate and the job length, and autoscale on backlog rather than CPU.
+- **The lease must exceed the slowest realistic run**, or heartbeat; an expired
+  lease is a duplicate execution, not an error.
+- **Cron on one box has no retry, no history and no alarm** — the durable
+  version is a run record keyed by logical time, a claim, and an election.
+- **A scheduled trigger is at-least-once**, so a periodic job is idempotent or
+  it is wrong.
+- **"Every 5 minutes" plus a 6-minute job is an overlap bug**, and round-number
+  schedules build a herd.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A nightly job is scheduled with cron on a single machine at 02:00. It has run correctly for a year. What are you actually relying on, and what is the smallest change that removes most of the risk?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  You are relying on that one machine being alive at 02:00, on nobody having
+  replaced it without copying the crontab, and on the job having succeeded — for
+  which there is no evidence beyond its side effects. A year of correct runs
+  says the job is sound; it says nothing about the trigger, because the trigger
+  has not yet been tested by a failure. The smallest change that helps most is
+  not a distributed scheduler: it is recording every run in a durable table
+  keyed by the logical date and alarming when the newest success is more than a
+  day old. That converts a silent absence into a page, which is the failure mode
+  that actually bites. Moving the trigger to a leader-elected scheduler, or to a
+  managed one, is the next step once you can see whether it fired.
+</PracticeCheck>
+
+**2. A job is scheduled every 5 minutes. Under load it takes 6 minutes. Describe what happens over the next half hour, and give two fixes with their costs.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Copies accumulate. At 12:05 a second run starts while the first is still
+  going; at 12:10 a third; by 12:30 there are several copies reading and writing
+  the same rows at once, each one slower than the last because they are
+  competing for the same database and the same downstream calls. The duration
+  grows under the contention, so the overlap grows too — a loop that ends in
+  lock waits or duplicated writes rather than in recovery. One fix is a lease
+  held for the run's duration: a second start finds it taken, skips, and
+  increments a "skipped because still running" metric; the cost is that under
+  sustained load the job effectively runs every 6 minutes instead of every 5,
+  and you must alarm on repeated skips or the lag hides. The other is to make
+  the job idempotent and partition its work by key so overlapping copies touch
+  different rows; the cost is a more complex job, and it does not bound how far
+  behind the work drifts.
+</PracticeCheck>
+
+**3. A team wants a report generated for each of 500,000 accounts at 00:00 daily. Their worker fleet sustains 2,000 jobs per second. Is that a problem?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The raw arithmetic is comfortable: 500,000 ÷ 2,000 is 250 seconds, so the
+  fleet clears the batch in about four minutes. The problem is that all of it
+  arrives in one instant, and so does everything else scheduled at midnight —
+  other nightly jobs, other teams' jobs, and whatever shared database or
+  third-party API all of them call. The workers are not the constraint; the
+  dependencies they hammer for four minutes are, and that spike is also what
+  triggers autoscaling far too late to help. Spreading the same 500,000 jobs
+  across the hour brings it to roughly 140 a second, which no dependency
+  notices, and the reports are still ready long before anyone reads them. Where
+  the deadline is genuinely 00:05, keep the burst but rate-limit the enqueue so
+  the dependencies see a flat 2,000 a second rather than a wall.
+</PracticeCheck>

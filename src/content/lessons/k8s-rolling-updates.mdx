@@ -1,0 +1,218 @@
+---
+title: 'Rolling Updates and Rollback'
+slug: 'k8s-rolling-updates'
+course: 'kubernetes'
+track: 'k8s-reliability'
+order: 32
+summary: 'A rollout is a state machine you can watch, pause and reverse — and the history it keeps is a stack of Pod templates, which is both what makes rollback instant and what makes it incomplete.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments', 'k8s-probes']
+estimatedMinutes: 10
+tags: ['kubernetes', 'reliability', 'rollout', 'rollback']
+explainPrompt: 'Why does rolling back to revision 2 remove revision 2 from the history and add a new one at the top?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Drive a rollout with `status`, `pause` and `resume`, and use its exit code in
+  a pipeline.
+- Read `rollout history` and say exactly what a rollback restores.
+- Say how StatefulSet and DaemonSet rollouts differ from a Deployment's.
+
+## Intuition
+
+The mechanism is already familiar: a Deployment keeps one ReplicaSet per
+distinct Pod template, and a rollout shifts replicas from the old one to the
+new one within a budget of `maxSurge` and `maxUnavailable`, counting a new Pod
+only once it reports ready. [Deployments and ReplicaSets](/learn/k8s-deployments/)
+covers that object model.
+
+What this lesson is about is the rollout as **something happening over time**,
+which is a different thing from the objects it moves. **A rollout is a state
+machine, not a command.** `kubectl apply` returns immediately; the change is
+then carried out by a controller over seconds or minutes, and during that window
+you can watch it, stop it where it stands, let it continue, or send it
+backwards. Nothing about the update is atomic and nothing about it is
+irreversible — provided the only thing that changed is the Pod template.
+
+That last clause is the whole caveat. History is a stack of templates. Anything
+your release did that was not a template change is outside the stack, and
+`undo` does not know it happened.
+
+## How it works
+
+```bash
+kubectl set image deployment/web web=web:1.4.2
+kubectl annotate deployment/web kubernetes.io/change-cause='upgrade to 1.4.2'
+kubectl rollout status deployment/web --timeout=180s
+kubectl rollout history deployment/web
+kubectl rollout undo deployment/web --to-revision=2
+```
+
+**`kubectl rollout status` is the gate.** It blocks until the rollout finishes
+and exits non-zero if it does not within `--timeout` — which is what makes it
+usable as the last step of a deployment pipeline. Without it, a pipeline reports
+success as soon as the API accepted the manifest, which is before anything has
+been tried.
+
+**Pause and resume turn a rollout into a manual canary.** `kubectl rollout pause
+deployment/web` freezes it wherever it is; with `maxSurge: 1` that is one new
+Pod serving alongside the old ones, which is a real canary you can watch the
+metrics for. `resume` lets it continue; `undo` refuses to act on a paused
+Deployment and tells you to resume first, so abandoning a canary is resume then
+undo. Pause is also how you make several template edits produce **one** rollout
+instead of three: pause, change the image, the environment and the resources,
+then resume.
+
+**History is a list of templates with revision numbers.**
+
+```text
+deployment.apps/web
+REVISION  CHANGE-CAUSE
+2         upgrade to 1.4.1
+3         upgrade to 1.4.2
+```
+
+The `CHANGE-CAUSE` column is the `kubernetes.io/change-cause` annotation on the
+Deployment, copied to the ReplicaSet that the change created. Nothing sets it
+for you, and a blank column is the normal state of an unattended cluster.
+`kubectl rollout history deployment/web --revision=3` prints that revision's
+Pod template, which is the closest thing to a diff you get.
+
+<Callout variant="note">
+  Rolling back does not restore a revision number — it reuses the template and
+  gives it a new number at the top. Undo revision 3 back to revision 2 and the
+  history afterwards reads 3, 4, where revision 4 holds what revision 2 held.
+  There is never an entry saying "this was a rollback"; the annotation is the
+  only place that story can be recorded.
+</Callout>
+
+Old ReplicaSets are kept scaled to zero, up to `revisionHistoryLimit`, and those
+scaled-to-zero objects _are_ the history — set the limit to 0 and `undo` has
+nothing to go back to.
+
+**`kubectl rollout restart deployment/web`** stamps a timestamp annotation into
+the Pod template, which makes it a template change like any other and starts a
+normal rolling update with an identical image. It is the supported way to
+recycle Pods so they re-read a mounted Secret or ConfigMap, and it produces a
+revision you can roll back like any other.
+
+**Other controllers roll too, differently.** A StatefulSet updates its Pods in
+reverse ordinal order, one at a time, waiting for each to be running and ready
+before touching the next — and `updateStrategy.rollingUpdate.partition` holds
+back every ordinal below the number you set, which is a genuine staged rollout:
+set `partition: 3` on a five-replica set and only Pods 3 and 4 update. A
+DaemonSet's `updateStrategy` is `RollingUpdate` with its own `maxUnavailable`
+and `maxSurge`, or `OnDelete`, where nothing changes until you delete a Pod
+yourself.
+
+**A rollout that cannot finish stops and waits.** After
+`progressDeadlineSeconds` the Deployment records `ProgressDeadlineExceeded` and
+holds; with `maxUnavailable: 0` the old version is still serving every request,
+which is the budget doing its job rather than an outage. Kubernetes will not
+roll back on its own, ever. The decision is yours: `undo`, or fix forward.
+
+## Trade-offs
+
+**Rolling means two versions at once.** For the length of every rollout your old
+and new code are both live, against the same database, the same queues and the
+same cached data. Backwards compatibility between adjacent versions is not
+politeness in this model, it is a requirement you accepted by choosing rolling
+updates. `Recreate` avoids it and costs you downtime.
+
+**Rollback is fast and shallow.** Restoring a template takes seconds, which is
+exactly why it is the first thing anyone reaches for — and it silently does
+nothing about a database migration, a ConfigMap you edited, a feature flag or a
+message already consumed. A release whose risky part was not in the template has
+no rollback at all, and knowing which releases those are is a real part of the
+job.
+
+**Canary and blue-green are not Deployment features.** Two Deployments sharing
+one Service selector approximates a canary by replica ratio — nine old, one new
+gives roughly 10% of traffic, coarse and dependent on connection balancing.
+Anything finer needs traffic routing above the Service, which lives in the
+Gateway API or a service mesh rather than in the workload API.
+
+## Common pitfalls
+
+- **A pipeline that ends at `kubectl apply`.** It reports success for a manifest
+  the API accepted, including one whose image does not exist. `rollout status`
+  with a timeout is the missing step.
+- **Expecting an automatic rollback.** A stuck rollout waits indefinitely by
+  design; nothing reverts it.
+- **`revisionHistoryLimit: 0` to keep the object list tidy.** The scaled-to-zero
+  ReplicaSets it removes are the rollback history.
+- **Reading a paused rollout as a stuck one.** `kubectl get deployment` shows
+  the same partial numbers either way; the `Progressing` condition names the
+  reason.
+- **Assuming a PodDisruptionBudget throttles a rollout.** It does not — the
+  Deployment deletes its own Pods directly. `maxUnavailable` in the strategy is
+  the rollout's budget.
+
+## Key takeaways
+
+- **`kubectl rollout status` exits non-zero on failure**, which is what makes a
+  pipeline notice a bad release.
+- **Pause and resume** freeze a rollout mid-way, giving you a manual canary and
+  a way to batch several template edits into one update.
+- History is **a stack of Pod templates**; rollback reuses one and gives it a
+  **new revision number** at the top.
+- **Rollback restores the template and nothing else** — not migrations, not
+  ConfigMaps, not data.
+- **StatefulSets roll in reverse ordinal order** with a `partition` dial;
+  DaemonSets roll with their own budget or wait for `OnDelete`.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your pipeline runs `kubectl apply -f deploy.yaml` and reports success. Ten minutes later the service is unchanged and users are unaffected. What happened, and what is missing from the pipeline?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  `kubectl apply` succeeded at the only thing it does: the API server accepted
+  and stored the new desired state. Everything after that is a controller
+  working over time, and the pipeline did not wait for it. The users are
+  unaffected because the rollout is stuck with the old Pods still serving —
+  under `maxUnavailable: 0` the Deployment will not remove an old Pod until a
+  new one is ready, and the new ones are not becoming ready. A bad image tag, a
+  failing readiness probe or a Pod that cannot be scheduled all present exactly
+  this way. The pipeline needs `kubectl rollout status deployment/web
+  --timeout=180s` as its next step, which blocks and exits non-zero, and the
+  diagnosis then comes from `kubectl get rs -l app=web` and `kubectl describe
+  pod` on a new Pod.
+</PracticeCheck>
+
+**2. Release 1.4.2 added a database column and started writing to it. It is bad, so you run `kubectl rollout undo`. The old Pods come back within a minute. What have you actually restored, and what have you not?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  You restored the Pod template — the image, the environment, the resources, the
+  probes — and nothing else, because a revision *is* a Pod template. The column
+  is still there and still populated, and the previous version's code has never
+  seen it. Whether that is harmless depends on a decision made before the
+  release: an additive migration that the old code ignores rolls back cleanly,
+  while a migration that renamed or dropped something leaves the restored
+  version querying a schema that no longer exists. The same gap applies to
+  anything else outside the template — an edited ConfigMap, a flag flipped in a
+  remote service, messages already consumed in the new format. The habit that
+  makes rollback trustworthy is to ship schema changes and code changes as
+  separate releases, so the template is genuinely the only thing that moved.
+</PracticeCheck>
+
+**3. A StatefulSet of five replicas needs a risky upgrade. You want to try it on one Pod first. What does the Deployment-style canary not give you here, and what do you use instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Running a second workload alongside the first — the two-Deployments trick —
+  does not transfer: a StatefulSet's Pods have stable identities and their own
+  PersistentVolumeClaims, so a parallel copy is a second set of identities and a
+  second set of disks, not a share of the same traffic. Use the update strategy
+  instead. Set `updateStrategy.rollingUpdate.partition: 4` and change the
+  template: only ordinal 4 is updated, the other four keep the old template, and
+  you have one canary with its own identity and data. Watch it, then lower the
+  partition step by step — 3, 2, 1, 0 — to roll the rest, or put it back to 5
+  and revert the template to abandon the change. StatefulSets update in reverse
+  ordinal order, which is why the partition counts down from the top.
+</PracticeCheck>

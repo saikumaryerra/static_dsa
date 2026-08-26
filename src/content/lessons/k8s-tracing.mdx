@@ -1,0 +1,261 @@
+---
+title: 'Traces'
+slug: 'k8s-tracing'
+course: 'kubernetes'
+track: 'k8s-observability'
+order: 42
+summary: 'A trace is the itinerary of one request across every service that touched it — spans, a shared trace id, and a header that has to survive every hop or the picture breaks in half.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-metrics']
+estimatedMinutes: 9
+tags:
+  [
+    'kubernetes',
+    'observability',
+    'tracing',
+    'opentelemetry',
+    'distributed-systems',
+  ]
+explainPrompt: 'Why does one service that fails to forward the trace header cost you visibility into every service behind it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Define span, trace and context propagation in OpenTelemetry vocabulary.
+- Say what a trace shows that a metric and a log cannot.
+- Choose between head and tail sampling, and know what each one loses.
+- Describe how tracing is deployed in a cluster.
+
+## Intuition
+
+A request to a checkout endpoint is not one piece of work. It is a call to a cart
+service, a call to pricing, a call to payments, two database queries and a call to
+an external acquirer — spread over six processes on four nodes, most of which
+have no idea the others exist. Each of them has metrics, and each set of metrics
+describes that service's population of requests. None of them describes _your_
+request.
+
+**A trace is the itinerary of one request.** Every unit of work it caused is
+recorded with a start time, a duration and a parent, and they share an identifier
+so the pieces can be reassembled into a tree afterwards.
+
+Written out, a slow checkout looks like this:
+
+```text
+trace 7b3a2f  POST /checkout                          840 ms
+  checkout    handle request                          840 ms
+    cart      GET /cart/8821                           62 ms
+    pricing   POST /quote                             118 ms
+    payments  POST /charge                            601 ms
+      cards   SELECT token                             14 ms
+      acquirer POST /authorize                        578 ms
+```
+
+The answer is on the last line, and no dashboard in the previous lesson could
+have produced it. The checkout service reports itself slow; payments reports
+itself slow; the acquirer is somebody else's system. Only the tree shows that
+578 of the 840 milliseconds were spent waiting on one external call.
+
+## How it works
+
+OpenTelemetry is the vocabulary and the tooling almost everyone now uses. It is a
+CNCF project — ecosystem software, not part of Kubernetes — and it defines the
+data model, an API and SDK for your language, a wire protocol called OTLP, and a
+standalone process called the Collector.
+
+### The vocabulary
+
+- A **span** is one named, timed operation: a handler, an outbound call, a query.
+  It carries a start and end time, a status, and **attributes** — typed key-value
+  pairs such as `http.route` or `db.system`.
+- A **trace** is the set of spans sharing a trace id, arranged into a tree by
+  each span recording its **parent span id**. The one with no parent is the root.
+- A **span context** is the identity a span travels with: trace id, span id, and
+  flags including the sampling decision.
+- **Propagation** is passing that context from one process to the next. Over
+  HTTP the W3C standard sends it in a `traceparent` header, and this is the part
+  that must work everywhere.
+- A **resource** describes what emitted the spans — `service.name`,
+  `k8s.pod.name`, `k8s.namespace.name` — which is how a span is attributed to a
+  workload.
+
+<Callout variant="warning">
+  Propagation is a chain, and it breaks at its weakest link. A service that
+  receives `traceparent` and does not pass it on its outbound calls starts a
+  fresh trace downstream, so you get two unrelated traces with no way to join
+  them — and the second one contains exactly the services you were trying to
+  reach. One un-instrumented proxy or one hand-rolled HTTP client is enough.
+</Callout>
+
+### Deploying it
+
+Instrumentation goes in the application: an SDK, plus automatic instrumentation
+for the framework and HTTP client, plus a handful of manual spans around the work
+that matters. Configuration is environment variables, which makes it a Pod
+concern:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: shop
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+        - name: checkout
+          image: ghcr.io/shop/checkout:2.1.0
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: checkout
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.observability:4317
+            - name: OTEL_TRACES_SAMPLER
+              value: parentbased_traceidratio
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: '0.1'
+```
+
+The application sends OTLP to a **Collector**, which receives, batches, enriches
+and exports to a backend. Running one is what keeps backend credentials and
+export configuration out of every application, and it means changing your tracing
+vendor is a Collector change rather than a redeploy of forty services. The
+Collector is deployed either as a DaemonSet, so each Pod talks to an agent on its
+own node, or as a Deployment behind a Service acting as a gateway. Large
+installations run both.
+
+### Sampling
+
+Keeping every span is possible and rarely affordable, so a decision gets made
+about which traces to store.
+
+**Head sampling** decides at the first service, before the work happens — the
+`parentbased_traceidratio` above keeps one trace in ten and propagates that
+decision, so every service in the chain agrees and no trace is half-kept. It is
+cheap and stateless, and it is blind: the decision is made before anyone knows
+whether the request will be slow or fail, so nine in ten of your interesting
+traces are discarded.
+
+**Tail sampling** decides at the Collector, after the whole trace has arrived. It
+can keep every trace containing an error, every trace over a latency threshold,
+and a small percentage of ordinary ones. That is the sampling policy you want,
+and it costs memory to buffer traces until they are complete, plus routing so
+that every span of one trace reaches the same Collector instance.
+
+### Joining the three signals
+
+A trace is worth more when it is connected to the other records. Put the trace id
+in every log line and a log search jumps to the trace that produced it.
+Histogram exemplars attach a trace id to a bucket, so clicking the slow tail of a
+latency chart opens a trace that was actually in it. The three signals stop being
+three tools and become one investigation.
+
+## Trade-offs
+
+**Instrumentation is a per-service cost with an all-or-nothing benefit.** Adding
+an SDK to a service takes an afternoon; the value only appears when the whole
+call path is covered, because a trace that stops at the third hop does not
+identify the fourth. That makes tracing an adoption problem before it is a
+technical one, and the sensible route is one complete path end to end rather than
+partial coverage everywhere.
+
+**Traces are heavy per request.** A single request can produce dozens of spans
+with attributes on each, which is orders of magnitude more data per request than
+a counter increment. Sampling is what makes it affordable, and sampling is what
+means the specific request you are asked about may not be there.
+
+**A trace shows latency and structure, not correctness.** It tells you the
+acquirer took 578 ms; it does not tell you the answer was wrong. Spans carry a
+status and can record exceptions, but the detail of what went wrong still belongs
+in logs, and how often it goes wrong still belongs in metrics.
+
+## Common pitfalls
+
+- **Assuming automatic instrumentation is enough.** It covers the framework and
+  the HTTP client, which produces a trace of your service boundaries and nothing
+  about the expensive loop inside one of them.
+- **Dropping the header at a proxy or gateway.** Everything behind it becomes a
+  separate trace, and the break is invisible unless somebody looks for it.
+- **Head sampling at one percent and then asking about a specific incident.** The
+  decision was made before the incident existed. Tail sampling exists for this.
+- **Putting high-cardinality data in span attributes and metric labels
+  interchangeably.** A customer id belongs on a span, where it costs one field on
+  one record. On a metric it creates a series forever.
+- **Tracing one service and calling the project done.** A single-service trace is
+  a slower, more expensive log line.
+
+## Key takeaways
+
+- **A span is one timed operation; a trace is the tree of spans sharing a trace
+  id**, joined by each span naming its parent.
+- **Propagation is the whole game.** The context travels in the `traceparent`
+  header, and any hop that drops it severs everything behind it.
+- **OpenTelemetry is ecosystem software**: SDK in the process, OTLP on the wire,
+  a Collector between your services and whatever stores the data.
+- **Head sampling is cheap and blind; tail sampling keeps the errors and the slow
+  ones** at the cost of buffering complete traces.
+- A trace answers **"where did the time go for this one request"** — the question
+  a metric is structurally unable to answer.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Checkout traces end at the payments service. Payments has its own traces, starting at its own handler, with no parent. What is wrong, and where is the fix?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The span context is not crossing the boundary between the two services.
+  Payments is instrumented — it produces spans — but the incoming request
+  carries no usable `traceparent`, so its SDK has nothing to attach to and
+  starts a new root span with a fresh trace id. Two separate traces exist for
+  one request and nothing links them. The fix is on the sending side: the
+  checkout service has to inject the header into the outbound call, which
+  usually means the HTTP client it uses is not the instrumented one, or a proxy
+  between them is stripping unknown headers. Confirm it by reading the headers
+  payments actually receives, and check the proxy configuration before rewriting
+  any application code.
+</PracticeCheck>
+
+**2. Your tracing runs head sampling at one percent. An important customer reports a slow request and gives you the exact timestamp. Why is the trace probably missing, and what would have kept it?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Head sampling makes the keep-or-drop decision at the first service, before the
+  request has been handled and therefore before anything is known about its
+  latency. At one percent, ninety-nine out of a hundred requests are dropped
+  regardless of how they turn out, so a specific slow request is far more likely
+  to be among the discarded than among the kept — the sampler had no way to
+  prefer it. Tail sampling would have kept it: the decision moves to the
+  Collector after every span of the trace has arrived, so a policy can keep all
+  traces containing an error, all traces above a duration threshold, and a small
+  random share of the rest. The cost is buffering each trace until it is
+  complete and routing every span of one trace to the same Collector, which is
+  why head sampling is the common starting point and tail sampling the upgrade.
+</PracticeCheck>
+
+**3. A team argues that they have detailed logs from every service, so traces would add nothing. What does a trace give them that a complete set of logs does not?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Structure and timing, already assembled. Logs are independent lines from
+  independent processes; to reconstruct one request from them you need a shared
+  identifier in every line, correct clocks across every node, and a query that
+  interleaves them — and even then you get a flat sequence rather than a tree,
+  so nothing tells you which call was nested inside which or how much of a
+  parent duration one child accounts for. A trace records the parent
+  relationship and the duration at the point the work happens, so the causal
+  structure and the time attribution are the data rather than an inference. The
+  genuine part of their argument is that the two are complementary: put the
+  trace id in each log line and the trace answers where the time went while the
+  logs say what happened at the point it went there.
+</PracticeCheck>

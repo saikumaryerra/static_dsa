@@ -1,0 +1,271 @@
+---
+title: 'Observability, Failure Handling and DR'
+slug: 'sd-observability-and-recovery'
+course: 'system-design'
+track: 'sd-async'
+order: 23
+summary: 'Metrics, logs and traces answer three different questions at three different costs; degradation is what you designed before the incident; and RPO and RTO are two separate promises that a restore you have never run keeps neither of.'
+difficulty: 'intermediate'
+prerequisites: ['sd-availability-and-durability', 'sd-latency-and-throughput']
+estimatedMinutes: 10
+tags: ['system-design', 'observability', 'alerting', 'degradation', 'recovery']
+explainPrompt: 'Why is a user identifier fine in a log line and wrong as a metric label?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Choose between a metric, a log line and a trace by the question being asked.
+- Keep metric cardinality inside a budget you can compute.
+- Write an alert on a symptom, with an action attached.
+- State an RPO and an RTO separately, and know what makes each one true.
+
+## Intuition
+
+**Monitoring tells you something is wrong. Observability is being able to find
+out why without shipping new code.** The three signals are not three brands of
+the same thing; they answer different questions, and they cost different amounts
+per event.
+
+- **Metrics** answer "how much, how often, how slow" as numbers aggregated over
+  time. Cheap per event, and their budget is **cardinality**: how many distinct
+  label combinations exist.
+- **Logs** answer "what exactly happened to this one request". Expensive per
+  event, and the place identifiers belong.
+- **Traces** answer "where did the time go across seven services". The only
+  signal that shows the shape of a distributed call, and sampled because
+  keeping all of them costs more than the system does.
+
+The second idea is that **failure handling is a design activity, not an incident
+activity.** Every dependency will be slow or absent at some point, and the
+response is either something you chose in advance or something you discover
+live. Degradation you did not design is called an outage.
+
+The third is that recovery has two numbers and people quote one. **RPO — the
+recovery point objective — is how much data you accept losing**, in time.
+**RTO — the recovery time objective — is how long you accept being down.**
+Different mechanisms buy them.
+
+## How it works
+
+**Metrics: pick a framework and respect the cardinality budget.** For a service,
+the RED trio — request rate, error rate, duration — covers what users feel; for
+a resource, the USE trio — utilisation, saturation, errors — covers what runs
+out. Record duration as percentiles, never as a mean
+([Latency and Throughput](/learn/sd-latency-and-throughput/)). Then count your
+series before you add a label:
+
+```text
+one duration metric, labelled service × endpoint × status
+  20 × 50 × 5                  =  5,000 time series — routine
+
+add a user id label, 1,000,000 users
+  5,000 × 1,000,000            =  5,000,000,000 time series
+
+at a planning figure of ~1 KB of memory per active series
+  (a teaching assumption — measure your own)
+  5 billion × 1 KB             ≈  5 TB of RAM for one metric
+```
+
+That is why identifiers go in logs and traces and never in a metric label: a
+label is safe when its values are few, bounded, and do not grow with users,
+requests or time.
+
+**Logs: structured, correlated, sampled.** One event per line, as an object
+rather than a sentence, always carrying the id that ties it to everything else:
+
+```json
+{
+  "ts": "2026-08-26T09:14:02.481Z",
+  "level": "error",
+  "service": "checkout",
+  "trace_id": "3f9a2c7e11d0",
+  "order_id": "8812",
+  "event": "payment_declined",
+  "duration_ms": 412
+}
+```
+
+Sample the high-volume successes and keep the errors; full-fidelity logging is
+usually the largest bill in the telemetry budget and the least read.
+
+**Traces: one id, propagated.** The edge creates a trace id, every hop passes it
+on and records a span with its own timing, and the result is the request's
+critical path across services. Sampling is head or tail: _head_ decides at the
+start, which is cheap and throws away most of the rare failures; _tail_ buffers
+the spans and keeps the interesting ones, which catches the one slow trace in
+ten thousand and costs the buffering.
+
+The three become one tool through the shared id: an alarm on a metric, then a
+trace of one slow request, then that request's log lines. Without a correlation
+id every investigation is a search by timestamp across three haystacks, which
+stops working at exactly the traffic level where you need it.
+
+**Alerting: symptoms, and an action.** Alert on what a user experiences — error
+rate, p99 latency, backlog age, the age of the last successful run — and not on
+causes. High CPU is not a problem if nobody is waiting. Tie the threshold to the
+error budget:
+[Availability and Durability](/learn/sd-availability-and-durability/) puts 99.9%
+at about 44 minutes of failure per month, so a burn rate that would spend a
+month's budget in an hour is a page and a slow burn is a ticket. Every alert
+names an action; one answered by "have a look" trains people to ignore the
+next.
+
+<Callout variant="note">
+  **Design the degradation before the incident.** Name, per dependency, what the
+  system does when it is slow or gone: serve a stale cached answer, hide an
+  optional feature, queue the write for later, or fail that one call and keep
+  the page. Recommendations may disappear while playback continues; a checkout
+  may not. The mechanics — shedding cheapest traffic first, rejecting quickly
+  with a `Retry-After` — are in [Idempotency, Retries and
+  Backpressure](/learn/sd-idempotency-and-backpressure/); what to sacrifice is a
+  product decision, and it belongs in writing.
+</Callout>
+
+**Recovery: two numbers, two mechanisms.** RPO is bought by writing copies more
+often — snapshots, continuous replication, synchronous commits. RTO is
+bought by having somewhere to fail over to, and by having done it before. Take
+the 14 TB the link-shortener estimate in
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/) arrives at after
+five years:
+
+```text
+Hourly snapshots, restore onto a fresh cluster
+  RPO   up to 1 hour of writes  (the gap since the last snapshot)
+  RTO   14 TB ÷ ~1 GB/s          =  14,000 s  ≈  4 hours of copying
+        plus provisioning, replay, verification and cutover
+        → most of a working day, said honestly
+
+Continuous replication to a warm standby
+  RPO   seconds — whatever the replication lag is
+  RTO   minutes — promote, repoint, verify
+  Cost  a second fleet running all the time
+```
+
+Most systems want both rows: the standby covers the common failure in minutes,
+and the snapshots cover the corruption that replication faithfully copies. That second case is why a replica is not a
+backup — a deletion replicates in milliseconds.
+
+**A backup nobody has restored is not a backup.** The restore is the feature;
+the copy is only its input. Practise it on a schedule, verify the data rather
+than the exit code, and time it — that measurement _is_ your RTO, and the number
+in the plan is not. Keep at least one copy outside the failure domain it
+protects against: a backup sharing the primary's account, region and credentials
+does not survive the event it exists for.
+
+## Trade-offs
+
+**Telemetry costs real money, and it scales with traffic rather than with
+users** — a substantial infrastructure line item, generally accepted, with
+cardinality as the usual driver. Sampling is the lever, and its cost is exactly
+the rare event you wanted: sample at 1% and the one-in-ten-thousand failure
+is invisible.
+
+**More nines of recovery cost a standby fleet.** Backup-and-restore is cheapest
+and slowest; a warm standby costs a duplicate of the expensive parts;
+active-active removes the failover step and forces every multi-region
+consistency decision in
+[Consistency Models, CAP and PACELC](/learn/sd-consistency-models/), including
+the cross-region latency floor. Pick the tier per dataset: a
+payments ledger and a recommendation cache do not deserve the same RPO.
+
+**Degradation trades correctness for availability**, and someone has to say
+which. A stale price is acceptable in a catalogue and unacceptable at checkout.
+
+## Common pitfalls
+
+- **Alerting on causes.** CPU, memory and queue counts are tempting because they
+  are cheap to threshold, and they page at 03:00 for conditions no user noticed.
+- **An alert with no action.** It arrives, somebody acknowledges it, nothing
+  changes, and within a month the real one is acknowledged the same way. A
+  dashboard has the same defect: a wall of graphs detects incidents only while
+  somebody is looking at it.
+- **Unbounded cardinality.** A user id, a URL with an id in it, or a raw error
+  string as a label — each looks like one small addition and each multiplies the
+  series count.
+- **Conflating RPO and RTO.** "Our recovery objective is four hours" says
+  nothing about how much data is lost, and the two are routinely discovered to
+  be different numbers during the incident.
+- **Untested restores.** The backup job is green, the restore has never been
+  run, and nobody knows it needs a credential that expired in March.
+
+## Interview notes
+
+Attach the signal to the question. "Rate, errors and duration as metrics per
+endpoint; a trace id created at the edge and carried on every hop; logs
+structured with that id and sampled" is a complete observability answer, and it
+beats naming products.
+
+For reliability, give both numbers and say what buys them: "RPO of seconds from
+continuous replication, RTO of about 15 minutes because we fail over to a warm
+standby, and we test the failover quarterly." Then name one thing you degrade
+rather than fail — that is what shows the design has a plan for a bad day.
+
+## Key takeaways
+
+- **Metrics, logs and traces answer different questions**: aggregates,
+  individual events, and the path across services. Identifiers belong in the
+  last two.
+- **Cardinality is the metric budget**, and it multiplies — a label whose values
+  grow with users is the standard way to lose a monitoring cluster.
+- **Alert on symptoms, tie the threshold to the error budget, and give every
+  alert an action.** An alert nobody can act on trains people to ignore alerts.
+- **Degradation is designed in advance**, per dependency, and it is a product
+  decision as much as an engineering one.
+- **RPO and RTO are separate promises**, bought by copies and by standby
+  capacity — and an untested restore has proved neither.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team reports 99.99% uptime for the last quarter, and customer support has a backlog of complaints about checkout failing. Both are accurate. What is being measured, and what should be?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  They are almost certainly measuring process or host uptime — whether the
+  service was running and answering a health check — which can be near-perfect
+  while a meaningful share of real requests fail. Availability is successful
+  requests over total requests in a window, measured as close to the user as
+  possible, so the number to publish comes from the edge: the proportion of
+  checkout requests that returned a good response inside the latency objective.
+  Reported that way, an error rate of a few per cent shows up immediately. Two
+  further gaps are worth naming. An average across all endpoints hides one
+  broken path among twenty healthy ones, so measure per critical user journey.
+  And a mean latency hides the tail, so state the objective as a percentile —
+  p99 under some bound — since the failing checkouts are exactly the slow ones.
+</PracticeCheck>
+
+**2. "We take a full backup nightly to the same cloud account as the database. Our RPO is 24 hours and our RTO is 24 hours." What is right, what is unverified, and what is wrong?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The RPO claim is right and follows directly from the schedule: with one backup
+  a night, a failure moments before the next one loses a full day of writes. The
+  RTO claim is unverified — it is a hope until somebody restores a full backup,
+  brings the system up on it, and times the whole sequence including
+  provisioning, verification and cutover. That measurement is the only thing
+  that turns the number into a promise, and it is often several times what was
+  assumed. What is wrong is the location: a backup in the same account as the
+  database shares the failure modes that most often destroy data, which are
+  credential compromise, a mistaken bulk delete and an account-level problem,
+  not a disk failure. At least one copy has to sit outside that blast radius,
+  with separate credentials and ideally write-once retention.
+</PracticeCheck>
+
+**3. An engineer is debugging a complaint from one customer and proposes adding `user_id` as a label on the request-duration metric so they can graph that customer's latency. What do you say, and what do you offer instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  That the goal is reasonable and the mechanism is the one thing metrics cannot
+  do. A label multiplies the series count by its number of values, so a user id
+  turns one metric of a few thousand series into billions — enough memory to
+  take down the monitoring system, and the monitoring system failing during an
+  incident is its own outage. The same request is already answerable by the
+  other two signals, which are built for high-cardinality identifiers: query the
+  logs for that user's request lines and their durations, or pull the traces for
+  their slow requests and see which hop consumed the time. If per-customer
+  latency is a lasting requirement rather than one investigation, add a bounded
+  label instead — a tier or a plan with a handful of values — so the series
+  count stays fixed as the customer list grows.
+</PracticeCheck>

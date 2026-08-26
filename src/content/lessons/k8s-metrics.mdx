@@ -1,0 +1,257 @@
+---
+title: 'Metrics'
+slug: 'k8s-metrics'
+course: 'kubernetes'
+track: 'k8s-observability'
+order: 41
+summary: 'Three different things are called metrics in a cluster — resource usage, object state and application counters — and a Prometheus-style server pulls all of them into one time series database you can ask questions of.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-logs-and-events']
+estimatedMinutes: 9
+tags: ['kubernetes', 'observability', 'metrics', 'prometheus', 'monitoring']
+explainPrompt: 'Why can a metrics system tell you that one percent of requests are slow but never which requests they were?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Tell resource metrics, object-state metrics and application metrics apart.
+- Describe a pull-based monitoring architecture and where it gets its targets.
+- Name the metric types and say which query each one wants.
+- Say what cardinality costs, and what a metric can never answer.
+
+## Intuition
+
+A log records an occurrence. A metric records a number, over and over, on a
+schedule.
+
+**A metric is a photograph taken every fifteen seconds, not a recording.** Each
+sample is a value with a timestamp, attached to a name and a set of labels, and
+what you get back is a line on a chart. That is a strong shape for questions
+about populations — how many, how often, how long on average, what is the trend —
+and it is structurally unable to answer questions about individuals. The camera
+was not pointed at one request.
+
+Three separate systems get called "metrics" in a Kubernetes conversation, and
+they answer different questions:
+
+| Source               | Answers                                             | Comes from                    |
+| -------------------- | --------------------------------------------------- | ----------------------------- |
+| Resource metrics     | how much CPU and memory is this Pod using now       | metrics-server, an add-on     |
+| Object-state metrics | how many replicas are available, is this Node ready | kube-state-metrics, an add-on |
+| Application metrics  | how many checkouts failed, how long they took       | your own code                 |
+
+None of the three is installed by default, and neither of the first two stores
+history.
+
+## How it works
+
+### Resource metrics
+
+**metrics-server** collects CPU and memory usage from every kubelet and serves it
+through the `metrics.k8s.io` API. It holds a short window in memory and writes
+nothing to disk, because it exists to answer "right now" for two consumers:
+`kubectl top`, and the HorizontalPodAutoscaler.
+
+```bash
+kubectl top nodes
+kubectl top pods -n shop
+```
+
+```text
+NAME                      CPU(cores)   MEMORY(bytes)
+web-9f8c4d7b6-2xk5v       12m          148Mi
+web-9f8c4d7b6-8bqrl       9m           151Mi
+```
+
+That is usage, in the same units a Pod's requests and limits are written in — so
+it is the number to compare a request against. It is not a monitoring system:
+there is no history, no query language and no alerting, and the command fails
+outright on a cluster where nobody installed the add-on.
+
+### Object-state metrics
+
+**kube-state-metrics** is a different idea with a confusingly similar name. It
+watches the API server and exports the _state of objects_ as metrics:
+`kube_deployment_status_replicas_available`, `kube_pod_status_phase`,
+`kube_node_status_condition`, `kube_job_status_failed`. Nothing about usage; it
+is the desired-versus-actual picture, in numeric form.
+
+This is what makes "three replicas wanted, one available, for twenty minutes"
+into something a chart can show and an alert can fire on. Between the two
+add-ons, resource metrics tell you how hard the workload is working and
+object-state metrics tell you whether Kubernetes is content with it.
+
+### The Prometheus-style architecture
+
+Prometheus is a CNCF project and ecosystem software, not part of Kubernetes, and
+its design has become the default shape for cluster monitoring. Four moves:
+
+- **Exposition.** A process serves its current values as plain text at an HTTP
+  path, conventionally `/metrics`. Nothing is pushed and nothing is buffered; the
+  endpoint reports what is true when it is read.
+- **Discovery.** The server asks the Kubernetes API which Pods, Services and
+  Nodes exist, so targets appear and disappear with the workloads themselves.
+- **Scrape.** It fetches every target on an interval, commonly 15 or 30 seconds,
+  and stores each sample in a local time series database.
+- **Query.** PromQL asks questions across those series, and the same expressions
+  drive both dashboards and alerting rules.
+
+A **series** is a metric name plus one particular set of label values:
+`http_requests_total{job="checkout", code="500", method="POST"}` is one series,
+and changing any label makes another.
+
+Three metric types cover nearly everything:
+
+- A **counter** only increases, and resets to zero when the process restarts. You
+  almost never read its value — you read `rate()` over it, which turns "requests
+  since boot" into "requests per second" and handles the reset.
+- A **gauge** goes up and down: queue depth, memory in use, connections open.
+  Read it directly.
+- A **histogram** counts observations into buckets, which is how latency is
+  measured. It supports quantiles across many instances, at the cost of storing
+  one series per bucket.
+
+Telling a Prometheus which Services to scrape is usually done with a
+**ServiceMonitor**, a custom resource from the Prometheus operator — again
+ecosystem software, not core Kubernetes:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: web
+  namespace: shop
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: web
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+```
+
+The object selects a Service by label and names the port to scrape. Its value is
+that a team ships monitoring configuration beside their Deployment, instead of
+sending a pull request against a central server configuration file.
+
+<Callout variant="warning">
+  **Cardinality is the bill.** Every distinct combination of label values is a
+  separate series with its own memory and storage. A label carrying a user id, a
+  request id, an email address or a full URL path has no upper bound, so one
+  well-meaning line of instrumentation can turn a hundred series into a million
+  and take the monitoring system down with it. Labels are for values from a
+  small fixed set: status code, method, route template, region.
+</Callout>
+
+### What a metric cannot do
+
+A metric is an aggregate by construction. "The 99th percentile of checkout
+latency is 800 ms" is a true and useful sentence that identifies no request, no
+customer and no dependency. Ask "why was this checkout slow" and the metric has
+nothing — not because it was configured badly, but because the number was
+computed by throwing individual requests away. That question belongs to
+[Traces](/learn/k8s-tracing/).
+
+## Trade-offs
+
+**Pull against push.** Scraping means the monitoring system knows the target list
+and can tell "the target is down" from "the target reported zero", which is a
+genuinely hard distinction to make with pushed data. It also means the server
+must be able to reach every target, which is awkward for short-lived Jobs that
+finish between scrapes — the usual answer is a gateway they push to, accepted as
+an exception rather than the model.
+
+**Resolution against retention.** A 15-second scrape over a thousand Pods is a
+large number of samples per day, and keeping them at full resolution for a year
+is expensive. The common arrangement is high resolution for a couple of weeks
+locally, and downsampled long-term storage behind it for capacity and trend work.
+
+**Instrumentation is code you maintain.** Every counter is a line somebody wrote
+and can delete, and a metric renamed in a release breaks the dashboards and
+alerts built on it. Treat metric names as an interface with the same care as an
+API.
+
+## Common pitfalls
+
+- **Reading a counter directly.** The raw value is "since this process started",
+  so a chart of it shows a sawtooth on every deploy. Wrap it in `rate()`.
+- **Confusing metrics-server with a monitoring system.** It has no history, so
+  `kubectl top` cannot tell you what memory looked like an hour ago, and it is
+  the wrong thing to point an alert at.
+- **Averaging a percentile.** The average of the p99 across ten Pods is not the
+  p99 of the population, and it is systematically optimistic. Aggregate the
+  histogram buckets, then compute the quantile.
+- **Unbounded labels.** It is a small change with no immediate symptom, and the
+  bill arrives days later as an out-of-memory monitoring server.
+- **Alerting on usage without state.** CPU at 90% is not an incident if the
+  Deployment is fully available; one unavailable replica is, at any CPU level.
+
+## Key takeaways
+
+- **Three sources, three questions**: metrics-server for current usage,
+  kube-state-metrics for object state, your own code for what the application
+  did. None is installed by default.
+- A Prometheus-style server **discovers targets from the Kubernetes API and pulls
+  `/metrics` on an interval**, storing name-plus-labels series locally.
+- **Counters want `rate()`, gauges are read directly, histograms give
+  quantiles** — and a percentile must be computed from buckets, never averaged.
+- **Cardinality is the cost model.** A label with unbounded values multiplies
+  series without limit.
+- **Metrics are sampled aggregates**, so they cannot answer "what happened to
+  this one request" — which is what a trace is for.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A dashboard shows checkout p99 latency at 900 ms for the past hour. A customer reports that their order took eleven seconds. Why can the metrics system not confirm or explain their case?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The p99 is computed by counting requests into latency buckets and discarding
+  everything that identifies them, so an eleven-second request contributed a
+  count to the highest bucket and nothing else — no customer, no order id, no
+  breakdown of where the time went. It is consistent with a 900 ms p99, since
+  one in a hundred requests is above that line and nothing caps how far above.
+  The metric is doing exactly what it was built for, which is describing the
+  population; the individual was thrown away at instrumentation time. Answering
+  the customer needs a record that survives per request — a trace, or a log line
+  carrying the order id and a duration.
+</PracticeCheck>
+
+**2. `kubectl top pods` shows every Pod using far less memory than its limit, and the team concludes the service is healthy. What has this measurement not told them?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It has told them about resource usage of the Pods that exist, right now, and
+  nothing else. It does not say whether the Deployment has the replicas it wants
+  — two of three could be missing, and the survivors would look comfortable
+  precisely because they are the ones that are running. It does not say whether
+  those Pods are ready and receiving traffic, whether any of them have
+  restarted, or whether requests are succeeding. And because metrics-server
+  keeps no history, it cannot say whether memory was at the limit ten minutes
+  ago and a container was terminated for it. Object-state metrics from
+  kube-state-metrics cover the first set of questions, and application metrics
+  cover the last.
+</PracticeCheck>
+
+**3. An engineer adds a `customer_id` label to a request counter so support can look up individual accounts. Predict what happens over the following week.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Every distinct customer id creates its own series, so the number of series
+  grows with the customer base rather than with the code — a hundred thousand
+  customers means a hundred thousand series per label combination it multiplies
+  against, such as status code and method. Memory on the monitoring server
+  climbs as each new series is tracked, queries that touch the metric get slower
+  because they now scan an enormous number of series, and storage grows
+  accordingly. The usual ending is the server being terminated for exceeding
+  memory, taking every dashboard and alert with it — and since the series
+  persist in the stored data, the problem does not resolve when the label is
+  removed. The requirement itself was valid; the mechanism was wrong, because
+  per-customer lookup is what logs and traces do.
+</PracticeCheck>
