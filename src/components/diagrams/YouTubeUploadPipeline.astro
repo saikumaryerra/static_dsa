@@ -143,7 +143,11 @@ import Figure from '../Figure.astro';
   <polygon class="dg-head" points="548,244 538,239 538,249"></polygon>
 
   <!-- The ladder: one rung first so the video can publish, then the rest -->
-  <text class="dg-sub" x="615" y="182" text-anchor="middle">
+  <!-- Above the border, not on it: at y=182 the group's dashes ran through the
+       ascenders. The other group in this drawing labels itself from the inside
+       (.dg-legend); this one has four rungs and no room, so it labels itself
+       from just outside. -->
+  <text class="dg-sub" x="615" y="172" text-anchor="middle">
     rendition ladder
   </text>
   <rect class="dg-group" x="548" y="180" width="134" height="124"></rect>
