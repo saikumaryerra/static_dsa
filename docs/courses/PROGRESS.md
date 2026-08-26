@@ -99,32 +99,62 @@ that cohort, and is the source of the remaining warnings.
 | Aria baselines | re-seed pending — `home` and `lesson-binary-search` now FAIL (both pin strings this branch changed); `glossary` is stale-but-**passing**, because `toMatchAriaSnapshot` matches a subset and 35 new terms are invisible to it |
 | E2E | `npm run test:e2e` | ⏳ run 3 pending, after every agent has finished |
 
-### The e2e failure ledger (runs 1 and 2)
+### The e2e failure ledger
 
-Run 1 found 17 failures, run 2 found 9. Every one is now fixed or classified:
+**Runs 1 and 2** found 17 then 9 failures; every one was fixed or classified, and
+the detail is in this file's history. What follows is run 3, the first against all
+127 lessons.
 
-**Fixed — mine.** Five aria baselines (re-seeded, diffs read); the home tab-path's
-hardcoded lesson count; `/learn` assertions that had to follow the cards to the
-course page across eight specs; the sitemap route set; the last-lesson card and
-the track-crossing walk, now per course; the predict suite's "every lesson ships a
-visualization", now scoped to the course where that is true; a reset assertion
-that navigated and so re-ran `seedStorage`'s init script; the portable walk, which
-grew a hop and needed to settle before judging what failed to load.
+**Run 3 — `npm run test:e2e`, quiet machine, 4 workers: 472 passed, 17 failed,
+13.2 minutes.** The wall-clock is the datum for the deferred CI-ceiling question:
+13.2 of 30 minutes, so the per-lesson walks have headroom.
 
-**Fixed — structural, would have got worse.** Three specs walk every lesson with a
-browser navigation each. At 17 lessons they began timing out on the 30 s default;
-at 127 they would always. The one whose claim genuinely covers every lesson got
-the budget it needs; the two about Trace Trials and `<StepLink>` are scoped to the
-`dsa` course, which is safe *because* the validator now rejects a viz-coupled
-component in a prose lesson. The axe scans on the heaviest lesson pages take
-4–13 s quiet and had no headroom either; their budget is raised.
+Re-running the ten affected spec files **single-worker** separates the two kinds
+of failure, and it is the only evidence that can: 148 passed, 3 failed.
 
-**Classified — load flakes, not regressions.** `m4-lessons` axe on
-`sorting-basics` and `m8-explain-note`'s delete test, both timeouts, both green on
-a quiet machine, and `m7-print-hcm`'s Practice-answer reveal, which the test's own
-comment already documents as a race. **Never run the e2e suite while subagents or
-other heavy processes are running** — `retries: 0` locally with full parallelism
-on 4 cores turns any of these into a false red.
+**Fixed — a real defect the suite could not have caught before.** Five assertions
+across three specs matched a lesson path against `/^\/learn\/[a-z-]+\/$/` —
+letters and hyphens, no digits. Every `k8s-` slug carries an `8`, so the
+glossary's "Introduced in …" cross-reference check failed on the SHAPE of a
+perfectly valid URL before it ever fetched it. The other four sample a link
+rather than walk them all, which is why only one had fired. Widened to
+`[a-z0-9-]+`, which `url-shape.spec.ts` already used.
+
+**Load flakes — 14 of the 17.** All three axe scans (`binary-search` ×2,
+`m1-gaps` ×2, and the new `courses.spec.ts` Kubernetes course index ×2),
+`m8-predict`'s toggle walk, `nojs-orphan-sections`, `m7-print-hcm`'s
+Practice-answer reveal, the `portable` sub-path walk, and two `m8-explain-note`
+storage tests. Every one passed single-worker. Two details worth keeping:
+`m8-predict`'s walk is already scoped to `dsa` (15 lessons), so a 30-second
+timeout there can only be load; and the Kubernetes course index takes axe ~50 s
+under load against the System Design index's 3.5 s, because 67 lessons in 14
+modules is simply a bigger DOM.
+
+**Structural — 2, and they are arithmetic rather than regression.** Both walk the
+whole curriculum with one browser navigation per lesson, which was 17 navigations
+when they were written and is now 123 and 127:
+
+| Spec | Claim | Budget | Outcome |
+|---|---|---|---|
+| `m8-explain-note.spec.ts:289` | every authored prompt reaches its own lesson | `test.slow()` → 90 s | timed out at 123 lessons |
+| `m8-practice-check.spec.ts:510` | every Practice section is self-gradable | `test.setTimeout(180_000)` | timed out at 127 lessons |
+
+Both budgets were constants somebody has to remember to raise. **Measured** with
+a 900-second ceiling on a quiet machine: the two walks take about 105 seconds
+each, roughly 0.85 s per lesson. Both now derive their budget from the length of
+the list they walk — `30_000 + lessons.length * 2_000`, about 2.5x the measured
+cost, which is the headroom a loaded CI box needs and does not need raising the
+next time a module lands.
+
+One more failure appeared **only** in the single-worker run and passed under
+parallelism: `m8-explain-note.spec.ts:330`, where `[data-mark-complete]`
+resolves and then the click times out. One occurrence with `retries: 0` is not a
+characterisation; it is being re-run to see whether it reproduces.
+
+**Standing rule, learnt from run 1 and confirmed again here:** never run the e2e
+suite while subagents or other heavy processes are running. `retries: 0` locally
+with full parallelism on 4 cores turns any of the fourteen above into a false
+red, and a red run under load is not evidence of anything.
 
 ## Deferred to Phase 5 (integration polish)
 

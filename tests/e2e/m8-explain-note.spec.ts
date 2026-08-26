@@ -290,10 +290,14 @@ test.describe('the prompt appears exactly where it was authored', () => {
     page,
   }) => {
     // One navigation per authored lesson, so the budget is a multiple of the
-    // curriculum rather than of one page. `test.slow()` rather than a bespoke
-    // timeout: it scales with whatever the project timeout is, on whatever
-    // machine is running.
-    test.slow();
+    // CURRICULUM, not of the project timeout. `test.slow()` was here and is a
+    // 3x multiplier — 90 s — which was ample at 11 authored prompts and is not
+    // at 123: the walk measured ~105 s on a quiet machine, about 0.85 s per
+    // lesson. A constant would have to be raised again the next time a module
+    // lands, so the budget is derived from the list this test actually walks,
+    // at 2 s per lesson plus a fixed allowance for start-up. That is roughly
+    // 2.5x the measured cost, which is the headroom a loaded CI box needs.
+    test.setTimeout(30_000 + WITH_PROMPT.length * 2_000);
     // The prompt is the label AND the field's accessible name, so a lesson
     // whose frontmatter never reached the component ships a box asking nothing.
     // Checked across the whole curriculum rather than on one lesson: this is the
