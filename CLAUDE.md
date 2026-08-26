@@ -20,12 +20,25 @@ touching its area:
 | `docs/m8-gamification.md` | the mastery-loop design **as shipped**, its binding stance, data model, killed mechanics, and what was deferred |
 | `docs/redesign-2026-08/` | the 2026-08 ground-up UI/UX redesign: `00-interpretation.md` (what the brief means for a no-account static site), `01-direction.md` (the design as built), `03-amendments.md` (**every spec constraint it reopened, and the test each one moved**) |
 
-## Course expansion (in progress on `feat/kubernetes-and-system-design-courses`)
+## Course expansion (**shipped** on `feat/kubernetes-and-system-design-courses`)
 
-Before any related work, read `docs/courses/SPEC.md` and `docs/courses/PROGRESS.md`,
-and follow the resume protocol in SPEC.md §4. All lessons follow
-`docs/courses/CONTENT_STYLE.md`; the plan is `docs/courses/CURRICULUM.md` and every
-choice is logged in `docs/courses/DECISIONS.md`.
+Two courses added: **Kubernetes** (67 lessons, 14 modules) and **System Design**
+(45 lessons, 9 modules). The catalogue went 1 → 3 courses, 6 → 29 modules,
+15 → 127 lessons. `docs/courses/REPORT.md` is what was built and what was
+verified; `docs/courses/PROGRESS.md` carries the §8 gate and the e2e ledger.
+
+Before any related work, read `docs/courses/SPEC.md` and `docs/courses/PROGRESS.md`.
+All lessons follow `docs/courses/CONTENT_STYLE.md`; the plan is
+`docs/courses/CURRICULUM.md`, every choice is logged in
+`docs/courses/DECISIONS.md`, and every spec constraint it reopened is in
+`docs/courses/AMENDMENTS.md` (C-1..C-8).
+
+**Two things this expansion learnt that outlive it.** *Read the built artifact,
+not the source*: a rendered read of all 112 lessons found 60 defects that source
+review had passed, including a curly quote the source spells straight and five
+pages sharing two document titles. And *a per-lesson budget must scale with the
+curriculum*: three e2e walks navigate once per lesson, and every constant in them
+was written when that meant 17 pages.
 
 **What it changed about the site's shape** (decisions D-04/D-05):
 

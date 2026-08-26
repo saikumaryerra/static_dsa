@@ -115,7 +115,7 @@ only regenerated artifacts are the two regression baselines, re-seeded and read.
 | Fonts | `npm run fonts` | ✅ regenerates identically |
 | Aria baselines | re-seeded, generalisations restored, re-run | ✅ 8 passed |
 | Pixel baselines | re-seeded in `playwright:v1.61.1-noble`, compared single-worker | ✅ 15 passed |
-| End-to-end | `npm run test:e2e` | *(filled in below)* |
+| End-to-end | whole suite in `playwright:v1.61.1-noble`, `CI=1 VISUAL_BASELINE=1` | ✅ **503 passed, 0 failed, 6.3 min** |
 | External links | every external URL in `dist/`, fetched | ✅ 18 distinct, **0 broken** |
 | Responsive + console | 8 pages × 375/768/1280, both themes, 36 captures | ✅ no horizontal overflow, no console or page errors |
 | Keyboard walk | catalogue → card → course → lesson → breadcrumb → module anchor, Tab/Enter only | ✅ focus ring at every stop, skip link first, figure frames focusable |
@@ -136,6 +136,35 @@ evidence** — one agent counted the corpus and found an "add-on → addon" find
 had it backwards; another declined to delete the single Kubernetes "Interview
 notes" section, citing the validator's own optional-section list. Two proposed
 fixes were rejected in favour of better ones.
+
+**The end-to-end run took four passes to become evidence.** The first, on the
+host at four workers, was 472 passed / 17 failed in 13.2 minutes. Re-running the
+ten affected spec files **single-worker** — the only thing that separates a load
+flake from a real failure — gave 148 passed / 3 failed. That split the seventeen
+into three kinds:
+
+- **One real defect**, and one the suite could not have caught before: five
+  assertions across three specs matched a lesson path against
+  `/^\/learn\/[a-z-]+\/$/` — letters and hyphens, **no digits**. Every `k8s-`
+  slug carries an `8`, so the glossary's cross-reference check failed on the
+  *shape* of a valid URL before it ever fetched it.
+- **Two arithmetic failures, not regressions.** Two tests walk the whole
+  curriculum with one navigation per lesson, and both carried a constant written
+  when that meant 17 pages. Measured with a 900-second ceiling: each walk takes
+  ~105 s, about 0.85 s per lesson. Both budgets are now derived from the length
+  of the list they walk, so they do not need raising when the next module lands.
+- **Fourteen load flakes**, every one green single-worker. The axe scans are the
+  bulk of them: the Kubernetes course index takes axe ~50 s under load against
+  the System Design index's 3.5 s, because 67 lessons in 14 modules is simply a
+  bigger DOM.
+
+The fourth pass is the one in the table, and it is the only faithful one: the
+host cannot reproduce CI, because CI runs in the pinned container and the pixel
+gate can only be compared in the image its baselines were rasterised in. Run
+inside that image with `CI=1` and `VISUAL_BASELINE=1`, the suite is **503 passed,
+0 failed in 6.3 minutes** — 503 rather than 489 because the flag arms the
+fourteen pixel comparisons that skip on a bare local run, so the pixel gate is
+inside that green.
 
 **Two defects only a rendered read could find.** A tools table opened with a
 *closing* curly quote on both sides of a phrase — the source has straight quotes
@@ -239,7 +268,13 @@ longer to satisfy a formula rather than a judgement.
    citation rule produces ("author and year, no URL"), and it is consistent with
    the site's no-network-calls constraint — but it means a reader who wants the
    upstream page has to search for it.
-5. **CI's 30-minute ceiling is now a real constraint.** The e2e suite walks 127
-   lessons where it once walked 17. The wall-clock of the run below is the datum;
-   if it approaches the ceiling, the per-lesson walks should sample rather than
-   enumerate.
+5. **CI's 30-minute ceiling has headroom, but less of it.** The e2e suite walks
+   127 lessons where it once walked 17: 6.3 minutes in the pinned container,
+   13.2 on a busy host. That is comfortable now and will not stay comfortable
+   forever — the three per-lesson walks are the term that grows, and at some
+   catalogue size they should sample rather than enumerate.
+6. **A four-core host cannot run this suite at four workers.** Fourteen tests,
+   mostly axe scans, exceed a 30-second budget under that load and pass on a
+   quiet machine. CI's `retries: 2` absorbs it and the container run is green,
+   but a local `npm run test:e2e` on a busy machine will produce reds that mean
+   nothing. The standing rule is in `PROGRESS.md`.

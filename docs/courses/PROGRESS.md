@@ -97,7 +97,7 @@ that cohort, and is the source of the remaining warnings.
 | Fonts | `npm run fonts` | ✅ regenerates identically |
 | Visual baselines | re-seed pending — **expect 10 of 14 to move**: home ×4 (CTA), glossary ×2 (35 terms), lesson-binary-search ×4 (the meta row lost "7 min read"). `learn-index` ×2 and `not-found` ×2 should not move; read either if it does. |
 | Aria baselines | re-seed pending — `home` and `lesson-binary-search` now FAIL (both pin strings this branch changed); `glossary` is stale-but-**passing**, because `toMatchAriaSnapshot` matches a subset and 35 new terms are invisible to it |
-| E2E | `npm run test:e2e` | ⏳ run 3 pending, after every agent has finished |
+| E2E | pinned container, `CI=1 VISUAL_BASELINE=1` | ✅ **503 passed, 0 failed, 6.3 min** |
 
 ### The e2e failure ledger
 
@@ -148,8 +148,32 @@ next time a module lands.
 
 One more failure appeared **only** in the single-worker run and passed under
 parallelism: `m8-explain-note.spec.ts:330`, where `[data-mark-complete]`
-resolves and then the click times out. One occurrence with `retries: 0` is not a
-characterisation; it is being re-run to see whether it reproduces.
+resolves and then the click times out. It did not reproduce — 38 passed on the
+re-run, and it passed again in the run below. One occurrence with `retries: 0`
+is not a characterisation.
+
+### Run 4 — the one that counts
+
+The host cannot reproduce CI: CI runs in `playwright:v1.61.1-noble`, and the
+pixel gate can only be compared in the image its baselines were rasterised in.
+So run 4 was the whole suite **inside that container**, with `CI=1` (retries 2,
+`updateSnapshots: 'none'`) and `VISUAL_BASELINE=1` (the 14 pixel comparisons
+armed rather than skipped):
+
+```
+docker run --rm -u 1000:1000 -v "$PWD":/w -w /w \
+  -e CI=1 -e VISUAL_BASELINE=1 \
+  mcr.microsoft.com/playwright:v1.61.1-noble npx playwright test
+```
+
+**503 passed, 0 failed, 6.3 minutes.** 503 rather than 489 because
+`VISUAL_BASELINE` arms the fourteen captures that skip on a bare local run — the
+pixel gate is *included* in that green.
+
+It is also faster than the 13.2-minute host run, which is the clearest statement
+of what the fourteen load flakes were: a four-core host running four workers
+while the rest of this session's work was still settling, not anything about the
+code.
 
 **Standing rule, learnt from run 1 and confirmed again here:** never run the e2e
 suite while subagents or other heavy processes are running. `retries: 0` locally
@@ -208,4 +232,4 @@ red, and a red run under load is not evidence of anything.
       what CONTENT_STYLE's "author and year, no URL" rule produces
 - [x] Final content reviewed for quality and consistency — all 112 lessons read in
       rendered form, 60 findings, all triaged
-- [ ] `npm run test:e2e` passes
+- [x] `npm run test:e2e` passes — 503/503 in the pinned container with the pixel gate armed
