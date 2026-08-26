@@ -40,6 +40,14 @@ import {
 
 const LESSON = 'arrays';
 const LEARN = '/learn/';
+/**
+ * The page holding the lesson cards and the module arcs. `/learn/` is the
+ * catalogue since the course expansion (decision D-05) and keeps its own
+ * per-course ring, the reset control and the review strip.
+ */
+const COURSE = '/learn/dsa/';
+/** Every course, so "no lesson is locked" can be asserted across all of them. */
+const COURSES = ['dsa', 'kubernetes', 'system-design'] as const;
 
 /**
  * Loss-framing and second-currency vocabulary, applied to M8-owned copy.
@@ -143,7 +151,7 @@ test.describe('no ratio, no percentage, no second currency', () => {
     );
   });
 
-  test('/learn states both numbers in words, with no ring percentage', async ({
+  test('every ring states both numbers in words, and carries no percentage', async ({
     page,
   }) => {
     const foundations = await trackLessons(page, 'foundations');
@@ -166,11 +174,20 @@ test.describe('no ratio, no percentage, no second currency', () => {
     }
 
     // The ring is decoration for the sentence beside it, so it must not carry a
-    // value of its own for a screen reader to read out a second time.
-    const ring = page.locator('[data-track-progress="foundations"] svg');
-    await expect(ring).toHaveAttribute('aria-hidden', 'true');
-    await expect(ring).not.toHaveAttribute('role', 'progressbar');
-    await expect(ring).not.toHaveAttribute('aria-valuenow', /.*/);
+    // value of its own for a screen reader to read out a second time. Checked at
+    // BOTH levels since decision D-05: the catalogue draws one ring per course
+    // and the course page one per module, from the same component and the same
+    // painter — so a regression in either is a regression in both.
+    for (const [path, group] of [
+      [LEARN, 'dsa'],
+      [COURSE, 'foundations'],
+    ] as const) {
+      await page.goto(path);
+      const ring = page.locator(`[data-track-progress="${group}"] svg`);
+      await expect(ring).toHaveAttribute('aria-hidden', 'true');
+      await expect(ring).not.toHaveAttribute('role', 'progressbar');
+      await expect(ring).not.toHaveAttribute('aria-valuenow', /.*/);
+    }
   });
 
   test('the whole page never uses guilt or scoreboard language', async ({
@@ -220,7 +237,11 @@ test.describe('no ratio, no percentage, no second currency', () => {
       'Saved only in this browser — no account needed.',
     );
 
+    // Both levels state where the record lives: the catalogue's per-course ring
+    // and the course page's per-module one are the same `renderTracks` pass.
     await page.goto(LEARN);
+    await expect(trackCount(page, 'dsa')).toContainText('on this device');
+    await page.goto(COURSE);
     await expect(trackCount(page, 'foundations')).toContainText(
       'on this device',
     );
@@ -240,6 +261,7 @@ test.describe('nothing gates on Learned', () => {
       [completeKey(foundations[1]!.slug)]: '1',
     });
     await page.reload();
+    await page.goto(COURSE);
 
     for (const track of ['foundations', 'algorithms']) {
       const count = trackCount(page, track);
@@ -257,22 +279,32 @@ test.describe('nothing gates on Learned', () => {
     // Locked progression and endowed head starts are both on the killed list;
     // the curriculum is navigable in full from the first visit.
     const lessons = await curriculum(page);
-    const allLinks = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-lesson-card]')].every((card) => {
-        // Resolved against the page: since D2 the card's href is relative
-        // (`../learn/arrays/`), and where it GOES is what "not locked" means.
-        const href = card.getAttribute('href') ?? '';
-        const path = new URL(href, location.href).pathname;
-        return (
-          card.tagName === 'A' &&
-          path.startsWith('/learn/') &&
-          !card.hasAttribute('aria-disabled') &&
-          card.getAttribute('tabindex') !== '-1'
-        );
-      }),
-    );
-    expect(allLinks, 'every card must be a real, enabled link').toBe(true);
-    await expect(page.locator('[data-lesson-card]')).toHaveCount(
+    // Walked per course since decision D-05 put the cards on the course pages.
+    // The sum must still be the WHOLE curriculum: a lesson reachable from no
+    // page is as locked as one behind a disabled link.
+    let seen = 0;
+    for (const course of COURSES) {
+      await page.goto(`/learn/${course}/`);
+      const allLinks = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-lesson-card]')].every((card) => {
+          // Resolved against the page: since D2 the card's href is relative
+          // (`../arrays/`), and where it GOES is what "not locked" means.
+          const href = card.getAttribute('href') ?? '';
+          const path = new URL(href, location.href).pathname;
+          return (
+            card.tagName === 'A' &&
+            path.startsWith('/learn/') &&
+            !card.hasAttribute('aria-disabled') &&
+            card.getAttribute('tabindex') !== '-1'
+          );
+        }),
+      );
+      expect(allLinks, `every card in ${course} must be a real link`).toBe(
+        true,
+      );
+      seen += await page.locator('[data-lesson-card]').count();
+    }
+    expect(seen, 'every published lesson must have a card').toBe(
       lessons.length,
     );
 
@@ -335,11 +367,16 @@ test.describe('reset — the delete half of the promise', () => {
       'pref:code-lang': 'javascript',
     });
     await page.reload();
+    // The pips are on the course page since decision D-05; the reset control
+    // stayed on the catalogue. Both are read here so the delete is proved
+    // against the surface that was actually showing the record.
+    await page.goto(COURSE);
     await expect(cardPips(page, slug)).toHaveAttribute(
       'data-stage',
       'mastered',
     );
 
+    await page.goto(LEARN);
     await page.locator('[data-reset-toggle]').click();
     await page.locator('[data-reset-confirm]').click();
     await expect(page.locator('[data-progress-status]')).toContainText(
@@ -355,20 +392,26 @@ test.describe('reset — the delete half of the promise', () => {
     expect(await readKey(page, 'pref:viz-speed')).toBe('2');
     expect(await readKey(page, 'pref:code-lang')).toBe('javascript');
 
-    // Every surface is back to the new-user state, in place.
+    // Every surface on the catalogue is back to the new-user state, in place.
+    await expect(trackMastery(page, 'dsa')).toHaveText(
+      'Practiced 0 · Mastered 0',
+    );
+    await expect(trackCount(page, 'dsa')).toHaveText(
+      /^0 of \d+ done on this device$/,
+    );
+    await expect(page.locator('[data-reset-toggle]')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+
+    // …and so is the course page the record was showing on.
+    await page.goto(COURSE);
     await expect(page.locator('[data-mastery-pips][data-stage]')).toHaveCount(
       0,
     );
     await expect(cardPips(page, slug)).toBeHidden();
     await expect(trackMastery(page, 'foundations')).toHaveText(
       'Practiced 0 · Mastered 0',
-    );
-    await expect(trackCount(page, 'foundations')).toHaveText(
-      /^0 of \d+ done on this device$/,
-    );
-    await expect(page.locator('[data-reset-toggle]')).toHaveAttribute(
-      'aria-disabled',
-      'true',
     );
   });
 
@@ -400,8 +443,12 @@ test.describe('reset — the delete half of the promise', () => {
     await expect(page.locator('[data-progress-status]')).toHaveText(
       'Progress reset — practice records removed from this device.',
     );
-    await expect(page.locator('[data-mastery-pips][data-stage]')).toHaveCount(
-      0,
+    // Asserted IN PLACE, on the catalogue's own course ring. Navigating to the
+    // course page to look at the pips would re-run `seedStorage`'s init script
+    // and silently re-write the record this test just deleted — the same trap
+    // the reset suite in `m7-progress.spec.ts` documents.
+    await expect(trackMastery(page, 'dsa')).toHaveText(
+      'Practiced 0 · Mastered 0',
     );
   });
 
@@ -424,6 +471,7 @@ test.describe('reset — the delete half of the promise', () => {
     await expect(toggle).toBeFocused();
 
     expect(await readKey(page, masteryKey(LESSON))).toBe(record);
+    await page.goto(COURSE);
     await expect(cardPips(page, LESSON)).toHaveAttribute(
       'data-stage',
       'practiced',

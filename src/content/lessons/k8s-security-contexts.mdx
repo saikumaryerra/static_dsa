@@ -1,0 +1,254 @@
+---
+title: 'Security Contexts'
+slug: 'k8s-security-contexts'
+course: 'kubernetes'
+track: 'k8s-security'
+order: 37
+summary: 'The fields that decide what a container may do to the node it lands on: which user it runs as, which capabilities it keeps, and whether it can write to its own filesystem.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods', 'k8s-pod-security-admission']
+estimatedMinutes: 9
+tags:
+  ['kubernetes', 'security', 'securitycontext', 'capabilities', 'containers']
+explainPrompt: 'Why is root inside a container a meaningful risk when the container has its own filesystem and process table?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a container's root actually is, and why dropping it matters.
+- Write a Pod that satisfies the `restricted` standard, field by field.
+- Choose between a Pod-level and a container-level setting.
+- Make a root filesystem read-only without breaking the process inside it.
+
+## Intuition
+
+A container is not a virtual machine. There is one kernel on the node, and every
+container on it is a set of processes that kernel is running, fenced off by
+namespaces and cgroups. The fence hides things — a separate filesystem view, a
+separate process table, a separate network stack — and it does not create a
+second kernel.
+
+So the identity a container runs as is an identity on that kernel. Unless user
+namespaces are in play, uid 0 in the container is uid 0 on the node, holding a
+reduced but real set of Linux capabilities. Every kernel bug, every misconfigured
+`hostPath`, every device the container can open is reachable from there.
+
+**A security context is a list of things this container is not allowed to do.**
+It does not add protection to a container; it removes reach the container would
+otherwise have. That is why the good settings are almost all negative —
+`runAsNonRoot`, `allowPrivilegeEscalation: false`, `drop: ALL`,
+`readOnlyRootFilesystem` — and why an empty `securityContext` is not a neutral
+default but the widest setting available.
+
+<Callout variant="note">
+  User namespaces close the gap between the two identities: with `hostUsers:
+  false` in the Pod spec, uid 0 inside the container maps to an unprivileged uid
+  on the node, so a container that escapes its filesystem view arrives as
+  nobody. The feature reached GA in Kubernetes 1.36, and it needs support from
+  the node, so treat it as a hardening step to plan for rather than one to
+  assume.
+</Callout>
+
+## How it works
+
+`securityContext` appears in two places, and they are different types with
+overlapping fields. The Pod-level one sets defaults for every container and owns
+the volume-related settings; the container-level one owns the per-process
+settings. **Where both can express a field, the container wins.**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  namespace: shop
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: web
+      image: ghcr.io/shop/web:1.4.2
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ['ALL']
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+  volumes:
+    - name: tmp
+      emptyDir: {}
+```
+
+That Pod satisfies the `restricted` Pod Security Standard. Taking the fields one
+at a time:
+
+**`runAsNonRoot: true`** tells the kubelet to refuse to start the container if it
+would run as uid 0. It is a check, not a change — the kubelet reads the image's
+configured user, and if the image declares root and you have not set
+`runAsUser`, the container never starts. That failure is a
+`CreateContainerConfigError`, which is a better outcome than a root container.
+
+**`runAsUser` and `runAsGroup`** set the ids the process runs as, overriding the
+image. Pick a high number outside the range a distribution assigns to system
+accounts, and make sure the files the process needs are readable by it.
+
+**`fsGroup`** makes the kubelet set group ownership on mounted volumes so the
+process can write to them. Without it, a Pod that runs as uid 10001 and mounts a
+volume owned by root gets permission denied on its first write.
+
+**`allowPrivilegeEscalation: false`** stops a process gaining more privileges
+than its parent, which is what blocks the `setuid` binary route out of a
+non-root container. It is the field with the largest effect for its length.
+
+**`capabilities.drop: ['ALL']`** removes the capability set the runtime grants by
+default — roughly a dozen, including `CHOWN`, `SETUID` and `NET_RAW`. Add back
+only what the process needs, by name: a server binding to port 80 as a non-root
+user needs `add: ['NET_BIND_SERVICE']`, and most application containers need
+nothing at all.
+
+**`seccompProfile: RuntimeDefault`** applies the container runtime's syscall
+filter, which blocks a long tail of syscalls no ordinary application uses. It is
+one of the cheapest hardening settings available and it is off unless you ask.
+
+**`readOnlyRootFilesystem: true`** mounts the image's filesystem read-only, so a
+process that is compromised cannot drop a binary into it. Almost every real
+program needs somewhere to write, which is what the `emptyDir` at `/tmp` is for:
+mount a writable volume at each path the process genuinely uses and leave the
+rest immutable.
+
+Two fields are worth naming so you recognise them in a review: `privileged: true`
+switches nearly all of this off at once and hands the container the node, and
+`hostPath` volumes mount a directory from the node into the Pod. Both have honest
+uses in infrastructure workloads and neither belongs in an application.
+
+```bash
+kubectl get pod web -n shop -o jsonpath='{.spec.securityContext}'
+kubectl exec -n shop web -- id
+```
+
+The second command is the one that settles arguments: it prints the uid, gid and
+groups the process is actually running with, rather than the ones the manifest
+asked for.
+
+**None of this restricts the network.** A hardened, non-root, read-only Pod can
+still open a connection to every other Pod in the cluster and to anything the
+node can route to. Restricting _who a Pod may talk to_ is a separate mechanism
+with its own object, covered in
+[NetworkPolicies](/learn/k8s-network-policies/) — and worth applying to the same
+namespaces, because process hardening and network isolation fail in different
+ways.
+
+## Trade-offs
+
+**Hardening surfaces application assumptions, one crash at a time.** A container
+that has run as root for three years may write to `/var/run`, shell out to a
+`setuid` helper, or expect to `chown` a mounted volume. Each of those becomes a
+startup failure the first time you tighten the context, and the fix is usually a
+one-line change to the image that nobody has budget for. Doing it at build time
+for new images is far cheaper than retrofitting.
+
+**Numeric users versus named users.** `runAsNonRoot` can only be checked before
+the container starts if the user is numeric, because the kubelet does not read
+the image's `/etc/passwd`. An image whose `USER` line names `appuser` looks
+compliant and fails at start. Building images with a numeric `USER` avoids the
+whole class of problem.
+
+**`fsGroup` costs time on large volumes.** The kubelet applies group ownership
+recursively when the volume is mounted, so a volume with millions of files can
+add minutes to Pod startup. `fsGroupChangePolicy: OnRootMismatch` skips the walk
+when the top-level directory already has the right ownership, which turns a
+repeated cost into a one-off one.
+
+## Common pitfalls
+
+- **Hardening every container from the Pod-level block.** Pod-level
+  `runAsNonRoot`, `runAsUser` and `seccompProfile` really do default every
+  container, which makes that block look like the one place to write the rules —
+  but `allowPrivilegeEscalation`, `readOnlyRootFilesystem`, `privileged` and
+  `capabilities` exist only on a container. Moved up a level they are rejected
+  as an unknown field under strict validation, and dropped where validation is
+  relaxed — which leaves a manifest that reads as hardened over a Pod that is
+  not.
+- **`readOnlyRootFilesystem` without writable mounts.** It is a single boolean,
+  so it looks like a free win, and the process fails on its first log rotation or
+  temporary file. Find the paths first, then set it.
+- **Dropping all capabilities and adding back too much.** `add: ['NET_ADMIN']`
+  to fix one permission error hands over far more than the error asked for.
+  `NET_BIND_SERVICE` is usually the only one an application wants — or change the
+  port to one above 1024 and add nothing.
+- **Assuming a non-root container is a contained one.** Without
+  `allowPrivilegeEscalation: false`, a non-root process can still gain privileges
+  through a `setuid` binary in the image.
+
+## Key takeaways
+
+- A container shares the node's kernel, so **uid 0 in the container is uid 0 on
+  the node** unless user namespaces map it away.
+- A `securityContext` **subtracts reach**; an omitted one is the widest setting,
+  not a safe default.
+- Pod-level settings are defaults and own volume ownership; **container-level
+  settings win** where both apply.
+- **`restricted` adds four fields to everything `baseline` already forbids** —
+  non-root, no privilege escalation, drop all capabilities, `RuntimeDefault`
+  seccomp — plus a limited volume list.
+- **Process hardening is not network isolation.** A locked-down Pod still reaches
+  every address it could before; that is a NetworkPolicy's job.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A container image declares `USER appuser`. You set `runAsNonRoot: true` and the Pod fails with `CreateContainerConfigError`. Why, and what are the two fixes?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The kubelet has to decide, before starting the container, whether it would run
+  as uid 0. It does that from the image configuration, which carries the string
+  `appuser` — and resolving that name to a number would mean reading
+  `/etc/passwd` inside an image that is not running yet. Unable to prove the
+  user is non-root, the kubelet refuses to start it, which is the check working.
+  The two fixes are to add `runAsUser` with the numeric id to the Pod spec, so
+  the kubelet has a number to check, or to rebuild the image with a numeric
+  `USER` line. The second is better because it makes every future Pod correct
+  without anyone remembering the field.
+</PracticeCheck>
+
+**2. A colleague argues that `readOnlyRootFilesystem` is pointless, since an attacker who runs code in the container already has whatever access the process has. What does the setting actually buy?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It removes persistence and tooling rather than access. With the image
+  filesystem read-only, an intruder cannot write a binary or a script anywhere
+  the image lives, cannot modify the application on disk to keep a foothold, and
+  cannot alter configuration files that the process reads on restart — so
+  anything they achieve lasts only until the container is replaced, which in a
+  Deployment can be seconds. It also converts a class of quiet compromise into a
+  visible failure, because an exploit that expects to drop a file gets an error
+  instead. It is a containment and blast-radius control, not an access control,
+  and it pairs with the writable `emptyDir` mounts that give the process the few
+  paths it genuinely needs.
+</PracticeCheck>
+
+**3. A Pod runs as uid 10001 and mounts a PersistentVolumeClaim. Every write to the volume fails with permission denied, even though the container-level security context looks correct. What is missing, and why is it a Pod-level field?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  `fsGroup` is missing. The volume is provisioned with ownership that has
+  nothing to do with the container — commonly root — and the process running as
+  10001 has no group in common with it, so the kernel refuses the write. Setting
+  `fsGroup: 10001` makes the kubelet set that group on the volume contents and
+  add it to the process, after which the write succeeds. It lives at Pod level
+  because a volume is a Pod-level resource that several containers may mount at
+  once; ownership has to be decided once for the volume rather than separately
+  by each container, which could not agree. On a large volume, pair it with
+  `fsGroupChangePolicy: OnRootMismatch` so the ownership walk happens once
+  rather than on every mount.
+</PracticeCheck>

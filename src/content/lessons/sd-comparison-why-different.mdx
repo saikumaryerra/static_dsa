@@ -1,0 +1,250 @@
+---
+title: 'Why the Architectures Differ'
+slug: 'sd-comparison-why-different'
+course: 'system-design'
+track: 'sd-comparison'
+order: 44
+summary: 'Four dials — item shape, catalogue shape, popularity shape and write shape — plus trust and a latency floor, and the chain from each one to the mechanism it forces.'
+difficulty: 'intermediate'
+prerequisites: ['sd-comparison-table', 'sd-trade-off-reasoning']
+estimatedMinutes: 9
+tags: ['system-design', 'comparison', 'architecture', 'workload', 'trade-offs']
+explainPrompt: 'Why does the length of a single media item decide whether bandwidth or request rate is the binding constraint?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name the four workload dials that account for most of the differences between the three platforms.
+- Trace each dial to the mechanism it forces, and say when that mechanism is wrong.
+- Tell a difference of size from a difference of shape.
+
+## Intuition
+
+The three columns of the comparison table are not three schools of thought. No
+team chose prepositioning because it preferred it, or added a
+candidate-generation stage because it was fashionable.
+
+**An architecture is a function, and the workload is its argument.** Feed the
+same requirement — "a user presses play and media arrives" — three different
+workloads, and three different architectures come out. Taste has room only where
+the function is flat.
+
+Four dials account for most of it, all measurable before anything is built:
+
+- **Item shape** — bytes per item, and items per session.
+- **Catalogue shape** — how many items exist, and how fast that grows.
+- **Popularity shape** — a concentrated head, or a long tail nobody can predict.
+- **Write shape** — what generates the writes, and whether two of them collide.
+
+Two modifiers sit behind them: **trust**, a property of who produces the
+content, and the **latency floor** the product promises. Every derived row in the
+table is downstream of these six.
+
+## How it works
+
+Take the dials one at a time, each to the mechanism it forces. Except where a
+source is named, the mechanisms below are _generally accepted industry
+architecture_, not claims about any company's internals.
+
+**Item shape decides which resource binds.** Two quantities come out of a day of
+use, and they move in opposite directions.
+
+```text
+bytes per daily user   = bytes per item  x  items per day
+starts per daily user  = items per day  (each one is authorise, look up, sign)
+
+Streaming      2 h in 4 items      0.3 Mbps per daily user,   4 starts
+Music          1 h in 20 items     0.005 Mbps per daily user, 20 starts
+Video sharing  40 min in 8 items   0.07 Mbps per daily user,   8 starts
+```
+
+A long item amortises its start cost over hours of bytes, so the delivery network
+is the whole design and the application tier is unremarkable — a few thousand
+queries per second (QPS). A short item repeats the start work every three
+minutes, which is how a modest 230 Gbps platform still needs 10,000 plays per
+second at average and 30,000 at peak. **Use adaptive bitrate** when items are
+long enough that the network changes mid-item; **do not** pay for it on a 3 MB
+audio file, where picking one of three renditions at start is enough and every
+extra rendition costs catalogue-wide storage.
+
+**Catalogue shape decides where metadata lives and whether ranking needs a
+funnel.** Tens of thousands of items are a few hundred megabytes of metadata: hold
+it in memory, and score the whole catalogue per user. A hundred million or a
+billion items cannot be scored per request inside a latency budget, so
+recommendation splits into cheap candidate generation over everything and
+expensive ranking over a few hundred survivors — the structure the 2016 RecSys
+paper _Deep Neural Networks for YouTube Recommendations_ (Covington, Adams,
+Sargin) describes publicly, and the one the
+[video-sharing recommender](/learn/sd-youtube-recommendations/) is built on. **Use a candidate stage** when scoring the corpus
+cannot fit the budget; **do not** add one below roughly a hundred thousand items,
+where it buys nothing and imposes a recall ceiling — anything it misses is
+unreachable however good the ranker.
+
+**Popularity shape decides the caching strategy, and with it the origin fleet.**
+Origin capacity is not a function of traffic; it is a function of the traffic that
+misses.
+
+```text
+origin fill = peak egress  x  miss ratio
+
+  90 Tbps peak, 99% hit ratio   =  0.9 Tbps of origin fill
+  90 Tbps peak, 95% hit ratio   =  4.5 Tbps of origin fill
+```
+
+Four percentage points of hit ratio are a fivefold difference in the fleet behind
+the caches — the arithmetic
+[Scale, Reliability and Degradation](/learn/sd-netflix-reliability/) opens with.
+A curated catalogue with a schedule someone controls can push copies out before
+demand arrives, keeping that ratio high. A long tail cannot:
+most items are watched almost never, no cache can hold them, and a video can go
+from cold to hot without warning. **Preposition** when the catalogue fits near
+viewers and the schedule is known; **do not** when the tail is most of the
+catalogue, because filling caches with items nobody requests evicts the head that
+pays for them. There, delivery is pull-through caching over tiered storage, and
+the design question becomes how fast a suddenly hot item fills.
+
+**Write shape decides which consistency argument you are obliged to have.** Three
+generators produce three different problems.
+
+| What generates the writes | Rate scales with | The problem it creates                         |
+| ------------------------- | ---------------- | ---------------------------------------------- |
+| A person acting           | daily users      | Volume, usually modest; partition by owner     |
+| A stream already running  | concurrency      | Sustained volume with nobody touching a device |
+| A crowd on one object     | popularity       | Contention on a few hot keys                   |
+
+Playlist edits are the first: about 1,000 writes per second, and the hard part is
+that two devices and a collaborator may edit the same list, so operations are
+synchronised rather than documents. Playback positions are the second: roughly
+240,000 writes per second, generated by streams rather than by taps, which rules
+out a single relational primary and makes the heartbeat interval the main knob.
+View and like counters are the third: the difficulty is not the total but
+thousands of increments landing on one row. **Use an append-only event stream,
+aggregated in windows**, for anything displayed: an event id makes a redelivery
+harmless, and a replay restates history when the counting rule
+changes. **Sharded counters** summed on read are the simpler alternative above a
+few hundred writes a second on one key, but they can neither deduplicate a
+redelivery nor restate history — so **do not** count a number that pays somebody
+on one. There the answer is that same log, deduplicated on a client-generated
+event id.
+
+<Callout variant="note">
+  **Trust is a workload input, not a policy layer.** Who produces the content
+  decides whether moderation sits *in* the publish path. With curated ingest the
+  review happened once, at licensing time, and nothing blocks publication. With
+  continuous user upload, abuse, spam and copyright matching are steps between
+  upload and playable — which is why publish latency competes with encode
+  quality on that column and on no other.
+</Callout>
+
+## Trade-offs
+
+**Designing from the workload over-fits to today's workload.** Every dial moves:
+a music platform adding video podcasts has changed its item shape, a streaming
+platform adding live events has changed its latency floor. Write the dial
+position into the decision, so a review knows what would invalidate it.
+
+**Shape tells you which mechanisms belong, not how many machines.** The chains
+above are qualitative: only the estimate says whether the answer is one node, one
+tier or a fleet, which is why this reasoning sits after
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/) rather than instead
+of it.
+
+## Common pitfalls
+
+- **Copying a mechanism across a dial change.** Prepositioning, a candidate-free
+  ranker and an in-memory catalogue are all correct on a small curated catalogue
+  and all wrong on an unbounded one.
+- **Confusing size with shape.** A smaller platform of the same shape needs the
+  same mechanisms and fewer machines; a different shape needs different
+  mechanisms at any size.
+- **Answering a contention problem with capacity.** Adding write throughput does
+  nothing for thousands of increments queued on one row.
+- **Treating trust as something to add later.** Moderation in the publish path
+  changes the pipeline, the storage lifecycle and the latency promise; it is not
+  a service you attach afterwards.
+- **Turning a dial you do not have.** Building for a billion-item catalogue while
+  holding fifty thousand items buys a recall ceiling and a partitioning project
+  for nothing.
+
+## Interview notes
+
+When asked why one platform does something another does not, answer with the
+dial rather than the company: "their catalogue is four orders of magnitude
+larger, so scoring everything per request does not fit the latency budget, so
+ranking needs a candidate stage." That sentence is transferable; "because
+YouTube-like platforms do it that way" is not.
+
+The same move handles a change of requirements mid-interview: say which dial
+moved, then walk the chain: "if users can upload, popularity stops being
+predictable, so prepositioning stops paying, so the origin has to absorb the
+misses, so storage tiers and moderation enters the publish path."
+
+## Key takeaways
+
+- **Item shape decides the binding resource**: long items make bytes bind, short
+  items make request rate bind, at the same hours of media per user.
+- **Catalogue shape decides the recommender**: a candidate stage is mandatory over
+  a billion items and a recall ceiling for nothing over fifty thousand.
+- **Origin capacity is peak egress times miss ratio** — so popularity
+  predictability, not traffic, sizes the fleet.
+- **Write shape names the consistency argument**: people, streams and crowds
+  create volume, sustained volume and contention respectively.
+- **Trust and the latency floor are workload inputs**, and they move whole
+  pipelines rather than single components.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Two products deliver about the same hour of media per user per day, yet one design is dominated by bandwidth and the other by request rate. Which dial explains it, and what does each design spend its effort on?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Item shape — the same hour split into different numbers of items, at different
+  bitrates. An hour of long-form video is about two starts and 0.14 Mbps per
+  daily user; an hour of music is twenty starts and 0.005 Mbps — a thirtyfold
+  gap that is the bitrate ratio, not the hours. The bandwidth-bound design
+  spends its effort below the application tier: segment sizes, adaptive bitrate,
+  cache residency, origin fill, and keeping every application server off the
+  byte path. The request-bound design spends it on the per-start path: an
+  entirely cached catalogue so metadata never reaches a database, an
+  authorisation and rights check cheap enough to run 30,000 times a second at
+  peak, and a signed URL that lets delivery proceed without a further round
+  trip.
+</PracticeCheck>
+
+**2. A product's catalogue grows from 50,000 items to 500 million, and no other dial moves. Name three things in the architecture that must change, and one that need not.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Metadata storage changes first: a few hundred megabytes held in memory by
+  every service becomes a terabyte or more, which needs a partitioned store with
+  a cache in front rather than a copy per process. Recommendation changes
+  second: scoring the whole catalogue per request no longer fits a latency
+  budget, so ranking splits into candidate generation over everything and
+  ranking over a few hundred survivors. Search changes third — a linear scan or
+  a small index becomes a distributed inverted index with its own freshness lag.
+  What need not change is delivery: bytes per item and items per session are
+  untouched by the row count, so segment sizes, the rendition ladder and the
+  byte path stay as they were. Storage volume grows, but that is a purchase, not
+  a redesign.
+</PracticeCheck>
+
+**3. An engineer says view counters are hard because there are so many of them, and points out that the platform's aggregate counter rate is lower than its listening-event rate. Both statements are true. What is actually hard here?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The distribution, not the total. A listening-event stream spreads across
+  hundreds of millions of independent keys, so an append-only log partitions it
+  cleanly and every partition sees a fraction of the load. Counter increments on
+  a trending item all land on one key, so no partitioning scheme spreads them:
+  the row becomes a serialisation point, and lock contention shows up at a rate
+  far below the aggregate the platform handles elsewhere. That is why the answer
+  is structural rather than capacity — shard the counter into many sub-counters
+  and sum them on read, or aggregate increments in a window and apply them in
+  batches, accepting a count that is seconds stale. Both trade exact,
+  read-your-writes counting for the ability to absorb a hot key, which is the
+  right trade for a displayed number and the wrong one for a number that pays
+  somebody.
+</PracticeCheck>

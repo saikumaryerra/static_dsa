@@ -1,0 +1,256 @@
+---
+title: 'Requests, Limits and QoS'
+slug: 'k8s-requests-and-limits'
+course: 'kubernetes'
+track: 'k8s-scheduling'
+order: 26
+summary: 'A request is a booking the scheduler does arithmetic with; a limit is a fuse the kubelet wires into the container — and the pair of them decides which quality-of-service class you land in when the node runs short.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods', 'k8s-deployments']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scheduling', 'resources', 'qos']
+explainPrompt: 'Why does hitting a CPU limit slow a container down while hitting a memory limit kills it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say which number the scheduler reads and which one the kubelet enforces.
+- Work out a Pod's QoS class from its manifest, and what that class costs it
+  when the node runs out of memory.
+- Choose a CPU limit and a memory limit knowing that one throttles and one kills.
+- Name the three autoscalers and which number each of them moves.
+
+## Intuition
+
+Two numbers, four lines of YAML, and almost every capacity argument a team ever
+has comes down to confusing them.
+
+**A request is a booking; a limit is a fuse.** The booking is what the scheduler
+subtracts from a node's free space before deciding whether your Pod fits. It is
+accounting, not enforcement: nothing checks afterwards whether you used what you
+booked, and a container that sits at a tenth of its request does not hand the
+difference back to the arithmetic. The node still counts it as spoken for.
+
+The fuse is a different object entirely. The kubelet writes it into the
+container's cgroup, and it acts the moment the container reaches it — with no
+reference at all to what the scheduler thought. A node can therefore be
+100% booked and 20% busy, or fully idle on paper and thrashing.
+
+<Callout variant="note">
+  The request is not completely inert at runtime. For CPU it also becomes the
+  container's *weight* when the node is contended: two containers wanting more
+  CPU than exists split it in proportion to their requests. Memory has no such
+  weighting — memory is either there or it is not.
+</Callout>
+
+## How it works
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api
+spec:
+  containers:
+    - name: api
+      image: nginx:1.29
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: '1'
+          memory: 512Mi
+```
+
+`250m` is 250 millicores, a quarter of one core. Memory is in `Mi` and `Gi`;
+`512Mi` is 536,870,912 bytes, while `512M` would be 512,000,000 — a 5% gap that
+only ever surfaces at the boundary you are testing.
+
+**The asymmetry is the whole lesson.** CPU is compressible: take it away and the
+process runs slower. When a container reaches its CPU limit the kernel stops
+scheduling it for the rest of the current accounting period, releases it in the
+next, and repeats. Nothing fails, nothing restarts, and the only trace is
+latency — which is why a CPU limit set too tight is diagnosed as an application
+bug for weeks.
+
+Memory is incompressible: there is no such thing as running with less of it than
+you allocated. Reach the memory limit and the kernel's OOM killer terminates the
+process. The container's last state becomes `Terminated` with reason
+`OOMKilled` and exit code 137, and `restartPolicy` then does what it always
+does.
+
+```bash
+kubectl get pod api -o jsonpath='{.status.qosClass}{"\n"}'
+kubectl get pod api -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}{"\n"}'
+kubectl describe node worker-1
+```
+
+**QoS class is derived, never declared.** There is no field for it. The kubelet
+computes it from the numbers above and writes it into `status.qosClass`:
+
+| Class        | The rule                                                                              |
+| ------------ | ------------------------------------------------------------------------------------- |
+| `Guaranteed` | **Every** container sets both CPU and memory, with limits equal to requests.          |
+| `Burstable`  | At least one container sets a request or a limit, but the Pod does not qualify above. |
+| `BestEffort` | **No** container sets any request or any limit at all.                                |
+
+That class is the answer to a question you will eventually be asked at three in
+the morning: when a node runs out of memory, whose Pods go first? The kubelet ranks
+its candidates by whether a Pod is using more than it requested, then by the
+Pod's [priority](/learn/k8s-quotas-and-priority/), then by how far over the
+request it is. A BestEffort Pod requested nothing, so every byte it uses is over
+its request and it sorts to the front; a Guaranteed Pod sitting inside its
+request goes last. QoS class is the shape that ranking produces rather than the
+key it sorts on. Declaring nothing does not keep you out of the argument — it
+puts you at the front of the queue.
+
+<Callout variant="warning">
+  An OOM kill and an eviction are two different events with two different
+  actors. The OOM kill is the kernel enforcing *your container's* limit, and it
+  restarts the container in place. Eviction is the kubelet reclaiming *the
+  node's* memory by deleting whole Pods, which then get rescheduled elsewhere. A
+  container can be OOM-killed on a node with gigabytes free.
+</Callout>
+
+**Read the node's arithmetic, not its activity.** `kubectl describe node` ends
+with a block that catches people out:
+
+```text
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests      Limits
+  --------           --------      ------
+  cpu                1750m (87%)   3 (150%)
+  memory             3006Mi (79%)  4Gi (107%)
+  ephemeral-storage  0 (0%)        0 (0%)
+  hugepages-1Gi      0 (0%)        0 (0%)
+  hugepages-2Mi      0 (0%)        0 (0%)
+```
+
+Every node prints the storage and hugepages rows too, usually as zeroes; the two
+that decide whether your Pod fits are `cpu` and `memory`. Those percentages are
+of **allocatable** — the node's capacity minus what is
+reserved for the kubelet, the container runtime and the operating system — and
+they are sums of _requests_, not measurements of use. A node at 87% requested
+CPU may be idle. It will still refuse a Pod asking for more than the remaining
+13%.
+
+**Resizing without replacing.** A running container's `resources` can now be
+changed in place through the `pods/resize` subresource, so raising a memory
+request no longer forces a restart. Changing the same field in a Deployment's
+Pod template is still a template change, and still replaces the Pod.
+
+**Where autoscaling fits.** Three separate things scale, and each moves a
+different number. A HorizontalPodAutoscaler changes the **replica count**,
+comparing measured use against the request — which is why an inflated request
+makes it scale late and a tiny one makes it scale constantly. A
+VerticalPodAutoscaler changes the **requests** themselves. The Cluster
+Autoscaler changes the **number of nodes**, and it reacts to Pods that cannot be
+scheduled. All three are downstream of honest requests, and a later module gives
+them a lesson of their own.
+
+## Trade-offs
+
+**Requests too high** buys certainty and wastes money: the capacity is reserved
+whether or not you use it, and past a point new Pods stay `Pending` on a cluster
+that looks empty.
+
+**Requests too low** packs the node densely and is fine right up until a traffic
+peak, when several containers want their real footprint at once and the kubelet
+starts evicting.
+
+**A CPU limit** makes a container's worst case predictable, which matters when
+you are sharing a node with something latency-sensitive. It costs you the
+burst — the container is held at the limit even when the node is completely
+idle. Plenty of teams set CPU requests and no CPU limit for exactly that reason,
+and accept that a runaway container can then take everything the node has left.
+
+**A memory limit** should be there. Without one, a container with a leak grows
+until the node is under pressure and the kubelet starts evicting Pods that did
+nothing wrong.
+
+## Common pitfalls
+
+- **Reading the `describe node` percentages as usage.** They are the only
+  percentages on the screen, so they get treated as a load average. Compare them
+  with `kubectl top node`, which reports real consumption — and needs
+  metrics-server installed, which is not part of core Kubernetes.
+- **Setting the CPU limit equal to the request on a service that bursts at
+  start-up.** Tempting because it is the tidy configuration, and it produces a
+  container that is throttled through the exact window where it is loading
+  configuration and warming caches — often failing its own start-up probe.
+- **Forgetting a sidecar.** Guaranteed requires _every_ container to be fully
+  specified, so one unspecified logging sidecar quietly demotes the whole Pod to
+  Burstable. The class is a property of the Pod, not of your main container.
+- **`1G` where `1Gi` was meant.** Both are valid, so nothing complains.
+- **Treating BestEffort as "no opinion".** It is a strong opinion: evict me
+  first.
+
+## Key takeaways
+
+- **The scheduler reads requests; the kubelet enforces limits.** They are
+  different numbers doing different jobs, and neither one measures actual use.
+- **A CPU limit throttles, a memory limit kills.** One shows up as latency, the
+  other as `OOMKilled` and exit code 137.
+- **QoS class is derived from the manifest, never declared** — Guaranteed needs
+  requests equal to limits on every container, Burstable is anything else with a
+  request or limit, BestEffort is nothing at all.
+- Under node pressure the kubelet ranks victims by **over-request first, then
+  Pod priority**, which puts BestEffort at the front and a Guaranteed Pod inside
+  its request last.
+- `kubectl describe node` reports **sums of requests as a share of allocatable**.
+  A node can be fully booked and idle at the same time.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Pod has two containers. `app` requests 200m CPU and 256Mi memory with limits set to exactly those values. `logger` requests 64Mi memory and sets nothing else. What is the Pod's QoS class, and what happens to it when the node runs short of memory?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Burstable. Guaranteed requires *every* container to set both CPU and memory
+  with limits equal to requests, and `logger` sets neither a CPU request nor any
+  limits, so the Pod misses that bar — but it is not BestEffort either, because
+  BestEffort means no container specifies anything and both of these do. Under
+  node memory pressure the kubelet ranks candidates by whether they are using
+  more than they requested, then by Pod priority, then by how far over they are
+  — a BestEffort Pod requested nothing, so it sorts to the front, and this Pod
+  stays behind it only for as long as it is inside its requests. Since
+  `logger`'s memory is capped by nothing, it is the container most likely to
+  push this Pod over its 320Mi of total requests and into that queue — one
+  under-specified sidecar decides the fate of the whole Pod.
+</PracticeCheck>
+
+**2. You add `limits.cpu: 500m` to a service whose dashboards show average CPU at 30% of that. Its p99 latency triples. Nothing restarted. Explain.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  An average hides the bursts, and the limit is enforced against the bursts. CPU
+  is compressible, so the kernel enforces the limit by refusing to schedule the
+  container once it has used its share of the current accounting period, then
+  releasing it in the next one. A request that would have taken 40ms of solid
+  CPU is therefore paused and resumed across several periods and takes far
+  longer, while the average over a minute stays comfortably low. Nothing
+  restarted because throttling is not a failure — that is exactly why it hides.
+  The p99 is where it shows, because the slowest requests are the ones that
+  wanted the most CPU at once.
+</PracticeCheck>
+
+**3. `kubectl describe node worker-1` shows memory requests at 85% of allocatable. `kubectl top node worker-1` shows 40% memory in use. A colleague concludes there is room for several more Pods. What are the two numbers actually measuring, and what will happen?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The 85% is the sum of the memory *requests* of every Pod already placed on the
+  node, as a share of allocatable — a booking total. The 40% is real consumption
+  right now. They disagree because the Pods on that node requested more than
+  they are currently using, which is normal and is what requests are for. The
+  scheduler only reads the first number, so it will place at most a little more
+  on this node and then declare it full: new Pods stay `Pending` while the node
+  looks half empty in the monitoring. The honest fix is to bring the requests
+  closer to observed use, not to force Pods on — the gap between the two numbers
+  is the safety margin that keeps the kubelet from evicting anything when those
+  Pods do reach their footprint.
+</PracticeCheck>

@@ -1,0 +1,242 @@
+---
+title: 'Architecture and the Two Paths'
+slug: 'sd-spotify-architecture'
+course: 'system-design'
+track: 'sd-spotify'
+order: 31
+summary: 'Catalogue, playlist, playback and event services drawn around the stores they own — plus the one line that decides which side of the platform a piece of work belongs on.'
+difficulty: 'intermediate'
+prerequisites: ['sd-spotify-requirements', 'sd-api-design']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'architecture', 'services', 'search']
+explainPrompt: 'Why is the boundary between two services drawn around a store rather than around a screen?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+import SpotifyArchitecture from '../../components/diagrams/SpotifyArchitecture.astro';
+
+## What you'll learn
+
+- Split a Spotify-like platform into services drawn around the data each one owns.
+- Trace one play request from the client to the first audio byte.
+- Say when each building block earns its place, and when it is cost with no benefit.
+
+## Intuition
+
+**Two paths run through this platform, and every component belongs to exactly
+one.** The synchronous path is everything that must finish before audio starts:
+authentication, the rights check, a catalogue read, a signed URL. It is measured
+in milliseconds and its failure is visible to a listener immediately. The
+asynchronous path is everything else — listening events, personalisation,
+royalty accounting, analytics — measured in seconds to hours, and invisible when
+it is a little behind. Deciding which path a piece of work is on is the first
+architectural act, because it decides whether the work can fail without anybody
+noticing.
+
+The second idea is where the boundaries go. **A service is drawn around a store
+it owns, not around a screen it fills.** The home screen reads from five
+services; that does not make it a service. Ownership is the test: exactly one
+service writes to a given store, everyone else asks it. Draw boundaries around
+screens instead and two services end up writing the same rows, which is a
+distributed system with none of the benefits and all of the coordination.
+
+This is **generally accepted industry architecture** — the shape any team would
+converge on for a read-heavy catalogue with a private write path — rather than a
+claim about any company's internals. Netflix's public writing on microservices
+describes the same split of a media platform into independently deployed services
+behind a gateway.
+
+## How it works
+
+Seven services, each named by what it owns.
+
+| Service         | Owns                                      | Store                            | Shape                                   |
+| --------------- | ----------------------------------------- | -------------------------------- | --------------------------------------- |
+| Identity        | Accounts, subscriptions, devices          | Relational primary               | Low volume, strongly consistent         |
+| Catalogue       | Tracks, albums, artists, rights windows   | Relational primary, fully cached | Read-mostly, ~200 GB                    |
+| Search          | An inverted index over catalogue entities | Search cluster                   | Query-heavy, rebuilt from the catalogue |
+| Playlist        | Playlists, items, collaborators, likes    | Partitioned by owner             | Write path, 100:1 read to write         |
+| Playback        | Authorisation and signed URLs             | Nothing durable                  | 10,000 requests/s, latency-critical     |
+| Personalisation | Precomputed shelves and candidates        | Key-value store                  | Read-only at serving time               |
+| Event ingestion | The listening-event log                   | Partitioned log                  | 50,000 events/s, append-only            |
+
+Note the two rows with no interesting store. Playback owns no data, which makes
+it trivial to scale horizontally and the natural place for the one rule that must
+never be bypassed. Personalisation is read-only at serving time because its
+heavy work happened hours ago on the other path — the request reads precomputed
+candidates and ranks them — and F9's recently-played list is
+the same shape: a log consumer materialises it per listener into that key-value
+store, so reading your own history never queries the log.
+
+One play, end to end:
+
+```text
+client -> edge (TLS, geographic routing, static assets)
+       -> API gateway (authenticate, rate limit, route)
+       -> playback service
+            -> identity: is this subscription active?
+            -> catalogue: does this track exist, and is it licensed here?
+            -> returns short-lived signed URLs, one per rendition
+client -> CDN -> (on miss) object storage origin -> audio bytes
+client -> event ingestion -> partitioned log -> consumers (royalties,
+          personalisation, analytics)
+```
+
+<SpotifyArchitecture />
+
+Audio never passes through an application server, which is why 230 Gbps of egress
+costs this design nothing in application capacity.
+
+**The API gateway** terminates authentication, applies
+[rate limiting](/learn/sd-rate-limiting/) and routes to services, so those
+concerns are implemented once instead of seven times. Use one when several client
+types share a backend and the cross-cutting concerns are real; do not when there
+are three services and one client, where it becomes a deployment bottleneck every
+team queues behind and attracts business logic that then lives nowhere anybody
+looks.
+
+**The catalogue service** is read-mostly and, at 200 GB, fully cacheable — the
+rare case where a cache can hold everything rather than a working set, so cold
+starts are a startup cost rather than a permanent risk.
+[Caching](/learn/sd-caching/) still applies its usual rule: the invalidation
+event is a catalogue edit, and edits are rare enough that a short TTL plus
+explicit invalidation on write is enough.
+
+**Search is a separate system, not a query against the catalogue.** A hundred
+million tracks plus albums, artists, playlists and podcast episodes need an
+inverted index with prefix matching for autocomplete, per-entity ranking that
+blends text relevance with popularity, and a freshness path so an album released
+at midnight is findable at midnight.
+[Search Indexes](/learn/sd-search-indexes/) covers the mechanism; the platform
+question is where the index gets its data, and the answer is a change feed from
+the catalogue rather than a shared database. The two copies then disagree for
+seconds — fine for finding a track, not fine for authorising one, which is why
+the rights check does not read the index. Skip the search cluster entirely if
+your catalogue is ten thousand items:
+a query with a trigram index and a cache answers it, and a second copy of the
+truth with its own lag is not worth owning.
+
+**The playlist service** is the only write-heavy service on the synchronous path,
+and the only one with a real consistency question, which is why it gets its own
+lesson. Partition it by playlist owner so one listener's edits stay on one
+partition and their order is unambiguous — a shard key chosen from the access
+pattern, which is what
+[Replication, Partitioning and Sharding](/learn/sd-replication-and-sharding/)
+says to do.
+
+**Event ingestion** is a log rather than a queue because three consumers need the
+same events for different purposes and at different speeds, and one of them
+occasionally needs to re-read last week after a bug fix. A queue would let each
+message be consumed once; [Event Streams](/learn/sd-event-streams/) explains why
+the retained log with per-consumer offsets is what this shape needs. Do not reach
+for a stream when a single consumer handles each message once and never replays —
+that is a queue, and it is cheaper to run.
+
+<Callout variant="tip">
+  The home screen fans out to five services. Aggregate it in one endpoint that
+  calls them in parallel with a deadline, rather than letting the client make
+  five round trips over a mobile network — and give each dependency a fallback,
+  because five services that are each usually healthy are rarely all healthy at
+  once.
+</Callout>
+
+## Trade-offs
+
+**Seven services cost a distributed system.** Every boundary is a network call
+that can time out, a deployment that can lag, and a schema two teams have to
+agree on. At a hundredth of this scale, one application with a shared database
+serves the same features with a fraction of the operational load, and the honest
+answer to "why not a monolith?" is "because these seven parts have genuinely
+different scaling and failure profiles", not "because services are modern".
+
+**Ownership boundaries make some questions expensive.** "Show playlists
+containing tracks by artists this listener follows" crosses three services and
+cannot be one join. Denormalise into the personalisation store or accept the
+fan-out; both cost something — data that can drift, or a slower page.
+
+**The gateway is a single point of failure by construction.** It buys
+authentication implemented once rather than seven times, and everything then
+depends on it, so it needs the redundancy and attention that implies.
+
+## Common pitfalls
+
+- **Business logic in the gateway.** It is the tempting place because everything
+  passes through it, and it is the worst place because the rule then lives
+  outside the service that owns the data it protects.
+- **Streaming audio through the application tier.** It works in a prototype and
+  it converts a bandwidth problem into an application-fleet problem.
+- **Making the search index authoritative.** It lags by design, and a rights
+  decision taken from a lagging copy is a licensing incident.
+- **Putting analytics on the synchronous path.** A listening event that must be
+  acknowledged before playback starts turns a pipeline outage into a playback
+  outage.
+
+## Interview notes
+
+Name the two paths before naming a service. "Everything that must finish before
+audio starts is one path; everything that may lag by minutes is the other"
+decides which failures a listener sees.
+
+Then defend a boundary with the ownership test, not a scaling adjective.
+"Playback owns no durable state, so 230 Gbps of egress costs nothing in
+application capacity" is an argument; "it scales horizontally" describes every
+stateless box ever drawn.
+
+## Key takeaways
+
+- Every component sits on either the **synchronous path** (must finish before
+  audio starts) or the **asynchronous path** (may lag without a listener noticing).
+- **A service owns a store**; screens are compositions of services, never services.
+- The playback service **owns no data** — it authorises, signs a URL and stops,
+  so audio bytes never touch an application server.
+- Search is a **second copy of the catalogue** with its own freshness lag, which
+  is fine for finding things and not fine for authorising them.
+- A gateway earns its place with several clients and real cross-cutting concerns;
+  with one client and three services it is a queue everyone waits in.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team proposes a "Home Screen Service" that owns the home screen's data and writes to the playlist, catalogue and personalisation stores directly. What is wrong with the boundary?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  It is drawn around a screen rather than a store, and the giveaway is that it
+  writes to three stores it does not own. Two writers to one store means schema
+  changes need a coordinated release across two teams, invariants can be
+  enforced in one writer and not the other, and a bug in either can corrupt data
+  the other depends on — every cost of a distributed system with none of the
+  isolation. The composition it wants to do is real and belongs in an
+  aggregating read endpoint that calls the three owners in parallel. Screens
+  change every quarter; ownership of a store should not.
+</PracticeCheck>
+
+**2. The catalogue is about 200 GB and changes rarely. Why does that combination change the caching decision rather than only making it cheaper?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because a cache that holds the entire dataset has no working set and therefore
+  no miss rate that depends on traffic patterns. The usual anxiety about caching
+  — a cold cache, a shifted access pattern, a stampede on eviction — comes from
+  holding a fraction of the data, and none of it applies once everything fits.
+  Rare edits make invalidation cheap too: explicit invalidation on write is
+  practical when writes are rare, where a hot dataset would force short TTLs and
+  live with staleness. The residual risk moves rather than disappearing: the
+  cache tier becomes load-bearing, so its own capacity and startup time are now
+  the thing to plan for.
+</PracticeCheck>
+
+**3. Playback authorisation needs the track's licensing window. Why read that from the catalogue service rather than from the search index, which already holds catalogue data and is optimised for reads?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because the index is a derived copy with a deliberate lag, and the two reads
+  have different tolerances for it. Search may return a track that was removed a
+  few seconds ago and the consequence is a dead link; authorising playback from
+  the same stale row means serving audio the platform no longer has the right to
+  serve, which is a licensing incident rather than a glitch. The general rule is
+  that a derived copy may answer questions where staleness is a cosmetic defect,
+  and the authoritative store must answer questions where staleness is a
+  correctness or compliance defect — which is exactly why the takedown path in
+  the next lesson runs through authorisation.
+</PracticeCheck>

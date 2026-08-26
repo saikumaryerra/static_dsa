@@ -1,0 +1,249 @@
+---
+title: 'Labels, Selectors and Annotations'
+slug: 'k8s-labels-and-selectors'
+course: 'kubernetes'
+track: 'k8s-workloads'
+order: 7
+summary: 'Nothing in Kubernetes holds a reference to a Pod. A Service, a ReplicaSet and a NetworkPolicy each find their Pods by running a query, which is what makes a label an interface rather than a note to yourself.'
+difficulty: 'beginner'
+prerequisites: ['k8s-objects-and-manifests', 'k8s-pods']
+estimatedMinutes: 9
+tags: ['kubernetes', 'labels', 'selectors', 'annotations']
+explainPrompt: 'Why does a Service select Pods with a query instead of listing the Pods it routes to?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Explain how a Service or a controller finds its Pods without ever holding a
+  reference to one.
+- Write equality-based and set-based selectors, and say where each is allowed.
+- Choose between a label and an annotation for a given piece of metadata.
+
+## Intuition
+
+Look at a Service manifest and you will not find a Pod name anywhere in it. Look
+at a ReplicaSet and it is the same. Yet both find their Pods reliably, every
+second, including Pods that did not exist when they were written.
+
+**A label selector is a `WHERE` clause, and there are no foreign keys.** In a
+relational database, rows point at each other by id, and a row that points at a
+deleted row is a problem someone has to handle. Kubernetes does not do that at
+all. A Service stores a query. Every time it needs to know its members, it runs
+the query against the Pods that exist right now.
+
+Follow that through and the behaviour that surprises people stops being
+surprising. Create a Pod tomorrow with matching labels and it joins the Service
+by itself, with nothing edited. Change a running Pod's labels and it leaves, mid-request. Delete the Service and no Pod notices, because no Pod ever knew about
+it. The coupling only ever existed in one direction, at query time.
+
+<Callout variant="note">
+  This is the same loose coupling that lets controllers chain without knowing
+  each other. A ReplicaSet does not remember which Pods it created — it counts
+  the Pods matching its selector. That is also why an owner reference exists
+  separately: the selector says who *matches*, the owner reference says who is
+  *responsible*.
+</Callout>
+
+## How it works
+
+A **label** is a key/value pair under `metadata.labels`. Both sides are short
+strings — a value is at most 63 characters — and the key may carry an optional
+DNS-style prefix, as in `app.kubernetes.io/name`. Labels are kept short and rigidly
+structured because they are identifying metadata rather than a place to put data
+— which is also what keeps selector evaluation cheap.
+
+A **selector** turns labels into a set. The simplest form is a map, and every
+entry must match:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+    tier: frontend
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+That is an **equality-based** selector, and it is the only kind a Service
+supports. Workload controllers accept a richer **set-based** form as well, with
+the operators `In`, `NotIn`, `Exists` and `DoesNotExist`. The two can be combined
+in one selector, and everything is ANDed together:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+    matchExpressions:
+      - key: tier
+        operator: In
+        values: ['frontend']
+  template:
+    metadata:
+      labels:
+        app: web
+        tier: frontend
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          ports:
+            - containerPort: 8080
+```
+
+Notice that the template labels satisfy the selector. They have to: the API
+server rejects a workload whose template would produce Pods its own selector
+cannot find. And once created, a Deployment's `spec.selector` is immutable — it
+defines the identity of the set the controller owns, so changing it would orphan
+every Pod already made. The way out is a new object, not an edit.
+
+The same queries work from the command line:
+
+```bash
+kubectl get pods -l 'app=web,tier!=canary'
+kubectl get pods -l 'environment in (staging,production)'
+kubectl get pods --show-labels
+kubectl label pod web-6f9c7d4b8c-2xk9w tier=canary --overwrite
+```
+
+**Annotations** live at `metadata.annotations` and look identical — key and
+value, side by side with the labels. The difference is what the system does with
+them: nothing selects on an annotation, ever. In exchange they hold values far
+too large for a label. `kubectl apply` stores an entire previous manifest in one,
+under `kubectl.kubernetes.io/last-applied-configuration`. Ingress controllers
+read their own configuration out of them. `kubernetes.io/change-cause` is the
+annotation that shows up as the reason in a rollout history.
+
+The split is: **a label is for identity and membership; an annotation is for
+everything else.** If something needs to find this object by a value, that value
+is a label. If a human or a tool needs to read a value once it has already found
+the object, it is an annotation.
+
+There is a recommended vocabulary for the identity half —
+`app.kubernetes.io/name`, `/instance`, `/version`, `/component`, `/part-of` and
+`/managed-by`. These are a convention rather than a rule the API enforces, but
+ecosystem tooling reads them, so using them costs nothing and buys you dashboards
+that already understand your objects.
+
+## Trade-offs
+
+**A label is cheap to add and hard to remove.** The moment a Service, a
+NetworkPolicy or a controller selects on it, it is a published interface that
+other objects depend on, and nothing warns you when you change it. Treat a new
+label as a small API, and prefer adding one over redefining one that is already
+carrying traffic.
+
+**Set-based selectors are more expressive where they are allowed.** They are not
+allowed on a Service. If your routing decision genuinely needs "everything except
+the canary", that logic has to live somewhere else — in the labels you assign, or
+in a second Service.
+
+**Annotations avoid becoming an interface, and give up queryability.** You cannot
+find objects by annotation with `kubectl get -l`; you end up with a `jsonpath`
+expression and a pipe. That is the right trade for a build identifier nobody
+routes on, and the wrong one for a value you will want to select next month.
+
+**Do not label everything.** Anything unbounded (a commit message), anything
+secret, and anything that changes on every reconcile all belong somewhere other
+than a label — the first two in an annotation, the third in `status`.
+
+## Common pitfalls
+
+- **Two workloads whose selectors overlap.** Copy a Deployment manifest, change
+  only `metadata.name`, and both ReplicaSets now select the same label. They do
+  not fight over the Pods — a controller ignores any Pod another controller
+  already owns, so both hold their counts — and that is what makes it dangerous:
+  nothing looks wrong. What is wrong is that the two Pod sets have become
+  indistinguishable to everything that selects on that label. A Service
+  load-balances across both, `kubectl get pods -l app=web` shows one blurred
+  list, and a NetworkPolicy written for one applies to the other.
+- **Relabelling a Pod to pull it out of a Service.** It works, and it is a real
+  debugging technique — but if that Pod belongs to a controller, the controller
+  now sees one fewer matching Pod and immediately creates a replacement. That is
+  usually what you want; being surprised by it is not.
+- **Reading `kubectl get pods -l app=web` as proof of ownership.** It proves the
+  query matches. Ownership is in `metadata.ownerReferences`, and a Pod created by
+  hand with the right labels will happily appear in that list.
+- **Trying to select on an annotation.** The field is accepted in your head and
+  ignored by the system. Nothing errors; the selector never matches what you
+  meant.
+
+## Key takeaways
+
+- Kubernetes objects are joined by **queries, not references**: a selector is
+  evaluated against whatever exists at that moment, in one direction only.
+- **Services take equality-based selectors only.** Workload controllers also take
+  `matchExpressions` with `In`, `NotIn`, `Exists` and `DoesNotExist`.
+- A workload's **template labels must satisfy its own selector**, and a
+  Deployment's `spec.selector` cannot be changed after creation.
+- **Labels are identity and are indexed; annotations are everything else and are
+  not selectable.** Size and queryability are the two things that decide which
+  you want.
+- **Overlapping selectors are a real outage precisely because nothing fights.**
+  Each controller ignores Pods another already owns, so both hold their counts
+  and every dashboard looks right — while a Service, a `kubectl get -l` and a
+  NetworkPolicy can no longer tell the two sets apart.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You copy a Deployment manifest, change `metadata.name` from `web` to `web-canary`, and apply it. Both keep `app: web` in the selector and template. What happens?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Less than people expect, and that is the problem. Each Deployment creates its
+  own ReplicaSet, and you end up with four Pods, all stable — a controller only
+  adopts a Pod that no other controller owns, so neither ReplicaSet touches the
+  other's Pods and both hold their desired count. Nothing is invalid and nothing
+  thrashes. What breaks is everything downstream that selects on `app: web`: a
+  Service now load-balances across both versions, `kubectl get pods -l app=web`
+  cannot tell them apart, and a NetworkPolicy meant for one covers both. The fix
+  is a selector that is genuinely distinct — add a second label such as
+  `variant: canary` to both the selector and the template of the new object.
+  (Neither ReplicaSet would adopt a *hand-made* Pod carrying only `app: web`,
+  because the Deployment controller adds a `pod-template-hash` label to each
+  ReplicaSet's selector. A bare ReplicaSet you wrote yourself, whose selector is
+  exactly `app: web`, is the one that will adopt such a Pod — and delete it when
+  it is over count.)
+</PracticeCheck>
+
+**2. A Pod is misbehaving and you want to take it out of its Service without losing it for debugging. What do you do, and what else happens as a result?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Change one of the labels the Service selects on, with `kubectl label pod
+  web-6f9c7d4b8c-2xk9w app=web-quarantine --overwrite`. The Service query stops
+  matching it immediately, so it receives no more traffic, while the Pod and its
+  container filesystem stay for you to inspect. The side effect is that its
+  owning controller uses the same query: it now counts one fewer matching Pod
+  and creates a replacement to restore the desired count. You end up with your
+  quarantined Pod plus a full complement of healthy ones, which is normally
+  exactly right — as long as you expected it, and remember to delete the
+  quarantined Pod afterwards.
+</PracticeCheck>
+
+**3. You want to record the git commit that produced an image, and the reason someone triggered the last rollout. Which is a label, which is an annotation, and why?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The commit is a short, bounded, identifying value that you may plausibly want
+  to query — "show me every Pod still running the previous commit" is a real
+  question during an incident — so it is a label. The reason for the rollout is
+  free text written for a human, of unpredictable length, and nothing will ever
+  select on it, so it is an annotation. That is the test in general: ask whether
+  any object or command will need to find things *by* this value. If yes, it is
+  a label and you are defining an interface; if no, an annotation keeps it out
+  of the query space where it could later collide with something.
+</PracticeCheck>

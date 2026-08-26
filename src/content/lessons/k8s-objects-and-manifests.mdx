@@ -1,0 +1,217 @@
+---
+title: 'Objects, Manifests and the API'
+slug: 'k8s-objects-and-manifests'
+course: 'kubernetes'
+track: 'k8s-foundations'
+order: 2
+summary: 'Every Kubernetes object has the same four top-level fields, so once you can read those, a kind you have never met is still a manifest you can write.'
+difficulty: 'beginner'
+prerequisites: ['k8s-what-kubernetes-is']
+estimatedMinutes: 8
+tags: ['kubernetes', 'api', 'manifests', 'yaml']
+explainPrompt: 'Why does an object keep spec and status apart instead of holding one set of fields?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Read any manifest by its four top-level fields, whatever the kind is.
+- Say which half of an object you own and which half a controller owns.
+- Discover the fields of an unfamiliar kind from the cluster itself.
+
+## Intuition
+
+[What Kubernetes Is](/learn/k8s-what-kubernetes-is/) called the API server the
+only door. This lesson is about what you post through it.
+
+Everything you create in Kubernetes — a Pod, a Service, a Secret, a
+ResourceQuota, a Role — is an **object**, and every object is the same shape. There is no special
+syntax for Deployments that you then have to unlearn for Jobs.
+
+**An object is a form with four boxes: which form, a name tag, a wish, and a
+report.**
+
+- `apiVersion` and `kind` together say **which form you are filling in**.
+- `metadata` is the **name tag**: what this object is called, where it lives,
+  and the labels other objects find it by.
+- `spec` is the **wish**: the state you want. You write it.
+- `status` is the **report**: the state the cluster observed. A controller
+  writes it, and your manifest does not contain one.
+
+That split is the declarative model made concrete. `spec` is intent and never
+changes on its own; `status` is observation and changes constantly. Keeping them
+in one object rather than two is what lets a single `kubectl get -o yaml` show
+you both what you asked for and what happened.
+
+## How it works
+
+Here is a Service, complete:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: default
+  labels:
+    app: web
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+```
+
+`apiVersion: v1` is not "Kubernetes version 1". It names an **API group** and a
+version inside it. Kubernetes started with one unnamed group — the core group —
+whose objects still carry a bare `v1`: Pod, Service, ConfigMap, Secret,
+Namespace, ServiceAccount. Everything added later lives in a named group, and
+writes both parts: `apps/v1` for Deployment and StatefulSet, `batch/v1` for Job
+and CronJob, `networking.k8s.io/v1` for Ingress and NetworkPolicy.
+
+The grouping is not decoration. It is the URL:
+
+```text
+GET /api/v1/namespaces/default/services/web
+GET /apis/apps/v1/namespaces/default/deployments/web
+```
+
+The core group is served under `/api`; every named group is served under
+`/apis/GROUP/VERSION`. `kubectl get deployments -v=6` prints the request URL it
+built, which is a quick way to see the mapping for yourself. Groups are also how
+Kubernetes adds features without breaking anything: a new group version can be
+served alongside the old one, and a `CustomResourceDefinition` adds an entirely
+new group that behaves like every built-in kind.
+
+Two commands answer almost every "what fields does this have?" question, and
+they answer it from **your** cluster rather than from a search result:
+
+```bash
+kubectl api-resources
+kubectl explain deployment.spec.strategy
+kubectl explain --recursive service.spec
+```
+
+`kubectl api-resources` lists every kind the cluster serves with its short name,
+its `apiVersion` and whether it is namespaced. `kubectl explain` walks into a
+kind field by field, with the documentation the API server itself carries.
+
+Now the half you do not write. Apply the Service above, read it back, and it has
+grown fields you never typed — `metadata.uid`, `metadata.resourceVersion`,
+`metadata.creationTimestamp`, defaults the server filled in, and a `status`:
+
+```yaml
+status:
+  loadBalancer: {}
+```
+
+A Deployment's report is more interesting, because a controller keeps it current:
+
+```yaml
+status:
+  replicas: 3
+  readyReplicas: 3
+  availableReplicas: 3
+```
+
+You never send `status`. If you include one, the API server ignores it: status is
+written through a separate subresource that controllers use and your manifest
+does not touch. That is a good rule to internalise early — **if a number
+describes reality rather than intent, you are reading it, not setting it.**
+
+<Callout variant="tip">
+  `kubectl apply -f service.yaml --dry-run=server` sends the manifest through
+  the real validation path and prints what would happen, without writing
+  anything. It catches a misspelled field, a bad indent and a kind this cluster
+  does not serve, and it costs one round trip.
+</Callout>
+
+## Trade-offs
+
+**What the uniform shape buys.** One object model means one set of tools. `get`,
+`apply`, `delete`, `watch` and RBAC rules work identically on a Pod you did not
+write and on a custom kind an operator installed last week, because neither one
+is a special case.
+
+**What YAML costs.** Indentation is load-bearing, and a mistake in it is a
+different document rather than a syntax error. The shape is also verbose: a
+Deployment with two containers and a few environment variables runs to sixty
+lines, and the same sixty lines appear again per environment. That verbosity is
+the reason the ecosystem grew templating and overlay tools. Helm and Kustomize
+are ecosystem tools rather than cluster features — kubectl happens to bundle
+Kustomize as `apply -k` — and neither changes the object model; both produce the
+same manifests you would have written.
+
+## Common pitfalls
+
+- **Copying `kubectl get -o yaml` output into a file and applying it.** Tempting,
+  because it is right there and it is valid YAML. It carries `uid`,
+  `resourceVersion`, `creationTimestamp` and a `status`, none of which belong to
+  another cluster. Keep the file you applied from; that is the artifact.
+- **Trying to fix reality by editing `status`.** It reads like a field, so people
+  set `readyReplicas` and expect something. Nothing happens, because the value is
+  overwritten the next time the controller looks.
+- **Reading `apiVersion` as the Kubernetes version.** `apps/v1` has meant the
+  same thing for years across many Kubernetes releases; the two version numbers
+  are unrelated.
+- **Guessing field names from a blog post.** APIs move, and an old article's
+  field may not exist in the version you are running. `kubectl explain` is the
+  cluster's own answer.
+
+## Key takeaways
+
+- Every Kubernetes object has the same four top-level fields: `apiVersion` and
+  `kind` choose the type, `metadata` names it, `spec` is your intent, `status` is
+  the controller's observation.
+- **`apiVersion` names a group and a version**, and the group is the URL path:
+  core-group kinds are served under `/api/v1`, everything else under
+  `/apis/GROUP/VERSION`.
+- **You write `spec`, controllers write `status`**, and sending a `status` in a
+  manifest changes nothing.
+- `kubectl api-resources` and `kubectl explain` describe the cluster in front of
+  you, which is more reliable than any document about a different one.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A colleague sends you a manifest starting `apiVersion: batch/v1` and `kind: CronJob`. Without looking anything up, what two things do you already know about it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  That it is served at
+  `/apis/batch/v1/namespaces/<namespace>/cronjobs/<name>` — a named group, so it
+  sits under `/apis` rather than `/api` — and that whatever else it
+  contains, it has `metadata` with a name and a `spec` you own, and the cluster
+  will attach a `status` you do not write. The four-field shape is the same for
+  every kind, which is why a kind you have never used is still readable. You can
+  then get the field list from the cluster with `kubectl explain cronjob.spec`.
+</PracticeCheck>
+
+**2. You edit a live Deployment and set `status.readyReplicas` from 1 to 3. What happens?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Nothing useful. `status` is written through its own subresource by the
+  controller that owns the object, so an ordinary update either drops your
+  change or is overwritten within a second by the next reconciliation pass. The
+  deeper point is that `status` is a report about the world, not a lever on it:
+  two Pods are unready because two Pods are unready, and the number saying so
+  was never what kept them that way. The lever is `spec`, plus whatever is
+  stopping the Pods from becoming ready.
+</PracticeCheck>
+
+**3. `kubectl apply -f app.yaml` fails with a complaint about an unknown field, and the file looks right to you. What do you run before changing anything?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  `kubectl explain` on the path the error names — for example `kubectl explain
+  deployment.spec.template.spec.containers`, or `kubectl explain --recursive
+  deployment.spec` for the whole subtree. It answers from the API server you are
+  actually talking to, so it accounts for this cluster's version and for any
+  custom kinds installed on it. `kubectl apply --dry-run=server` is the
+  companion: it re-runs the validation without writing, so you can iterate on
+  the file without creating and deleting half-made objects.
+</PracticeCheck>

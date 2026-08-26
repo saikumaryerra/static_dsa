@@ -1,0 +1,261 @@
+---
+title: 'Readiness and Broken Rollouts'
+slug: 'k8s-rollout-failures'
+course: 'kubernetes'
+track: 'k8s-troubleshooting'
+order: 63
+summary: 'A rollout that will not finish is a controller refusing to break its own availability budget — the old version is still serving, nothing rolls back by itself, and one table tells you which.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-rolling-updates', 'k8s-probes']
+estimatedMinutes: 11
+tags: ['kubernetes', 'troubleshooting', 'rollouts', 'readiness', 'deployments']
+explainPrompt: 'Why does a Deployment stop half-way through a bad rollout instead of finishing it or undoing it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Read `kubectl get deploy` and say whether a workload is down or merely refusing to change.
+- Find the one Pod that is holding a rollout, and which of four families its failure belongs to.
+- Decide between rolling back and fixing forward, knowing what a rollback does not undo.
+
+## Intuition
+
+A rollout that hangs feels like an outage and usually is not one. The Deployment
+controller replaces Pods within a budget — `maxUnavailable` says how many of the
+old ones may be gone at once, `maxSurge` how many extra it may create — and it
+will not exceed that budget to make progress. When the new Pods never become
+ready, the arithmetic leaves it nothing legal to do, so it stops and waits.
+
+**A stuck rollout is a promise being kept.** With the defaults on a
+three-replica Deployment, `maxUnavailable` rounds down to zero and `maxSurge`
+rounds up to one, which means the three old Pods are all still serving every
+request while one new Pod sits there failing. The thing that is broken is the
+release, not the service.
+
+Two consequences follow. First, urgency is lower than it feels, and the right
+first move is to read rather than to act. Second, **nothing rolls back on its
+own**, ever: the controller reports what it found and keeps waiting for the
+condition to change. The decision to undo is always yours.
+
+## How it works
+
+### One table says which situation you are in
+
+```bash
+kubectl get deploy web -n shop
+kubectl get rs -n shop
+```
+
+```text
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+web    3/3     1            3           102s
+```
+
+`READY` counts Pods passing readiness against the number desired, `UP-TO-DATE`
+counts Pods running the **new** template, and `AVAILABLE` counts ready Pods that
+have stayed ready for `minReadySeconds`. `3/3` with `AVAILABLE 3` is a healthy
+service; `UP-TO-DATE 1` out of three is a rollout that has moved one step and
+stopped. A workload that is genuinely down reads the other way round — a low
+`AVAILABLE`, which is the number to alert on.
+
+```text
+NAME             DESIRED   CURRENT   READY   AGE
+web-69b5f85bdf   3         3         3       92s
+web-9d659886f    1         1         0       46s
+```
+
+Two ReplicaSets, and the second one names the suspect: one Pod created, zero
+ready. That Pod is the entire investigation.
+
+### The gate and the condition
+
+```bash
+kubectl rollout status deployment/web -n shop --timeout=120s
+kubectl get deploy web -n shop -o jsonpath='{range .status.conditions[*]}{.type}{" | "}{.status}{" | "}{.reason}{" | "}{.message}{"\n"}{end}'
+```
+
+```text
+Waiting for deployment "web" rollout to finish: 1 out of 3 new replicas have been updated...
+error: deployment "web" exceeded its progress deadline
+```
+
+`kubectl rollout status` blocks and exits non-zero when the rollout does not
+finish, which is what makes it the last step of a deployment pipeline. Without
+it, a pipeline reports success the moment the API accepted the manifest.
+
+```text
+Available   | True  | MinimumReplicasAvailable | Deployment has minimum availability.
+Progressing | False | ProgressDeadlineExceeded | ReplicaSet "web-9d659886f" has timed out progressing.
+```
+
+The two conditions say the two things independently: the service is available,
+and the change is not progressing. `progressDeadlineSeconds` — ten minutes by
+default — is how long the controller waits for progress before recording that.
+**It is a report, not an action.** Nothing stops, nothing reverts, and the
+controller keeps retrying; a third condition, `ReplicaFailure`, appears when Pods
+cannot be created at all.
+
+### Which of four families is it?
+
+```bash
+kubectl get pods -n shop -l app=web
+kubectl describe pod web-9d659886f-mmctp -n shop
+```
+
+| What the new Pod shows                 | Family                         | Where it is covered                                                       |
+| -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| `ImagePullBackOff`, `CrashLoopBackOff` | It never started               | [CrashLoopBackOff and ImagePullBackOff](/learn/k8s-pod-startup-failures/) |
+| `Pending` with no node                 | The surge Pod cannot be placed | [Pending Pods](/learn/k8s-scheduling-failures/)                           |
+| `0/1 Running`                          | It runs and readiness says no  | Below                                                                     |
+| No new Pod at all, `ReplicaFailure`    | Admission refused the create   | [Pending Pods](/learn/k8s-scheduling-failures/)                           |
+
+The third is the one that belongs to this lesson, and the event names it exactly:
+
+```text
+Warning  Unhealthy  pod/web-9d659886f-mmctp  Readiness probe failed:
+  Get "http://10.42.0.51:8080/healthz": dial tcp 10.42.0.51:8080: connect: connection refused
+```
+
+A refusal on the probe's port means the probe is aimed at a port the new image
+does not listen on — a port that changed in the release, or a `containerPort` name
+that no longer resolves. A timeout instead means the process is up and slow, and
+that splits in two. A handler slower than `timeoutSeconds`, which defaults to one
+second, fails every attempt there will ever be, so the Pod never becomes ready at
+all. A process that is only slow to _start_ does eventually pass — a readiness
+probe kills nothing and keeps retrying — so what it costs is the rollout's time
+rather than the release, and `startupProbe` is the field that buys a slow start
+without loosening the steady-state check. A probe that checks a dependency fails for a third reason
+entirely, and [Liveness, Readiness and Startup Probes](/learn/k8s-probes/) explains
+why that is a bad idea in the first place.
+
+<Callout variant="warning">
+  The opposite failure is quieter and worse. A readiness probe that answers
+  before the process can serve — a handler that returns 200 from the framework
+  before the connection pool exists — lets the rollout complete, and the errors
+  arrive as traffic does. `minReadySeconds` is the blunt guard: a Pod must stay
+  ready for that long before it counts as available, which turns a
+  ready-then-crash into a halted rollout instead of a completed one.
+</Callout>
+
+### Other controllers stop differently
+
+A StatefulSet updates in reverse ordinal order and waits for each Pod to be
+running and ready before touching the next, so one unready replica halts the
+update with every lower ordinal still on the old version. Its
+`updateStrategy.rollingUpdate.partition` produces the reverse confusion: a
+rollout that appears to do nothing at all, because every ordinal below the
+partition is deliberately held back. A DaemonSet with
+`updateStrategy.type: OnDelete`
+behaves the same way — nothing changes until you delete Pods yourself.
+
+<Callout variant="note">
+  A PodDisruptionBudget does not slow a Deployment rollout. The controller
+  deletes its own Pods directly rather than through the eviction API, so the
+  budget is never consulted — as
+  [PodDisruptionBudgets](/learn/k8s-disruption-budgets/) covers, it is
+  `maxUnavailable` on the rollout strategy that governs here.
+</Callout>
+
+## Trade-offs
+
+**Undo is fast and shallow.** `kubectl rollout undo deployment/web` restores the
+previous template in seconds, which is why it is the first thing anyone reaches
+for — and it does nothing about a database migration the release ran, a ConfigMap
+it changed, or a message it already consumed. Knowing which releases have a
+rollback and which only have a fix-forward is a real part of designing them.
+
+**A tight budget trades speed for safety.** `maxUnavailable: 0` guarantees full
+capacity throughout, and it means the rollout cannot start until there is room
+for a surge Pod — on a full cluster that is a rollout that never begins. A larger
+`maxUnavailable` rolls faster and puts the old version's capacity at risk while
+the new one proves itself.
+
+**Automatic rollback is not a Deployment feature.** Progressive-delivery
+controllers such as Argo Rollouts and Flagger add it by watching metrics and
+reverting on their own; both are ecosystem projects rather than core Kubernetes,
+and both are worth the operational weight only where releases are frequent enough
+to pay for it.
+
+## Common pitfalls
+
+- **Reading a stuck rollout as an outage.** `AVAILABLE 3` with `UP-TO-DATE 1`
+  means every request is still being served by the old version.
+- **Expecting the release machinery to notice for you.** It is tempting because
+  `kubectl apply` returned success, but nothing reverts a stuck rollout and a
+  pipeline that ends at the apply never learns there was one —
+  [Rolling Updates and Rollback](/learn/k8s-rolling-updates/) covers both.
+- **Copying probe settings between services.** A one-second `timeoutSeconds` is
+  fine for a static file server and fails a service that opens a connection pool
+  on first request.
+- **Forgetting `partition` on a StatefulSet.** The rollout looks stuck and is in
+  fact doing exactly what it was told.
+- **Rolling back before capturing evidence.** The failing Pods are deleted with
+  the ReplicaSet, and their events age out within the hour.
+
+## Key takeaways
+
+- A stuck rollout is the **availability budget being honoured**: the old Pods are
+  still serving, and the change is what stopped.
+- `UP-TO-DATE` versus `AVAILABLE` is the fastest way to tell **a broken release
+  from a broken service**.
+- `progressDeadlineSeconds` produces a **condition, not an action** — Kubernetes
+  never rolls back on its own.
+- The one unready Pod belongs to one of four families, and `kubectl get pods`
+  plus `describe` sorts it in seconds.
+- **Readiness that passes too early is worse than readiness that fails**, because
+  the rollout completes and takes the traffic with it.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. `kubectl get deploy` shows `READY 3/3`, `UP-TO-DATE 1`, `AVAILABLE 3`, and it has looked like that for twenty minutes. How urgent is this, and what is the first command?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Three of three Pods are ready and available, so the service is serving
+  normally — what has failed is the release, not the workload, and the urgency
+  is that of a blocked deployment rather than an incident. `UP-TO-DATE 1` says
+  exactly one Pod is running the new template, which is the surge Pod the budget
+  allowed, and it is not counted as available. The first command is `kubectl get
+  pods` for that Deployment: the new ReplicaSet's single Pod is the whole
+  investigation, and its `STATUS` sorts the cause into a family immediately —
+  `ImagePullBackOff` or `CrashLoopBackOff` for a Pod that never started,
+  `Pending` for one that could not be placed, `0/1 Running` for one whose
+  readiness probe is failing. Then `describe` that Pod for the reason.
+</PracticeCheck>
+
+**2. A rollout completes cleanly and error rates rise a minute later. Nothing is `CrashLoopBackOff` and the Pods report ready. What does the clean completion tell you about the readiness probe?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It tells you the probe answered successfully before the process could actually
+  serve, which is the one failure mode a rollout cannot catch — the controller's
+  only definition of "this replica is fine" is the readiness probe, so a probe
+  that is too generous makes the rollout complete on schedule and hand every old
+  Pod's traffic to a new one that is not ready for it. The usual cause is a
+  handler that returns 200 from the web framework before the dependencies it
+  needs are established, or a probe pointed at a static path that would answer
+  even if the application were broken. Two repairs go together: make the
+  readiness handler check what serving requires, and set `minReadySeconds` so a
+  Pod must stay ready for a while before it counts, which converts this silent
+  case into a rollout that visibly halts.
+</PracticeCheck>
+
+**3. A five-replica StatefulSet is updated to a new image. Pod 4 restarts onto it and stays unready; Pods 0 to 3 are still on the old image an hour later. Is anything broken beyond the new image, and what would a Deployment have done differently?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Nothing beyond the new image is broken. A StatefulSet updates in reverse
+  ordinal order and waits for each Pod to be running and ready before it touches
+  the next, so an unready Pod 4 halts the update exactly where it is and holds
+  it there indefinitely — the four lower ordinals are untouched by design, and
+  four fifths of the workload is still serving on the previous version. A
+  Deployment would have behaved similarly in effect but for a different reason:
+  its rolling update stops when the availability budget leaves nothing legal to
+  do, and after `progressDeadlineSeconds` it records `ProgressDeadlineExceeded`
+  and keeps waiting. Neither controller reverts on its own, so in both cases the
+  next move is yours — undo, or fix the image and let the halted update
+  continue.
+</PracticeCheck>

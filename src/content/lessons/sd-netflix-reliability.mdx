@@ -1,0 +1,240 @@
+---
+title: 'Scale, Reliability and Degradation'
+slug: 'sd-netflix-reliability'
+course: 'system-design'
+track: 'sd-netflix'
+order: 29
+summary: 'What a cache hit ratio is worth in origin capacity at 90 Tbps, how a region is evacuated, the order in which the product sheds features, and the conditions that make failure injection responsible rather than reckless.'
+difficulty: 'intermediate'
+prerequisites: ['sd-netflix-video-delivery', 'sd-observability-and-recovery']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'reliability', 'chaos-engineering']
+explainPrompt: 'Why does four percentage points of cache hit ratio change the size of the origin fleet fivefold?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Turn a cache hit ratio into an origin capacity figure, and explain the multiplier.
+- Plan a regional evacuation, including the headroom that makes it possible.
+- Rank what the product sheds when a dependency degrades, and what it never sheds.
+- Say when failure injection is responsible practice and when it is negligence.
+
+## Intuition
+
+**At this scale, cache hit ratio is a capacity decision rather than an
+optimisation.** The [requirements estimate](/learn/sd-netflix-requirements/) gives
+about 90 Tbps at peak, and the origin only ever sees the misses:
+
+```text
+Peak delivery                      ≈  90 Tbps
+99% hit ratio -> origin fill       =   0.9 Tbps
+95% hit ratio -> origin fill       =   4.5 Tbps
+90% hit ratio -> origin fill       =   9 Tbps
+```
+
+Four percentage points multiply the origin fleet by five. No other number in this
+design moves capacity that hard, which is why a small curated catalogue — one that
+fits in edge caches almost in its entirety — is a reliability property and not
+only a cost one.
+
+The second idea is that **degradation is something you design, not something you
+discover** — the general case is
+[Observability, Failure Handling and DR](/learn/sd-observability-and-recovery/);
+this lesson turns it into a ranked ladder for one product.
+
+The third: **a failure path you have never run does not work.** It compiles, it
+has a test, and it has never been executed with real traffic behind it. Chaos
+engineering, publicly documented in Netflix's own writing, is the well-known
+treatment — deliberately
+terminating production instances so that surviving one stops being hypothetical —
+and the practice has generalised into failure injection at larger and larger
+scopes.
+
+## How it works
+
+**Traffic shape.** Peak runs at roughly three times average and moves around the
+world with the clock, which helps only the capacity regions can share — origin
+fill, the encode farm, elastic control-plane compute. The edge and cache tier
+cannot share: spare capacity on another continent cannot buy away 150 ms, so every
+region is sized for its own evening peak, and the evacuation headroom below sits
+on top of that. The sharp case is a premiere: a title released at a
+fixed moment is requested by millions of viewers within minutes, and every edge
+cache misses the same new object at once. Because the catalogue is curated and
+release dates are known, the answer is to push the title to caches before the
+release rather than to survive the fill — the defences from
+[content delivery networks](/learn/sd-cdn/), request coalescing and jittered
+expiry, are the backstop rather than the plan.
+
+**Measure hit ratio per object class.** Video segments should sit above 99%,
+manifests lower because they vary by title and device, and personalised responses
+are not cacheable at all — so "97% overall" may be very good or very bad depending
+on which class moved.
+
+**Multi-region**, in the generally accepted active-active form. The control plane
+is stateless and read-heavy, so it runs in several regions with the edge steering each request to a healthy
+one. State follows the rule from
+[watch history](/learn/sd-netflix-playback-state/): partition by profile, give each
+profile a home region, replicate asynchronously. That combination is what makes an
+**evacuation** possible — shifting all traffic out of one region — and it has two
+prerequisites people skip. The other regions need headroom, paid for on every
+ordinary day. And steering
+has to change fast, which means the routing decision lives at the edge and not in
+a client's cached configuration.
+
+The costs are honest: the recovery point objective is bounded by replication
+lag, so an evacuation can lose seconds of position updates and a profile served
+from a new region may briefly see an older value.
+
+**The degradation ladder.** Decide the order in advance, and write it down.
+
+| Surface           | Degraded behaviour                                            |
+| ----------------- | ------------------------------------------------------------- |
+| Personalised rows | Regional popularity rows, precomputed and cached              |
+| Search            | Prefix match over cached catalogue metadata                   |
+| Continue watching | Omit the row; the client resumes from its own local position  |
+| Artwork variants  | Serve the default image for the title                         |
+| Playback start    | No degraded mode — this is the thing everything else protects |
+
+The engineering that makes the table true is unglamorous: a deadline on every
+outbound call that is shorter than the page's own budget, a defined fallback per
+call, and a circuit breaker that stops calling a dependency that is failing
+([timeouts, retries and backpressure](/learn/sd-idempotency-and-backpressure/)).
+Serving the last known good response — failing static — is usually better than
+serving an error, because a slightly wrong page is a product and an error page is
+not.
+
+**Know when it is broken before viewers say so.** The indicators that matter here
+are playback start success rate, time to first frame at p99, and rebuffer ratio;
+alert on those symptoms rather than on the causes underneath them
+([observability and recovery](/learn/sd-observability-and-recovery/)). An error
+budget derived from the four-nines start target is what converts an argument about
+whether to ship into arithmetic.
+
+<Callout variant="warning">
+  **Failure injection has preconditions.** Before terminating anything on
+  purpose: monitoring good enough to detect the effect within seconds, a blast
+  radius bounded to a small share of traffic, an abort switch someone can pull,
+  a stated hypothesis about what should stay steady, and people watching during
+  working hours. Without those it is not an experiment, because nothing is being
+  measured and nothing can be stopped. And never inject a failure you already
+  know the system cannot survive — fix the known gap first, then use injection
+  to find the unknown ones.
+</Callout>
+
+## Trade-offs
+
+**Headroom for evacuation costs money continuously.** Running regions with enough
+spare capacity to absorb another one means paying for capacity that is idle almost
+always. The alternative is accepting that a regional failure is a regional outage,
+which is a legitimate choice for some products and not for a subscription service
+whose peak is the evening.
+
+**Prepositioning content costs storage and fill bandwidth.** Pushing a premiere to
+every cache before release consumes off-peak transfer and edge storage for
+something nobody has asked for yet. It buys the hour where demand for a single
+object is highest.
+
+**Fallback paths cost code that is rarely exercised.** Every degraded mode is a
+branch that runs during incidents and almost never otherwise, which is precisely
+the code most likely to be broken. That is the argument for failure injection: the
+fallback either runs regularly or it does not work.
+
+**Short deadlines trade completeness for latency.** A short deadline sheds a row
+that might have arrived; a long one lets one slow dependency hold the page. The
+page budget decides, and every call gets a slice of it.
+
+## Common pitfalls
+
+- **Untested fallbacks.** Tempting because the happy path is what gets reviewed,
+  and an unexercised degraded mode is a second failure waiting inside the first.
+- **A timeout longer than the caller's own budget.** It guarantees the caller gives
+  up first, so the work continues, consuming capacity for a response nobody wants.
+- **Retrying without backoff and jitter.** A dependency recovering from overload is
+  met by every client at once, and recovers into a second outage
+  ([backpressure](/learn/sd-idempotency-and-backpressure/)).
+- **One aggregate cache hit ratio.** It moves for reasons the design cannot act on;
+  per class it is a diagnosis.
+- **A failover plan that is a document.** Tempting because writing it feels like
+  progress, and the first real execution then happens during an incident.
+- **Alerting on causes.** Processor use paging at three in the morning while
+  playback start success is unaffected trains people to ignore alerts.
+
+## Interview notes
+
+Give the hit-ratio arithmetic unprompted — "at ninety terabits per second, moving
+from 99% to 95% is five times the origin fleet" — because it demonstrates that
+caching is being treated as capacity planning rather than as a performance tweak.
+
+Then state the degradation order and the one thing that has no degraded mode.
+Naming what you shed first, second and third, and saying that playback start is
+never on that list, is the answer to "how do you handle failure" that shows the
+design has priorities rather than good intentions.
+
+## Key takeaways
+
+- **Origin capacity is set by the miss rate**: at 90 Tbps peak, 99% versus 95% is
+  0.9 Tbps versus 4.5 Tbps of origin fill.
+- **Peaks are predictable and premieres are not spread out**; prepositioning a
+  known release beats surviving the fill that follows it.
+- An **evacuation needs headroom and fast steering**, and it costs a bounded amount
+  of recent state — those are the prices of surviving a region.
+- **Every dependency of a page is optional except playback start**, enforced by
+  deadlines, fallbacks and circuit breakers rather than by intention.
+- **Failure injection is how a fallback stays real**, and it is only responsible
+  with monitoring, a bounded blast radius, an abort switch and a hypothesis.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A change to cache keys drops the video segment hit ratio from 99% to 95% at 90 Tbps peak. What happens, and how quickly would you know?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Origin fill goes from about 0.9 Tbps to about 4.5 Tbps — five times the
+  traffic, against an origin sized for the smaller figure — so the origin
+  saturates, fills slow down, edges serve more misses, and viewers see slow
+  starts and rebuffering even though delivery capacity at the edge is untouched.
+  You would know within seconds if the alert is on symptoms — playback start
+  success and time to first frame — and only much later if the alerting is on
+  origin processor use, because the origin will look busy long before it looks
+  broken. This is why hit ratio is measured per object class: an aggregate
+  number that mixes segments with personalised responses could move by four
+  points for a harmless reason.
+</PracticeCheck>
+
+**2. The home page calls eight services with a five-second page budget. The recommendation service starts responding in two seconds instead of forty milliseconds. What does the viewer experience, and what should the design have done?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The page waits for the slowest call, so every home page takes at least two
+  seconds — the page is technically succeeding, which means an availability
+  alert stays silent while the product feels broken, and the queue of in-flight
+  requests grows because each one holds resources fifty times longer than
+  planned. The design should have given that call a deadline far below the page
+  budget, a couple of hundred milliseconds here, with a defined fallback: serve
+  the regional popularity rows that already exist for cold-start profiles. A
+  circuit breaker should then stop calling the dependency at all while it is
+  failing, so the page pays nothing rather than a deadline per request. The rule
+  is that the page budget is divided among its calls in advance, never
+  discovered at runtime.
+</PracticeCheck>
+
+**3. A team proposes starting to terminate production instances at random next week to prove the system tolerates it. What has to be true before that is a good idea?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Five conditions and one prohibition. The first condition is the one usually
+  missing: there must be monitoring that would show the effect within seconds on
+  user-facing indicators — start success, time to first frame — because an
+  experiment nothing measures is only an outage. The blast radius must be
+  bounded to a small share of traffic, and there must be an abort switch that
+  any person watching can pull. There must be a stated hypothesis, such as
+  "start success stays within its error budget while one instance in twenty is
+  terminated", so the run has a pass or fail rather than a vibe. It should run
+  during working hours with people watching, not overnight. And any failure mode
+  already known to break the system should be fixed first: injection is for
+  finding the failures nobody predicted, not for confirming the ones already on
+  the backlog.
+</PracticeCheck>

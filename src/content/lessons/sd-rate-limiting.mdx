@@ -1,0 +1,269 @@
+---
+title: 'Rate Limiting'
+slug: 'sd-rate-limiting'
+course: 'system-design'
+track: 'sd-edge'
+order: 12
+summary: 'Fixed window, sliding window and token bucket, with the arithmetic for each — and why enforcing one limit across a fleet is a distributed-counter problem rather than a configuration setting.'
+difficulty: 'intermediate'
+prerequisites: ['sd-idempotency-and-backpressure', 'sd-load-balancers']
+estimatedMinutes: 9
+tags: ['system-design', 'rate-limiting', 'throttling', 'fairness', 'edge']
+explainPrompt: 'Why does a per-instance rate limiter running on twenty servers enforce twenty times the limit it was configured with?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Specify a limit as an identity, a quantity and a window before naming an algorithm.
+- Compare fixed window, sliding window and token bucket by what each permits.
+- Enforce one limit across a fleet without a per-instance counter multiplying it.
+- Decide what happens when the counter store itself is unavailable.
+
+## Intuition
+
+A **rate limiter** decides in advance who gets refused. Under overload something
+is always refused; the only question is whether a policy chose, or whichever
+request happened to arrive during the spike.
+
+Separate it from its neighbour.
+[Backpressure and load shedding](/learn/sd-idempotency-and-backpressure/) protect
+the system from _total_ load: global, and reacting to live conditions. A rate
+limit protects a shared resource from _any one caller_: per-identity, and usually
+a static number in a contract. A system at scale wants both, and neither
+substitutes for the other — a thousand callers each politely under their limit
+can still take you down.
+
+**A limit is three things before it is an algorithm.** The **identity** it counts
+against — API key, account, tenant, IP address. The **quantity** — requests, or
+bytes, or cost units, because one request that runs a twenty-second report is not
+one request. And the **window** it counts over. Get those wrong and no algorithm
+rescues you.
+
+## How it works
+
+Four algorithms, each answering a problem the one before it leaves:
+
+**Fixed window.** One counter per identity per window, reset at the boundary.
+Cheap — an integer and an expiry — and it permits twice the limit across that
+boundary, in a burst as short as you like:
+
+```text
+limit 100 requests per minute, windows aligned to the clock
+
+12:00:59   100 requests → allowed (window 12:00 count = 100)
+12:01:00   100 requests → allowed (window 12:01 count = 100)
+
+200 requests in a 2-second span, from a limit that reads "100 per minute"
+```
+
+**Sliding window log.** Keep a timestamp per request and count those newer than
+now minus the window. Exactly correct, and it costs memory proportional to the
+limit for every identity — 100,000 API keys at 100 timestamps each is ten million
+entries — plus a trim on each request.
+
+**Sliding window counter.** Keep the current and previous fixed-window counts,
+weighting the previous one by how much of it still overlaps:
+
+```text
+limit 100/minute, now = 12:01:15  (25% into the current window)
+  previous window (12:00) count = 90
+  current  window (12:01) count = 20
+
+estimate = 90 × (1 − 0.25) + 20 = 87.5   → under 100, allow
+```
+
+Two integers per identity, no per-request timestamps, and a bounded error that
+comes entirely from assuming the previous window's traffic was evenly spread — the
+usual production choice when the limit is a contractual number.
+
+**Token bucket.** A bucket of capacity B refills at R tokens per second; a request
+spends a token or is refused. It permits a burst of up to B and a sustained rate
+of R, usually what you meant — clients do legitimate work in batches. Its state
+is a token count and a last-refill timestamp, refilled lazily when read, so it is
+as cheap as the fixed window and better behaved. Its sibling the **leaky bucket**
+shapes rather than refuses: it queues and releases at a constant rate, right for
+smoothing traffic into a fragile downstream and wrong whenever latency matters,
+because its queue is somewhere requests go to age.
+
+The choice between the last two is about bursts. Token bucket forgives a client
+that batches; a sliding window punishes it and hands the downstream a flatter
+load. Decide which you want, then pick.
+
+<Callout variant="warning">
+  **At scale a rate limiter is a distributed-counter problem, not a
+  configuration setting.** Give each application instance its own in-memory
+  counter and the limit you enforce is the one you wrote multiplied by the fleet
+  size — and it moves whenever autoscaling does. It passes every test on one
+  machine, which is exactly why it reaches production.
+</Callout>
+
+```text
+configured limit 100 requests/minute per API key
+20 instances, requests spread evenly by the load balancer
+
+each instance sees ≈ 5/minute from a caller doing 100/minute
+  → the caller reaches ≈ 2,000/minute before any instance refuses
+```
+
+There are four honest answers to that, trading the same thing against each other.
+
+A **shared store** — a Redis-like counter keyed by identity and window, with an
+atomic increment-and-check — is correct, and puts a round trip and a hard
+dependency on every request. **Sharded limits** give each instance limit divided
+by N: no coordination, and it holds only while traffic is spread evenly.
+**Consistent routing** hashes the identity at L7 so one instance owns a caller's
+counter, trading coordination for a routing constraint and a rebalance whenever
+the fleet changes. **Approximate-and-reconcile** enforces locally while
+broadcasting counts every few hundred milliseconds — late and slightly generous,
+and common when the limit is about cost rather than correctness.
+
+**Where it runs matters as much as how.** At the edge, a refusal never touches
+your infrastructure, and the edge knows nothing of tenants or plans. The API
+gateway — after authentication, before the services — is the usual home, being
+the first place the caller's identity is known. Inside the service you have the
+most context and the least protection, since the request already cost a hop. Most
+systems limit at two of the three, doing different jobs.
+
+**Refuse cheaply, and say so.** `429 Too Many Requests` with `Retry-After` — the
+one such header HTTP itself defines, the rest vary by API — plus enough for the
+caller to behave:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+Content-Type: application/json
+
+{ "error": "rate_limited", "limit": 100, "window_seconds": 60 }
+```
+
+A rejection must cost far less than serving the request, or the limiter amplifies
+load. A caller that ignores `Retry-After` turns your limit into a busy loop,
+which is why the retry rules from
+[the retries lesson](/learn/sd-idempotency-and-backpressure/) — backoff with
+jitter, a retry budget — are the client half of this design.
+
+**Choosing the identity is where fairness lives.** An IP address is available
+before authentication and wrong as a primary key: carrier-grade NAT puts
+thousands of unrelated users behind one address, and a determined caller rents
+more. An account or API key is right, and exists only after authentication. Hence
+the layered answer: coarse IP-based limits at the edge for the unauthenticated
+surface, precise per-account limits once the caller is known.
+
+## Trade-offs
+
+**Precision against cost.** The log is exact and expensive, the counter
+approximate and cheap. The question is how much error the limit's purpose
+tolerates — a billing quota and an abuse control answer differently.
+
+**Burst tolerance against a flat downstream.** Every token a client saves is a
+token they may spend at once.
+
+**Fail open or fail closed.** When the counter store is unreachable, allowing
+everything risks the overload the limiter existed to prevent; refusing everything
+turns the limiter's outage into your API's outage. Abuse controls usually fail
+open, paid quotas usually fail closed, and the choice belongs in the design
+rather than in a library default.
+
+**When not to rate limit.** Calls between your own services are better served by
+concurrency limits and backpressure: refusing a caller you also own merely
+moves the failure, and a static per-caller number goes stale as soon as either side
+scales. Nor should a limiter guard something merely undersized — a limit protects
+a resource, it does not create capacity.
+
+## Common pitfalls
+
+- **Per-instance counters.** Tempting because they are fast and need no
+  dependency; they enforce N times the limit while looking correct in staging.
+- **Limiting by IP address alone.** Tempting because it needs no authentication.
+  It punishes shared networks and barely inconveniences an attacker.
+- **Counting requests when cost varies.** A limit of 100 means little when one
+  call is 2 ms and another 20 seconds; count cost units instead.
+- **Omitting `Retry-After`.** Well-behaved clients guess, and badly behaved ones
+  hammer.
+- **Limiting health checks, retries of idempotent writes, or a control plane.**
+  The limit then fires exactly when the system is already unwell; keep an
+  exemption list.
+- **Testing on one instance.** The most common way the multiplication above ships.
+
+## Interview notes
+
+State the limit as a full sentence before naming an algorithm: "1,000 requests
+per minute per API key, counted at the gateway, token bucket with a burst of
+2,000". Every part of that is a decision someone can question, which is the point.
+
+Then answer the two questions interviewers actually ask: how the counter is
+shared across instances, and — if you said "a shared store" — what happens when it
+is down. Naming fail-open versus fail-closed unprompted is the strongest single
+signal in this topic.
+
+## Key takeaways
+
+- A limit is **an identity, a quantity and a window** before it is an algorithm.
+- **A fixed window permits twice the limit across its boundary**; sliding windows
+  fix that exactly (a log) or approximately (two weighted counters).
+- **Token bucket allows a burst of B and a sustained rate of R**, usually the
+  intended behaviour; the leaky bucket queues instead of refusing.
+- **Per-instance counters multiply the limit by the fleet size.** Share a counter,
+  shard the limit, route by identity, or reconcile approximately.
+- Refuse cheaply with **`429` and `Retry-After`** — and decide in advance whether
+  the limiter fails open or closed.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. An API is limited to 100 requests per minute per key with a fixed-window counter, and the counter is verifiably correct. The downstream service still records 200 requests from one key inside a few seconds. Explain, and give a fix.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The counter is correct and the limit is still wrong, because a fixed window
+  measures against clock boundaries rather than against the caller's recent
+  behaviour. A client that sends 100 requests immediately before 12:01:00 and
+  100 more immediately after has stayed inside both windows — each one counted
+  100 — while the downstream saw 200 in a couple of seconds. The permitted burst
+  is always up to twice the limit, and it can be arbitrarily short. The fix is
+  an algorithm that measures a moving window: a sliding window counter, which
+  weights the previous window's count by its remaining overlap and would have
+  estimated well over 100 at 12:01:01; or a token bucket, which caps the burst
+  explicitly at the bucket size.
+</PracticeCheck>
+
+**2. A limiter tested on a single staging instance enforces exactly 100 per minute. In production, with twenty instances behind a load balancer, callers reach roughly 2,000 per minute. What is happening, and what are three ways to fix it with their costs?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Each instance keeps its own in-memory counter, so twenty independent counters
+  each allow 100 per minute. The load balancer spreads one caller's traffic
+  across all of them, so each instance sees about a twentieth of it and none
+  ever reaches its threshold — the enforced limit is the configured one times
+  the fleet size, and it changes whenever autoscaling does. Three fixes. A
+  shared counter store with an atomic increment: correct, at the cost of a round
+  trip on every request and a new hard dependency you must decide how to fail.
+  Sharded limits of 5 per instance: no coordination, but it only holds while
+  traffic is spread evenly, and it over-restricts — refusing a caller before
+  they reach the configured limit — whenever their requests land unevenly. Note
+  the direction: 20 instances × 5 is a hard cap of 100, so a sharded limit can
+  never let a caller through above the total, only turn them away below it.
+  Consistent routing on the API key so one instance owns each caller's counter:
+  no shared store, at the cost of coupling routing to limiting and of
+  redistributing counters whenever the fleet changes.
+</PracticeCheck>
+
+**3. A customer legitimately imports data in nightly batches, and complains about `429`s under a strict sliding window of 600 requests per minute. The average rate over the night is well within the limit. What would you change, and what does the change cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The premise is that the average is fine and the shape is not, which is exactly
+  the case a token bucket is for. A sliding window enforces the ceiling at every
+  instant, so a client whose work genuinely arrives in bursts is refused even
+  though it is nowhere near the sustained allowance. Replacing it with a bucket
+  that refills at 600 per minute but holds, say, 3,000 tokens lets the importer
+  spend accumulated allowance in one go and still averages the same rate. The
+  cost lands downstream: whatever handles these requests must survive 3,000
+  arriving at once, so the burst size is really a capacity decision about the
+  services behind the limiter — and if they cannot take it, the right answer is
+  a leaky bucket that shapes the batch to a steady rate, or a separate
+  asynchronous bulk-import path rather than a bigger limit on the synchronous
+  one.
+</PracticeCheck>

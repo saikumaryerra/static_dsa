@@ -1,0 +1,259 @@
+---
+title: 'StatefulSets'
+slug: 'k8s-statefulsets'
+course: 'kubernetes'
+track: 'k8s-workloads'
+order: 9
+summary: 'A StatefulSet trades interchangeability for identity: stable names, stable DNS and one volume per replica — none of which makes your application clustered, and all of which makes every rollout slower.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments']
+estimatedMinutes: 9
+tags: ['kubernetes', 'statefulsets', 'storage', 'identity']
+explainPrompt: 'Why will a StatefulSet not replace a Pod whose node has stopped responding?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name the three guarantees a StatefulSet adds, and the object each one needs.
+- Predict the order in which its Pods are created, updated and deleted.
+- Explain what happens to the volumes when you scale one down.
+- Decide when identity is worth its cost, and when it is not.
+
+## Intuition
+
+A Deployment Pod has a random name, a random address and no memory. That is the
+point: any replica can serve any request, so the controller is free to delete one
+and make another. Replacement is cheap because nothing was attached to the
+individual.
+
+Some software cannot work that way. A database replica needs to know it is
+replica 2, needs the other members to be able to find it under a name that
+survives a restart, and above all needs its own disk back — not any disk, that
+disk. **A StatefulSet gives Pods numbered seats instead of a crowd.**
+
+The seats are literal. The Pods are `db-0`, `db-1`, `db-2`, in that order, and
+those names are stable across restarts, rescheduling and node failures. Three
+things follow: a predictable name, a predictable DNS record, and a
+PersistentVolumeClaim bound to the ordinal rather than to the Pod that happens to
+be using it.
+
+<Callout variant="warning">
+  A StatefulSet does not make an application clustered. It supplies names, order
+  and disks. Replication, leader election, failover and joining a new member are
+  entirely the application's job — running Postgres in a StatefulSet gives you
+  three separate databases with stable names, not a Postgres cluster.
+</Callout>
+
+## How it works
+
+The identity comes from two objects. The first is a headless Service — a Service
+with `clusterIP: None`, which does no load balancing and instead publishes one
+DNS record per Pod:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  clusterIP: None
+  selector:
+    app: db
+  ports:
+    - port: 5432
+      name: postgres
+```
+
+The second is the StatefulSet, whose `serviceName` names that governing headless
+Service, and whose `volumeClaimTemplates` describe the storage each replica gets
+for itself:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports:
+            - containerPort: 5432
+              name: postgres
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+**What that produces.** Three Pods named `db-0`, `db-1` and `db-2`. Three
+PersistentVolumeClaims named `data-db-0`, `data-db-1` and `data-db-2` — the
+template name joined to the Pod name. And a DNS name per Pod of the form
+`db-0.db.default.svc.cluster.local`, so members can address each other
+individually instead of being load balanced at random.
+
+**Order is a guarantee, not a coincidence.** With the default
+`podManagementPolicy: OrderedReady`, `db-0` is created and must become ready
+before `db-1` starts, and so on. Deletion runs in reverse: the highest ordinal
+goes first. A rolling update follows the same reverse order, one Pod at a time,
+waiting for each to be ready before touching the next. If your application does
+not need that, `podManagementPolicy: Parallel` starts and stops them all at once
+while keeping the names and volumes.
+
+**Updates can be staged.** `updateStrategy.rollingUpdate.partition` sets an
+ordinal below which nothing is updated, which gives you a canary you control:
+
+```bash
+kubectl get pods -l app=db
+kubectl get pvc -l app=db
+kubectl patch statefulset db --type=merge \
+  -p '{"spec":{"updateStrategy":{"rollingUpdate":{"partition":2}}}}'
+kubectl rollout status statefulset/db
+```
+
+With `partition: 2`, only `db-2` takes the new template. Watch it, then lower the
+partition to zero and the rest follow.
+
+**The volumes outlive the Pods, and that is deliberate.** Scale from three to
+two and `db-2` is deleted while `data-db-2` remains, bound to its data. Scale
+back up and `db-2` returns with everything it had. Deleting the StatefulSet
+behaves the same way. A `persistentVolumeClaimRetentionPolicy` field exists if
+you want claims cleaned up on scale-down or deletion; the default is the
+conservative one, because losing data silently is worse than paying for a disk
+you forgot about.
+
+**Node failure is handled cautiously.** If a node stops responding, its Pods are
+marked as terminating but the StatefulSet does **not** immediately create
+replacements. Two Pods called `db-1` writing to one volume is a much worse
+outcome than one missing replica, so the controller waits until the old Pod is
+genuinely gone — the node returns and confirms it, or the node object is removed
+from the cluster.
+
+## Trade-offs
+
+**What identity costs.** Ordered start-up means a 20-replica set restarts twenty
+times in sequence, each one waiting for readiness — minutes, sometimes much
+longer. A single Pod that will not become ready blocks every ordinal behind it.
+That is a feature when a quorum has to form in order, and a tax otherwise.
+
+**When you want one.** Software where members are distinguishable and stateful:
+databases, message brokers, consensus stores, anything where "replica 0" means
+something to the application itself.
+
+**When you do not.** A stateless service that merely needs a disk for a cache
+does not need identity, and a Deployment is simpler. Anything where replicas are
+interchangeable does not need it either. And for a real datastore, ask first
+whether a managed service or a purpose-built operator is the better answer — an
+operator encodes backup, failover and version upgrades that a StatefulSet knows
+nothing about. Operators are an extension pattern rather than part of core
+Kubernetes, and they get their own lesson later in this course.
+
+**The storage is single-writer by default.** `ReadWriteOnce` means one node
+mounts the volume at a time, which is exactly right for a per-replica database
+directory and exactly wrong as a way to share files between replicas.
+
+## Common pitfalls
+
+- **No headless Service, or a `serviceName` that does not match one.** The Pods
+  start, the ordinals look right, and the per-Pod DNS names never resolve — so
+  cluster members cannot find each other and the failure looks like a networking
+  problem.
+- **Force-deleting a stuck Pod to speed up recovery.**
+  `kubectl delete pod --force --grace-period=0` removes the object without confirming the container stopped,
+  which is exactly the case the controller was protecting you from. Two writers
+  on one volume can corrupt it.
+- **Assuming scale-down frees the storage.** The claims stay, and so does the
+  bill. Check `kubectl get pvc` after any scale-down you did not intend to undo.
+- **Expecting high availability from the object.** Three Pods with stable names
+  is not a highly available database; it is three databases unless the software
+  is configured to replicate.
+- **Trying to grow a volume by editing `volumeClaimTemplates`.** The field is
+  immutable once the StatefulSet exists, so the edit is rejected and nothing
+  changes. Growing storage means editing the PersistentVolumeClaims themselves,
+  where the storage class allows expansion.
+
+## Key takeaways
+
+- A StatefulSet adds three things a Deployment cannot: **a stable ordinal name, a
+  stable per-Pod DNS record via a headless Service, and one PersistentVolumeClaim
+  per replica**.
+- **Order is guaranteed**: creation ascending, deletion and rolling updates
+  descending, one at a time — unless you opt into `podManagementPolicy: Parallel`.
+- `partition` on the update strategy is a **built-in canary**: only ordinals at or
+  above it take the new template.
+- **Claims survive scale-down and deletion by default**, which protects data and
+  quietly costs money.
+- Identity is not availability. **The application still has to do the
+  replication**, and a managed service or an operator is often the better answer.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Someone runs a database as a Deployment with `replicas: 3`, mounting one PersistentVolumeClaim. What breaks, and which parts would a StatefulSet fix?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  All three Pods reference the same claim, and a `ReadWriteOnce` volume can be
+  mounted by one node at a time — so either the Pods all land on one node and
+  three processes write to one directory, or the ones scheduled elsewhere sit
+  unschedulable. They also have random names, so nothing can address a specific
+  replica, and a replacement Pod has no relationship to the data the old one was
+  using. A StatefulSet fixes the storage (one claim per ordinal) and the naming
+  (stable, addressable per-Pod DNS). It does not fix the actual problem
+  underneath, which is that three database processes have to be configured to
+  replicate to each other — that part is the software's job either way.
+</PracticeCheck>
+
+**2. The node running `db-1` loses network connectivity. Minutes pass and no replacement Pod appears. Why not, and what is the wrong way to hurry it along?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The control plane cannot tell "the node is dead" apart from "the node cannot
+  be reached", and in the second case `db-1` may still be running and writing to
+  its volume. Creating a second `db-1` would give two processes with the same
+  identity on the same data, so the controller deliberately waits until the old
+  Pod is confirmed gone. The wrong hurry is `kubectl delete pod db-1 --force
+  --grace-period=0`: it deletes the API object without any confirmation that the
+  container stopped, re-creating exactly the split-brain the guarantee exists to
+  prevent. The right move is to resolve the node — bring it back, or remove the
+  Node object once you know it is truly gone.
+</PracticeCheck>
+
+**3. You want to try a new image on one replica of a three-replica StatefulSet before committing. Which field, which Pod gets it, and how do you finish the rollout?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Set `updateStrategy.rollingUpdate.partition` to 2 and then change the
+  template. Only Pods with an ordinal at or above the partition are updated, so
+  `db-2` takes the new image while `db-0` and `db-1` keep the old one — and
+  because updates run from the highest ordinal down, the canary is the Pod that
+  would have been updated first anyway. When you are satisfied, lower the
+  partition to 0 and the controller works down through `db-1` and `db-0`, one at
+  a time, waiting for readiness between each. If the canary is bad, set the
+  template back and only `db-2` has to be replaced.
+</PracticeCheck>

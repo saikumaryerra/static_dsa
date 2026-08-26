@@ -704,7 +704,25 @@
 
   pre,
   table,
-  .viz-frame {
+  .viz-frame,
+  .figure {
     break-inside: avoid;
+  }
+
+  /* 7. THE PROSE ARTIFACTS, WHOLE (course expansion, decision D-09). On screen a
+     wide table or a wide manifest scrolls inside its own box; on paper there is
+     nowhere to scroll, so a clipped box would print with its right-hand columns
+     sliced off — the same failure rule 3 fixes for the drawing. Let them lay out
+     at page width instead. The keyboard affordance goes with it: a `tabindex` on
+     a printed box is meaningless, and the outline it can attract is noise. */
+  .table-scroll,
+  pre.md-code,
+  .figure {
+    overflow: visible !important;
+  }
+
+  .figure svg {
+    max-width: 100%;
+    height: auto;
   }
 }

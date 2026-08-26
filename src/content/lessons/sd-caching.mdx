@@ -1,0 +1,250 @@
+---
+title: 'Caching'
+slug: 'sd-caching'
+course: 'system-design'
+track: 'sd-edge'
+order: 11
+summary: 'A cache is not a decision until it names a key, a TTL and an invalidation event. Placement, cache-aside, stampedes, cold starts — and the arithmetic showing when the cache became load-bearing.'
+difficulty: 'intermediate'
+prerequisites: ['sd-capacity-estimation', 'sd-consistency-models']
+estimatedMinutes: 9
+tags: ['system-design', 'caching', 'performance', 'invalidation', 'staleness']
+explainPrompt: 'Why does a cache with a 99% hit ratio stop being an optimisation and become a load-bearing component?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Specify a cache as a key, a TTL and an invalidation event rather than a box.
+- Choose a placement, and say what its invalidation costs.
+- Recognise a stampede and a cold start, and apply the standard answers.
+- Work out whether the store behind the cache survives losing it.
+
+## Intuition
+
+**A cache is a bet that the same answer will be asked for again before it goes
+wrong.** Two numbers decide whether the bet pays: the **hit ratio**, the share of
+reads it answers, and the **TTL**, the longest it may keep answering with
+something out of date. The rest of this lesson follows from those two.
+
+The framing that matters is the one
+[the design workflow](/learn/sd-design-workflow/) makes at step 9: **"add a
+cache" is not a decision.** A decision names _what_ is cached and under which
+key, _how long_ it may be stale, and _which event_ removes it. Anything less can
+neither be argued with nor operated.
+
+The second idea is where people are caught out. Take the link shortener from
+[back-of-envelope estimation](/learn/sd-capacity-estimation/) — 15,000 redirects
+per second at peak — and put a cache in front of it:
+
+```text
+peak 15,000 reads/second, hit ratio 99%
+  misses = 15,000 × 0.01 = 150 reads/second reaching the database
+
+the cache tier restarts; hit ratio is 0% while it refills
+  15,000 reads/second reach a database provisioned for 150
+  ≈ 100× its expected read load
+```
+
+Nothing about the database changed and nothing is broken, yet the system is down.
+**Once the store cannot survive a cold cache, the cache is a load-bearing
+component** and needs what one needs: replication, capacity planning, and a plan
+for the day it is empty.
+
+## How it works
+
+**Placement first**, because it decides which problems you inherit, working from
+the reader inwards:
+
+| Placement                  | Serves          | The problem it brings                    |
+| -------------------------- | --------------- | ---------------------------------------- |
+| Browser                    | one user        | you cannot invalidate it at all          |
+| [CDN edge](/learn/sd-cdn/) | one region      | purge is slow; per-user data is unsafe   |
+| In-process, per instance   | one instance    | N instances means N copies to invalidate |
+| Shared cache tier          | the whole fleet | a network hop, and a new failure domain  |
+| Database buffer pool       | queries         | not directly yours to control            |
+
+The in-process row surprises teams: a per-instance map is the fastest cache
+available and the hardest to invalidate — an edit must reach twenty processes,
+not one key. A shared tier costs a round trip and gives you one place to delete
+from, which is why it is the usual answer above trivial scale.
+
+**Cache-aside is the default pattern.** The application looks in the cache; on a
+miss it reads the store, writes the value back, and returns it. Its virtue shows
+when the cache is unreachable: every read becomes a store read, so the system is
+slow rather than broken. _Write-through_ writes to both, keeping the cache
+current at the cost of slower writes and entries nobody reads. _Write-behind_
+acknowledges from the cache and flushes later — fast, and it loses data if the
+cache dies first, which makes it a durability decision.
+
+**A key is a contract.** It must contain everything the value depends on and
+nothing else:
+
+```text
+user:1042:profile:v3
+'--- namespace
+     '--- identity
+          '--- field set
+                  '--- schema version
+```
+
+The version segment is the one people leave out, and it makes a deploy that
+changes a response shape safe: new code reads `v4`, old entries expire unread, no
+migration needed. The opposite failure is a key built from an unbounded input — a
+free-text search string, a URL with tracking parameters — where every request
+mints a new key, so every request is a guaranteed miss that costs memory too.
+
+**TTL is your staleness budget and your repair mechanism**: whatever wrong value
+gets in, the TTL guarantees it leaves. Set it from what the product tolerates,
+then add jitter — 300 seconds plus a random 0 to 60 — so entries written together
+do not expire together.
+
+**Invalidation is the hard half**, with three moves: let it expire, delete the
+key when the underlying thing changes, or update it on write. Naming the event is
+the work: "when the catalogue item is edited" can be implemented, "when the data
+changes" cannot. One race matters — delete before the write commits and a
+concurrent reader can repopulate the stale value for a full TTL. Delete after the
+commit.
+
+**A stampede happens at the moment of a miss, not because of it.** One hot key
+expires, and every request arriving during the recompute also misses, since
+nothing has written the answer back yet:
+
+```text
+one hot key, 2,000 requests/second, 50 ms to recompute
+the entry expires at t
+  requests in [t, t + 50 ms] all miss  →  100 concurrent recomputes
+```
+
+One query became a hundred, at the instant that key was most popular. The answers
+are well known: **single-flight**, where one caller recomputes and the rest wait
+on that result; **serve stale while revalidating** in the background; **early
+refresh** shortly before expiry; and **jittered TTLs** so hot keys do not expire
+in unison.
+
+<Callout variant="warning">
+  **A cold start is the same word for a different shape.** Not one key expiring
+  but every key missing at once — after a restart, a deploy, an eviction storm
+  or a region failover. Single-flight does not help, because the requests are
+  all for different keys. What helps is warming the tier from a snapshot before
+  it takes traffic, restarting nodes in a rolling fashion so only a fraction of
+  the keyspace is cold, and a concurrency limit in front of the store so the
+  fill is throttled rather than fatal.
+</Callout>
+
+One more entry worth having: **negative caching**. Store "not found" too, with a
+short TTL, or every request for a missing key is a guaranteed store read — which
+is also the shape of a deliberate attack.
+
+## Trade-offs
+
+**Freshness against load** is the whole trade, and why a TTL is a product
+decision rather than a technical one.
+
+**Memory against hit ratio.** Access distributions are steep: the first gigabyte
+buys most of the hit ratio, and each one after buys less.
+
+**Consistency.** As [consistency models](/learn/sd-consistency-models/) puts it,
+a cache in front of a linearizable store does not leave the result linearizable —
+the weakest link sets the model. An operation that must read its own write either
+bypasses the cache or updates it in the same path.
+
+**Complexity.** Every cache is a second copy of the truth and a second
+explanation for any bug.
+
+**When not to cache.** Data written about as often as it is read gains nothing.
+Values whose staleness is unacceptable — a balance at the moment of payment, a
+permission check — should not be cached at all. A dataset the database already
+holds in memory is already cached. And a low-traffic path has a hit ratio near
+zero, so the cache only adds a hop.
+
+## Common pitfalls
+
+- **Using a cache as a store.** Tempting because it is fast and has an expiry.
+  Eviction removes anything at any time, so sessions kept only there log everyone
+  out on restart.
+- **Uniform TTLs.** Everything written in one batch expires in the same second,
+  so misses arrive as a spike rather than a trickle.
+- **Caching before measuring.** A 20% hit ratio adds a hop to 80% of reads, and a
+  second system to operate.
+- **Sizing the database for the hit ratio.** The arithmetic above is the
+  consequence, and it shows up only during an incident.
+- **Invalidating on read rather than write.** Checking freshness on every read
+  costs the round trip the cache was bought to avoid.
+- **Caching an error with the success TTL.** A brief upstream failure becomes a
+  five-minute one.
+
+## Interview notes
+
+Give a cache in one sentence with all four parts: "cache the rendered catalogue
+page under `catalogue:{id}:v2` in a shared tier, TTL 60 seconds with jitter,
+deleted when an editor publishes a change". That is something an interviewer can
+push back on, which is the point.
+
+Then volunteer the cold-start answer unprompted — what the store sees when the
+cache is empty, and whether it survives. Almost nobody does, and it is what
+separates a designed read path from "we added Redis".
+
+## Key takeaways
+
+- A cache decision names **a key, a TTL and an invalidation event**; without
+  those three it is a box on a diagram.
+- **Cache-aside degrades to a slow system when the cache is gone**; write-behind
+  degrades to data loss.
+- **Put the schema version in the key**, and a deploy invalidates old shapes for
+  free.
+- **A stampede is concurrent misses on one hot key** — single-flight,
+  stale-while-revalidate, early refresh, jitter. A cold start is every key at
+  once, and needs warming and throttling instead.
+- If the store cannot serve traffic at a 0% hit ratio, **the cache is
+  load-bearing** and must be designed as such.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A read path serves 18,000 requests per second at peak with a 99% hit ratio. The team plans to move the cache tier to new hardware by stopping the old nodes and starting new empty ones. What will happen, and what would make the move safe?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  For the length of the refill, the hit ratio is zero, so all 18,000 requests
+  per second reach a store that normally sees 180 — about a hundred times the
+  read load anyone sized it for. The store saturates, latencies climb, and the
+  refill slows down because every fill is itself a slow query, so the cold
+  window lengthens rather than passing. Safe versions: run the new tier
+  alongside the old and warm it before cutting over; move nodes a few at a time
+  so only a fraction of the keyspace is cold at once; and put a concurrency
+  limit in front of the store so the fill is throttled and requests are shed
+  cheaply instead of everything queueing. The general point is that this
+  migration is a capacity event, not a hardware swap.
+</PracticeCheck>
+
+**2. One popular key is read 2,000 times a second and takes 50 ms to recompute. Every five minutes, database load spikes for a moment and a few requests time out. What is happening, and what are two fixes?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It is a stampede at TTL expiry. The entry expires every five minutes; nothing
+  repopulates it until the first recompute finishes, so every request arriving
+  in that 50 ms window also misses — roughly 100 concurrent recomputes of the
+  same value, each doing the same database work. Two fixes: single-flight, where
+  the first miss takes a short lock and recomputes while the others wait for
+  that one result; or serve the expired value while refreshing in the
+  background, so no reader ever waits for a recompute and only one refresh runs.
+  Adding jitter to the TTL is worth doing as well — it does not fix a single hot
+  key, but it stops many keys from lining up on the same instant.
+</PracticeCheck>
+
+**3. Profile responses are cached under `user:1042`, TTL ten minutes, deleted whenever the profile is edited. A release adds an `avatar_url` field to the response, and for the next ten minutes some users' pages render without an avatar. The TTL is right and the invalidation is right — what is wrong?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The key does not describe the value. Both stated rules are about the *data*
+  changing, and neither one fired, because nobody edited a profile — what
+  changed was the *shape* of the response, so the cache is correctly serving
+  entries that the old code wrote and the new code cannot fill in. The fix is to
+  make the key carry the response version, `user:1042:profile:v2`, so a deploy
+  that changes the shape reads a namespace that is empty by construction; old
+  entries are never read again and expire quietly. That also makes rollback
+  safe, since reverting the code goes back to reading the old unversioned key,
+  which is still populated and still correct.
+</PracticeCheck>

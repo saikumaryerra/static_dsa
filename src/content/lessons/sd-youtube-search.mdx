@@ -1,0 +1,248 @@
+---
+title: 'Search'
+slug: 'sd-youtube-search'
+course: 'system-design'
+track: 'sd-youtube'
+order: 39
+summary: 'Searching a billion videos is searching the text around them: a document-partitioned inverted index, a second index that carries the last few hours, ranking that spam fights back against, and autocomplete built from the query log.'
+difficulty: 'intermediate'
+prerequisites: ['sd-youtube-requirements', 'sd-search-indexes']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'search', 'indexing', 'ranking']
+explainPrompt: 'Why does a search fanned out to twenty shards have a worse p99 than a search served by one?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a video search engine actually indexes, and where that text comes from.
+- Choose between document and term partitioning, and justify the choice with a query pattern.
+- Serve a new upload in search results within minutes without rebuilding a billion-document index.
+- Size autocomplete separately from search, and say when it is not worth building.
+
+## Intuition
+
+**Searching video is searching the text around video.** The media itself is
+opaque to an index: what is matched on is the title, the description, the tags,
+the channel name and — the field that does most of the work on long videos — the
+transcript produced during the upload pipeline. A video search engine is
+therefore an ordinary text search engine over a corpus that the ingest pipeline
+generates, which is why everything in
+[search indexes](/learn/sd-search-indexes/) transfers directly.
+
+The second model is the one that resolves the freshness problem. **There are two
+indexes, not one.** A large base index over the whole catalogue is expensive to
+build and cheap to query; a small near-real-time index holds only the last few
+hours of uploads and is cheap to update. Every query hits both and the results
+are merged. Trying to make one structure both enormous and instantly mutable is
+what makes freshness look impossible.
+
+The third: **autocomplete is not search.** It matches prefixes against a set of
+_queries people have typed_, not against the corpus, it runs at several times the
+query rate because a single search produces several keystroke requests, and its
+latency budget is tens of milliseconds. Different data, different rate, different
+deadline — so a different system.
+
+## How it works
+
+**1. What gets indexed.** Fields carry different weights: an exact title match is
+worth far more than the same words appearing somewhere in a transcript. Alongside
+the matchable text sit fields that never match but always rank — view count,
+average watch time per impression, channel history, upload date. Keeping those
+two categories distinct in your head is what stops "add engagement to the index"
+becoming a confused sentence.
+
+**2. Partitioning.** Split by document: each shard holds a slice of the videos
+and a complete inverted index over that slice. A query goes to every shard, each
+returns its own top results, and a coordinator merges them.
+
+```text
+Index sizing (teaching assumptions)
+  1,000,000,000 videos × ~1 KB of indexed text  =        1 TB of text
+  inverted index with positions, ~2 ×           =        2 TB
+  shards of ~100 GB                             =       20 shards
+  × 3 replicas                                  =       60 index servers
+  queries                                       =   10,000/s average
+  peak ≈ 3 × average                            =   30,000/s peak
+  every query touches every shard
+  30,000 × 20                                   =  600,000 shard queries/s
+```
+
+The alternative, term partitioning, puts all postings for a given term on one
+shard. A single-term query then touches one shard instead of twenty, which sounds
+better until you notice two things: a common term makes its shard permanently
+hot, and a multi-word query has to intersect posting lists that live on different
+machines, moving large lists across the network mid-query. Document partitioning
+spreads load evenly and keeps every intersection local, which is _generally
+accepted industry architecture_ for corpora of this shape. Term partitioning
+earns its place where queries are overwhelmingly single-term and the corpus is
+small enough that a hot shard is not a problem.
+
+<Callout variant="warning">
+  **Fan-out makes the slowest shard your latency.** A query that waits for
+  twenty shards has a p99 set by the worst of twenty responses, so ordinary
+  per-server variability becomes systematic user-visible slowness — the effect
+  Dean and Barroso named in _The Tail at Scale_ (CACM, 2013). The usual answers
+  are hedged requests to a second replica after a short delay, and returning the
+  merge when enough shards have answered rather than all of them.
+</Callout>
+
+**3. Ranking, in two phases.** Each shard does cheap retrieval first: text
+matching plus a static quality score, producing a few thousand candidates it can
+compute without a model. The coordinator then re-ranks the merged set with an
+expensive model that can afford many features per document — relevance, watch
+time per impression, channel history, recency, and light personalisation from the
+viewer's recent activity. Heavy personalisation belongs to
+[recommendations](/learn/sd-youtube-recommendations/), which has a different
+budget.
+
+**4. Ranking is adversarial.** Because ranking reads engagement signals, and
+because anyone may upload, the signals are attacked: keyword-stuffed
+descriptions, titles unrelated to content, purchased views, thumbnails that
+promise something the video does not contain. A quality layer that demotes
+documents on abuse signals is therefore part of the ranking system rather than an
+add-on — this is one of the sharpest differences from a curated catalogue, where
+the metadata is supplied by the rights holder and nobody is trying to game it.
+
+**5. Freshness.** The publish event that the upload pipeline emits writes the
+video into a recent index held in memory, sized for hours rather than years, and
+searchable within seconds of arriving. Queries fan out to both indexes and the
+coordinator merges — a split that is _generally accepted industry architecture_
+wherever a large index has to look fresh. When the base index is next merged, the
+documents it absorbs are dropped from the recent tier. The cost is that two
+indexes must rank consistently: a document should not jump position purely
+because it crossed from one to the other.
+
+**6. Autocomplete.** Build it from the query log, not the corpus. Count queries
+over a rolling window, keep the top completions per prefix, and hold the result
+in a compact in-memory structure served from a tier close to users.
+
+```text
+Autocomplete rate (teaching assumptions)
+  4 prefix requests per search, after debouncing
+  10,000 searches/s × 4     =   40,000 requests/s average
+  peak ≈ 3 × average        =  120,000 requests/s peak
+```
+
+Four times the search rate against a data set measured in gigabytes is exactly
+the shape that justifies a separate service. **When not to build one:** below a
+few hundred queries per second, a prefix query against the main index is enough,
+and the second system is cost with no benefit.
+
+## Trade-offs
+
+**Freshness against index efficiency.** A large immutable index is compact,
+cache-friendly and fast; making it mutable costs all three. The two-index split
+buys minutes-fresh results at the price of a second ranking path and a merge on
+every query.
+
+**Fan-out width against latency.** Fewer, larger shards mean fewer responses to
+wait for and a worse tail per shard; more, smaller shards mean faster shards and
+a wider fan-out. The tail-at-scale effect means the second is not free, and
+hedged requests trade extra load for a better p99.
+
+**Recall against precision.** Over a billion documents almost every query has
+thousands of plausible matches, so finding documents is not the problem —
+ordering them is. Effort spent widening retrieval usually pays less than effort
+spent on ranking and on demoting abuse.
+
+## Common pitfalls
+
+- **Indexing metadata only.** Titles and descriptions are short and often
+  inaccurate; transcripts are where a query about something said in minute
+  fourteen can be answered.
+- **One index for everything.** Tempting because it is one system, and it forces
+  a choice between stale results and constantly rebuilding a billion documents.
+- **Ranking on clicks.** The signal is abundant and it rewards misleading titles
+  and thumbnails, because a click happens before the viewer knows they were
+  misled.
+- **Ignoring fan-out in the latency budget.** Each shard looks fast in isolation,
+  and the query is as slow as the worst of twenty of them.
+- **Autocomplete built from video titles.** It suggests strings nobody searches
+  for, and misses the trending query that is three hours old.
+
+## Interview notes
+
+Two sentences carry most of the credit here. The first is what is indexed:
+"searching video is searching titles, descriptions and transcripts, and the
+transcripts come out of the ingest pipeline." The second is the two-index split
+for freshness, which answers "how is a video findable a minute after upload?"
+without anyone having to ask it.
+
+If ranking comes up, say that it is adversarial before you list signals. On a
+platform where anyone uploads, a candidate who names spam and view manipulation
+as ranking inputs has understood something structural about user-generated
+catalogues.
+
+## Key takeaways
+
+- A video search engine indexes **text about the video** — title, description,
+  tags, channel, transcript — not the media.
+- **Document partitioning** spreads load and keeps intersections local; term
+  partitioning creates hot shards and cross-machine intersections.
+- **Fan-out means the slowest shard sets p99** (Dean and Barroso, _The Tail at
+  Scale_, 2013); hedged requests and partial merges are the standard answers.
+- Freshness comes from a **second, small, in-memory index** merged at query time,
+  not from mutating the base index.
+- **Autocomplete is built from the query log**, runs at several times the search
+  query rate, and is not worth a separate system at small scale.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why partition the index by document rather than by term, given that term partitioning would let a single-word query touch one shard instead of twenty?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the saving applies to the query shape that matters least and the costs
+  apply to the one that matters most. Real search traffic is mostly multi-word,
+  and under term partitioning a two-word query has to intersect two posting
+  lists that live on different machines — which means shipping a potentially
+  enormous list across the network inside the request, or a multi-round
+  protocol, either way turning a local operation into a distributed one. Load
+  distribution is the second problem: postings for a common word all sit on one
+  shard, so that shard is hot for every query containing it while others idle,
+  and no amount of replication fixes the skew cheaply. Document partitioning
+  gives every shard a statistically similar slice of both the corpus and the
+  traffic, and every intersection happens inside one machine. The price is the
+  fan-out, which is real but is a latency problem with known mitigations rather
+  than a load problem with none.
+</PracticeCheck>
+
+**2. The base index is rebuilt on a slow cycle, and the requirement is that a new upload is findable within minutes. How is that met, and what does it cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  With a second index. The publish event writes the video into a small
+  near-real-time index that holds only recent uploads, lives in memory, and
+  accepts writes continuously; every query is sent to both it and the base
+  index, and the coordinator merges the two result sets. Because the recent
+  index covers hours rather than years it stays small enough that mutability is
+  affordable, and when the base index next absorbs those documents the recent
+  tier drops them. The costs are real and worth stating: every query now pays a
+  second fan-out and a merge, the two indexes must produce comparable scores or
+  a document will visibly jump when it migrates, and there is a handover window
+  where a document could appear in both and has to be deduplicated. What this
+  buys is minutes of freshness over a billion documents without rebuilding
+  anything.
+</PracticeCheck>
+
+**3. A colleague proposes ranking primarily on click-through rate, arguing that it is the most abundant and least ambiguous signal the system has.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Abundant, yes; unambiguous, no — and on a platform where anyone uploads, the
+  gap between those two is where the whole problem lives. A click is recorded
+  before the viewer has seen any of the video, so it measures the title and the
+  thumbnail rather than the content. Ranking on it therefore rewards whoever
+  writes the most enticing promise, whether or not the video keeps it, and
+  because ranking is a feedback loop the reward compounds: the misleading result
+  ranks higher, collects more clicks, and ranks higher still. The fix is to move
+  the objective past the click to something that only a satisfied viewer
+  produces — watch time per impression, completion, or a return to the channel —
+  which is the conclusion Covington, Adams and Sargin reached in the 2016 RecSys
+  paper. Keep the click as one feature among many, add the abuse signals that
+  catch purchased engagement, and never let the thing being optimised be an
+  event that happens before the product is experienced.
+</PracticeCheck>

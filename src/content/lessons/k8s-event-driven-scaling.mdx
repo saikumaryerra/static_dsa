@@ -1,0 +1,257 @@
+---
+title: 'Event-Driven Scaling'
+slug: 'k8s-event-driven-scaling'
+course: 'kubernetes'
+track: 'k8s-scaling'
+order: 46
+summary: 'A worker blocked on the network looks idle to a CPU metric, so the signal that actually tracks its load is the backlog waiting for it — which is what event-driven autoscaling reads, down to and including zero replicas.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-horizontal-pod-autoscaler', 'k8s-daemonsets-jobs-cronjobs']
+estimatedMinutes: 9
+tags: ['kubernetes', 'scaling', 'autoscaling', 'keda', 'queues']
+explainPrompt: 'Why can a HorizontalPodAutoscaler on its own never take a Deployment to zero replicas?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say why queue depth is a better scaling signal than CPU for a consumer.
+- Express a backlog target as a per-replica average, and predict the replica
+  count it produces.
+- Describe how an event-driven autoscaler reaches zero when an HPA cannot.
+- Say when scaling on events is the wrong shape for a workload.
+
+## Intuition
+
+A worker reads a job from a queue, calls three services, waits for each of them,
+writes a row and takes the next job. Almost all of its time is spent waiting.
+Point a CPU-based autoscaler at it and the reading sits near idle whether the
+backlog is empty or a million deep, because the worker's effort was never the
+thing that varied.
+
+**Scale on the work that has arrived, not on the effort of the workers.** CPU is
+a proxy for load that happens to work for request handlers, where serving costs
+processor time. For a consumer, the load is the backlog, and the backlog is a
+number somebody is already keeping.
+
+That change of signal buys something a resource metric structurally cannot
+offer. CPU usage of zero Pods is undefined, so a CPU-driven fleet has to keep at
+least one replica alive to be measured at all. A queue's depth is a property of
+the queue — it is readable when no consumer exists, which is what makes "run
+nothing until there is something to do" possible.
+
+<Callout variant="note">
+  This is the same arithmetic as the last two lessons, with a different input.
+  Nothing here forks the autoscaling pipeline: the replica count still comes
+  from a ratio, a controller still writes it into the `scale` subresource, and
+  the Deployment controller still creates the Pods.
+</Callout>
+
+## How it works
+
+### Backlog per replica, not backlog
+
+The HPA multiplies the current replica count by a ratio, so the target has to be
+expressed **per replica** or the arithmetic runs away. That is what
+`AverageValue` means on a metric target: the measured total is divided by the
+number of replicas before it is compared.
+
+```text
+backlog 1,200 messages · target 30 messages per replica
+desired = ceil( 1200 / 30 ) = 40 replicas
+```
+
+Read that as a service-level decision rather than a tuning knob. Thirty messages
+per consumer, with a job that takes two seconds, is a promise that a message
+waits about a minute. Pick the number by the wait you are willing to accept, then
+let the arithmetic pick the fleet size.
+
+### Getting the number into the cluster
+
+`autoscaling/v2` already has the slots: an `Object` metric reads a value from one
+Kubernetes object, and an `External` metric reads something from outside the
+cluster entirely — a queue, a stream, a cloud provider's own counter. What the
+API does not have is any way to fetch those numbers. `Object` and `Pods` metrics
+come from `custom.metrics.k8s.io`, `External` from `external.metrics.k8s.io`,
+and something has to serve each.
+
+**KEDA** is the usual something. It is a CNCF project and ecosystem software, not
+part of Kubernetes, installed as an operator; it ships several dozen "scalers"
+that know how to ask a particular system for its depth, and it serves the results
+through the external metrics API for the HPA to read.
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: orders
+  namespace: shop
+spec:
+  scaleTargetRef:
+    name: order-worker
+  minReplicaCount: 0
+  maxReplicaCount: 30
+  pollingInterval: 15
+  cooldownPeriod: 300
+  triggers:
+    - type: rabbitmq
+      metadata:
+        queueName: orders
+        mode: QueueLength
+        value: '30'
+      authenticationRef:
+        name: rabbitmq-auth
+```
+
+That object does not replace the HPA — it **creates one**. KEDA generates a
+HorizontalPodAutoscaler owned by the `ScaledObject`, pointed at the same
+Deployment, targeting the external metric it serves. `kubectl get hpa` shows it,
+and everything from [The Horizontal Pod
+Autoscaler](/learn/k8s-horizontal-pod-autoscaler/) still applies: the ratio, the
+tolerance band, the stabilization window, the conditions, and the scale-up cap
+of doubling the fleet or adding four Pods, whichever is greater. The credentials
+live in a separate `TriggerAuthentication` object referenced by
+`authenticationRef`, so the queue's password is not a field in the scaling
+policy.
+
+For work that is a set of discrete items rather than a stream, `ScaledJob` is the
+other shape: instead of scaling a long-lived Deployment, it creates a Job per
+batch of items, which suits work that must run to completion, where a retry
+means a fresh Pod rather than a redelivery to a long-lived consumer. A Job is
+at-least-once, so idempotency remains the consumer's problem.
+
+### Zero
+
+A plain HPA cannot take you to zero. On 1.36 the API server rejects the attempt
+outright:
+
+```text
+The HorizontalPodAutoscaler "zero" is invalid:
+* spec.minReplicas: Invalid value: 0: must be greater than or equal to 1
+* spec.metrics: Forbidden: must specify at least one Object or External metric to support scaling to zero replicas
+```
+
+Both lines hold on a default cluster. The floor of one is lifted only by the
+alpha `HPAScaleToZero` feature gate, which is off, so `minReplicas: 0` is
+rejected whatever the metric type. The second line is the extra condition that
+applies once the gate is on, and it is the interesting half: scaling to zero is
+conceivable only for a signal that survives having no Pods, and a resource
+metric is not one. That the gate is alpha and off is why KEDA owns the 0-to-1
+transition itself rather than delegating it — it watches the trigger, and when the
+backlog goes from empty to non-empty it scales the Deployment to one and lets the
+HPA take over from there. Going the other way, `cooldownPeriod` is how long the
+queue must stay empty before it deactivates back to zero.
+
+## Trade-offs
+
+**What it buys.** A signal that genuinely tracks load for asynchronous work, and
+a fleet that costs nothing between batches. For a nightly import or a CI runner
+pool, that second property is most of the value.
+
+**Cold start is the price of zero.** The first item after an idle period waits
+for a Pod to be scheduled, pulled, started and made ready. For a queue consumer
+nobody is watching that clock. For a synchronous HTTP path, it is the user's
+latency, and a `minReplicaCount` of one is the honest configuration.
+
+**A new dependency in the scaling path.** If the metrics adapter cannot reach the
+queue, the HPA's `ScalingActive` condition goes `False` and the fleet freezes at
+its current size — not zero, not maximum, stuck where it was — while the backlog
+grows quietly. That condition deserves an alert.
+
+**When not to use it.** When CPU already tracks load, adding an operator and a
+credential to reach the same answer is a poor trade. When the consumer's real
+limit is downstream — a database connection pool, a rate-limited third-party
+API — scaling on backlog aims a larger fleet at the thing that is already the
+bottleneck. And when the work is partitioned, as it is on a log-structured
+stream, consumers beyond the partition count get nothing to read, so the
+maximum belongs at the partition count.
+
+## Common pitfalls
+
+- **Targeting total backlog instead of per-replica backlog.** With a total, the
+  ratio does not fall as replicas are added, so the fleet climbs to its maximum
+  and stays there. The target has to be the number each consumer should hold.
+- **A cooldown shorter than the gap between arrivals.** Messages every four
+  minutes against a two-minute cooldown means starting and stopping the fleet all
+  day, paying the cold start each time and never being idle long enough to be
+  worth it.
+- **A consumer that does not survive SIGTERM.** Scaling down deletes Pods, and a
+  worker that drops the message it was holding turns every scale-down into data
+  loss. [Graceful Shutdown](/learn/k8s-graceful-shutdown/) is a prerequisite for
+  scaling down at all, not a refinement.
+- **Two autoscalers on one Deployment.** KEDA creates its own HPA, and a
+  hand-written one aimed at the same target overlaps its Pod selector. One
+  controller reconciles both and refuses to compute for either: each object
+  reports `ScalingActive: False` with `AmbiguousSelector`, nothing is written,
+  and the fleet freezes at the size it happened to be — silently.
+- **A maximum chosen by the queue rather than the dependencies.** The backlog
+  decides how many consumers you want; the connection pool each consumer opens,
+  multiplied by that maximum, decides how many the dependency will tolerate.
+  The ceiling belongs at the lower of the two.
+
+## Key takeaways
+
+- **A consumer's load is its backlog, not its CPU.** An I/O-bound worker reads as
+  idle no matter how far behind it is.
+- The target is a **per-replica average**, so `ceil(backlog / target)` is the
+  fleet size — pick the target from the wait you are willing to accept.
+- Event-driven autoscaling **does not replace the HPA**: KEDA serves external
+  metrics and creates an HPA that consumes them.
+- **Scale to zero is not an HPA feature.** The API refuses `minReplicas: 0`, and
+  the operator handles the 0-to-1 transition itself.
+- Zero costs a **cold start**, which is free for a queue and visible to a user on
+  a synchronous request path.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A queue holds 1,200 messages, the target is 30 per replica, and 4 consumers are running. How many replicas does the autoscaler ask for, and what happens to that number as the fleet drains the queue?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  It asks for 40: the total is divided by the per-replica target, `ceil(1200 /
+  30)`, and the current count of 4 does not enter that calculation because the
+  target is an average rather than a fixed value. Asking is not arriving,
+  though: the default scale-up policy from the HPA lesson still caps each step
+  at doubling the fleet or adding four Pods, whichever is greater, so from 4 it
+  climbs through 8, 16 and 32 over successive periods — and the drain is already
+  lowering the number it is climbing towards. As the consumers work through the
+  backlog the measured depth falls, so the quotient falls with it — 600 messages
+  wants 20 replicas, 300 wants 10 — and the fleet steps down behind the drain,
+  subject to the stabilization window that keeps it from shedding replicas on a
+  momentary dip. That self-correcting shape is exactly the property the HPA
+  lesson demanded of a signal: it falls as replicas rise.
+</PracticeCheck>
+
+**2. A team wants to scale a public HTTP API to zero overnight to save money. What breaks, and what would you propose instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The first request after an idle period pays for the Pod to be scheduled,
+  pulled, started and made ready — seconds at best, and if a node has to be
+  provisioned for it, minutes. Nobody is buffering that request on the caller's
+  behalf, so a real user meets a timeout or a very slow page, and it happens
+  precisely to the person unlucky enough to be first. Overnight traffic is also
+  rarely zero: a health check, a crawler or a monitoring probe re-activates the
+  fleet repeatedly, so the saving is smaller than it looks and the flapping is
+  real. The proposal instead is a `minReplicaCount` of one or two, autoscaling
+  above that on request rate, and taking the overnight saving from the node
+  layer where an emptier cluster genuinely costs less.
+</PracticeCheck>
+
+**3. An event-driven autoscaler is configured with a maximum of 200 consumers on a stream that has 12 partitions. Traffic surges, the fleet scales to 200, and throughput does not improve. Why?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A partitioned stream assigns each partition to exactly one consumer in a
+  group, so 12 partitions means at most 12 consumers can be reading at any
+  moment. The other 188 join the group, are assigned nothing, and sit there
+  costing memory and a scheduling slot while contributing no throughput. The
+  backlog stays high because the real limit is the partition count, so the
+  autoscaler holds the fleet at its ceiling of 200 and reports `ScalingLimited:
+  True` — the metric never responds to the replicas being added, which is the
+  failure this module keeps returning to. The fix is a maximum of 12, and if
+  that is not enough throughput, more partitions on the stream or faster work
+  per message.
+</PracticeCheck>

@@ -1,0 +1,261 @@
+---
+title: 'Requirements and Scale'
+slug: 'sd-netflix-requirements'
+course: 'system-design'
+track: 'sd-netflix'
+order: 24
+summary: 'What a Netflix-like platform has to do — accounts, profiles, catalogue, playback on many devices — and the estimate that turns those features into tens of terabits per second over a catalogue of only a few petabytes.'
+difficulty: 'intermediate'
+prerequisites: ['sd-requirements', 'sd-capacity-estimation']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'streaming', 'requirements', 'capacity']
+explainPrompt: 'Why does a streaming platform serve tens of terabits per second while storing only a few petabytes?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Separate what a Netflix-like platform does from how well it has to do it.
+- Estimate concurrent streams, egress, catalogue storage and playback-state writes from stated assumptions.
+- Name the number that decides the architecture, and say what it decides.
+- Scope the design out loud, including the features this module refuses.
+
+## Intuition
+
+**A streaming platform is two systems sharing a login.** Almost every decision in
+the next five lessons falls out of that split, so it is worth naming before any
+box is drawn.
+
+The **control plane** is JSON. Who are you, which profile is watching, what rows
+belong on the home page, where did this profile stop, may this device play this
+title. Payloads are kilobytes, the unit is QPS — queries per second — and the
+thing readers feel is p99 latency.
+
+The **data plane** is video bytes. Its unit is terabits per second, its payloads
+are hours long, and no application server ever touches it. The two planes have
+different scaling laws, different failure modes and different owners, and
+conflating them is the mistake that makes streaming look impossible.
+
+The second idea is that **the catalogue is small**. Tens of thousands of titles
+is the shape of a curated, licensed catalogue — a teaching assumption here, and
+the one the comparative module contrasts against a user-upload platform. A small
+catalogue means the metadata fits in memory, next week's popularity is
+predictable, and every title can be encoded slowly and carefully exactly once.
+Nothing else about this system is small.
+
+## How it works
+
+**Functional requirements**, stated as capabilities rather than screens:
+
+| Capability                 | What it has to mean                                                    |
+| -------------------------- | ---------------------------------------------------------------------- |
+| Accounts and profiles      | One paying account, up to five profiles, each with its own taste       |
+| Catalogue and metadata     | Titles, seasons, episodes, artwork, availability by region             |
+| Search and discovery       | Title and person search, plus a personalised home page of ranked rows  |
+| Playback                   | Start a title on any device, seek, pause, resume, adapt to the network |
+| Subtitles and audio tracks | Several subtitle languages and several audio tracks per title          |
+| Watch history              | An append-only record of what a profile watched                        |
+| Continue watching          | The current position per profile per title, shared across devices      |
+| Multiple devices           | Phone, browser, console and television, with different codec support   |
+
+**Non-functional requirements** are where the architecture comes from. Playback
+start is the availability target that matters: a home page that renders a stale
+row is a poor evening, a title that will not start is a cancelled subscription.
+Set start success at four nines and time-to-first-frame at a p99 of two seconds,
+and treat discovery as one nine less. Consistency is per profile rather than
+global — a profile must see its own last position (read-your-writes), while two
+profiles never need to agree on anything. History is durable; recommendations are
+rebuildable, so they are a cache with a long fill time rather than a database of
+record.
+
+**Out of scope**, said out loud: live events, user uploads, downloads for offline
+viewing, billing and payments, and the rights-management workflow that decides
+which title is available where. Each is a system in its own right, and the last
+two are where a real platform spends organisational effort rather than engineering
+scale.
+
+**The estimate.** Assumptions first, arithmetic visible, results to one
+significant figure.
+
+```text
+Assumptions (teaching assumptions, all challengeable)
+  200,000,000 subscriber accounts, up to 5 profiles each
+  100,000,000 profiles watch on a given day
+  2 hours of viewing per watching profile
+  4 Mbps average delivered bitrate across the rendition ladder
+  a day rounds to 100,000 s
+
+Concurrent streams and egress
+  100,000,000 × 7,200 s      =  720,000,000,000 watch-seconds/day
+  720,000,000,000 ÷ 100,000  =        7,200,000 average concurrent streams
+  7,200,000 × 4 Mbps         =   28,800,000 Mbps  ≈  30 Tbps average
+  peak ≈ 3 × average                              ≈  90 Tbps peak
+```
+
+```text
+Catalogue storage
+  50,000 titles averaging 5,000 s of content each
+  ~50 Mbps stored per title-second across resolutions, codecs and audio
+  50,000 × 5,000 s           =      250,000,000 title-seconds
+  250,000,000 × 50 Mbit      =   12,500,000,000 Mbit  ≈  1.6 PB
+  plus subtitles and artwork                          ≈  2 PB of renditions
+
+  mezzanine masters at ~100 Mbps, kept but never delivered
+  250,000,000 × 100 Mbit     =   25,000,000,000 Mbit  ≈  3 PB in archive
+
+Control-plane rates
+  100,000,000 × 3 app opens  =      300,000,000 home builds/day
+  ÷ 100,000                  =    3,000 /s average,  ≈  9,000 /s peak
+  100,000,000 × 4 titles     =      400,000,000 playback starts/day
+  ÷ 100,000                  =    4,000 /s average,  ≈ 12,000 /s peak
+
+Playback-state writes
+  7,200,000 streams, one position update every 30 s
+  7,200,000 ÷ 30             =  240,000 writes/s, sustained
+```
+
+Now read them, because an estimate that ends in a figure has not finished.
+
+**Ninety terabits per second at peak decides the architecture.** At 100 Gbps per
+interface that is nine hundred saturated links, which no origin fleet owns; the
+bytes have to be sitting near viewers before they are asked for. Everything in
+the video-delivery lesson is a consequence of this one line.
+
+**Two petabytes is the surprise.** Every rendition the platform will ever deliver
+would fit in a single rack of dense storage, and it grows only when the catalogue
+does. The mezzanine masters are a few petabytes more, but they sit in archive
+storage and are read by encoders rather than by viewers, so they cost nothing at
+delivery time. Compare the
+video platform estimated in [back-of-envelope estimation](/learn/sd-capacity-estimation/),
+where 10 million viewers at 30 minutes each gave 180,000 concurrent streams,
+540 Gbps average and roughly 2 Tbps peak, against 100 TB/day and about 36 PB/year
+of storage. This platform is roughly fifty times larger on egress while its
+storage is effectively flat, because everyone watches far more and nobody
+uploads.
+
+**Three thousand home builds per second is an ordinary web service.** A cached,
+precomputed home page at that rate is a small fleet — which is why personalisation
+can afford to be expensive offline.
+
+<Callout variant="note">
+  **The 240,000 writes per second is the one people miss.** Continue watching
+  looks like a small feature next to video delivery, yet its write rate is
+  eighty times the home-page rate, because it is generated by streams rather
+  than by people tapping. It is a data-plane-shaped load hiding inside the
+  control plane, and it gets [its own
+  lesson](/learn/sd-netflix-playback-state/).
+</Callout>
+
+## Trade-offs
+
+**Profiles as a first-class entity.** Keying personalisation, history and
+position to a profile rather than an account costs an extra identifier in every
+request, every cache key and every table. It buys recommendations that are not an
+average of a household, which is most of the product's value.
+
+**A curated catalogue.** Licensing and ingest become an organisation rather than
+an API, and the catalogue can never grow the way a user-upload platform's does.
+In exchange, popularity is predictable, encoding cost is bounded and paid once,
+and the whole catalogue can be pushed to caches before anyone requests it.
+
+**Playback over freshness.** Choosing playback start as the strictest target
+means accepting that a title added an hour ago may be missing from some home
+pages, and that a row can be built from yesterday's model. Both are deliberate.
+
+## Common pitfalls
+
+- **Sizing for the average.** Thirty terabits per second is comfortable and
+  irrelevant; the system exists at ninety. Read every rate in this module as an
+  average unless it is labelled a peak, and size for the peak — about three times
+  the average on these assumptions.
+- **Treating watch history as one thing.** The mutable resume position and the
+  append-only history have different write rates, different durability needs and
+  different consistency requirements, and merging them into one table is what
+  makes the write path unaffordable.
+- **Designing the catalogue store for a billion rows.** Partitioning fifty
+  thousand titles is cost with no benefit, and it forfeits the option of holding
+  the whole catalogue in memory.
+- **Forgetting that subtitles and audio tracks multiply.** Ten audio tracks and
+  twenty subtitle languages per title change the manifest, the ladder and the
+  storage figure — the tempting error is to price only the video.
+- **Quoting a bitrate without saying which one.** Four megabits per second
+  delivered and fifty megabits per second stored are both true here and differ by
+  a factor of twelve.
+
+## Interview notes
+
+Say the two planes in the first two minutes. "The API tier is a few thousand
+user-initiated requests per second, which is unremarkable; the delivery tier is
+tens of terabits per second, which is the whole problem" reframes the question before
+anyone starts drawing, and it is the sentence that separates a candidate who has
+thought about streaming from one reciting a component list.
+
+Then say the catalogue is small, and say what that buys. Interviewers ask about a
+streaming platform partly to see whether the candidate notices that its catalogue
+is nothing like a video-sharing site's, because the two need different ingest,
+different storage tiers and different recommendation architectures.
+
+## Key takeaways
+
+- A Netflix-like platform is a **small control plane** measured in QPS and a
+  **huge data plane** measured in terabits per second; the two scale separately.
+- On stated assumptions this design needs roughly **7.2 million concurrent
+  streams, 30 Tbps average and 90 Tbps peak** — the number that forces content
+  delivery near viewers.
+- The deliverable catalogue is about **2 PB of renditions and static**, so storage
+  is not the problem here, unlike a platform whose users upload.
+- **Playback start is the availability target**; discovery is allowed to be one
+  nine less and slightly stale.
+- Continue watching generates about **240,000 writes per second sustained**, a
+  data-plane rate inside a control-plane feature.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. The catalogue holds 50,000 titles rather than 500 million. Name two design decisions that changes.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  First, catalogue metadata becomes a cacheable, in-memory data set rather than
+  a partitioned store: fifty thousand titles with artwork references and
+  availability rules is a few hundred megabytes, so every service can hold a
+  copy and a metadata read never touches a database. Second, recommendation
+  serving can score a large fraction of the catalogue per profile instead of
+  needing a separate candidate-generation stage to cut billions of items down to
+  hundreds. A third follows for free: with a small catalogue, popularity is
+  predictable enough to push copies of every title to caches before anyone asks
+  for one.
+</PracticeCheck>
+
+**2. The estimate gives 3,000 home builds per second and 240,000 position writes per second. Why is the second number the one that changes the design?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because they are generated by different things. Home builds are generated by
+  people opening the app, so the rate tracks user actions and stays in the range
+  a normal cached web tier serves. Position writes are generated by streams that
+  are already running, so the rate tracks concurrent playback and continues at
+  full volume for hours with nobody touching a device. At 240,000 writes per
+  second a single relational primary is out of the question — the reference
+  ceiling is a few thousand indexed writes per second — so this feature needs a
+  write-optimised store, a lower update frequency, or both. The read-shaped
+  feature is affordable; the write-shaped one is the design problem.
+</PracticeCheck>
+
+**3. Someone proposes adding user uploads to the scope, arguing that the platform already transcodes video so the pipeline exists.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The transcoding step is the only part that carries over, and it is not the
+  expensive part of the change. Uploads make the catalogue unbounded, so storage
+  moves from a fixed 2 PB to a figure that grows every day and needs tiering.
+  They make popularity unpredictable, which removes the ability to preposition
+  content in caches and turns delivery into a long-tail problem. They add
+  moderation, copyright matching and abuse handling, which are organisationally
+  larger than anything in this design. And they invert the encode economics:
+  encoding carefully once per title is affordable for fifty thousand curated
+  titles and not for continuous user upload, where publish latency competes with
+  quality. That is a different system, which the YouTube-like module designs
+  separately.
+</PracticeCheck>

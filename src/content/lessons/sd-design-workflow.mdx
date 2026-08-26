@@ -1,0 +1,217 @@
+---
+title: 'A Repeatable Design Workflow'
+slug: 'sd-design-workflow'
+course: 'system-design'
+track: 'sd-foundations'
+order: 1
+summary: 'Thirteen steps that turn "design a system like X" from a blank page into a sequence of small, answerable questions — and the rule that every answer names its trade-off.'
+difficulty: 'beginner'
+prerequisites: []
+estimatedMinutes: 10
+tags: ['system-design', 'requirements', 'process', 'trade-offs']
+explainPrompt: 'Why does estimating scale before choosing a database change which database you choose?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Run a system design as an ordered sequence instead of a brainstorm.
+- Say which question each step answers, and what its output feeds.
+- State a design decision together with the trade-off that made it.
+
+## Intuition
+
+"Design a system like YouTube" is not a question. It is a topic. It has no
+answer until someone decides how many users, which features, what may be slow,
+and what may occasionally be wrong. Most bad designs are not wrong about
+technology — they are answers to a question nobody pinned down.
+
+**The workflow is a funnel, not a checklist.** Each step narrows what the next
+one may consider. You cannot choose a database before you know the read/write
+ratio, or know that before you know the features, or know those before you know
+who the system is for. Out of order, you will spend the design arguing about
+Kafka.
+
+The second idea matters as much: **a design is a set of trade-offs, not a set of
+choices.** "We use a cache" is not a decision. "We cache the catalogue for 60
+seconds, which costs up to a minute of staleness after an edit and removes
+roughly 99% of catalogue reads from the primary" is. The first sentence cannot be disagreed with; the
+second can, and that is what makes it engineering.
+
+<Callout variant="note">
+  **How this course labels claims.** Real systems are mostly private. Every
+  architectural statement here is labelled as one of three things: *publicly
+  documented* (with the source named — Netflix Open Connect, Spotify's
+  engineering blog, the 2016 YouTube recommendations paper), *generally accepted
+  industry architecture*, or *a teaching assumption* we are making to keep the
+  example concrete. When we design a platform, we call it "Netflix-like", never
+  Netflix — because we are designing a system that has to solve the same
+  problems, not reproducing one we cannot see.
+</Callout>
+
+## How it works
+
+Thirteen steps. Each one produces something the next step consumes.
+
+| #   | Step                             | The question it answers                        | Output                                       |
+| --- | -------------------------------- | ---------------------------------------------- | -------------------------------------------- |
+| 1   | Clarify requirements             | What must it do?                               | A feature list                               |
+| 2   | Define scope                     | What are we _not_ building?                    | An explicit out-of-scope list                |
+| 3   | Estimate scale                   | How big is this?                               | Users, QPS, storage, bandwidth               |
+| 4   | Identify core entities           | What are the nouns?                            | 4–8 entities and their relations             |
+| 5   | Design the API                   | How is it used?                                | Endpoints, verbs, payload shapes             |
+| 6   | Choose storage                   | Where do the bytes live?                       | A store per entity, with a reason            |
+| 7   | Draw the high-level architecture | How do the parts fit?                          | Boxes and arrows                             |
+| 8   | Find the bottleneck              | What breaks first?                             | One named component                          |
+| 9   | Add caching                      | What is read far more than written?            | Cache layer, key, TTL, invalidation          |
+| 10  | Add asynchronous processing      | What can happen later?                         | Queue or stream, and its consumers           |
+| 11  | Reliability                      | What happens when a part dies?                 | Replication, retries, degradation            |
+| 12  | Security and privacy             | Who may see what?                              | AuthN, authZ, data handling                  |
+| 13  | Observability and trade-offs     | How do we know it works, and what did it cost? | Metrics, and a stated trade-off per decision |
+
+**Steps 1 and 2 — requirements and scope.** Separate _functional_ requirements
+(upload a video, follow a channel) from _non-functional_ ones (99.9% available,
+p99 latency under 300 ms — percentiles get their own lesson in [Latency and
+Throughput](/learn/sd-latency-and-throughput/) — durable for ten years). The
+non-functional list is where the architecture comes from: "playback must never
+stall" forces a CDN long before you have chosen a language. Scope is the other
+half — writing down "no live streaming, no monetisation" is what stops the
+design sprawling.
+
+**Step 3 — estimate scale.** Order of magnitude, with the arithmetic shown. If
+10 million daily users each read 20 items:
+
+```text
+10,000,000 users × 20 reads = 200,000,000 reads/day
+a day ≈ 100,000 s           ≈ 2,000 reads/second average
+peak ≈ 3× average           ≈ 6,000 reads/second
+writes at 1% of reads       ≈ 20/second average, ≈ 60/second peak
+```
+
+Rounding the day to 100,000 seconds rather than 86,400 costs 16% and buys
+arithmetic you can do while talking; the assumption of "20 reads per user" is
+wrong by more than that. That single calculation has already made decisions for
+you. Six thousand reads per second is comfortably one cached read path; sixty
+writes per second is a single well-indexed relational primary. Had it come out
+at 600,000 reads per second, the shape of every later step would differ. **This is why step 3 comes
+before step 6** — the number is what makes "PostgreSQL" or "a partitioned
+key-value store" an argued answer rather than a preference.
+
+**Steps 4 to 7 — entities, API, storage, shape.** Name the nouns and their
+relationships, then write the handful of endpoints a client actually needs; the
+API is where hidden requirements surface, because the moment you write
+`GET /feed` you have to say what ordering means. Then pick a store per entity and
+say why — this one needs transactions, that one is write-heavy and never joined,
+this one is 100 KB blobs — and draw the boxes.
+
+**Steps 8 to 10 — survive your own traffic.** Find the component that saturates
+first, and only then reach for a cache or a queue. Caching answers "read far more
+often than written"; asynchronous processing answers "the user does not need to
+wait for this". Both add a failure mode — a stale read, a delayed job — and
+naming it is part of using them.
+
+**Steps 11 to 13 — survive reality.** What happens when a replica, a zone or a
+region is gone? What does the system do when a dependency is slow rather than
+down? Who may read this row? And what would tell you it is broken before a user
+does?
+
+## Trade-offs
+
+The workflow itself has costs worth knowing.
+
+**It is linear, and design is not.** Step 8 regularly sends you back to step 6.
+That is the workflow working: a bad storage choice found at the bottleneck step
+is at its cheapest. Treat the order as the order you _first_ visit things.
+
+**It biases toward completeness over depth.** Thirteen steps in forty minutes
+means none of them is deep. The value is coverage — it is hard to forget
+authentication when it is line 12 — but coverage is not rigour.
+
+**It assumes the requirements can be known.** Sometimes the honest answer at step
+1 is "nobody knows yet", and the right architecture is the one cheapest to throw
+away.
+
+## Common pitfalls
+
+- **Naming technologies at step 1.** "We'll use Kafka" before there is a write
+  volume is a preference wearing a decision's clothes. The tool comes after the
+  number.
+- **Skipping the estimate because it feels made up.** An order of magnitude
+  derived from stated assumptions is falsifiable — someone can tell you the
+  assumption is wrong. No number is not.
+- **Designing for a scale nobody asked for.** Partitioning a table that will hold
+  fifty thousand rows is cost with no benefit.
+- **Listing components instead of arguing for them.** Every box should answer
+  "what breaks if I remove it?" If nothing does, remove it.
+- **Leaving out the failure story.** A design that describes only the happy path
+  has not been designed; it has been imagined.
+
+## Interview notes
+
+In an interview this workflow is also a script, and the first two steps are
+graded hardest. Spending three minutes narrowing "design a Twitter-like timeline" to "a
+read-heavy timeline for 10 million daily users, no DMs, no search" reads as
+seniority,
+because it is what the job actually is.
+
+Two habits carry disproportionate weight. **Say the number out loud** — the
+arithmetic in step 3 shows how you think, which is the thing being assessed. And
+**state the trade-off with every choice**: "I'd cache the profile for 30 seconds;
+the cost is that a name change takes up to half a minute to appear everywhere,
+which I think is acceptable here" is a complete answer. "I'd add Redis" is not.
+
+## Key takeaways
+
+- A system design is a **funnel**: requirements narrow scope, scope narrows
+  scale, scale narrows storage. Out of order, the steps stop constraining each
+  other.
+- **Non-functional requirements produce the architecture.** Availability, latency
+  and consistency targets decide more than the feature list does.
+- **Estimate before you choose.** The order of magnitude turns a technology
+  preference into an argued decision.
+- Every decision ships with **the trade-off that made it**. A choice you cannot
+  argue against has not been justified.
+- Going back a step is the workflow succeeding, not failing.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why does estimating scale (step 3) come before choosing storage (step 6) rather than after?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the estimate is what makes the storage choice arguable. At 70 writes
+  per second a single relational primary with good indexes is plainly enough,
+  and partitioning would be cost with no benefit; at 70,000 writes per second
+  the same choice is obviously wrong and the design needs partitioning, a
+  different consistency model, or both. Choose first and the number can only
+  ever confirm or embarrass you — and in practice people quietly discard the
+  number.
+</PracticeCheck>
+
+**2. A design says "we add a cache in front of the database". What is missing before that counts as a decision?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Four things: *what* is cached (which read path, and its key), *why* it is a
+  candidate (the read-to-write ratio that makes it worth it), *how long* it may
+  be stale (the TTL, or the invalidation event), and *what breaks* when the
+  cache is empty or gone — if the database cannot survive a cold cache, the
+  cache is not an optimisation, it is a load-bearing component with no
+  replication. A cache always trades freshness for load; a decision names both
+  sides.
+</PracticeCheck>
+
+**3. At step 8 you find the bottleneck is the database's write path, and you realise at step 6 you chose the wrong store. Have you used the workflow wrongly?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  No — that is the workflow doing its job. The steps are the order you first
+  visit the questions, not a promise never to return. Finding a storage mistake
+  at the bottleneck step is the cheapest possible moment to find it: nothing has
+  been built, and you now have the one thing step 6 lacked, which is a concrete
+  reason. What *would* be using it wrongly is noticing the problem and carrying
+  on to step 9 to cache around it, because a cache in front of a write
+  bottleneck fixes nothing.
+</PracticeCheck>

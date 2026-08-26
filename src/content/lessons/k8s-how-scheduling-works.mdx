@@ -1,0 +1,217 @@
+---
+title: 'How Scheduling Works'
+slug: 'k8s-how-scheduling-works'
+course: 'kubernetes'
+track: 'k8s-scheduling'
+order: 27
+summary: 'The scheduler filters every node down to the ones a Pod could run on, scores the survivors, writes one name into the Pod — and then never thinks about that Pod again.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods', 'k8s-requests-and-limits']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scheduling', 'kube-scheduler', 'pending']
+explainPrompt: 'Why does a Pod stay on a crowded node after a bigger, emptier node joins the cluster?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Describe the two phases the scheduler runs for every Pod, and what each one
+  produces.
+- Read a `FailedScheduling` event and say which rule to change.
+- Explain why placement is a one-time decision that nothing revisits.
+
+## Intuition
+
+The scheduler has one input and one output. The input is a Pod whose
+`spec.nodeName` is empty; the output is that field with a node name in it. It
+starts no containers, pulls no images and contacts no kubelet — the kubelet on
+the named node finds the Pod by watching the API server, exactly as it would
+find any other Pod.
+
+**Filter, then score.** It is the shape of every shortlist you have ever made.
+The first pass is a hard pass/fail over every node in the cluster: anything that
+could not possibly run this Pod is removed, and nothing about the survivors is
+compared. The second pass ranks the survivors, because "could run it" and
+"should run it" are different questions and only the second one has degrees.
+
+That split explains the two failure modes you will meet. If filtering leaves
+nothing, the Pod is `Pending` and the event tells you which filter rejected how
+many nodes. If filtering leaves a node you did not expect to win, no rule was
+broken — scoring preferred it, and a preference is what you tune.
+
+## How it works
+
+**Phase one, filtering.** Each node is checked against the Pod, and one failure
+is enough to drop it:
+
+- Does the node's remaining allocatable cover the Pod's **requests**? This is the
+  booking arithmetic from the previous lesson, not a measurement of load.
+- Do the Pod's `nodeSelector` and node affinity match the node's labels?
+- Are all of the node's taints tolerated by the Pod?
+- Is every `hostPort` the Pod asks for still free on that node?
+- Can the node attach the Pod's volumes — the right zone, and a free attachment
+  slot?
+
+**Phase two, scoring.** Every surviving node is given a score by several
+plugins, each weighted, and the totals are added. The defaults balance a few
+competing instincts: spread the Pods of one workload across nodes, prefer the
+node that is least allocated so far, prefer a node that already has the image
+cached, and honour any _preferred_ affinity the Pod expressed. Highest total
+wins; a tie is broken between the leaders rather than always favouring the first
+node in the list.
+
+**Phase three, binding.** The winner's name is written to the Pod. The scheduler
+moves on and does not revisit the decision.
+
+```bash
+kubectl get pod api -o jsonpath='{.spec.nodeName}{"\n"}'
+kubectl get events --field-selector reason=FailedScheduling
+kubectl describe pod api
+```
+
+**The `Pending` message is a report, not an apology.** It counts nodes per
+reason, and the counts are the diagnosis:
+
+```text
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  30s   default-scheduler  0/5 nodes are available: 2 Insufficient cpu,
+    2 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s).
+    no new claims to deallocate, preemption: 0/5 nodes are available: 5 Preemption is not
+    helpful for scheduling.
+```
+
+Five nodes, three different rejections. Lowering the CPU request fixes at most
+two of them, so the honest reading is that you have a labelling or toleration
+problem as well as a capacity one. Notice what the message withholds: it counts
+the node that refused the Pod over a taint and never says which taint, so
+reading that node's `Taints` line with `kubectl describe node` is the second
+half of the diagnosis. The trailing clauses are the scheduler reporting what else it tried
+before giving up — releasing resource claims, then removing lower-priority Pods
+to make room — and finding that neither would help, which is a mechanism the
+priority lesson covers.
+
+<Callout variant="note">
+  `Insufficient cpu` means the sum of the *requests* already placed on that node
+  leaves less than this Pod asks for. The node may be almost idle. A cluster
+  whose dashboards show 30% CPU and whose Pods will not schedule is the normal
+  presentation of requests that are larger than reality.
+</Callout>
+
+**Placement is permanent until something deletes the Pod.** No loop rebalances a
+running cluster. Add three empty nodes and every existing Pod stays where it is;
+only new Pods see the new capacity. That is a deliberate choice — moving a Pod
+means killing it, and the scheduler is not allowed to cause an outage to tidy up
+a graph. Rebalancing is an explicit act: delete Pods, roll the workload, or run
+a descheduler, which is an ecosystem component and not part of Kubernetes.
+
+**Fragmentation is the surprise this creates.** Ten nodes with 400m of CPU free
+each have 4 cores free in total and cannot take one Pod requesting 1 core. The
+cluster-wide number on the dashboard is never the number the scheduler uses.
+
+**Setting `spec.nodeName` yourself skips all of this.** The kubelet on that node
+picks the Pod up with no filtering having happened, runs its own admission
+check, and if the node genuinely cannot fit the Pod the Pod ends as `Failed`
+with a reason such as `OutOfcpu`. It is a debugging tool, not a placement
+strategy.
+
+**More than one scheduler can exist.** The scheduler is a set of plugins at
+fixed extension points, and its configuration can define several _profiles_
+under different names; a Pod picks one with `spec.schedulerName`. Changing a
+profile is a control-plane change, which a managed cluster may not expose to you.
+
+## Trade-offs
+
+**Spreading versus packing.** The default scoring leans towards the least
+allocated node, which spreads a workload and leaves headroom on every machine.
+It also means no node ever empties, so a cluster autoscaler has nothing it can
+remove. The opposite policy packs Pods tightly and makes scale-down possible at
+the cost of putting more of your workload behind one machine failure. Both are
+defensible; the choice belongs to whoever pays the bill.
+
+**One Pod at a time.** The scheduler works through a queue, and each decision is
+made against the cluster as it stands at that moment. It does not solve the
+placement of a hundred Pods together, so a batch of Pods can end up in an
+arrangement that no one would have chosen deliberately.
+
+## Common pitfalls
+
+- **Reading `Insufficient cpu` as "the node is busy".** The word points at load
+  and the number is a booking, so people go looking for a runaway process.
+- **Expecting a rebalance after adding nodes.** Nothing moves. The new capacity
+  changes the next scheduling decision and nothing before it.
+- **Assuming limits are scheduled.** They are not read here at all — a Pod
+  requesting 100m with a 4-core limit is placed as if it needs 100m, on a node
+  where four other Pods have made the same promise.
+- **Blaming the scheduler for a Pod that is `Pending` with no event.** Then it
+  was never queued: check that the Pod exists, and that a `ResourceQuota` or an
+  admission webhook did not reject its creation instead.
+- **Treating `nodeName` as a shortcut.** It works, until the node is full or
+  gone, and it opts the Pod out of every rule the rest of this module teaches.
+
+## Key takeaways
+
+- The scheduler **filters then scores**, and its only write is `spec.nodeName`.
+  It never starts a container.
+- Filtering compares the Pod's **requests** against the node's remaining
+  allocatable, plus selectors, taints, host ports and volumes.
+- A `FailedScheduling` event **counts nodes per reason**; the counts tell you
+  which rule to change.
+- **Placement is never revisited.** Adding capacity helps new Pods only, and
+  free capacity spread across many nodes cannot host one large Pod.
+- Scoring is a **preference**, so an unexpected placement is usually the defaults
+  working, not a rule being ignored.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Pod is `Pending`. The event reads `0/6 nodes are available: 4 Insufficient memory, 2 node(s) had untolerated taint(s)`. Your monitoring shows the cluster at 35% memory. What is going on, and what are your options?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Both numbers are correct and they measure different things. The four
+  rejections are requests arithmetic: the Pods already placed on those nodes
+  have *booked* enough memory that this Pod's request does not fit in what is
+  left, regardless of how little they are actually consuming. The other two
+  nodes are reserved by a taint this Pod does not tolerate, so capacity there is
+  irrelevant to it. The options follow the two reasons separately — lower this
+  Pod's memory request if it is inflated, lower the requests of the Pods already
+  on those nodes so the bookings match reality, or add a node. The taint branch
+  needs one step first: the event never names the taint, so run `kubectl
+  describe node` on one of those two and read its `Taints` line, then decide
+  whether this workload genuinely belongs on those machines and deserves the
+  matching toleration.
+</PracticeCheck>
+
+**2. You add two large, empty nodes to a cluster where several nodes are heavily booked. Nothing moves. Is something broken?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  No — that is the design. Scheduling is a one-time decision recorded in
+  `spec.nodeName`, and no controller re-evaluates it for a Pod that is already
+  running. Moving a Pod is not an operation Kubernetes has; it would mean
+  deleting the Pod and creating a new one somewhere else, which is an outage for
+  that replica, and the scheduler is not permitted to cause one for the sake of
+  a tidier layout. The new nodes will take the next Pods created. If you want
+  existing workloads to use them now, you cause the churn deliberately —
+  `kubectl rollout restart` on the Deployments you are willing to disturb, or a
+  drain of a crowded node.
+</PracticeCheck>
+
+**3. Two nodes survive filtering. Both have plenty of room and neither has any affinity rule pointing at it, yet every replica of your Deployment lands on `worker-2`. What could explain it?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Nothing was violated — scoring picked a winner, and scoring is made of
+  preferences that you did not write. Image locality is the usual culprit: a
+  node that already has the image cached scores higher than one that would have
+  to pull it, so the first replica pulls on `worker-2` and every later replica
+  then prefers the node holding the layers. Least-allocated scoring can point
+  the same way if `worker-2` started emptier. Note what did *not* happen: the
+  default spreading score works on Pods matching the same Service or controller
+  and it is one weighted term among several, so it can lose. If you need the
+  replicas apart, express it as a rule rather than hoping — anti-affinity or a
+  topology spread constraint, which the next two lessons cover.
+</PracticeCheck>

@@ -1,0 +1,268 @@
+---
+title: 'Snapshots, Backup and Restore'
+slug: 'k8s-backup-and-snapshots'
+course: 'kubernetes'
+track: 'k8s-storage'
+order: 25
+summary: 'VolumeSnapshots are fast, cheap and in the same failure domain as the volume they copy — which makes them a very good undo button and a very poor backup, and neither is worth anything until a restore has been rehearsed.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-persistent-volumes', 'k8s-stateful-data']
+estimatedMinutes: 9
+tags: ['kubernetes', 'storage', 'backup', 'snapshots', 'restore']
+explainPrompt: 'Why is a snapshot of a volume not a backup of the data on it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a VolumeSnapshot is, which component supplies it, and what it is not.
+- Restore a volume from a snapshot, and explain why that produces a new claim.
+- Name what a snapshot does not protect against, and what has to be backed up
+  beyond the bytes.
+- Design a restore procedure whose recovery time is measured rather than assumed.
+
+## Intuition
+
+The last three lessons put data somewhere durable. Durable is not the same as
+safe: a volume that survives every Pod restart still loses everything when the
+wrong migration runs, when someone deletes the Namespace, or when the account
+holding it is compromised.
+
+**A snapshot is a bookmark in the same book; a backup is a photocopy in another
+building.** The storage system makes the snapshot, stores it, and stores it in
+the same account, usually the same region, and always the same blast radius as
+the volume it came from. That makes it excellent at "undo the last ten minutes"
+and worth nothing when the region, the account or the billing relationship is
+what failed.
+
+The second idea is harder to accept: **a backup nobody has restored is not a
+backup, it is a belief.** The only evidence that a restore works is a restore
+that worked. Two numbers turn that into a design rather than an opinion — how
+much data you can afford to lose (your recovery point) and how long you can
+afford to be down (your recovery time). Both are decisions, and only one of them
+can be measured without practising.
+
+## How it works
+
+### Snapshots are a CSI feature delivered as ecosystem CRDs
+
+`VolumeSnapshot`, `VolumeSnapshotContent` and `VolumeSnapshotClass` are **not
+part of core Kubernetes**. They are CustomResourceDefinitions in the
+`snapshot.storage.k8s.io` group, installed alongside the external-snapshotter
+controller, and they do anything at all only if your CSI driver implements
+snapshots. On a cluster where the CRDs are absent, `kubectl get volumesnapshot`
+reports that the server has no such resource type — which is a missing
+installation, not a broken cluster.
+
+The three objects mirror the pattern you already know: the class is the menu item,
+the namespaced object is the request, and the cluster-scoped object is the real
+thing.
+
+```yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: fast-snapshots
+driver: ebs.csi.aws.com
+deletionPolicy: Retain
+```
+
+```yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: uploads-nightly
+spec:
+  volumeSnapshotClassName: fast-snapshots
+  source:
+    persistentVolumeClaimName: uploads
+```
+
+`deletionPolicy` is the reclaim policy in another costume: `Delete` destroys the
+storage system's snapshot when the `VolumeSnapshot` object goes, `Retain` keeps
+it. And because a `VolumeSnapshot` is namespaced, deleting a Namespace deletes
+every snapshot in it — taking the underlying snapshots too, if the class says
+`Delete`. The backup and the thing it protects can be destroyed by the same
+command.
+
+The object appears immediately; the snapshot does not. Watch
+`status.readyToUse`, which turns true only when the storage system has finished:
+
+```bash
+kubectl get volumesnapshot
+kubectl describe volumesnapshot uploads-nightly
+```
+
+### Restoring produces a new volume
+
+You do not restore _into_ a claim. You create a new claim whose `dataSource` is
+the snapshot, and the driver populates it:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads-restored
+spec:
+  storageClassName: fast
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  dataSource:
+    name: uploads-nightly
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+```
+
+The request must be at least the size of the volume the snapshot came from. The
+original claim is untouched, which is a feature — a failed restore costs you
+nothing — and a procedure, because switching the workload over means scaling it
+down, changing the `claimName`, and scaling it back up. That cutover is part of
+your recovery time, and it is the part people forget to measure.
+
+<Callout variant="note">
+  Kubernetes 1.36 graduated **volume group snapshots** to GA: a way to snapshot
+  a set of volumes at one consistent point in time. Like the other snapshot APIs
+  in this lesson they arrive as external-snapshotter CRDs rather than as core
+  API kinds — GA describes the feature's maturity, not its promotion into the
+  core API. That matters when one logical database spans several volumes,
+  because snapshotting them one at a time gives you copies taken at different
+  instants, which is not a copy of the database at any instant.
+</Callout>
+
+### A snapshot is crash-consistent, not application-consistent
+
+A snapshot is taken at the block level while the process is still writing. What
+comes back is what the disk would have looked like if the power had been cut at
+that moment. A database recovers from that the way it recovers from a power cut:
+usually fine, occasionally not, and never fine if half the transaction was in a
+buffer that had not been flushed.
+
+Getting application consistency means involving the application — quiescing
+writes for the instant of the snapshot, or bypassing the volume entirely with the
+database's own tool: a logical dump, or a continuously archived write-ahead log.
+A CronJob that streams a dump to object storage outside the cluster is not
+elegant, and it is the copy that survives losing the cluster.
+
+### Back up more than the bytes
+
+A restored volume nobody can attach to anything is not a restore. A complete
+backup is three things: the data, the Kubernetes objects that describe how to
+serve it — the StatefulSet, its Services, its ConfigMaps and Secrets, the claims
+themselves — and the mapping between them. Manifests should already be in Git.
+Secrets usually are not, and that is the piece teams discover missing at 3 a.m.
+
+Tools such as Velero coordinate the object backup with the volume snapshot and
+copy both out of the cluster. Velero is ecosystem software, not part of
+Kubernetes. Separately, an etcd backup protects the _cluster_ — the API objects
+— and not your volumes; on a managed control plane the provider does it, and it
+would not have saved the data anyway.
+
+### Rehearse
+
+Restore into a fresh Namespace on a schedule, with a stopwatch, and check the
+data rather than the Pod status. The number that comes out is your real recovery
+time. Everything else is an estimate, and estimates about restores are wrong in
+one direction.
+
+## Trade-offs
+
+**Snapshots against dumps.** A snapshot is seconds to take and minutes to
+restore, usually incremental so it costs little, and it is locked to the storage
+system that made it — same region, same account, same driver, unusable in another
+cluster on another provider. A logical dump is slow both ways and portable
+anywhere, including to a different Kubernetes version or no Kubernetes at all.
+Most teams that have been through an incident run both: snapshots for speed,
+dumps in another account for the day the account is the problem.
+
+**Frequency against cost and load.** More snapshots shrink how much data you can
+lose, and each one adds retention cost and some load at the moment it is taken.
+Choose the interval from the recovery point you actually need, not from what the
+storage system makes convenient.
+
+## Common pitfalls
+
+- **Calling the snapshot schedule a backup strategy.** It shares a failure domain
+  with the data. Ask what happens if the whole account is gone, and the honest
+  answer names a copy somewhere else or names nothing.
+- **Deleting a Namespace with snapshots in it.** With `deletionPolicy: Delete`
+  the real snapshots go too, so the cleanup destroys the data and its copies in
+  one command.
+- **Expecting a restore to overwrite the original.** It creates a new claim; the
+  cutover is manual and belongs in the runbook.
+- **Snapshotting a multi-volume system one volume at a time.** Each copy is from
+  a different instant, and the set does not reconstruct a coherent state.
+- **Backing up volumes and not Secrets.** The data comes back and nothing can
+  authenticate to it.
+- **Never restoring.** An untested restore fails at the worst possible time, and
+  the failure is usually mundane — a missing class, a size that no longer fits, a
+  driver version that moved on.
+
+## Key takeaways
+
+- VolumeSnapshot, VolumeSnapshotContent and VolumeSnapshotClass are **CSI
+  ecosystem CRDs**, not core Kubernetes, and need a driver that supports
+  snapshots.
+- A snapshot lives in the **same failure domain** as its volume. It is an undo
+  button, not off-site protection.
+- Restoring creates a **new claim** from `dataSource`; the original is untouched
+  and the cutover is yours to perform.
+- Snapshots are **crash-consistent**. Application consistency needs quiescing or
+  the database's own dump.
+- A backup is data **plus manifests plus Secrets plus the mapping**, and Secrets
+  are the part usually missing.
+- Your recovery time is whatever a rehearsed restore measured. Nothing else is
+  evidence.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team snapshots every volume hourly, keeps 30 days, and has never lost data. Their cloud account is compromised and everything in it is deleted. What do they have left, and which single change would have prevented that?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Nothing. The snapshots were objects inside the same cloud account as the
+  volumes, so whatever deleted the volumes deleted their copies at the same time
+  — an hourly schedule and a 30-day retention protect against a bad migration or
+  a dropped table, and not at all against losing the account. The change is a
+  copy that leaves the blast radius: a logical dump written to storage in a
+  different account with separate credentials, or a snapshot copied to another
+  account by a process the compromised account cannot reach. The frequency was
+  never the weak part of their design; the location was.
+</PracticeCheck>
+
+**2. A database's data spans two PersistentVolumeClaims. Someone snapshots them in sequence, thirty seconds apart, then restores both. Why might the result be unusable even though both snapshots report `readyToUse: true`?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  `readyToUse` says each snapshot completed, not that the pair means anything
+  together. They were taken thirty seconds apart while the database was writing,
+  so the second one contains work the first knows nothing about — an index
+  referring to rows that are not in the restored data file, or a log whose
+  transactions have no matching state. Restoring both gives two internally valid
+  copies of two different moments. Consistency across volumes has to be created
+  at snapshot time: quiesce the database for the instant both are taken, use
+  volume group snapshots so the set is captured at one point, or step outside
+  the volumes entirely and take a logical dump, which is coherent by
+  construction because the database produces it.
+</PracticeCheck>
+
+**3. Your runbook says "restore from the nightly snapshot, 15 minutes". Write down what an actual rehearsal would measure, and name two things likely to make the real number larger.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A rehearsal measures the whole path, not the snapshot step: creating a claim
+  with the snapshot as its `dataSource`, waiting for the driver to populate the
+  new volume, scaling the workload down, changing the `claimName` to the
+  restored one, scaling back up, waiting for the database to finish its own
+  crash recovery, and then verifying the data rather than the Pod status. Two
+  likely surprises: populating a large volume from a snapshot is
+  throughput-bound and can take far longer than taking one did, and the cutover
+  is a sequence of human steps that nobody has done under pressure. A third that
+  catches teams often is a prerequisite that has drifted — a StorageClass that
+  was renamed, or Secrets that were never in the backup — which turns a
+  15-minute number into an outage of unknown length.
+</PracticeCheck>

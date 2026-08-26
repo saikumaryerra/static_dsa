@@ -143,14 +143,19 @@ test.describe('the toggle exists exactly where a predictor does', () => {
     // claim, so it is asserted curriculum-wide: a predictor added to an
     // algorithm whose steps cannot support one would show up here as a toggle on
     // a lesson this map does not list.
-    const lessons = await curriculum(page);
+    // Scoped to the `dsa` course: the claim is about lessons built around an
+    // instrument, and the Kubernetes and System Design courses are prose and
+    // diagrams (course expansion, decision D-05). Asserting "every lesson ships
+    // a visualization" across the catalogue would not be a stricter test, it
+    // would be a false one.
+    const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
     expect(lessons.length).toBeGreaterThanOrEqual(15);
 
     for (const lesson of lessons) {
       await page.goto(`/learn/${lesson.slug}/`);
       const vizzes = await page.locator('[data-viz]').count();
-      // Every lesson ships at least one visualization, so "no toggle" below is
-      // never just "no visualizer on this page".
+      // Every lesson in THIS course ships at least one visualization, so "no
+      // toggle" below is never just "no visualizer on this page".
       expect(vizzes, `${lesson.slug} should host a visualizer`).toBeGreaterThan(
         0,
       );
@@ -669,7 +674,7 @@ test.describe('predict feeds the mastery ladder, silently', () => {
     // record: the same wording survives a reload, and the index counts it once.
     await page.reload();
     await expect(headerLabel(page)).toHaveText('Practiced on this device');
-    await page.goto('/learn/');
+    await page.goto('/learn/dsa/');
     await expect(trackMastery(page, 'algorithms')).toHaveText(
       'Practiced 1 · Mastered 0',
     );

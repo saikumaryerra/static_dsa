@@ -1,0 +1,259 @@
+---
+title: 'Upload and Transcoding'
+slug: 'sd-youtube-upload-pipeline'
+course: 'system-design'
+track: 'sd-youtube'
+order: 37
+summary: 'A resumable upload that ends at object storage, an event that starts everything else, and the queue-and-worker pipeline that transcodes, thumbnails, checks and finally publishes a video.'
+difficulty: 'intermediate'
+prerequisites: ['sd-youtube-requirements', 'sd-object-storage']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'video', 'upload', 'transcoding']
+explainPrompt: 'Why does the upload request end at object storage rather than at the service that transcodes the file?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+import YouTubeUploadPipeline from '../../components/diagrams/YouTubeUploadPipeline.astro';
+
+## What you'll learn
+
+- Explain resumable upload as a byte cursor the server owns, and say when it is the wrong tool.
+- Draw the ingest pipeline from received bytes to a published video, and name what each stage may fail at.
+- Say why transcoding is chunked and queued rather than run inside a request.
+- Place moderation and copyright matching in the publish path with a stated latency cost.
+
+## Intuition
+
+**The upload request ends at object storage, and everything else is a consequence
+of an event.** That boundary is the most useful line in this lesson. The HTTP
+conversation carrying the file has one job — get the bytes somewhere durable and
+say so honestly — and it is finished long before the video is watchable.
+Transcoding, thumbnails, moderation and publication are downstream work driven by
+messages — which is what lets a five-minute encode sit behind a two-second
+request.
+
+The second: **a resumable upload is a cursor, not a retry.** A retry starts again;
+a cursor remembers. The server holds the number of bytes committed for this
+session, and the client's job after a dropped connection is to ask for that
+number and continue from it. On a mobile network carrying a gigabyte, the
+difference between those two ideas is whether the upload ever completes.
+
+The third: **publication is a state transition, not a side effect.** A video moves
+through received, transcoding, checked and published one state at a time, and
+every stage fails into a state the creator can see. Modelling it as a chain of
+function calls is what produces videos stuck with no explanation.
+
+## How it works
+
+```text
+client
+  |
+  '-> upload service: create session, authorise, check quota
+        |
+        '-> object storage: the source file, durable, often the only copy
+              |
+              '-> "source ready" event on a queue
+                    |
+                    +-> transcode workers -> rendition ladder -> object storage
+                    +-> thumbnail extraction -> image storage
+                    +-> speech-to-text -> transcript and captions
+                    +-> checks: abuse classifiers, copyright matching
+                          |
+                          '-> publish -> search index, notifications
+                                |
+                                '-> delivery network pulls on first request
+```
+
+**1. The session.** Resumable upload is _publicly documented_ in YouTube's
+resumable-upload API documentation, and the wire details below are that
+document's. The idea underneath them — a server-held byte cursor — is _generally
+accepted industry architecture_, spelled differently by every implementation. The
+client sends a `POST` declaring the size and type of what is coming in
+`X-Upload-Content-Length` and `X-Upload-Content-Type`; the server answers
+`200 OK` with a `Location` header holding a session URI unique to this upload. The client `PUT`s the bytes to that URI and gets `201 Created` when
+the file is complete. If the connection dies, the client sends an empty `PUT`
+with `Content-Range: bytes */TOTAL`, and the server replies
+`308 Resume Incomplete` with a `Range` header naming the bytes it holds — the
+client continues from one past the last.
+
+**When not to use it.** The session costs an extra round trip before the first
+byte moves. Below a few megabytes that overhead is most of the transfer, and a
+single `POST` with an ordinary retry is better. Resumability earns its cost when
+repeating a failed transfer is expensive.
+
+**2. Where the bytes land.** Straight into
+[object storage](/learn/sd-object-storage/), never through the application tier
+and never a database. Three reasons: gigabyte payloads would hold application
+threads for minutes, object storage already provides cross-zone durability, and
+the source is the input every future re-encode starts from, so it must outlive
+the services that read it. The upload is acknowledged only after the
+bytes are committed — anything earlier turns "received" into a claim the creator
+cannot check.
+
+**3. The handoff.** The upload service writes a metadata row — video id, owner,
+state `received` — and emits an event onto a [queue](/learn/sd-message-queues/).
+The queue does three things: absorbs the difference between 30 uploads a second
+and a fleet of fixed throughput, survives worker deaths without losing work, and
+lets the fleet scale on queue depth rather than guesswork. Delivery is
+at-least-once, so every worker must be idempotent — keyed on
+`(video id, rendition)`, a redelivered message rewrites an identical object
+rather than creating a second.
+
+<YouTubeUploadPipeline />
+
+**4. Transcoding.** A source is split at keyframe boundaries into chunks of a few
+seconds, transcoded in parallel across many workers, and stitched into each
+rendition. This is _generally accepted industry architecture_ wherever publish
+latency matters, because it decouples encode time from video length: a three-hour
+upload and a three-minute one finish in comparable wall-clock time given enough
+workers. The ladder is produced in
+priority order — one modest rendition first, so the video can publish, then the
+higher rungs.
+
+**5. Thumbnails and transcripts.** Two more passes, both _generally accepted
+industry architecture_ rather than an account of any platform's internals. Frames
+are extracted at intervals, scored for sharpness and faces, and offered to the
+creator as choices; animated previews come from the same pass. Speech-to-text
+over the audio track produces the transcript and automatic captions — what search
+matches long videos on, and the text recommendations places cold videos by. Each
+is cheap per video, and at three million uploads a day a workload of its own.
+
+**6. Validation and moderation.** Automated classifiers run over the low
+rendition and the audio track, looking for the categories the platform refuses —
+_generally accepted industry architecture_, not an account of anyone's moderation
+stack. Copyright matching, at concept level, works on _fingerprints_ — again the
+generally accepted shape, not a description of any particular matcher: the audio
+and video are reduced to compact perceptual hashes that survive re-encoding,
+cropping and pitch shifting, then looked up against an index of reference works
+supplied by rights holders. An exact byte hash would be useless,
+because every upload is re-encoded before it is compared.
+
+<Callout variant="warning">
+  **A match is a signal, not a verdict.** Fingerprinting can say two recordings
+  contain the same work, not whether the use is quotation, parody, licensed or
+  infringing. A matcher allowed to block on its own produces both errors at
+  scale, so a match routes to a rights decision and an appeal path a human runs.
+</Callout>
+
+**7. Publish.** One transition makes the metadata public, writes the video into
+the [search index](/learn/sd-youtube-search/) and emits the event notification
+fan-out consumes. Because it is a state change on a row rather than a broadcast
+of side effects, it can be reversed: an unpublish is the same mechanism run
+backwards, which is what a post-publish takedown needs.
+
+**8. Distribution.** Nothing is pushed to caches. The first viewer's request
+pulls the segments through — the [playback lesson](/learn/sd-youtube-playback/)'s
+subject, and a consequence of not knowing what will be watched.
+
+## Trade-offs
+
+**Publish fast against encode well.** Publishing on one rendition puts the video
+live in minutes at a lower quality than the source deserves; waiting for the full
+ladder inverts both. The lazy middle — top rungs only for
+videos that attract views — is the [scale lesson](/learn/sd-youtube-scale/)'s
+subject.
+
+**At-least-once against exactly-once.** Idempotent workers plus at-least-once
+delivery is cheap and survives anything. Exactly-once needs coordination on every
+message to prevent a duplicate costing one wasted encode.
+
+**Blocking checks against post-publish checks.** Every check before publication
+adds to the creator's wait; every check after it is time during which harmful
+content is live. The usual resolution is a split: cheap, high-confidence checks
+block, expensive ones run afterwards with unpublish available.
+
+## Common pitfalls
+
+- **Proxying the file through the application tier.** It looks like an ordinary
+  upload endpoint, and puts gigabytes and minutes-long connections on a fleet
+  that redeploys daily.
+- **Acknowledging before the bytes are durable.** Tempting because the upload
+  feels quicker, and it converts one machine failure into permanent data loss for
+  a creator who has already deleted their copy.
+- **Workers that are not idempotent.** At-least-once delivery is the default
+  almost everywhere, so a redelivery produces duplicate renditions, doubled
+  counters or two notifications.
+- **One queue for every upload.** A three-hour source at high resolution can hold
+  workers for an hour and starve thousands of short clips behind it; a priority
+  scheme by duration keeps the median fast.
+- **Deleting the source after transcoding.** An obvious saving until a new codec
+  arrives and the only inputs left are already-compressed renditions.
+
+## Interview notes
+
+Say the boundary in one sentence — "the upload request ends at object storage,
+and everything after it is queue-driven" — and the interviewer knows you have
+separated the synchronous path from the pipeline.
+
+The second thing worth volunteering is the state machine, where failure handling
+lives. Naming `received`, `transcoding`, `checked`, `published`
+and a failure state beside each answers "what does the creator see when it goes
+wrong?" before it is asked.
+
+## Key takeaways
+
+- A resumable upload is a **server-held byte cursor**: query it with
+  `Content-Range: bytes */TOTAL`, resume from the `Range` the server returns.
+- The upload request's only job is **durable bytes in object storage**; every
+  later stage is event-driven.
+- Transcoding is **chunked and parallel** so encode time tracks fleet size rather
+  than video length, and **queued** so ingest bursts do not become failures.
+- Copyright matching uses **perceptual fingerprints**, not exact hashes, and
+  produces a signal for a human decision rather than a verdict.
+- **Publication is a reversible state transition**, which is what makes
+  post-publish moderation and takedown possible.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why does the upload request end at object storage rather than at the transcoding service, which is where the file has to go next anyway?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the two have incompatible time scales and failure models. The upload
+  is a client-facing transfer that has to finish and be acknowledged;
+  transcoding is minutes of compute that can fail, be retried, and be scaled
+  independently. Handing the file directly to a transcoder couples the creator's
+  upload to the availability of the encoding fleet, so a busy or restarting
+  fleet becomes a failed upload. It also destroys the durability story: object
+  storage is the thing that promises the bytes survive a machine or a zone, and
+  a transcoder's local disk promises nothing. Landing in storage first turns
+  "the encode failed" into a retryable job against a file that is already safe,
+  rather than into lost work.
+</PracticeCheck>
+
+**2. A transcode worker writes three of the six renditions, then dies. The queue redelivers the message to another worker. What must be true for that to be safe, and what does it cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The work has to be idempotent at the level the message describes. Writing each
+  rendition to a deterministic key derived from the video id and the rendition
+  means the second worker overwrites the three that exist with byte-identical
+  output and produces the missing three; nothing observes a duplicate. Anything
+  that appends, increments or allocates a new identifier per attempt breaks — a
+  counter incremented per encode, a row inserted per rendition, or a
+  notification emitted at the end of the job would all fire twice. The cost is
+  the three wasted encodes, which is exactly the trade the design accepted when
+  it chose at-least-once delivery: cheap, simple redelivery in exchange for
+  occasional repeated work. Making the redelivery impossible instead would put
+  coordination on the path of every message to avoid the rare duplicate.
+</PracticeCheck>
+
+**3. Publish latency is missing its target, and someone proposes moving all moderation and copyright matching to after publication, so nothing blocks the creator. Reason from that premise.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Take the premise seriously: it does hit the target, and post-publish
+  moderation is already part of this design, because a takedown has to work
+  after the fact anyway. What it changes is the exposure window. Every upload is
+  now watchable for as long as the checks take, and the videos most likely to
+  attract views quickly are the ones that concentrate views inside that window,
+  so the harm is not spread evenly. The middle position is to split checks by
+  cost and confidence rather than moving all of them: the fast, high-confidence
+  classifiers stay in front of publication, since they add seconds rather than
+  minutes, and the expensive fingerprint matching and the low-confidence
+  classifiers run after, with the unpublish transition ready. It also needs a
+  limiter that the proposal does not mention — a new or unverified channel can
+  be held to a stricter pre-publish check than an established one, so the
+  exposure window is smallest where the risk is highest.
+</PracticeCheck>

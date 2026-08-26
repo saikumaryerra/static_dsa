@@ -1,0 +1,251 @@
+---
+title: 'Playlist Consistency'
+slug: 'sd-spotify-playlists'
+course: 'system-design'
+track: 'sd-spotify'
+order: 34
+summary: 'A playlist is a sequence of operations, not a document — which is what lets two phones and a collaborator edit it at once without anybody losing a track.'
+difficulty: 'intermediate'
+prerequisites: ['sd-spotify-architecture', 'sd-consistency-models']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'consistency', 'conflicts', 'ordering']
+explainPrompt: 'Why does syncing a playlist as a document lose edits that syncing it as operations keeps?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Model a playlist so an insert writes one row instead of renumbering the list.
+- Synchronise edits across devices and collaborators with an operation log and a revision.
+- Choose a conflict rule per operation pair, and say what each choice costs a listener.
+
+## Intuition
+
+**A playlist is a sequence of operations, not a document.** If a client uploads
+the whole list — "here are my 41 tracks" — then two devices that both add a track
+produce two complete lists, and whichever arrives second overwrites the first. A
+track vanishes and nothing anywhere records that it existed. If instead each
+client sends what it _did_ — "add track T after position g" — the server can
+apply both, and both tracks survive. The data model is what makes concurrency
+survivable; no amount of locking rescues the document version.
+
+The second idea is about position. **An item's place in a list should be a value,
+not an index.** An index is a statement about every other row, so inserting at
+position 1 of 40 rewrites all 40 and two clients doing it concurrently produce
+two different renumberings that cannot be merged. A position _key_ is a statement
+about one row, sorted between its neighbours, and an insert touches exactly one
+row.
+
+Worth saying plainly: the foundations sheet in
+[Functional and Non-Functional Requirements](/learn/sd-requirements/) scoped
+several people editing one playlist at the same moment **out**. This module's own
+sheet puts it back — F3 and N6 in
+[Requirements and Request Rate](/learn/sd-spotify-requirements/) — and this lesson is
+what that costs. Everything below is **generally accepted industry architecture**
+for collaborative list editing, applied to a Spotify-like platform; no part of it
+is a claim about how any company's playlists work internally.
+
+## How it works
+
+**The model.** A playlist row (id, owner, name, revision, collaborators) and item
+rows (item id, playlist id, track id, position key, added by, added at). The
+playlist service owns both, partitioned by playlist owner as the architecture
+lesson set out — a playlist has exactly one owner, so every edit to one playlist
+still lands on one partition and has an unambiguous order there.
+
+**Position keys.** Keys are strings compared lexicographically.
+
+```text
+positions are strings, sorted lexicographically
+  a: 'a'      b: 'g'      c: 'h'      d: 'n'
+
+insert between b and c     ->  'gh'    one row written
+insert between b and 'gh'  ->  'gg5'   still one row written
+
+integer positions instead
+  insert at index 1 of 40   ->  rewrite 40 rows
+  two clients insert at 1   ->  two renumberings, unmergeable
+```
+
+Keys grow a character or two under repeated insertion at the same spot, so a
+background job renormalises a heavily edited playlist — a smaller chore than
+renumbering on every insert.
+
+**Operations.** Every edit is one of a small set, and each carries an operation id
+the client generates:
+
+```json
+{
+  "op": "add",
+  "opId": "c7f1-9a2e",
+  "playlistId": "pl_8f21",
+  "trackId": "tr_5512",
+  "after": "g",
+  "baseRevision": 118
+}
+```
+
+The operation id makes a retry safe: the server records applied ids and returns
+the original result for a repeat, which is the idempotency contract from
+[Idempotency, Retries and Backpressure](/learn/sd-idempotency-and-backpressure/).
+
+**Revisions and sync.** The playlist carries a monotonically increasing revision.
+The server appends each accepted operation to a per-playlist log and increments
+it. A client that has revision 118 asks for everything since 118 and receives
+three operations rather than a 40-track list, which is what makes the five-second
+cross-device target in the requirements affordable — a push notification wakes
+the other devices, and each pulls a small delta.
+
+**Conflict rules, one pair at a time.** `baseRevision` tells the server that the
+client acted on an older view. That is usually fine, and the rule depends on
+which pair of operations met:
+
+| Concurrent pair                 | Rule                        | What a listener sees                           |
+| ------------------------------- | --------------------------- | ---------------------------------------------- |
+| Two adds                        | Both apply                  | Both tracks present, ordered by key then op id |
+| Add and remove, different items | Both apply                  | Independent, no interaction                    |
+| Remove and move, same item      | Remove wins, as a tombstone | The move is dropped; the track is gone         |
+| Two moves, same item            | Later operation wins        | One intended order survives                    |
+| Rename and rename               | Later wins                  | The last name typed is the name                |
+
+Two properties make this workable. Adds never conflict, which matters because
+adding is the overwhelmingly common operation. And a removal is recorded as a
+tombstone rather than a deleted row, so an operation referring to a removed item
+is ignored rather than resurrecting it.
+
+**Caching.** Playlists are read roughly a hundred times per write, so they are
+cached — and the cache key includes the revision. A read at revision 118 and a
+read at 119 are different entries, so a stale read is structurally impossible and
+no invalidation message has to arrive anywhere. The cost is that a write
+immediately makes the previous entry garbage, which is fine at a hundred reads
+per write and would not be at parity. The lesson on
+[Caching](/learn/sd-caching/) calls this versioning the key rather than
+invalidating it.
+
+**Consistency.** The editor gets **read-your-writes**: their own device applies
+the operation locally and the server's response confirms it, so they never see
+their edit disappear. Everyone else — other devices, collaborators, followers —
+is eventually consistent within the five-second target. Read-your-writes is one
+of the four session guarantees Terry and colleagues set out in 1994 for weakly
+consistent replicated data, publicly documented and worth knowing by name because
+it is the guarantee that makes eventual consistency acceptable to a user
+interface.
+
+<Callout variant="tip">
+  Attribute every item to whoever added it. In a collaborative playlist the hard
+  problems are social rather than technical — "who removed my track?" — and an
+  `added by` field on the item plus the operation log answers it without any
+  extra machinery.
+</Callout>
+
+## Trade-offs
+
+**Operation log against a full-document write.** The log costs a schema, an
+append per edit, a compaction job and conflict rules you had to write down. It
+buys concurrent edits that do not lose data, deltas instead of full lists on
+every sync, and an audit trail. Below a certain size that trade is not worth
+making: a single-writer playlist that only ever syncs one device at a time is
+fine as a document.
+
+**When a conflict-free replicated data type is the right answer, and when it is
+not.** A full CRDT lets replicas merge with no server ordering at all, which is
+what real-time collaborative text editing needs. A playlist has a single
+authoritative partition, edits measured in seconds apart rather than keystrokes,
+and a user who tolerates "the later move won" — so a server-ordered operation log
+gets the same outcome with far less machinery and a system engineers can debug by
+reading a table. Reach for the CRDT when clients must merge with each other
+directly, or when offline divergence lasts hours.
+
+**Last-writer-wins is a choice with a victim.** For a playlist name or a track's
+position it is the right call: somebody's intent is lost, and the loss is a
+reorder anybody can redo. Applied to a shopping basket or a balance the same rule
+silently destroys data, which is why the rule is chosen per operation pair and
+never adopted platform-wide.
+
+## Common pitfalls
+
+- **Integer positions.** They read naturally in a schema and they turn every
+  insert into a whole-list rewrite and every concurrent insert into a merge
+  conflict.
+- **A client that sends the whole list.** The most common way playlist edits are
+  lost, and it looks correct in every single-device test.
+- **Retries with no operation id.** A timeout on a slow network becomes a
+  duplicate track, and the duplicate arrives most often for the listeners with
+  the worst connections.
+- **Caching a playlist without its revision in the key.** An editor then reloads
+  and watches their own edit disappear, which is the one failure this design's
+  read-your-writes guarantee exists to prevent.
+
+## Interview notes
+
+Lead with the data model, not the merge rule. "A playlist is a sequence of
+operations, not a document" is what makes concurrency answerable at all — the
+document version loses an edit no lock can rescue.
+
+Then give a rule per pair rather than one policy — adds merge, a remove
+tombstones and beats a concurrent move, the later rename wins — weighed against
+what each loss costs a listener. "Last write wins" everywhere is the shrug.
+
+## Key takeaways
+
+- Sync **operations, not documents**: concurrent adds both survive, and a delta
+  replaces a whole-list write.
+- **Position keys are values between neighbours**, so an insert writes one row
+  and two concurrent inserts merge.
+- Every operation carries a **client-generated id**, which is what makes a retry
+  safe.
+- Conflict rules are chosen **per pair of operations** — adds merge, removes
+  tombstone, later move wins — never as one platform-wide policy.
+- The editor gets **read-your-writes**; everyone else is eventually consistent,
+  and versioning the cache key by revision is what keeps that promise through a
+  cache.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Two devices belonging to the same listener each add a track to the same playlist while both are briefly offline. Both then reconnect. What does each design do — full-document sync, and operation sync?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  With full-document sync each device uploads its own complete 41-track list.
+  The second upload overwrites the first, so one of the two added tracks is gone
+  and nothing records that it was ever there — the listener sees a playlist that
+  looks correct and is missing an edit they remember making. With operation sync
+  each device sends one add carrying its own operation id and a base revision.
+  Adds do not conflict, so the server appends both, the revision advances twice,
+  and both devices pull a delta containing the other's track. Both tracks are
+  present, ordered by their position keys with the operation id breaking a tie.
+</PracticeCheck>
+
+**2. A playlist has 40 items and a listener drags one from the bottom to the top. Why does that write one row with position keys and 40 rows with integer indexes — and why does the difference matter beyond write volume?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  A position key describes only the row that holds it: generate a key sorting
+  before the current first item and write that one row. An integer index
+  describes the row's relationship to every other row, so moving an item to the
+  front means the other 39 shift by one and the moved row changes too — one row
+  written against forty. The volume is the smaller half of the problem. The
+  larger half is mergeability: two clients renumbering forty rows concurrently
+  produce two complete, incompatible orderings, and there is no rule that
+  combines them because each row's new value depends on the other rows the other
+  client also changed. One-row writes stay independent, so concurrent edits
+  compose instead of colliding.
+</PracticeCheck>
+
+**3. A collaborator removes a track at the same moment the owner moves it to the top. The design says remove wins. What does each person see, and why is that acceptable here when the same rule would be unacceptable for a payment?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The owner sees the track jump to the top and then disappear a second later
+  when the delta arrives; the collaborator sees it gone and nothing else. The
+  move is dropped because it refers to a tombstoned item, which is what stops
+  the removal being undone by a late operation. It is acceptable because the
+  lost intent is a reorder — cheap to notice, cheap to redo, and the operation
+  log plus the item's attribution can say who removed it if anybody asks. A
+  payment has neither property: the loss is not visible on screen, redoing it is
+  not free, and "the later write won" can destroy money that no log entry gives
+  back. That is why the conflict rule is chosen per operation pair against what
+  the loss actually costs, rather than adopted once for the whole platform.
+</PracticeCheck>

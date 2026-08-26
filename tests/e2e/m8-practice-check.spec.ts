@@ -507,11 +507,22 @@ test.describe('the tally is announced once, politely', () => {
 });
 
 test.describe('the component reached every lesson', () => {
-  test('all 15 Practice sections are self-gradable, with no bare disclosure left', async ({
+  test('every Practice section is self-gradable, with no bare disclosure left', async ({
     page,
   }) => {
+    // A per-lesson walk, so its wall-clock grows with the catalogue, and a
+    // timeout here would read as a content failure rather than as an arithmetic
+    // one. The claim is worth the minutes — it is the only thing asserting this
+    // across EVERY lesson rather than a sample.
+    //
+    // 180_000 was a constant, and it stopped being enough somewhere between 17
+    // lessons and 127: the walk measured ~105 s quiet, about 0.85 s per lesson.
+    // The budget is now derived from the list, at 2 s per lesson plus a fixed
+    // start-up allowance — roughly 2.5x the measured cost, and it does not need
+    // raising again the next time a module lands.
     const lessons = await curriculum(page);
     expect(lessons.length).toBeGreaterThanOrEqual(15);
+    test.setTimeout(30_000 + lessons.length * 2_000);
 
     for (const lesson of lessons) {
       await page.goto(`/learn/${lesson.slug}/`);

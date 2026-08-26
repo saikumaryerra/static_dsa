@@ -376,4 +376,253 @@ export const glossary: GlossaryTerm[] = [
       'The property that an optimal answer to a problem is built directly from optimal answers to its subproblems. It is what lets dynamic programming combine smaller results into the full solution.',
     lessonSlug: 'dynamic-programming',
   },
+
+  // ---- Kubernetes: foundations (k8s-what-kubernetes-is, k8s-desired-state) ----
+  {
+    term: 'Control plane',
+    definition:
+      'The components that hold a Kubernetes cluster’s intent and run the loops acting on it: the API server, etcd, the scheduler and the controller manager. Worker nodes run your containers; the control plane decides what should run and where.',
+    lessonSlug: 'k8s-what-kubernetes-is',
+  },
+  {
+    term: 'Desired state',
+    definition:
+      'The configuration you write down and hand to Kubernetes — three replicas of this image, reachable under this name — as distinct from the current state the cluster is actually in. Controllers exist to close the gap between the two.',
+    lessonSlug: 'k8s-what-kubernetes-is',
+  },
+  {
+    term: 'kubelet',
+    definition:
+      'The agent running on every worker node that watches the API server for Pods assigned to its node, tells the container runtime to start them, and reports back what is actually running. It is how the control plane’s decisions become running containers on a machine.',
+    lessonSlug: 'k8s-what-kubernetes-is',
+  },
+  {
+    term: 'Reconciliation',
+    definition:
+      'The loop a controller repeats forever: read the desired state, read the current state, and take one step to close the gap. Because every pass reads the world afresh rather than replaying instructions, a controller recovers from a crash, a dropped notification, or a situation nobody anticipated.',
+    lessonSlug: 'k8s-desired-state',
+    aliases: ['control loop', 'reconciliation loop'],
+  },
+
+  // ---- Kubernetes: workloads (k8s-pods … k8s-daemonsets-jobs-cronjobs) ----
+  {
+    term: 'Pod',
+    definition:
+      'The smallest unit Kubernetes schedules: one or more containers sharing an IP address, a hostname, a set of volumes and a single lifetime, always placed on the same node. A Pod is never moved — when its node is lost, a replacement Pod is created elsewhere with a new name and address.',
+    lessonSlug: 'k8s-pods',
+  },
+  {
+    term: 'Label selector',
+    definition:
+      'A query over labels that names a set of objects without naming any of them individually, such as the Pods a Service routes to. It is evaluated afresh every time, so a Pod created later with matching labels joins the set on its own.',
+    lessonSlug: 'k8s-labels-and-selectors',
+    aliases: ['selector'],
+  },
+  {
+    term: 'ReplicaSet',
+    definition:
+      'The controller that keeps a stated number of Pods matching its selector alive, creating or deleting Pods until the count is right. It knows nothing about versions, which is why a Deployment sits above it and gives every distinct Pod template its own ReplicaSet.',
+    lessonSlug: 'k8s-deployments',
+  },
+  {
+    term: 'StatefulSet',
+    definition:
+      'A workload controller that gives its Pods stable numbered identities, each with a predictable DNS name and its own PersistentVolumeClaim that survives rescheduling. It supplies names, order and disks; replication, leader election and failover remain the application’s job.',
+    lessonSlug: 'k8s-statefulsets',
+  },
+  {
+    term: 'DaemonSet',
+    definition:
+      'A workload controller that runs one Pod on every node and adds one automatically when a node joins the cluster. It fits per-node agents such as log shippers and metrics collectors, where the node list decides the replica count rather than you.',
+    lessonSlug: 'k8s-daemonsets-jobs-cronjobs',
+  },
+
+  // ---- Kubernetes: networking (k8s-network-policies) ----
+  {
+    term: 'NetworkPolicy',
+    definition:
+      'An object that restricts which traffic may reach or leave the Pods it selects. A Pod no policy selects is wide open; the moment any policy selects it for a direction, that direction defaults to deny and only explicitly allowed traffic still flows.',
+    lessonSlug: 'k8s-network-policies',
+  },
+
+  // ---- Kubernetes: scheduling (k8s-taints-and-spread) ----
+  {
+    term: 'Taint',
+    definition:
+      'A mark on a node that makes it unsuitable by default, so the scheduler will not place a Pod there unless the Pod carries a matching toleration. It is the node repelling workloads, the mirror image of affinity, where a workload is drawn towards a node.',
+    lessonSlug: 'k8s-taints-and-spread',
+  },
+  {
+    term: 'Toleration',
+    definition:
+      'A field on a Pod that allows it to be scheduled onto a node carrying a matching taint. It is permission rather than attraction: tolerating a taint does not make a node more attractive, so dedicating hardware needs a selector or affinity as well.',
+    lessonSlug: 'k8s-taints-and-spread',
+  },
+
+  // ---- Kubernetes: storage (k8s-persistent-volumes, k8s-storage-classes) ----
+  {
+    term: 'PersistentVolumeClaim',
+    definition:
+      'A request for storage that states how much space, which access mode and which class of disk a workload needs, without naming any particular device. Kubernetes binds it to a PersistentVolume, and the claim gives the data a name that outlives every Pod that mounts it.',
+    lessonSlug: 'k8s-persistent-volumes',
+    aliases: ['PVC'],
+  },
+  {
+    term: 'StorageClass',
+    definition:
+      'A named kind of storage a cluster can create on demand, pairing a provisioner with parameters such as disk type, encryption or zone. Naming a class in a claim means "make me one of these, at my size" rather than "hand me one from the shelf".',
+    lessonSlug: 'k8s-storage-classes',
+  },
+
+  // ---- Kubernetes: security (k8s-rbac, k8s-admission-control) ----
+  {
+    term: 'RBAC',
+    definition:
+      'Role-based access control: the authorizer nearly every cluster runs, deciding whether a requester may perform a given verb on a given resource, in a namespace or across the cluster. It is purely additive — a subject holds the union of every rule bound to them, and nothing in the API expresses a denial.',
+    lessonSlug: 'k8s-rbac',
+  },
+  {
+    term: 'ServiceAccount',
+    definition:
+      'A namespaced object that provides the identity a workload presents when it calls the API server, and that permission rules can be bound to. Human users are not Kubernetes objects at all; a ServiceAccount is an identity the cluster itself issues.',
+    lessonSlug: 'k8s-rbac',
+  },
+  {
+    term: 'Admission control',
+    definition:
+      'The stage between authorization and storage where plugins inspect a submitted object, change it, or refuse it before it is written to etcd. Every write to the API server passes through it, whoever sent it, which is where cluster-wide rules of your own belong.',
+    lessonSlug: 'k8s-admission-control',
+  },
+
+  // ---- Kubernetes: extending the API (k8s-operators) ----
+  {
+    term: 'Operator',
+    definition:
+      'A controller that encodes what an experienced human operator would do for one piece of software — take the backup, promote the replica, run the upgrade in the order that does not lose data. It watches a custom resource kind added to the API and reconciles it like any built-in object.',
+    lessonSlug: 'k8s-operators',
+  },
+
+  // ---- System design: latency (sd-latency-and-throughput) ----
+  {
+    term: 'p99 latency',
+    definition:
+      'The duration 99% of requests come in at or below over some window. Percentiles are reported rather than an average because latency is a distribution, and a page assembled from many calls meets the slow tail far more often than the tail’s share of requests suggests.',
+    lessonSlug: 'sd-latency-and-throughput',
+    aliases: ['99th-percentile latency'],
+  },
+
+  // ---- System design: reliability (sd-idempotency-and-backpressure) ----
+  {
+    term: 'Idempotency',
+    definition:
+      'The property that performing an operation more than once has the same effect as performing it once. It has to be designed in, usually with a key the client generates once per logical operation and resends on every retry of it.',
+    lessonSlug: 'sd-idempotency-and-backpressure',
+  },
+  {
+    term: 'Backpressure',
+    definition:
+      'A signal from an overloaded component that makes its callers slow down or stop, instead of letting work pile up out of sight. Its mechanism is the bounded queue: when the queue is full the producer is blocked or rejected, and that rejection is information the caller can act on.',
+    lessonSlug: 'sd-idempotency-and-backpressure',
+  },
+  {
+    term: 'Cache stampede',
+    definition:
+      'Many concurrent requests missing on the same hot key at once, so all of them go to the origin together and the load it was being spared arrives in one burst. It happens at the moment of a miss — a TTL expiring, or a cold cache tier — rather than because of the miss itself.',
+    lessonSlug: 'sd-caching',
+    aliases: ['thundering herd', 'dogpile'],
+  },
+
+  // ---- System design: consistency (sd-consistency-models) ----
+  {
+    term: 'Consistency model',
+    definition:
+      'The contract a storage system offers about which values a read is allowed to return, given the writes that have already happened. It becomes a real question the moment data lives on more than one machine, because "the current value" stops being a single well-defined thing.',
+    lessonSlug: 'sd-consistency-models',
+  },
+  {
+    term: 'Eventual consistency',
+    definition:
+      'A model in which replicas converge if writes stop, so a read may return a stale value and nothing bounds how stale it is. Answers are fast because each replica replies from its own copy without waiting for the others to agree.',
+    lessonSlug: 'sd-consistency-models',
+  },
+  {
+    term: 'Linearizability',
+    definition:
+      'The strictest consistency model for a single object: every read returns the most recently acknowledged write, and the system behaves as though one copy handled all operations in one order. It costs coordination, at least a round trip to a majority of replicas.',
+    lessonSlug: 'sd-consistency-models',
+  },
+  {
+    term: 'Quorum',
+    definition:
+      'The number of replicas that must answer before a read or a write counts as done. Choosing sizes whose sum exceeds the number of replicas makes every read set overlap every write set, so a read reaches at least one copy carrying the last completed write.',
+    lessonSlug: 'sd-consistency-models',
+  },
+
+  // ---- System design: data distribution (sd-replication-and-sharding) ----
+  {
+    term: 'Replication',
+    definition:
+      'Copying the same data to more machines, so any copy can serve a read and another can take over when the primary fails. It buys read capacity, availability and durability, and no write capacity at all, because every replica applies every write.',
+    lessonSlug: 'sd-replication-and-sharding',
+  },
+  {
+    term: 'Sharding',
+    definition:
+      'Splitting different data across separate machines so each holds only a slice, which is the tool that raises the write ceiling. It charges for that: any query, join or transaction spanning shards becomes a distributed operation the application has to assemble itself.',
+    lessonSlug: 'sd-replication-and-sharding',
+  },
+  {
+    term: 'Shard key',
+    definition:
+      'The field whose value decides which shard a record lives on. It settles which queries are one hop and which must ask every shard, and it is close to permanent, because changing it means moving rows.',
+    lessonSlug: 'sd-replication-and-sharding',
+    aliases: ['partition key'],
+  },
+
+  // ---- System design: asynchronous work (sd-message-queues, sd-event-streams) ----
+  {
+    term: 'Dead-letter queue',
+    definition:
+      'A separate queue a broker moves a message to once it has failed too many times, so one bad message neither blocks the consumers nor disappears. Nothing drains it automatically, which makes it an ongoing commitment rather than a setting.',
+    lessonSlug: 'sd-message-queues',
+    aliases: ['DLQ'],
+  },
+  {
+    term: 'Event stream',
+    definition:
+      'An append-only log of records that readers consume by position rather than by taking work off it, so reading removes nothing and independent readers each hold their own cursor. Records leave on a retention policy, not because somebody processed them.',
+    lessonSlug: 'sd-event-streams',
+    aliases: ['append-only log'],
+  },
+
+  // ---- System design: delivery (sd-cdn, sd-netflix-video-delivery) ----
+  {
+    term: 'Content delivery network',
+    definition:
+      'A fleet of caching reverse proxies in data centres near readers, plus the routing that sends each reader to a near one. It saves two separate things: the round trip to a distant origin, and the bandwidth of serving one popular object to millions of people.',
+    lessonSlug: 'sd-cdn',
+    aliases: ['CDN'],
+  },
+  {
+    term: 'Adaptive bitrate',
+    definition:
+      'A streaming technique in which the same content is encoded at several quality rungs and the player picks which rung to fetch for each short segment. The client decides, because only it knows its measured throughput, how much buffer it holds and how large its screen is.',
+    lessonSlug: 'sd-netflix-video-delivery',
+  },
+
+  // ---- System design: recovery (sd-observability-and-recovery) ----
+  {
+    term: 'Recovery point objective',
+    definition:
+      'How much data a system accepts losing in a disaster, stated as a span of time: an objective of five minutes means up to five minutes of writes may be gone. It is bought by writing copies more often — snapshots, continuous replication, synchronous commits.',
+    lessonSlug: 'sd-observability-and-recovery',
+    aliases: ['RPO'],
+  },
+  {
+    term: 'Recovery time objective',
+    definition:
+      'How long a system accepts being unavailable after a disaster before it is serving again. It is bought by having somewhere to fail over to, and by having rehearsed the failover rather than reading about it.',
+    lessonSlug: 'sd-observability-and-recovery',
+    aliases: ['RTO'],
+  },
 ];

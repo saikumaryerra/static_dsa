@@ -111,6 +111,7 @@ import { ENRICHMENT_KEYS, resetEnrichment } from './challenges';
  * a third of a kilobyte on a page carrying 4.5 KB of JS inside a 60 KB budget.
  */
 import { hasLearningDays, resetLearningDays } from './learning-days';
+import { COURSE_ORDER } from './courses';
 
 /** A lesson's identity as injected from the build (never read back out of storage). */
 export interface LessonRef {
@@ -118,10 +119,37 @@ export interface LessonRef {
   slug: string;
   /** Lesson title as shown to the reader. */
   title: string;
-  /** Global order across both tracks (§7 frontmatter `order`). */
+  /** Order WITHIN THE COURSE (§7 frontmatter `order`). Not globally unique. */
   order: number;
   /** Track id, e.g. `foundations` — the subset key for per-track counts. */
   track: string;
+  /**
+   * Course id, e.g. `kubernetes` — the outer grouping (decision D-04). Present
+   * since the course expansion made `order` per-course: without it two lessons
+   * numbered 1 in different courses would be indistinguishable to the resume
+   * CTA. Typed loosely, like `track`, so this module never has to know the set.
+   */
+  course: string;
+}
+
+/**
+ * Sort comparator for the one global sequence: course first, then `order`.
+ *
+ * `order` is per-course, so it is only meaningful inside a course; the course's
+ * catalogue position is what puts two courses' lesson 1 in a defined order. A
+ * course id the build does not know sorts last rather than throwing, which is
+ * the same defensive stance `MarkComplete` takes for an unknown track.
+ *
+ * @param a - One lesson.
+ * @param b - The other.
+ * @returns Negative, zero or positive, as `Array.prototype.sort` expects.
+ */
+function byCourseThenOrder(a: LessonRef, b: LessonRef): number {
+  const rankA = COURSE_ORDER.indexOf(a.course as (typeof COURSE_ORDER)[number]);
+  const rankB = COURSE_ORDER.indexOf(b.course as (typeof COURSE_ORDER)[number]);
+  const safeA = rankA === -1 ? COURSE_ORDER.length : rankA;
+  const safeB = rankB === -1 ? COURSE_ORDER.length : rankB;
+  return safeA === safeB ? a.order - b.order : safeA - safeB;
 }
 
 /**
@@ -212,10 +240,13 @@ export function isComplete(slug: string): boolean {
 }
 
 /**
- * First lesson in **global** order that is not complete — the resume target.
+ * First lesson in **catalogue** order that is not complete — the resume target.
  *
- * Global, not per-track: the curriculum is one sequence and prev/next follows it
- * too (M7.1 IA-5), so "continue" must never dead-end at a track boundary.
+ * Global, not per-track: within a course the curriculum is one sequence and
+ * prev/next follows it too (M7.1 IA-5), so "continue" must never dead-end at a
+ * track boundary. Since the course expansion the sequence is (course, order):
+ * pass the whole catalogue for a catalogue-wide resume, or one course's lessons
+ * for a resume scoped to that course — the function does not care which.
  *
  * @param lessons - The build-injected lesson list (any order).
  * @returns The lesson to resume at, or `null` when every one is complete (or the
@@ -225,7 +256,7 @@ export function isComplete(slug: string): boolean {
 export function nextIncomplete(lessons: LessonRef[]): LessonRef | null {
   const done = new Set(readCompleted(lessons));
   // Sort a COPY: the array the caller passed is usually its render order too.
-  const inOrder = [...lessons].sort((a, b) => a.order - b.order);
+  const inOrder = [...lessons].sort(byCourseThenOrder);
   return inOrder.find((lesson) => !done.has(lesson.slug)) ?? null;
 }
 
@@ -430,7 +461,7 @@ export function parseLessonRefs(json: string | undefined | null): LessonRef[] {
   return parsed.filter(isLessonRef);
 }
 
-/** Shape guard for one injected entry — all four fields, right types. */
+/** Shape guard for one injected entry — all five fields, right types. */
 function isLessonRef(value: unknown): value is LessonRef {
   if (typeof value !== 'object' || value === null) return false;
   const ref = value as Partial<LessonRef>;
@@ -438,7 +469,8 @@ function isLessonRef(value: unknown): value is LessonRef {
     typeof ref.slug === 'string' &&
     typeof ref.title === 'string' &&
     typeof ref.order === 'number' &&
-    typeof ref.track === 'string'
+    typeof ref.track === 'string' &&
+    typeof ref.course === 'string'
   );
 }
 

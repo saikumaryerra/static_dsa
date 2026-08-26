@@ -5,15 +5,18 @@
  * `getStaticPaths` builds a page per PUBLISHED lesson, routing off frontmatter
  * `data.slug` (Content Layer entry `id` is the filename, not the slug). Two
  * build-time guards live here because Zod validates one entry at a time and can
- * never see the collection: duplicate slugs, and (M7.2) `prerequisites` that
- * name an unknown or unpublished lesson. Prev/next derive from `order` across
- * the whole curriculum. Reading time is computed from the raw MDX body prose.
+ * never see the collection: duplicate slugs, (M7.2) `prerequisites` that name an
+ * unknown or unpublished lesson, and (course expansion, decision D-05) a lesson
+ * slug that would collide with a course page's URL. Prev/next derive from
+ * `order` **within the lesson's own course**. Reading time is computed from the
+ * raw MDX body prose.
  */
 import { getCollection, render } from 'astro:content';
 import type { CollectionEntry } from 'astro:content';
 import LessonLayout from '../../layouts/LessonLayout.astro';
 import { readingTimeMinutes } from '../../lib/reading-time';
 import { trackLabel } from '../../lib/tracks';
+import { COURSE_ORDER } from '../../lib/courses';
 import type { LessonRef } from '../../lib/progress';
 
 export async function getStaticPaths() {
@@ -46,6 +49,18 @@ export async function getStaticPaths() {
     }
   }
 
+  // Course expansion (decision D-05): course pages are served at
+  // `/learn/{course}/`, in the same path namespace this route owns. Astro would
+  // resolve the static page and the dynamic one to the same output file, so a
+  // lesson may never take a course's slug. Cheap guard, silent bug prevented.
+  for (const reserved of COURSE_ORDER) {
+    if (seen.has(reserved)) {
+      throw new Error(
+        `Lesson slug "${reserved}" collides with the course page served at /learn/${reserved}/ — rename the lesson.`,
+      );
+    }
+  }
+
   return lessons.map((entry) => ({
     params: { slug: entry.data.slug },
     props: { entry, lessons },
@@ -60,23 +75,30 @@ interface Props {
 const { entry, lessons } = Astro.props;
 const { Content, headings } = await render(entry);
 
-// Prev/next: neighbours by `order` across BOTH tracks (M7.1 IA-5). Spec §8:
-// "Prev/next follow global lesson order, naming the track when it changes —
-// never dead-ending at a track boundary (§3 'no dead ends')". /learn numbers the
-// curriculum 01–15 as one linear path, so the old per-track filter left lesson
-// 09 with no Next card at all.
+// Prev/next: neighbours by `order` across every track OF THIS COURSE (M7.1
+// IA-5). Spec §8: "Prev/next follow global lesson order, naming the track when
+// it changes — never dead-ending at a track boundary (§3 'no dead ends')". A
+// course page numbers its lessons 01–NN as one linear path, so the old
+// per-track filter left the last Foundations lesson with no Next card at all.
+//
+// Course expansion (decision D-04): the chain stops at the COURSE boundary, not
+// the track boundary. Finishing Dynamic Programming does not lead into
+// Kubernetes — that is a different subject, not the next step — and `order` is
+// per-course, so a global sort would interleave three unrelated sequences.
 // Copy before sorting: `lessons` is shared by every page's props.
-const ordered = [...lessons].sort((a, b) => a.data.order - b.data.order);
+const inCourse = lessons.filter((l) => l.data.course === entry.data.course);
+const ordered = [...inCourse].sort((a, b) => a.data.order - b.data.order);
 const position = ordered.findIndex((l) => l.data.slug === entry.data.slug);
 const toAdjacent = (l: CollectionEntry<'lessons'> | undefined) =>
   l
     ? {
         slug: l.data.slug,
         title: l.data.title,
-        // Only a neighbour in a DIFFERENT track carries a label, so the single
-        // crossing (09 Graphs → 10 Recursion) announces itself while the other
-        // 13 pairs stay visually unchanged. The label rides inside the adjacent
-        // object, which LessonLayout already forwards to PrevNext untouched.
+        // Only a neighbour in a DIFFERENT track carries a label, so a crossing
+        // (in `dsa`: 09 Graphs -> 10 Recursion) announces itself while every
+        // other pair stays visually unchanged. The label rides inside the
+        // adjacent object, which LessonLayout already forwards to PrevNext
+        // untouched.
         ...(l.data.track === entry.data.track
           ? {}
           : { trackLabel: trackLabel(l.data.track) }),
@@ -89,10 +111,15 @@ const next = toAdjacent(ordered[position + 1]);
 // guard in getStaticPaths fails the build otherwise — so the lookup is safe.
 // Sorted by curriculum order rather than the authoring order, so the row always
 // reads earliest-first regardless of how the frontmatter array was typed.
-const bySlug = new Map(ordered.map((l) => [l.data.slug, l]));
+// Looked up across the WHOLE catalogue, not just this course: a prerequisite is
+// allowed to point at another course, and the getStaticPaths guard already
+// proved every slug resolves.
+const bySlug = new Map(lessons.map((l) => [l.data.slug, l]));
+const courseRank = (l: CollectionEntry<'lessons'>) =>
+  COURSE_ORDER.indexOf(l.data.course);
 const prerequisites = entry.data.prerequisites
   .map((s) => bySlug.get(s)!)
-  .sort((a, b) => a.data.order - b.data.order)
+  .sort((a, b) => courseRank(a) - courseRank(b) || a.data.order - b.data.order)
   .map((l) => ({ slug: l.data.slug, title: l.data.title }));
 
 // The curriculum, injected into the page for the progress module (spec §6): the
@@ -103,11 +130,12 @@ const prerequisites = entry.data.prerequisites
 // this same list down to the lesson's own track inside `MarkComplete` (one
 // build-time `filter`, which is why no `trackSlugs` prop is threaded through the
 // layout). Dropping the field would silently retire the milestone.
-const lessonRefs: LessonRef[] = ordered.map((l) => ({
+const lessonRefs: LessonRef[] = lessons.map((l) => ({
   slug: l.data.slug,
   title: l.data.title,
   order: l.data.order,
   track: l.data.track,
+  course: l.data.course,
 }));
 
 const readingMinutes = readingTimeMinutes(entry.body ?? '');
@@ -119,6 +147,7 @@ const readingMinutes = readingTimeMinutes(entry.body ?? '');
   summary={entry.data.summary}
   difficulty={entry.data.difficulty}
   track={entry.data.track}
+  course={entry.data.course}
   estimatedMinutes={entry.data.estimatedMinutes}
   readingMinutes={readingMinutes}
   slug={entry.data.slug}

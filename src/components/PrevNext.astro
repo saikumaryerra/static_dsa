@@ -12,14 +12,18 @@
  * end of a lesson a fork with no recommended branch.
  *
  * `next === null` is NOT a dead end (§3): the last lesson still gets a card,
- * pointing back to the curriculum index. Handling it here rather than in
- * `WhatsNext` keeps every card in this file, so the treatment cannot drift.
+ * pointing back to its COURSE page — which lists every lesson in the course and
+ * shows how much of it is done, so it is a better landing than the catalogue.
+ * Handling it here rather than in `WhatsNext` keeps every card in this file, so
+ * the treatment cannot drift.
  *
  * `trackLabel` is set by `[slug].astro` only when that neighbour sits in a
  * different track (M7.1 IA-5): the overline then names the track being entered,
  * so the one crossing in the linear path is explicit instead of silent — spec §8
  * requires prev/next to "name the track when it changes".
  */
+import { COURSE_COPY, coursePath, type CourseId } from '../lib/courses';
+
 interface Adjacent {
   slug: string;
   title: string;
@@ -30,9 +34,16 @@ interface Adjacent {
 interface Props {
   prev: Adjacent | null;
   next: Adjacent | null;
+  /**
+   * The course this lesson belongs to. Only the `next === null` card uses it,
+   * but it is required rather than optional: an absent course would silently
+   * send the last reader of every course back to the catalogue.
+   */
+  course: CourseId;
 }
 
-const { prev, next } = Astro.props;
+const { prev, next, course } = Astro.props;
+const courseTitle = COURSE_COPY[course].title;
 
 // Same-track neighbours keep the plain wording; no visual noise on the pairs
 // that don't change track. Prev renders "<overline> · <title>" (the middot is
@@ -57,11 +68,11 @@ const nextOverline = next?.trackLabel
         </span>
       </a>
     ) : (
-      <a href="/learn/" class="track-card prevnext__next">
+      <a href={coursePath(course)} class="track-card prevnext__next">
         <span class="prevnext__overline">Last lesson</span>
-        <span class="prevnext__title">That's the whole curriculum</span>
+        <span class="prevnext__title">That's all of {courseTitle}</span>
         <span class="prevnext__cta">
-          Back to all lessons <span aria-hidden="true">→</span>
+          Back to the course <span aria-hidden="true">→</span>
         </span>
       </a>
     )

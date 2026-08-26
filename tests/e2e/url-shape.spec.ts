@@ -159,9 +159,25 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
     const locs = [...(await sitemap.text()).matchAll(/<loc>([^<]+)<\/loc>/g)]
       .map((m) => m[1]!)
       .map((loc) => new URL(loc).pathname);
-    // 4 static routes + 15 lessons. A sitemap that emitted nothing would
-    // otherwise satisfy every `for` below by never entering it.
-    expect(locs.length, 'sitemap entries').toBe(19);
+    // A sitemap that emitted nothing would otherwise satisfy every `for` below
+    // by never entering it, so the floor is what makes the loop meaningful. A
+    // hard count lived here and became a chore the moment a course was added;
+    // the ROUTES below are the claim worth pinning, and they are checked exactly.
+    expect(locs.length, 'sitemap entries').toBeGreaterThanOrEqual(20);
+    // The non-lesson routes, exactly — a missing course page is a silent SEO
+    // hole no floor would catch. Course pages share the `/learn/{segment}/`
+    // shape with lessons, so they are named rather than pattern-matched.
+    const COURSE_PATHS = [
+      '/learn/dsa/',
+      '/learn/kubernetes/',
+      '/learn/system-design/',
+    ];
+    const staticLocs = locs.filter(
+      (p) => !/^\/learn\/[a-z0-9-]+\/$/.test(p) || COURSE_PATHS.includes(p),
+    );
+    expect(new Set(staticLocs), 'static routes in the sitemap').toEqual(
+      new Set(['/', '/learn/', '/glossary/', '/about/', ...COURSE_PATHS]),
+    );
 
     for (const path of locs) {
       expect(

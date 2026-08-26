@@ -1,0 +1,228 @@
+---
+title: 'What Kubernetes Is'
+slug: 'k8s-what-kubernetes-is'
+course: 'kubernetes'
+track: 'k8s-foundations'
+order: 1
+summary: 'Kubernetes is a set of control loops over a declarative API: you write down the state you want, and controllers spend the rest of the cluster’s life making reality match it.'
+difficulty: 'beginner'
+prerequisites: []
+estimatedMinutes: 10
+tags: ['kubernetes', 'orchestration', 'control-plane', 'declarative']
+explainPrompt: 'Why does Kubernetes ask you to describe the state you want instead of the steps to get there?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+import K8sArchitecture from '../../components/diagrams/K8sArchitecture.astro';
+
+## What you'll learn
+
+- Say what problem an orchestrator solves that a container runtime does not.
+- Describe the reconciliation loop, and why "desired state" is the central idea.
+- Name the control-plane components and the one rule that connects them.
+
+## Intuition
+
+You already know how to run a container. `docker run` starts one, and it runs
+until it stops. That is a complete answer for one container on one machine, and
+it stops being an answer the moment you want five copies of it, spread across
+three machines, restarted when they crash, replaced one at a time when you ship a
+new version, and reachable by a name that survives all of that.
+
+Every item on that list is the same kind of work: notice that reality has drifted
+from what you wanted, and do something about it. By hand that is a job. A script
+is a worse job, because it has to know what state the world was in when it
+started.
+
+**Kubernetes is a thermostat, not a light switch.** A light switch is
+imperative: you flip it, something happens once, and if the bulb blows, the
+switch does not care. A thermostat is declarative: you tell it 20 °C, and it
+spends the rest of the day comparing the room to that number and acting on the
+difference. You never tell a thermostat to turn the heating on. You tell it what
+you want the room to be like, and it keeps deciding what to do.
+
+That is the whole model. You write down a _desired state_ — three replicas of
+this image, with this configuration, reachable at this name. Kubernetes stores
+it, and small programs called controllers watch that stored intent, compare it
+to the _current state_, and take one step to close the gap. Then they do it
+again. Forever.
+
+The consequences follow from that one sentence. A crashed container comes back
+because the gap reopened. A deleted node's workloads reappear elsewhere for the
+same reason. And `kubectl apply` is safe to run twice, because it does not
+perform an action — it states a fact, and the fact is already true.
+
+<Callout variant="note">
+  "Declarative" is not a style preference. It is what makes the system
+  recoverable: a controller that only knows the desired state and the current
+  state can start from any situation, including one it has never seen, and still
+  do something sensible. A script that assumed a starting point cannot.
+</Callout>
+
+## How it works
+
+A cluster is two kinds of machine. The **control plane** holds the intent and
+the loops that act on it. **Worker nodes** run your containers. In a managed
+cluster the provider runs the control plane for you; in a cluster you build
+yourself the two roles may even share hardware, but they stay conceptually
+distinct.
+
+<K8sArchitecture />
+
+Four components matter at this stage:
+
+- **kube-apiserver** — the only way in. Every read and write goes through it,
+  Kubernetes' own components included. It authenticates, authorizes, validates
+  and persists.
+- **etcd** — the datastore behind the API server, and the cluster's single source
+  of truth. Nothing else talks to it, which is why backing it up is a real
+  operational task.
+- **kube-scheduler** — finds Pods that exist but have no node, and picks one for
+  each. That is all it does: it writes a node name into the Pod's spec.
+- **kube-controller-manager** — runs the control loops. The Deployment controller
+  makes ReplicaSets match Deployments; the ReplicaSet controller makes Pods match
+  ReplicaSets; a dozen others do the same for other resources.
+
+On each worker node the **kubelet** watches the API server for Pods assigned to
+its node and tells the container runtime — containerd or CRI-O — to start them,
+then reports back what is actually running. **kube-proxy** programs the node's
+networking so traffic to a Service's cluster IP reaches a running Pod — the
+_name_ is resolved by cluster DNS, which the networking module covers.
+
+Notice what is missing: no component talks to any other. The scheduler does not
+call the kubelet; the kubelet does not call the controller manager. Everything
+reads from and writes to the API server, so any part can be restarted, replaced
+or briefly lost with no handshake to re-establish.
+
+Here is the smallest complete thing you can hand it:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          ports:
+            - containerPort: 80
+```
+
+```bash
+kubectl apply -f web.yaml
+kubectl get deployment web
+kubectl get pods -l app=web
+```
+
+Nothing in that YAML says "start three containers". It says _there are three_.
+`kubectl apply` sends it to the API server, which validates it and writes it to
+etcd. The Deployment controller notices a Deployment with no ReplicaSet and
+creates one. The ReplicaSet controller notices a ReplicaSet wanting three Pods
+and finding zero, and creates three. The scheduler notices three unassigned Pods
+and assigns each to a node. Three kubelets notice Pods assigned to them and start
+containers.
+
+Four independent loops, no coordination, no order of operations you had to get
+right. Delete one of those Pods and the ReplicaSet controller's loop runs again
+by itself.
+
+## Trade-offs
+
+Orchestration is not free, and Kubernetes is a large thing to adopt.
+
+**What it costs.** A real vocabulary before anything works, and the indirection
+that makes the system recoverable also makes it harder to debug: when your container
+is not running, the answer is somewhere in a chain of four loops rather than in
+one command's output. A cluster is infrastructure that itself needs upgrading,
+securing and paying for.
+
+**When it pays.** The moment you have more than one machine, more than one
+service, or a deployment you cannot afford to do by hand at 3 a.m. Below that
+line a single virtual machine with a process manager is a respectable answer, and
+choosing it deliberately is a better decision than adopting a cluster because
+everyone else has one.
+
+**What it is not.** Kubernetes does not build your images, has no opinion about
+your CI system, and does not make an application scalable. It runs what you give
+it, exactly as well as you have written it.
+
+## Common pitfalls
+
+- **Treating it as a deploy tool.** `kubectl apply` looks like a deploy command,
+  so people reason about it as one and are surprised when something changes hours
+  later. Nothing "deployed": the desired state changed, the loops reacted, and
+  they will react again the next time reality drifts.
+- **Editing live objects by hand.** `kubectl edit` works, and the next `apply`
+  from your repository silently undoes it. If the change matters, it belongs in
+  the file you apply from.
+- **Expecting instant.** Reconciliation is eventual by design. A `kubectl get`
+  one second after an apply showing the old state is the system working, not
+  failing.
+- **Thinking the scheduler runs your container.** It only chooses a node. If a
+  Pod is stuck as `Pending`, the scheduler could not place it — an entirely
+  different problem from a container that will not start.
+
+## Key takeaways
+
+- Kubernetes is a **reconciliation system**: you declare a desired state, and
+  controllers repeatedly compare it to the current state and act on the gap.
+- **The API server is the only door.** Every component is a client of it,
+  including the scheduler, the controllers and every kubelet. Nothing talks to
+  etcd but the API server, and nothing talks to anything else at all.
+- Declarative configuration is what makes operations **idempotent and
+  recoverable** — applying the same file twice is not an error, it is a no-op.
+- Adopting a cluster is a trade: real capability for real complexity. It is
+  worth it above a certain scale and honestly not below it.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why is describing the state you want more reliable than listing the steps to get there?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because a controller that knows only "what I want" and "what is true right
+  now" can act correctly from *any* starting point, including one nobody
+  anticipated — a half-finished rollout, a node that vanished, a cluster
+  restored from backup. A list of steps is only correct from the state its
+  author was imagining. It is also why applying the same manifest twice is
+  harmless: the second apply sets the desired state to what it already was, the
+  gap is zero, and no loop has anything to do.
+</PracticeCheck>
+
+**2. You delete one of the three Pods the Deployment above created. Trace what happens, and name the component responsible.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The Pod is removed, so the ReplicaSet controller — watching its ReplicaSet —
+  sees three desired and two current, and creates one replacement Pod with no
+  node assigned. The scheduler sees an unassigned Pod and writes a node name
+  into it. That node's kubelet sees a Pod assigned to it and asks the container
+  runtime to start the container. The Deployment controller is *not* involved:
+  its ReplicaSet still matches its Deployment, so from where it is watching,
+  nothing changed.
+</PracticeCheck>
+
+**3. The scheduler is down for ten minutes. What still works, and what does not?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Everything already running keeps running: kubelets do not need the scheduler,
+  and a container on a node is unaffected by the control plane's health. You can
+  still read and write objects, because that is the API server's job. What stops
+  is *placement* — a new Pod stays `Pending` with no node assigned, so a new
+  Deployment creates Pods that never start and a crashed Pod's replacement is
+  created but not placed. When the scheduler returns it works through the
+  backlog, because the queue it reads is the set of unassigned Pods in etcd, not
+  anything it had to remember.
+</PracticeCheck>

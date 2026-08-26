@@ -1,0 +1,243 @@
+---
+title: 'Availability and Durability'
+slug: 'sd-availability-and-durability'
+course: 'system-design'
+track: 'sd-properties'
+order: 6
+summary: 'Nines are an error budget, not a slogan: what they cost per month, how dependencies multiply them down, and why durability is a separate promise that replication alone does not keep.'
+difficulty: 'beginner'
+prerequisites: ['sd-latency-and-throughput']
+estimatedMinutes: 10
+tags: ['system-design', 'availability', 'durability', 'reliability', 'failure']
+explainPrompt: 'Why does adding a second replica improve availability by far less than the arithmetic predicts?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Convert a nines target into the minutes of failure it actually permits.
+- Compose availability across dependencies and across redundant copies.
+- Separate durability from availability, and say what each mechanism buys.
+- Describe reliability in terms of failure rate, recovery time and blast radius.
+
+## Intuition
+
+**Availability** is the fraction of requests a system answers successfully over
+a stated window. Note what that definition does not say: it says nothing about
+whether a process was running. A service whose machines are all up and whose
+every response is a 500 has an availability of zero, and a service that answers
+with slightly stale data is available.
+
+**Durability** is the probability that data, once written and acknowledged, is
+still there and still correct later. The two properties are independent.
+Availability is a promise about _now_: can you get an answer? Durability is a
+promise about _ever_: is the thing you stored last year still stored? A database
+that has lost its network is unavailable and perfectly durable, and that is
+usually the right way for a database to fail.
+
+**Nines are an error budget.** "99.9% available" reads like an aspiration and
+behaves like an allowance: it says you may fail for roughly forty-four minutes
+a month, and that this is expected rather than shameful. Framing it that way is
+the whole point, because it turns an argument about whether to ship into a
+question about how much budget is left.
+
+## How it works
+
+Start by converting the target into time, since a percentage is hard to reason
+about and minutes are not:
+
+```text
+one year = 365 × 24 = 8,760 hours; one month ≈ 730 hours
+
+99%      allows 1%     of 730 h ≈ 7.3 hours   per month
+99.9%    allows 0.1%   of 730 h ≈ 44 minutes  per month
+99.99%   allows 0.01%  of 730 h ≈ 4.4 minutes per month
+99.999%  allows 0.001% of 730 h ≈ 26 seconds  per month
+```
+
+Read the last line carefully. Twenty-six seconds a month is less than one
+careless deploy, so five nines is a claim about automation rather than effort:
+nobody can be paged, diagnose and fix inside that budget.
+
+Availability also composes badly. If a request must touch five services in
+sequence and all five must succeed, their availabilities multiply:
+
+```text
+five dependencies in series, each 99.9% available
+0.999 ^ 5 ≈ 0.995 → 99.5%, or roughly 3.6 hours of failure per month
+```
+
+Five well-run services produced a badly-run system. The fix is not a further
+nine from each dependency — the expensive direction — but removing the
+seriality: make the call optional and degrade without it, serve a cached answer,
+or move the work off the request path.
+
+Redundancy composes in the opposite direction, and this is where the arithmetic
+lies to you:
+
+```text
+two replicas, each unavailable 1% of the time
+both down at once, IF the failures are independent = 0.01 × 0.01 = 0.0001
+→ 99.99% available
+```
+
+Four nines from two ordinary machines, on paper. In practice the replicas share
+a rack, a network, a configuration push, a certificate expiry and a bug, and
+every one of those is a way to fail at the same moment. **Correlated failure is
+why measured availability never reaches the calculated figure**, and it is why
+"spread across failure domains" is an instruction rather than a slogan: the
+arithmetic is only as good as the independence.
+
+A second decomposition points at the cheaper lever:
+
+```text
+availability = MTBF ÷ (MTBF + MTTR)
+  mean time between failures 30 days = 43,200 minutes
+
+recovery in 60 minutes → 43,200 ÷ 43,260 ≈ 99.86%
+recovery in  5 minutes → 43,200 ÷ 43,205 ≈ 99.988%
+```
+
+The failure rate did not change; only the recovery time did, and downtime fell
+twelvefold — about a nine. Note that 99.988% is a little short of 99.99%: five
+minutes of recovery a month is 5.1 minutes of downtime against a 4.4-minute
+budget, so the target needs recovery inside four minutes, not five. That is the
+kind of gap a table of nines makes visible and an intuition does not. Making failures rarer is research; making recovery faster is
+engineering — rollbacks that work, health checks that eject a bad instance,
+runbooks, and a deploy that can be undone in one step.
+
+Durability is bought differently, with four mechanisms:
+
+- **Acknowledge late.** A write confirmed from one machine's memory is not
+  durable; a write confirmed after it is on stable storage in more than one
+  failure domain is. That is the largest durability decision in most systems,
+  and it costs a round trip on every write.
+- **Keep redundant copies.** Replicas across failure domains, or erasure coding,
+  which trades processor time for far less storage at the same redundancy.
+- **Keep copies in the past.** Replication propagates a bad delete or a corrupt
+  row at the speed of the network. A backup is a copy of an earlier moment, and
+  the only defence against a logical error.
+- **Verify.** Checksums that are actually read, restores that are actually
+  practised. An unrestored backup is an assumption.
+
+<Callout variant="note">
+  **Reading a durability figure.** Object storage is commonly specified at
+  around eleven nines of annual durability — generally accepted industry
+  framing, not a claim about any one provider. The figure describes expected
+  object loss from hardware and media failure under the service's own
+  replication scheme. It says nothing about your application deleting the wrong
+  key, an encryption key being lost, or a migration overwriting a column — which
+  are the ways data usually disappears.
+</Callout>
+
+Reliability is the umbrella over both: a reliable system does the right thing,
+when asked, over time. Availability and durability are two measurable facets of
+it, and correctness is a third. Reliability work reduces exactly three
+quantities — how often failures happen, how long recovery takes, and how much of
+the system one failure takes with it.
+
+## Trade-offs
+
+**Each nine costs roughly an order of magnitude more than the last.** Going from
+99.9% to 99.99% typically means a second region, tested automatic failover and a
+staffed rotation. Ask what an hour of downtime costs before buying it; for a
+great many systems 99.9% is the honest answer.
+
+**Durability fights write latency.** Acknowledging a write only after a second
+copy has it is what makes it durable, and the more distant that copy, the slower
+every write becomes — the same trade the
+[latency budget](/learn/sd-latency-and-throughput/) prices, seen from the other
+side.
+
+**Degrading beats failing, and is often cheaper than a nine.** A page that
+renders an unranked list when the ranking service is down is _available_ by the
+definition that matters, and that is a smaller change than making the ranking
+service highly available. Every optional dependency deserves a stated behaviour
+for when it is absent.
+
+## Common pitfalls
+
+- **Reporting process uptime instead of request success.** Tempting because
+  uptime is trivial to measure and always looks good; it misses every failure
+  where the service answers and the answer is wrong.
+- **Quoting nines with no window and no scope.** 99.99% over a year and 99.99%
+  over a month permit very different worst days, and "the API" is not a scope if
+  half its endpoints are cached and half are not.
+- **Treating replicas as backups.** Tempting because both are extra copies. A
+  replica defends against a machine dying; a backup defends against a command
+  you ran.
+- **Setting the internal target equal to the contractual one.** The SLA is a
+  promise with a remedy attached; the SLO should be tighter, so that missing it
+  is a signal rather than an invoice.
+
+## Interview notes
+
+When asked how available something must be, answer with the cost of failure
+rather than a number pulled from the air: what a minute of downtime costs, who
+notices, and whether a retry a minute later is acceptable. Then state the target
+as a budget — "99.9%, so about forty-four minutes a month, spent on deploys" —
+because that is the version an operations team can work with.
+
+Then say which of the two promises each part makes. In a Netflix-like platform,
+"playback should not stall" is availability and "a purchase record must never be
+lost" is durability, and they lead to different designs: caching and degradation
+for the first, acknowledged multi-copy writes and backups for the second.
+
+## Key takeaways
+
+- Availability is **successful requests over a window**, not process uptime, and
+  99.9% is about 44 minutes of failure per month.
+- **Serial dependencies multiply availability down**: five 99.9% services in a
+  row give 99.5%. Remove the seriality rather than buying nines.
+- **Redundancy only helps to the extent failures are independent**, and shared
+  racks, configuration and code make them correlated.
+- Availability = MTBF ÷ (MTBF + MTTR), so **cutting recovery time is usually the
+  cheapest nine** available.
+- Durability is a separate promise, kept by acknowledging writes late, spreading
+  copies across failure domains, and keeping backups — which replication is not.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A request path calls five services in sequence, each with a measured availability of 99.9%. What is the path's availability, and what is the cheapest way to improve it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  All five must succeed, so the availabilities multiply: 0.999 to the fifth
+  power is about 0.995, or 99.5% — roughly 3.6 hours of failure a month, five
+  times the budget of any single dependency. The cheapest improvement is almost
+  never pushing each service to 99.99%, which is an order of magnitude of work
+  five times over. It is breaking the chain: make two calls optional with a
+  defined degraded response, serve one from a cache that tolerates staleness,
+  and move one off the request path. A dependency you can succeed without has
+  stopped multiplying.
+</PracticeCheck>
+
+**2. A team wants to move from 99.9% to 99.99% and proposes buying more reliable hardware. What would you suggest they measure first, and why?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Measure the mean time to recovery, because availability is MTBF ÷ (MTBF +
+  MTTR) and MTTR is the term they can change quickly. With a failure every 30
+  days, an hour of recovery gives about 99.86%; the same failure rate recovered
+  in four minutes gives about 99.99% — the target, with no hardware bought.
+  Better hardware raises MTBF, which is slower, costlier, and does nothing for
+  the failures that come from configuration and code rather than from metal. The
+  practical work is a one-step rollback, health checks that eject a bad instance
+  automatically, and an alert that fires before a user files a report.
+</PracticeCheck>
+
+**3. "We keep three synchronous replicas of the database, so we do not need backups." What is wrong with this, and what class of failure is each mechanism for?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Replication copies whatever the primary does, including the wrong things. A
+  mistaken DELETE, a bad migration, an application bug writing corrupt rows or a
+  compromised credential reaches all three replicas within milliseconds — three
+  copies of the damage. Replication defends against a *machine* failing: it
+  keeps data available when a node or a zone is gone. A backup is a copy of an
+  earlier moment, and the only defence against a *logical* failure, because it
+  is the only copy that does not contain the mistake. A backup nobody has
+  restored is a belief rather than a mechanism.
+</PracticeCheck>

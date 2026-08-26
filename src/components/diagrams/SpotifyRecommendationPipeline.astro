@@ -1,0 +1,151 @@
+---
+/**
+ * The recommendation pipeline: the half that runs on a schedule, the half that
+ * runs inside a request, and the artifacts that join them (Appendix C,
+ * diagram 7).
+ *
+ * Supplies only the shapes; `Figure` owns the `<svg>`, the accessible name and
+ * description, the scroll frame and the caption. Every class comes from
+ * Figure's drawing kit, so nothing here states a colour and both themes and
+ * forced-colors mode come free.
+ *
+ * The claim the picture makes: the interesting thing in a recommender is not a
+ * stage, it is the seam. That is why the accent box is neither offline nor
+ * online but the thing that sits between the two dashed groups — the model and
+ * the candidate sets are written by a batch job that knows every listener and
+ * read by a request that knows one. Every arrow that crosses the middle of the
+ * drawing passes through it.
+ *
+ * LINE GRAMMAR: solid is work the pipeline does on its own schedule (stage to
+ * stage, the store to its two readers, the result back to the client); soft
+ * dashed is the loop the listener closes by behaving — it is the only connector
+ * that runs bottom to top, and the only path by which anything online reaches
+ * anything offline. Dashed rather than merely paler so the distinction survives
+ * forced colours (spec §12).
+ *
+ * LAYOUT NOTE: the two groups are stacked rather than placed side by side so
+ * the seam is a horizontal band the accent box can sit in, and so two lanes
+ * stay empty for the connectors that have to travel backwards: the strip below
+ * the online row carries the response back to the client, and the left margin
+ * outside both groups carries the feedback line up to the event stream. No
+ * connector crosses a box.
+ *
+ * TYPE TIERS: the five pipeline stages, the client and the store are
+ * `.dg-label`; every qualifying phrase, rate and connector name is `.dg-sub`.
+ * There is no `.dg-mono` here on purpose — nothing in this drawing is a literal
+ * command or identifier, and promoting a stage's subtitle to mono would claim a
+ * precision the picture does not have.
+ */
+import Figure from '../Figure.astro';
+---
+
+<Figure
+  viewBox="0 0 660 412"
+  title="Recommendation pipeline, offline and online"
+  description="The pipeline is drawn as two dashed groups, one above the other, with a highlighted box in the gap between them. The upper group, named Offline, hourly to daily, holds three boxes in a row joined left to right by arrows: Event stream, 50,000 per second, then Feature generation, listener, track, context, then Model training, on the whole log. An arrow leads down from Model training into the highlighted box that straddles the gap: Model and candidate sets, written offline, read per request. Two arrows lead down out of that box into the lower group, one named candidate sets and one named ranking model. The lower group, named Online, per request, holds three boxes in a row: Client, asks for a shelf, then Candidate generation, a few thousand items, then Ranking, scores with fresh context. An arrow runs from Client to Candidate generation and another from Candidate generation to Ranking. The candidate sets arrow from the highlighted box ends at Candidate generation, and the ranking model arrow ends at Ranking. A further arrow leaves the bottom of Ranking, runs leftward along an empty strip beneath the row, named the thirty a listener sees, and turns up into the bottom of Client. Finally a dashed line leaves the left side of Client, named plays, skips, saves, runs left out of the lower group, up the left-hand margin past the highlighted box, and ends with an arrowhead pointing into the left side of Event stream. That dashed line is the only connector running bottom to top, and the only path by which anything in the lower group reaches anything in the upper one."
+  caption="Only the lower half runs when somebody opens the app. Everything above the seam was computed on a schedule from every listener's history, so the request itself does little more than read what is already sitting there and score it with what it alone can see: this listener, this device, this minute."
+  minWidth={620}
+>
+  <!-- Offline: three stages on a schedule, none of them in anyone's request -->
+  <rect class="dg-group" x="44" y="16" width="608" height="124"></rect>
+  <text class="dg-legend" x="54" y="38">Offline - hourly to daily</text>
+
+  <rect class="dg-box" x="58" y="52" width="170" height="60"></rect>
+  <text class="dg-label" x="143" y="78" text-anchor="middle">Event stream</text>
+  <text class="dg-sub" x="143" y="98" text-anchor="middle">
+    50,000 per second
+  </text>
+
+  <line class="dg-line" x1="228" y1="82" x2="252" y2="82"></line>
+  <polygon class="dg-head" points="260,82 250,77 250,87"></polygon>
+
+  <rect class="dg-box" x="260" y="52" width="176" height="60"></rect>
+  <text class="dg-label" x="348" y="78" text-anchor="middle">
+    Feature generation
+  </text>
+  <text class="dg-sub" x="348" y="98" text-anchor="middle">
+    listener, track, context
+  </text>
+
+  <line class="dg-line" x1="436" y1="82" x2="460" y2="82"></line>
+  <polygon class="dg-head" points="468,82 458,77 458,87"></polygon>
+
+  <rect class="dg-box" x="468" y="52" width="170" height="60"></rect>
+  <text class="dg-label" x="553" y="78" text-anchor="middle"
+    >Model training</text
+  >
+  <text class="dg-sub" x="553" y="98" text-anchor="middle"
+    >on the whole log</text
+  >
+
+  <!-- Training publishes into the seam -->
+  <line class="dg-line" x1="553" y1="112" x2="553" y2="168"></line>
+  <polygon class="dg-head" points="553,176 548,166 558,166"></polygon>
+
+  <!-- The seam itself: written by a job that knows everyone, read by a request
+       that knows one listener. The only accent in the figure. -->
+  <rect class="dg-box dg-box--accent" x="180" y="176" width="400" height="58"
+  ></rect>
+  <text class="dg-label" x="380" y="202" text-anchor="middle">
+    Model and candidate sets
+  </text>
+  <text class="dg-sub" x="380" y="222" text-anchor="middle">
+    written offline, read per request
+  </text>
+
+  <!-- The seam's two readers -->
+  <line class="dg-line" x1="290" y1="234" x2="290" y2="282"></line>
+  <polygon class="dg-head" points="290,290 285,280 295,280"></polygon>
+
+  <line class="dg-line" x1="520" y1="234" x2="520" y2="282"></line>
+  <polygon class="dg-head" points="520,290 515,280 525,280"></polygon>
+
+  <!-- Online: the whole of what happens after somebody asks -->
+  <rect class="dg-group" x="44" y="256" width="608" height="148"></rect>
+  <text class="dg-legend" x="54" y="278">Online - per request</text>
+  <text class="dg-sub" x="298" y="278">candidate sets</text>
+  <text class="dg-sub" x="528" y="278">ranking model</text>
+
+  <rect class="dg-box" x="58" y="290" width="150" height="60"></rect>
+  <text class="dg-label" x="133" y="316" text-anchor="middle">Client</text>
+  <text class="dg-sub" x="133" y="336" text-anchor="middle">
+    asks for a shelf
+  </text>
+
+  <line class="dg-line" x1="208" y1="320" x2="226" y2="320"></line>
+  <polygon class="dg-head" points="234,320 224,315 224,325"></polygon>
+
+  <rect class="dg-box" x="234" y="290" width="198" height="60"></rect>
+  <text class="dg-label" x="333" y="316" text-anchor="middle">
+    Candidate generation
+  </text>
+  <text class="dg-sub" x="333" y="336" text-anchor="middle">
+    a few thousand items
+  </text>
+
+  <line class="dg-line" x1="432" y1="320" x2="450" y2="320"></line>
+  <polygon class="dg-head" points="458,320 448,315 448,325"></polygon>
+
+  <rect class="dg-box" x="458" y="290" width="180" height="60"></rect>
+  <text class="dg-label" x="548" y="316" text-anchor="middle">Ranking</text>
+  <text class="dg-sub" x="548" y="336" text-anchor="middle">
+    scores with fresh context
+  </text>
+
+  <!-- The response, back along the empty strip under the row -->
+  <line class="dg-line" x1="548" y1="350" x2="548" y2="384"></line>
+  <line class="dg-line" x1="548" y1="384" x2="133" y2="384"></line>
+  <line class="dg-line" x1="133" y1="384" x2="133" y2="358"></line>
+  <polygon class="dg-head" points="133,350 128,360 138,360"></polygon>
+  <text class="dg-sub" x="340" y="376" text-anchor="middle">
+    the thirty a listener sees
+  </text>
+
+  <!-- The loop: the listener's behaviour is the only thing online that reaches
+       offline, and it does it up the margin outside both groups -->
+  <line class="dg-line dg-line--soft" x1="58" y1="306" x2="12" y2="306"></line>
+  <line class="dg-line dg-line--soft" x1="12" y1="306" x2="12" y2="78"></line>
+  <line class="dg-line dg-line--soft" x1="12" y1="78" x2="50" y2="78"></line>
+  <polygon class="dg-head dg-head--soft" points="58,78 48,73 48,83"></polygon>
+  <text class="dg-sub" x="20" y="166">plays, skips, saves</text>
+</Figure>

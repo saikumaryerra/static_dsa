@@ -81,7 +81,7 @@ export function webSiteJsonLd(siteUrl: string | URL): string {
     '@type': 'WebSite',
     name: 'LearnDSA',
     description:
-      'Free, interactive lessons on data structures and algorithms with step-through visualizations.',
+      'Free, interactive engineering courses: data structures and algorithms with step-through visualizations, Kubernetes, and system design.',
     url: home,
     inLanguage: 'en',
   });

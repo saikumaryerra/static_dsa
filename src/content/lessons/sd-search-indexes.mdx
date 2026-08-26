@@ -1,0 +1,228 @@
+---
+title: 'Search Indexes'
+slug: 'sd-search-indexes'
+course: 'system-design'
+track: 'sd-data'
+order: 17
+summary: 'An inverted index turns "what is in this document?" into "which documents contain this term?" — plus ranking, the freshness lag that comes with a second copy of your data, and why search is its own system.'
+difficulty: 'intermediate'
+prerequisites: ['sd-relational-databases', 'sd-consistency-models']
+estimatedMinutes: 9
+tags: ['system-design', 'search', 'inverted-index', 'ranking', 'freshness']
+explainPrompt: 'Why can a B-tree index serve a prefix match but not a search for a word in the middle of a text field?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Explain an inverted index and why a B-tree index cannot do its job.
+- Describe how a query becomes a ranked result list rather than a set of rows.
+- State what a search index's freshness lag costs the reader, and how to bound it.
+
+## Intuition
+
+**A search index turns the question round.** A database row answers "what does
+document 42 contain?". Search asks the opposite — "which documents contain the
+word _sharding_?" — and answering that by reading every document is a scan. An
+**inverted index** is the data structure that inverts the mapping: for each term,
+it stores the sorted list of document ids containing it, called a _posting list_.
+Looking up a word is then one lookup, and combining two words is an intersection
+of two sorted lists.
+
+That explains why the relational engine cannot help. A B-tree index on a text
+column is sorted by the whole value, so it serves equality and a leading prefix
+and nothing else: `LIKE 'shard%'` can use it, `LIKE '%shard%'` cannot, because
+there is no way to know where in the sorted order a value with that word in the
+middle sits. The index is over strings; search needs an index over _words_.
+
+The second idea is the one that makes search a separate system rather than a
+feature. **Search returns a ranking, not a set.** Two documents both containing
+your words are not equally good answers, and deciding which is better needs
+signals a database has no opinion about: how often the term appears, how rare the
+term is, which field it appeared in, how popular or recent the document is. The
+result is a scoring problem that changes as your product changes — which is why
+it grows its own storage, its own pipeline and usually its own team.
+
+## How it works
+
+Indexing runs before any query. Each document is **analysed** — split into tokens,
+lowercased, stripped of punctuation, and reduced to a stem so that "sorted",
+"sorting" and "sorts" collapse to one term — and each resulting term gets the
+document's id appended to its posting list.
+
+```text
+documents
+  1  "binary search on a sorted array"
+  2  "sorted arrays and binary trees"
+  3  "hash tables beat sorted arrays for lookup"
+
+inverted index (lowercased, stemmed)
+  arrai   → [1, 2, 3]
+  binari  → [1, 2]
+  hash    → [3]
+  search  → [1]
+  sort    → [1, 2, 3]
+  tree    → [2]
+
+query "binary sorted"
+  intersect [1, 2] with [1, 2, 3]  →  [1, 2]      ← the candidate set
+  then score 1 and 2, and return them in score order
+```
+
+The intersection is cheap because both lists are sorted; the cost of the query
+tracks the length of the shortest list, not the size of the corpus. Analysis is
+where a lot of behaviour hides: the query is analysed with the same rules as the
+documents, so a mismatch between the two — one stems, the other does not — makes
+words silently fail to match.
+
+**Ranking** is the second half. The classic scoring signal is term frequency
+weighted against document frequency: a document scores higher when it uses your
+term often, and a term counts for more when few documents use it at all, which is
+why matching "sharding" says more than matching "the". Production systems add
+field weights (a title match beats a body match), document quality signals, and
+recency. Ranking is a product decision with a measurement problem attached, and
+"we added search" without a way to tell whether results improved is half a
+project.
+
+**Storage is built for append, not for edit.** Indexes are usually written as
+immutable segments: new documents go into a new small segment, deletions are
+recorded as tombstones, and a background merge combines segments and drops the
+deleted entries. Updating a document is an add plus a delete. This is why a
+search index is described as _near_-real-time — a document becomes visible when
+the segment holding it is made searchable, not the instant it was written.
+
+<Callout variant="warning">
+  **The search index is a second copy of your data, and it lags.** It is fed
+  asynchronously from the source of truth — by a queue, a change-data-capture
+  stream, or a periodic job — so at any moment it reflects the database as of
+  some seconds or minutes ago. That is a *generally accepted industry
+  architecture*, and it produces the report every team gets: "I saved it and it
+  does not come up in search". Bound the lag, measure it, and tell the reader.
+</Callout>
+
+Bounding it is mostly product work. Show a freshly created item on the page that
+created it by reading the database directly, so the writer never searches for
+their own new object. Alert on indexing lag as a first-class metric, because a
+broken pipeline looks exactly like a quiet product. And accept that a delete has
+the sharper consequence: an item removed from the database but still in the index
+is a result that leads to a missing page, or worse, a preview of something that
+was meant to be gone.
+
+## Trade-offs
+
+**Use one when** the question is full-text over a corpus, when results need
+ranking rather than filtering, or when the product needs facets, typo tolerance
+or autocomplete. Those are the things the structure buys.
+
+**Do not use one when** an exact key lookup would do, when the dataset is small
+enough that the database's own full-text feature answers it, or when the answer
+must be transactionally correct at the moment it is read. And never make it the
+source of truth: it is derived data, and derived data must be rebuildable from
+something else.
+
+**What it costs.** A second store to run and pay for, holding a copy of much of
+your data. A second failure domain, which fails in the quietest possible way. A
+pipeline between the two, with its own lag and its own retries. And a full
+reindex whenever the analysis rules or the mapping change — which at any real
+corpus size is an operation measured in hours, planned in advance, and usually
+run into a new index that is swapped in at the end.
+
+## Common pitfalls
+
+- **Treating the index as the source of truth.** Tempting because it already has
+  the data and answers faster. When a rebuild is needed — and it will be, after a
+  mapping change — there has to be something to rebuild _from_.
+- **Ignoring the delete path.** Tempting because deletes are rare. A stale result
+  linking to a removed record is a bug users report as a privacy problem.
+- **No relevance measurement.** Tempting because latency and error rate are the
+  metrics already on a dashboard, and neither says anything about whether the
+  results are good. Without judged queries or click-through data, every ranking
+  change is a guess.
+- **Unbounded deep pagination.** Page 500 at ten results a page of a distributed index means every
+  shard produces and discards its first 5,000 hits so they can be merged. Cap the
+  depth, or paginate by a cursor.
+- **Reindexing without a plan.** Tempting to run in place, and it degrades the
+  live index while it runs. Build the new index alongside, verify it, then switch
+  an alias.
+
+## Interview notes
+
+Say the pipeline out loud, in order: write to the database, publish an event,
+index it asynchronously, serve queries from the index and hydrate the results
+from the database if the display needs current fields. That last step is the
+detail interviewers listen for, because it removes a whole class of staleness —
+the index decides _which_ documents, the database supplies _what they say now_.
+
+Then name the lag budget and what happens when it is exceeded. "Indexing is
+seconds behind at steady state, we alert at a minute, and the page that creates
+an item shows it from the database rather than from search" is a complete
+freshness answer, and it separates a design from a diagram.
+
+## Key takeaways
+
+- An **inverted index maps terms to sorted posting lists**, so a query is a
+  lookup and an intersection rather than a scan.
+- A B-tree index is sorted by whole values, which is why it serves a **prefix**
+  and cannot serve a word in the middle of a field.
+- **Search returns a ranking**, and the scoring signals — term rarity, field
+  weights, recency, quality — are a product decision that needs measurement.
+- The index is **derived data fed asynchronously**, so it lags the source of
+  truth; bound the lag, alert on it, and never make it authoritative.
+- **A reindex is a planned operation**, not a deploy step: build alongside,
+  verify, then swap.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A product search is implemented as `SELECT * FROM products WHERE description LIKE '%wireless%'`. It is fast in staging with 5,000 rows and unusable in production with 20 million. Explain both facts.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The query is a full table scan in both environments — a leading `%` means no
+  B-tree index on `description` can be used, because the index is sorted by the
+  whole string and a match in the middle could sit anywhere in that order. At
+  5,000 rows the scan is a few pages of memory and completes in milliseconds, so
+  the missing index never shows. At 20 million rows the same scan reads the
+  whole table on every keystroke-driven query, and the cost grows linearly with
+  the corpus while the traffic grows too. An inverted index changes the shape
+  rather than the constant: "wireless" is one term lookup returning a posting
+  list whose length is the number of matching documents, so the work tracks the
+  results rather than the corpus — and it can also rank them, which the `LIKE`
+  cannot.
+</PracticeCheck>
+
+**2. Users report that an item they created appears in the product page immediately but takes about thirty seconds to appear in search. Is this a bug, and what would you change?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It is the architecture working as designed, not a bug: the product page reads
+  the database, which is the source of truth, while search reads an index fed
+  asynchronously from it, and thirty seconds is that pipeline's lag. Nothing is
+  lost and the item will be found. What you change is the experience and the
+  observability rather than the design. Make any surface where the creator would
+  reasonably look for their own new item read from the database — "my listings",
+  the confirmation page, the redirect after saving — so the writer never depends
+  on the index. Then make the lag a measured, alerted metric with a stated
+  budget, because the same symptom at thirty seconds is normal and at thirty
+  minutes means the pipeline has stopped, and without the metric those look
+  identical from the outside.
+</PracticeCheck>
+
+**3. A search index needs a mapping change: one field must be analysed differently. Why can this not be applied to the existing index in place, and what does the operation actually involve?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because the analysis rules were applied when each document was indexed — the
+  terms already in the posting lists were produced by the old rules and stored,
+  not recomputed at query time. Changing the rule changes what the terms should
+  be for every document already written, and no engine recomputes them lazily —
+  so every document has to be analysed again, whether the text comes from the
+  index's own stored copy or from the system of record. The operation is a
+  reindex: build a second index with the new mapping, replay every document from
+  the source of truth into it, keep the live pipeline writing to both while that
+  runs, verify the new index on real queries, then move the alias the
+  application queries and drop the old one. At corpus scale the replay is hours,
+  which is why the mapping is worth arguing about before the first document is
+  indexed.
+</PracticeCheck>

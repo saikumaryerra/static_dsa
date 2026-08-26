@@ -1,0 +1,438 @@
+---
+/**
+ * CourseIndex — the body of one course page, `/learn/{course}/` (course
+ * expansion, `docs/courses/SPEC.md` §6, decision D-05).
+ *
+ * `/learn` was the course page while there was one course; it is the catalogue
+ * now, and this is what moved out of it: the module sections, their arcs, their
+ * lesson cards and a resume CTA — scoped to one course instead of to everything.
+ * The three pages under `src/pages/learn/` are four-line files that pass a
+ * `course` id here, because Astro cannot host a second dynamic segment beside
+ * `[slug].astro` and three thin wrappers are cheaper than a route rename that
+ * would move fifteen published lesson URLs.
+ *
+ * WHAT STAYED ON THE CATALOGUE, and why: the reset control, the ready-to-review
+ * strip and the learning-days line are facts about the *device*, not about a
+ * course. Rendering three reset buttons that all delete the same five keys would
+ * be three ways to describe one act; the review strip is capped at two cards
+ * precisely because it is the product's single prompting surface, and one per
+ * course would be three.
+ *
+ * The injected `data-lessons` list is scoped to THIS course, which is the whole
+ * mechanism: the shared painters in `src/lib/progress-paint.ts` derive the
+ * resume target, the arcs and the card pips from whatever list they find, so the
+ * same functions give a catalogue-wide CTA on `/learn` and a course-wide one
+ * here without a flag.
+ *
+ * JS off (or storage blocked): the CTA still points at lesson 01 of the course,
+ * every card is a working link, and each arc removes itself through the
+ * kill-switch `TrackArc` ships — the same degradation `/learn` had.
+ */
+import type { CollectionEntry } from 'astro:content';
+import LessonCard from './LessonCard.astro';
+import TrackArc from './TrackArc.astro';
+import { COURSE_COPY, type CourseId } from '../lib/courses';
+import { TRACK_COPY, tracksForCourse } from '../lib/tracks';
+import { resumeLabel, type LessonRef } from '../lib/progress';
+
+interface Props {
+  course: CourseId;
+  /** Every published lesson; this component takes its own course's slice. */
+  lessons: CollectionEntry<'lessons'>[];
+}
+
+const { course, lessons } = Astro.props;
+const copy = COURSE_COPY[course];
+
+const inCourse = lessons.filter((l) => l.data.course === course);
+const byOrder = (
+  a: CollectionEntry<'lessons'>,
+  b: CollectionEntry<'lessons'>,
+) => a.data.order - b.data.order;
+
+/**
+ * This course's modules in site order, each with its lessons. Headings and
+ * blurbs come from `src/lib/tracks.ts`, so this component states no module copy
+ * of its own — a rename lands in one place.
+ */
+const modules = tracksForCourse(course)
+  .map((id) => ({
+    id,
+    ...TRACK_COPY[id],
+    lessons: inCourse.filter((l) => l.data.track === id).sort(byOrder),
+  }))
+  // A module with no published lesson is ABSENT (SPEC §3: "at every commit a
+  // module is either absent or complete"). A promise of future content is a
+  // placeholder, and the content validator bans that phrasing outright — so the
+  // page simply does not draw a section with nothing in it. Everything that
+  // renders here is finished.
+  .filter((module) => module.lessons.length > 0);
+
+/**
+ * The lesson list the progress island reads — THIS course only, in course order.
+ * Injected from the build, never recovered by scanning localStorage keys, which
+ * would count lessons that no longer exist and inflate every counter here.
+ */
+const lessonRefs: LessonRef[] = inCourse
+  .map(({ data }) => ({
+    slug: data.slug,
+    title: data.title,
+    order: data.order,
+    track: data.track,
+    course: data.course,
+  }))
+  .sort((a, b) => a.order - b.order);
+
+/** First lesson of the course — the JS-off / nothing-stored resume target. */
+const firstLesson = lessonRefs[0];
+
+const totalMinutes = inCourse.reduce(
+  (sum, l) => sum + l.data.estimatedMinutes,
+  0,
+);
+
+/** `2 modules` / `1 module` — a page that says "1 modules" reads as unfinished. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * The meta line, assembled here rather than in the markup: interleaving text and
+ * separator elements in JSX collapses the whitespace around them unpredictably
+ * ("1 lessons ·1 modules"), and one joined string cannot get that wrong.
+ */
+const meta = [
+  plural(inCourse.length, 'lesson'),
+  plural(modules.length, 'module'),
+  `~${Math.round(totalMinutes / 5) * 5} min`,
+  copy.difficulty,
+].join(' · ');
+
+/**
+ * The CTA's server-rendered wording, from the SAME helper the island calls at
+ * runtime (with "nothing complete yet" as the only honest build-time
+ * assumption), so the fallback and the rewrite can never word a state twice.
+ */
+const resumeFallback = firstLesson
+  ? resumeLabel(firstLesson, 0, lessonRefs.length)
+  : '';
+---
+
+<div class="course">
+  <header class="course__head" data-lessons={JSON.stringify(lessonRefs)}>
+    <p class="course__eyebrow">Course</p>
+    <h1>{copy.title}</h1>
+    <p class="course__intro">{copy.description}</p>
+
+    <p class="course__meta">{meta}</p>
+
+    {
+      firstLesson && (
+        <div class="course__resume">
+          <a
+            class="btn-primary course__resume-link"
+            href={`/learn/${firstLesson.slug}/`}
+            data-resume-link
+          >
+            <span data-resume-label>{resumeFallback}</span>
+            <span aria-hidden="true">→</span>
+          </a>
+          {/* The all-complete state has no honest "next" destination, so the CTA
+              steps aside for this line instead of linking somewhere arbitrary.
+              Revealed by the island only. */}
+          <p class="course__resume-done" data-resume-done hidden />
+        </div>
+      )
+    }
+
+    {
+      /* Prerequisites and outcomes are labelled lists rather than sections: the
+         page's `<h2>`s are its modules and nothing else, so the outline a screen
+         reader walks is the curriculum itself. Each list is named by the span
+         above it, the same `aria-labelledby` pairing the lesson header's
+         "Builds on:" row uses. */
+    }
+    <div class="course__facts">
+      <div class="course__fact">
+        <p class="course__fact-label" id="course-prereqs">You'll need</p>
+        <ul
+          class="course__fact-list"
+          role="list"
+          aria-labelledby="course-prereqs"
+        >
+          {copy.prerequisites.map((item) => <li>{item}</li>)}
+        </ul>
+      </div>
+      <div class="course__fact">
+        <p class="course__fact-label" id="course-outcomes">
+          By the end you can
+        </p>
+        <ul
+          class="course__fact-list"
+          role="list"
+          aria-labelledby="course-outcomes"
+        >
+          {copy.outcomes.map((item) => <li>{item}</li>)}
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  {
+    modules.map((module, index) => (
+      <section class="course__section" aria-labelledby={`track-${module.id}`}>
+        <div class="course__section-head">
+          <div class="course__section-titles">
+            <p class="course__section-number">
+              Module {String(index + 1).padStart(2, '0')}
+            </p>
+            <h2 id={`track-${module.id}`}>{module.heading}</h2>
+            <p class="course__section-blurb">{module.blurb}</p>
+          </div>
+
+          {/* Empty until the island fills it: "0 of 5" rendered server-side
+              would be a claim about a device the build cannot see. Its SPACE is
+              reserved all the same, and every rule about what this block says,
+              reserves and hides lives in the component. */}
+          <TrackArc track={module.id} />
+        </div>
+
+        <ul class="course__grid" role="list">
+          {module.lessons.map((lesson) => (
+            <li>
+              <LessonCard
+                slug={lesson.data.slug}
+                order={lesson.data.order}
+                title={lesson.data.title}
+                summary={lesson.data.summary}
+                difficulty={lesson.data.difficulty}
+                estimatedMinutes={lesson.data.estimatedMinutes}
+              />
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+</div>
+
+<style>
+  .course {
+    padding-block: var(--space-12) var(--space-16);
+  }
+
+  .course__head {
+    max-width: var(--measure);
+  }
+
+  .course__eyebrow {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-block-end: var(--space-2);
+  }
+
+  .course__head h1 {
+    font-size: var(--text-4xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    text-wrap: balance;
+  }
+
+  .course__intro {
+    margin-block-start: var(--space-4);
+    font-size: var(--text-lg);
+    line-height: var(--leading-relaxed);
+    color: var(--text-muted);
+  }
+
+  .course__meta {
+    margin-block-start: var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .course__resume {
+    margin-block-start: var(--space-6);
+  }
+
+  .course__resume-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .course__resume-done {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .course__facts {
+    display: grid;
+    gap: var(--space-6);
+    margin-block-start: var(--space-8);
+  }
+
+  @media (min-width: 768px) {
+    .course__facts {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .course__fact-label {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-block-end: var(--space-2);
+  }
+
+  .course__fact-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+    color: var(--text-muted);
+  }
+
+  .course__fact-list li {
+    padding-inline-start: var(--space-4);
+    position: relative;
+  }
+
+  .course__fact-list li::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 0.55em;
+    width: 5px;
+    height: 5px;
+    border-radius: var(--radius-full);
+    background: var(--border-strong);
+  }
+
+  .course__section {
+    margin-block-start: var(--space-16);
+  }
+
+  .course__section-head {
+    padding-block-end: var(--space-4);
+    border-block-end: 1px solid var(--border);
+  }
+
+  /* From 640px the arc sits beside the heading block rather than under it; below
+     that it stacks, which is why it reserves its own height. TrackArc carries the
+     `flex: none` half of this arrangement — it is the item, and a scoped rule
+     here could not reach it. */
+  @media (min-width: 640px) {
+    .course__section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: var(--space-6);
+    }
+  }
+
+  .course__section-titles {
+    min-width: 0;
+  }
+
+  .course__section-number {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .course__section-head h2 {
+    margin-block-start: var(--space-1);
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+    letter-spacing: var(--tracking-tight);
+    scroll-margin-top: calc(var(--header-h) + var(--space-4));
+  }
+
+  .course__section-blurb {
+    margin-block-start: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+  }
+
+  .course__grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    margin-block-start: var(--space-6);
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  @media (min-width: 768px) {
+    .course__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1200px) {
+    .course__grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+</style>
+
+<script>
+  /**
+   * Progress island for a course page (course expansion, decision D-05).
+   *
+   * Deliberately small: it paints the three surfaces this page owns — the resume
+   * CTA, each module's arc and each card's pips — and nothing else. Every one of
+   * those painters is imported from `src/lib/progress-paint.ts`, the same module
+   * `/learn` calls, so the catalogue and the course pages cannot draw the same
+   * state two different ways. The delete path, the review strip and the
+   * learning-days line stay on the catalogue, where the device-wide facts live.
+   *
+   * Re-runs on a back/forward-cache restore (`onRestore`) and on
+   * `astro:page-load` so it survives View Transitions, exactly as `/learn` does.
+   */
+  import {
+    onRestore,
+    PROGRESS_RESET_EVENT,
+    readCompleted,
+  } from '../lib/progress';
+  import {
+    lessonsFromDom,
+    renderCards,
+    renderResume,
+    renderTracks,
+    storageReadable,
+  } from '../lib/progress-paint';
+
+  /** Redraws every progress surface on this page from storage. */
+  function render(): void {
+    const list = lessonsFromDom();
+    if (list.length === 0) return; // no injected list: leave every fallback alone
+    const completed = readCompleted(list);
+    renderResume(list, completed.length);
+    // Asked once per render, not once per surface: the answer cannot change
+    // mid-pass, and two probes would be two reads for one question.
+    renderTracks(list, storageReadable(list));
+    renderCards(completed);
+  }
+
+  render();
+  onRestore(render);
+  document.addEventListener('astro:page-load', render);
+  // A reset happens on the catalogue, but a View Transition can bring the reader
+  // back here without a reload, so this page listens for the same event.
+  document.addEventListener(PROGRESS_RESET_EVENT, render);
+</script>

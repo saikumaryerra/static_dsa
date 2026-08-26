@@ -1,0 +1,286 @@
+---
+title: 'Selectors, Affinity and Anti-Affinity'
+slug: 'k8s-affinity'
+course: 'kubernetes'
+track: 'k8s-scheduling'
+order: 28
+summary: 'Node labels give you a vocabulary for describing the kind of machine a Pod needs, and affinity turns that vocabulary into rules — some of them hard, some of them merely preferred, and some of them about the other Pods already there.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-labels-and-selectors', 'k8s-how-scheduling-works']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scheduling', 'affinity', 'placement']
+explainPrompt: 'Why does required Pod anti-affinity across hostnames deadlock a rolling update when replicas equal the node count?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Choose between `nodeSelector`, node affinity and Pod affinity for a given
+  placement requirement.
+- Say what `requiredDuringSchedulingIgnoredDuringExecution` promises and what it
+  deliberately does not.
+- Predict when an anti-affinity rule leaves Pods `Pending` for ever.
+
+## Intuition
+
+Hardcoding a node name works exactly once, and then the node is replaced. The
+alternative is to stop naming machines and start describing them.
+
+**Labels turn nodes into a vocabulary; affinity is a sentence in it.** Every
+node already carries the labels its kubelet sets for itself —
+`kubernetes.io/hostname`, `kubernetes.io/os`, `kubernetes.io/arch`. The
+topology pair, `topology.kubernetes.io/zone` and
+`topology.kubernetes.io/region`, comes from a cloud provider's controller
+instead, so on a local cluster built with kind, minikube or k3d it is absent
+until you apply it yourself. Your platform team adds the rest, such as
+`disktype=ssd` or `pool=gpu`. A Pod then says the kind of place it needs, and
+any node that fits qualifies.
+
+There are two things a Pod might want to talk about, and they are handled by
+different fields. **Node affinity** is about the machine: its hardware, its
+zone, its role. **Pod affinity and anti-affinity** are about the neighbours:
+put me near a cache like that one, or keep me away from the other replicas of
+myself. The second kind is the interesting one, because it is how a workload
+expresses "do not put all of me in one place to die together".
+
+## How it works
+
+The blunt instrument first. `nodeSelector` is a map of labels that must all
+match exactly:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: trainer
+spec:
+  nodeSelector:
+    disktype: ssd
+    pool: gpu
+  containers:
+    - name: trainer
+      image: busybox:1.37
+      command: ['sh', '-c', 'sleep 3600']
+      resources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+```
+
+No operators, no alternatives, no degrees. It is the right tool when the rule
+really is that simple.
+
+**Node affinity is the same idea with grammar.** It has two moods, and their
+names are long because they are precise sentences:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ['amd64', 'arm64']
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: disktype
+                    operator: In
+                    values: ['ssd']
+      containers:
+        - name: web
+          image: nginx:1.29
+```
+
+`required` is a filter: no matching node, no scheduling. `preferred` is a score,
+and `weight` between 1 and 100 says how much you care relative to the other
+preferences — a node without an SSD is still a candidate, it starts 80 points
+behind. Operators are `In`, `NotIn`, `Exists`, `DoesNotExist`, `Gt` and `Lt`.
+Several `matchExpressions` inside one term must all hold; several
+`nodeSelectorTerms` are alternatives, and any one of them is enough.
+
+<Callout variant="note">
+  Read `IgnoredDuringExecution` literally. The rule is evaluated when the Pod is
+  placed and never again, so removing `disktype=ssd` from a node does not
+  disturb the Pods that required it. Nothing in Kubernetes evicts a running Pod
+  for drifting out of its own affinity rule.
+</Callout>
+
+**Pod affinity talks about neighbours, inside a topology.** The `topologyKey` is
+the node label that defines what "the same place" means — `kubernetes.io/hostname`
+for one machine, `topology.kubernetes.io/zone` for a failure domain:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-4
+  labels:
+    app: web
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: web
+          topologyKey: kubernetes.io/hostname
+  containers:
+    - name: web
+      image: nginx:1.29
+```
+
+That reads: do not place me on a node that already runs a Pod labelled
+`app=web`. With `topologyKey: topology.kubernetes.io/zone` the same rule means
+one replica per zone. Pod affinity is the mirror image — place me where a Pod
+matching this selector already is — and is how you keep a cache in the same zone
+as the service reading it, saving the cross-zone hop and its charge.
+
+By default the selector matches Pods in the same namespace only. `namespaces`
+and `namespaceSelector` widen it, which is how a workload expresses a rule about
+somebody else's Pods.
+
+**Choosing between the four.** Work down this list and stop at the first one
+that says what you mean, because each step down costs either flexibility or
+scheduling time. One exact label, no alternatives: `nodeSelector`. Alternatives,
+a numeric comparison, or a preference rather than a requirement: node affinity.
+A rule about balance across zones or hosts: a topology spread constraint, which
+the next lesson covers. A rule about neighbours that has to be absolute — never
+two of these in one failure domain, or this Pod must sit beside that one: Pod
+anti-affinity or affinity.
+
+They compose on a single Pod, and that is where trouble starts. Every rule you
+add is another way for the feasible set to become empty, and the
+`FailedScheduling` message names all of the reasons at once. When a Pod is hard
+to place, the useful question is which of its rules are genuinely requirements
+and which were written as requirements because that was the first example
+anybody found.
+
+```bash
+kubectl get nodes --show-labels
+kubectl label node worker-3 disktype=ssd
+kubectl get pods -o wide
+```
+
+## Trade-offs
+
+**Required is a promise you may not be able to keep.** Every hard rule shrinks
+the set of feasible nodes, and rules compose: a Pod that requires an
+architecture, an SSD, a zone and a node with no sibling on it can end up with
+one candidate node in a cluster of forty, and `Pending` when that node fills.
+Preferred degrades instead — you get the placement when it is available and a
+worse one when it is not.
+
+**Pod affinity is expensive to evaluate.** A node-affinity check reads the
+node's own labels. An inter-pod rule has to consider the Pods on every candidate
+node for every candidate node, and the upstream guidance is to avoid these rules
+in clusters of several hundred nodes. Topology spread, in the next lesson,
+covers the common "keep my replicas apart" case at a lower cost.
+
+**Anti-affinity is all or nothing.** `required` with a hostname topology gives
+you at most one replica per node, full stop. There is no way to say "at most
+two". That is the constraint the next lesson's spread rules exist to relax.
+
+## Common pitfalls
+
+- **Required anti-affinity with as many replicas as nodes.** It schedules
+  perfectly and then deadlocks on the first rolling update: with `maxSurge: 1`
+  the Deployment wants a fourth Pod on a three-node cluster, every node already
+  holds a `web` Pod, and the new Pod is `Pending` while the old one it would
+  replace is holding the only place it could go.
+- **Expecting node labels to appear on their own.** The kubelet sets hostname,
+  OS and architecture. Zone and region are set by a cloud provider's controller,
+  so on kind, minikube or k3d they are missing until you run
+  `kubectl label node worker-1 topology.kubernetes.io/zone=a` yourself.
+  `disktype`, `pool` and `tier` are always yours to apply, and a rule referring
+  to a label nobody set matches nothing.
+- **Reading `IgnoredDuringExecution` as enforcement.** The phrase is in the
+  field name and still surprises people when a relabelled node keeps its Pods.
+- **A `preferred` rule used for a hard requirement.** Weight 100 is still a
+  preference; if the workload genuinely cannot run on the wrong hardware, that
+  is `required`.
+- **Anti-affinity whose selector matches too much.** `app: web` written on a
+  Pod that is itself labelled `app: web` is the intended self-exclusion. A
+  selector borrowed from a Service that also matches a sidecar's Pods excludes
+  nodes you did not mean to exclude.
+
+## Key takeaways
+
+- `nodeSelector` is exact-match and has no degrees; **node affinity** adds
+  operators, alternatives and weighted preferences.
+- **`required` filters, `preferred` scores.** Every hard rule narrows the
+  feasible set, and hard rules compose into `Pending`.
+- **`IgnoredDuringExecution`** means the rule is checked once, at placement, and
+  never re-checked.
+- **Pod affinity and anti-affinity are evaluated within a `topologyKey`** — a
+  node label that decides what counts as the same place.
+- Required anti-affinity across hostnames caps a workload at **one replica per
+  node**, which deadlocks a rolling update when replicas equal nodes.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Deployment requires `disktype=ssd` with `requiredDuringSchedulingIgnoredDuringExecution`. Its three Pods are running. Someone removes that label from all three nodes. What happens to the Pods, and what happens on the next rollout?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Nothing happens to the running Pods. The rule's name says it is ignored during
+  execution, so it is evaluated once when the scheduler places a Pod and never
+  re-evaluated — no controller compares a running Pod against its own affinity,
+  and none evicts it for failing the comparison. The next rollout is where it
+  bites: the Deployment creates a Pod with the same template, filtering finds no
+  node carrying `disktype=ssd`, and the new Pod stays `Pending` with a
+  `FailedScheduling` event naming the affinity. Under a `maxUnavailable: 0`
+  strategy the old Pods keep serving while the rollout sits still, so the
+  cluster gives you a delayed alarm on a change made hours or weeks earlier.
+</PracticeCheck>
+
+**2. Three nodes, `replicas: 3`, and required Pod anti-affinity on `app=web` with `topologyKey: kubernetes.io/hostname`. Everything runs. You change the image. Describe what happens.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The rollout deadlocks. With the default surge budget the Deployment creates a
+  fourth Pod before removing any of the three, and the anti-affinity rule says
+  no node may hold two Pods labelled `app=web`. All three nodes already hold one
+  — including the old Pods, which are still running and still carry that label —
+  so there is no feasible node and the new Pod is `Pending`. The old Pod it was
+  going to replace is not removed, because the budget will not go below three
+  available. Nothing recovers on its own; after `progressDeadlineSeconds` the
+  Deployment records `ProgressDeadlineExceeded` and waits. The fixes are a
+  fourth node, `maxSurge: 0` with `maxUnavailable: 1` so a Pod is removed before
+  its replacement is created, or making the anti-affinity `preferred` so a
+  temporary doubling is allowed.
+</PracticeCheck>
+
+**3. You want your service's Pods spread across zones, and you also want them near the cache Pods labelled `app=cache`. Which rules do you write, and which of them should be hard?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Two separate rules on the same Pod. The spreading one is Pod anti-affinity
+  against your own label with `topologyKey: topology.kubernetes.io/zone` — one
+  replica per zone if required, or preferred if you would rather have an
+  unbalanced service than a `Pending` one. The proximity one is Pod affinity
+  with `labelSelector` on `app=cache` and the same zone topology key. Make the
+  proximity rule preferred: it is an optimisation about a network hop and its
+  charge, and turning it into a hard requirement means your service cannot start
+  anywhere the cache has not started yet — an ordering dependency between two
+  workloads that neither one declared. The spreading rule is the candidate for
+  required, and only if you have at least as many zones as replicas.
+</PracticeCheck>

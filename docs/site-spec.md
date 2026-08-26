@@ -25,6 +25,15 @@ LearnDSA is a **static, no-backend website** that teaches **basic data structure
 
 The whole site is prerendered to static HTML/CSS/JS and deployable to any static host (GitHub Pages, Netlify, Vercel, Cloudflare Pages). There is no server, no database, no auth, no analytics backend of our own.
 
+*(Amended by the course expansion — `docs/courses/AMENDMENTS.md` C-1/C-7, decisions D-04/D-05.
+The site now carries **three courses**: Data Structures & Algorithms, Kubernetes, and System
+Design. The hierarchy is **course → track → lesson**, where a track is the module-sized grouping
+inside a course. The product keeps its name and its branding — it is still LearnDSA — so only the
+subject broadened. The paragraph above describes the **`dsa` course** exactly: it is the only one
+whose lessons carry a complexity analysis, three-language code tabs and a visualization. Kubernetes
+and System Design lessons are prose, manifests, worked estimates and inline-SVG figures, and mount
+no visualizer at all.)*
+
 ---
 
 ## 2. Goals and Non-Goals
@@ -35,6 +44,13 @@ The whole site is prerendered to static HTML/CSS/JS and deployable to any static
 - Load fast (static, minimal JS), work offline-friendly, be fully keyboard- and screen-reader-accessible.
 - Be easy for a non-engineer to author/extend a lesson by editing one Markdown/MDX file.
 - Look clean, modern, and trustworthy — not a wall of default-styled text.
+
+*(Amended by the course expansion, `docs/courses/AMENDMENTS.md` C-7. The first goal was written
+while there was one course and still describes the `dsa` one. For the two prose courses the goal is
+the same clarity with no visualization to carry it, so every lesson's "How it works" section owes
+the reader at least one working manifest, command, worked estimate or figure instead
+(`docs/courses/CONTENT_STYLE.md` §2). `npm run validate:content` enforces that the section is there
+and is not empty; whether the artifact inside it is real and correct is a review call.)*
 
 ### Non-Goals (out of scope for v1)
 - User accounts, progress saving to a server, quizzes with grading, comments.
@@ -70,6 +86,11 @@ The whole site is prerendered to static HTML/CSS/JS and deployable to any static
 - **Math (if needed for Big-O):** KaTeX, prerendered.
 - **Testing:** Vitest (unit, esp. algorithm traces) + Playwright (a few smoke/e2e + a11y checks).
 - **Lint/format:** ESLint + Prettier.
+- **Content validation:** `yaml`, added as a **devDependency** by the course expansion
+  (`docs/courses/AMENDMENTS.md` C-3, decision D-13). `scripts/lib/content-validator.mjs` parses the
+  YAML inside lesson code fences so a manifest that would not apply fails the gate; the
+  `// SPEC-GAP:` justification and the rejected alternatives are at the top of that file. Nothing in
+  `src/` imports it, so it ships **zero bytes to the browser** and the JS budget below is untouched.
 - **Package manager:** npm.
 - **Node:** LTS (>= 22.12 — Astro 7's floor; `package.json` `engines`, `.nvmrc` and CI pin 24).
 
@@ -81,6 +102,26 @@ The whole site is prerendered to static HTML/CSS/JS and deployable to any static
 ---
 
 ## 5. Curriculum / content scope
+
+**Amended by the course expansion (`docs/courses/AMENDMENTS.md` C-1, decisions D-04/D-05).** The
+list below is now the curriculum of **one course**, `dsa`, and its two tracks are that course's two
+modules. The hierarchy is **course → track → lesson**: `track` keeps its name and its job — the
+module-sized grouping *inside* a course — `course` is the level above it, and `order` is per course
+rather than site-wide. Nothing in the list moved: the fifteen lessons keep their frontmatter, their
+slugs, their URLs and their 1–15 numbering, which is why the expansion added a field with a default
+instead of renaming one.
+
+Two courses ship beside it — **Kubernetes** and **System Design**. Their curricula are
+`docs/courses/CURRICULUM.md`, their per-topic coverage is checked against
+`docs/courses/coverage.json` by `npm run validate:content` (§18), and their content contract is
+`docs/courses/SPEC.md` + `docs/courses/CONTENT_STYLE.md`. Neither mounts a visualizer: the
+trace-then-render pipeline (§11) is untouched, and the validator rejects `<Visualizer>`,
+`<Challenge>`, `<FinalRun>`, `<StepLink>` or `<ComplexityTable>` in one of their lessons.
+
+Course ids, catalogue order and every string the site says about a course live in
+`src/lib/courses.ts`; module ids and their copy live in `src/lib/tracks.ts`, which is also where the
+lesson schema's `track` enum is built from — so a track exists in exactly one place and a typo in
+frontmatter fails the build.
 
 Ship these lessons in v1, grouped into two tracks. Each lesson gets its own page and at least one visualization unless noted.
 
@@ -110,9 +151,10 @@ Ship these lessons in v1, grouped into two tracks. Each lesson gets its own page
 ## 6. Information architecture (site map)
 
 ```
-/                       Home / landing (value prop + track overview + CTA)
-/learn/                 Curriculum index (all lessons grouped by track, with progress-ish checkmarks stored locally)
-/learn/[slug]/          A single lesson (e.g. /learn/binary-search/)
+/                       Home / landing (value prop + course overview + CTA)
+/learn/                 Catalogue — one card per course, plus the device-wide progress surfaces
+/learn/{course}/        One course: its modules, their arcs, and its lesson cards
+/learn/[slug]/          A single lesson (e.g. /learn/binary-search/) — these URLs did not move
 /glossary/              A-Z terms, each linking to the lesson that introduces it
 /about/                 What this is, who it's for, how visualizations work
 /404                    Friendly not-found (served from dist/404.html, not a directory)
@@ -122,8 +164,25 @@ Every route above carries its **trailing slash**, and that is the published form
 spelling is not served at all (it 404s, it does not redirect). See §14's URL-shape note; the
 reversed decision is recorded in `docs/redesign-2026-08/03-amendments.md`, U-1.
 
+**`/learn/` is the catalogue (amended by the course expansion, `docs/courses/AMENDMENTS.md` C-2,
+decision D-05).** It listed every lesson grouped by track while there was one course; with three
+courses that is a directory rather than a catalogue, so the module sections, the arcs and the lesson
+cards moved to `/learn/{course}/` and `/learn/` now renders one card per course. **Lesson URLs did
+not move** — they carry external links, canonicals, sitemap entries and `localStorage` keys, which is
+what ruled out nesting lessons under their course. The course pages are three thin files under
+`src/pages/learn/` delegating to one shared `CourseIndex.astro`, because Astro cannot host a second
+dynamic segment beside `[slug].astro`; that route's `getStaticPaths` **fails the build if a lesson
+slug ever collides with a course slug**, so the two cannot silently share a URL.
+
+*What stayed on `/learn/`, and why:* the reset-progress control, the ready-to-review strip and the
+learning-days line describe the **device**, not a course. Three reset buttons deleting the same five
+keys would be three ways to describe one act, and the review strip is capped at two cards precisely
+because it is the product's single prompting surface — one per course would be three.
+
 - **Global nav:** logo → Home; "Learn"; "Glossary"; "About"; a light/dark theme toggle.
-- **In-lesson nav:** breadcrumb (Learn / Track / Lesson), prev/next lesson, and an on-page table of contents (sticky on desktop).
+- **In-lesson nav:** breadcrumb (Learn / **Course** / Lesson — the crumb names the course and links
+  to that course page's module anchor, because `/learn/` is the catalogue now and three courses each
+  own a module called "Foundations"), prev/next lesson, and an on-page table of contents (sticky on desktop).
 - **Local "completed" state:** a lesson can be marked done; store in `localStorage` only (no server). Show a subtle checkmark in the index (M8 renders it as the first of three mastery pips — see `docs/m8-gamification.md`).
 - **Client persistence (amended M7/M8).** `localStorage` remains the *only* persistence mechanism
   (no `sessionStorage`, no cookies) and there is never a server. The permitted keys are enumerated
@@ -142,6 +201,16 @@ reversed decision is recorded in `docs/redesign-2026-08/03-amendments.md`, U-1.
   (private mode). No behavioral tracking of any kind — store only explicit user acts and
   self-reports. The M8 Predict toggle is deliberately **not** persisted at all.
 
+  **The course expansion added no key, and renamed none** (`docs/courses/AMENDMENTS.md`, "Not
+  reopened"). The list above is complete and unchanged. What changed is the **lesson list** those
+  keys are read against, and it is still injected from the build rather than recovered by
+  enumerating storage: `LessonRef` gained a `course` field so the resume order is (course, `order`)
+  and two courses' lesson 1 cannot collide, and that field is build-injected and never stored.
+  `/learn/` injects the whole catalogue, so its resume CTA crosses courses; a course page injects its
+  own slice, so the same painters in `src/lib/progress-paint.ts` scope every ring, pip and CTA to
+  that course with no flag. The reset control lives on `/learn/` and clears the same five progress
+  keys as before.
+
   **Storage is scoped to the ORIGIN, not the path.** Since the artifact is deployable under a
   sub-path (§14's build contract), two deployments on one origin — `sample.com/learndsa` and
   `sample.com/learndsa-v2` — share every key above and each other's resets. That is a browser rule,
@@ -159,14 +228,16 @@ Use Astro **Content Collections** with a typed schema. Frontmatter contract:
 ```yaml
 ---
 title: "Binary Search"
-slug: "binary-search"            # URL segment; unique
-track: "algorithms"              # "foundations" | "algorithms"
-order: 11                        # sort order within the site
+slug: "binary-search"            # URL segment; unique. Must equal the filename.
+course: "dsa"                    # "dsa" | "kubernetes" | "system-design". DEFAULTS to "dsa", and
+                                 # every pre-expansion lesson simply omits it.
+track: "algorithms"              # the MODULE inside that course; enum built from TRACK_IDS
+order: 11                        # sort order WITHIN THE COURSE, contiguous from 1
 summary: "Find an element in a sorted array by repeatedly halving the search range."
 difficulty: "beginner"           # beginner | intermediate
 prerequisites: ["arrays", "complexity-big-o"]   # slugs
 estimatedMinutes: 8
-complexity:                       # rendered into a standard table
+complexity:                       # OPTIONAL; rendered into a standard table where present
   time: { best: "O(1)", average: "O(log n)", worst: "O(log n)" }
   space: { worst: "O(1)" }
 tags: ["searching", "divide-and-conquer"]
@@ -174,6 +245,31 @@ explainPrompt: "Why must the array be sorted before binary search can work?"  # 
 published: true
 ---
 ```
+
+**What the course expansion changed in this contract (`docs/courses/AMENDMENTS.md` C-1/C-3/C-4,
+decisions D-04/D-06/D-07).** One field added with a default, one enum widened, one field re-scoped,
+one made optional, one deliberately left alone. **No existing lesson's frontmatter was edited** —
+that is the point of the default, and `course:` is shown above only to document the field.
+
+- **`course`** is new and defaults to `'dsa'`, so no lesson that predates the expansion was edited.
+  The enum lives in `src/content.config.ts` and mirrors `CourseId` in `src/lib/courses.ts`.
+- **`track` is the module.** Its enum is built from the `TRACK_IDS` tuple in `src/lib/tracks.ts`
+  rather than restated in the schema, so a track is declared in exactly one place and a typo in
+  frontmatter fails the build. Each entry names the course it belongs to.
+- **`order` is per course**, contiguous from 1, and a module's lessons must form one contiguous block
+  of it — the validator fails a gap or a split module, because the home page derives a course's
+  module list from the order its lessons appear in.
+- **`complexity` is optional.** There is no honest Big-O for "ConfigMaps and Secrets" or "CAP and
+  PACELC", and inventing `O(1)` placeholders was rejected outright; a second collection for
+  non-algorithm lessons would have forked the loader, the route, the layout, progress, prev/next and
+  every test to avoid one optional field. `<ComplexityTable>` and the `## Complexity` section render
+  only where a lesson declares it, and the validator **errors** if a Kubernetes or System Design
+  lesson declares one.
+- **`difficulty` did not change.** `beginner | intermediate` stands (C-4, decision D-06): production
+  Kubernetes and the case studies are labelled `intermediate`, because a third value would have to be
+  threaded through `LessonLayout`, `DifficultyChip`, `LessonCard`, amendment D-1's "badge the
+  exception" rule and `difficultySpread()`, which silently drops anything outside the hardcoded two.
+  Recorded as a constraint considered and kept.
 
 Lesson body sections (authors follow this order; enforce with a lint/checklist, not hard code):
 1. **Intuition** — plain-language "what & why," a real-world analogy.
@@ -189,6 +285,34 @@ Lesson body sections (authors follow this order; enforce with a lint/checklist, 
 5. **Common pitfalls / edge cases** — collapsible.
 6. **Practice / check yourself** — 2–3 conceptual questions (no *automatic* grading; answers in `<details>`). M8 wraps each answer in `PracticeCheck` for one-tap **self**-grading — the `<details>` flow is unchanged and **no Practice answer** is ever machine-graded. (M8's Predict-the-Step and Final Run do check answers, but against the precomputed trace, never against an authored answer key, and no score is stored.)
 7. **Final Run** *(M8.3, Algorithms track)* — one numeric prediction whose answer is computed at build time. Optional per lesson, and authored as a card at the **end of the Practice section**, not under a heading of its own (it is one prompt, and a heading would promise a section).
+
+**Body sections for a Kubernetes or System Design lesson (added by the course expansion, decision
+D-10).** The seven above are the `dsa` shape; the prose courses follow their own, in this order:
+
+1. `## What you'll learn` — 2–4 concrete objectives. Required.
+2. `## Intuition` — the concept and its explicit mental model. Required.
+3. `## How it works` — the mechanism, carrying at least one manifest, command, worked estimate or figure. Required.
+4. `## Trade-offs` — optional.
+5. `## Common pitfalls` — optional.
+6. `## Interview notes` — optional.
+7. `## Key takeaways` — required.
+8. `## Practice` — required, and the site's own build guard: the `/learn/` page throws on any
+   published lesson with no literal `## Practice` heading, because the review strip deep-links to
+   `#practice`. Every answer is wrapped in `PracticeCheck` as in §7.6, and **never in a bare
+   `<details>` or `<Collapsible>`** — a Practice answer that is not self-gradable is a question the
+   Practiced bar can never count.
+
+It reuses heading names the DSA lessons already carry — `Intuition`, `How it works`, `Common
+pitfalls` and `Practice` itself — so the "On this page" bar and the reader's expectations carry
+across courses. `## Complexity` and `## Code` are DSA-only and simply absent — a
+prose lesson uses plain fenced blocks rather than `<CodeTabs>`, and every fence must declare a
+language. Unlike the seven above, **this shape is machine-enforced rather than a checklist**:
+`npm run validate:content` (§18) fails a missing or out-of-order required section, a heading outside
+the allowed set, a lesson under the prose-word floor, and a lesson with no `PracticeCheck` at all.
+Those rules are scoped to the two new courses — the fifteen algorithm lessons predate them and
+restyling shipped prose was not this expansion's job. The rules that apply to **every** published
+lesson are the ones about correctness rather than style: no placeholder marker, no empty section, no
+fence without a language, and every internal link resolves.
 
 **Authoring the M8 components (amended M8.1/M8.3).** Three components are dropped into the body like
 `<Visualizer>`; each is optional, each ships its own `<noscript>` kill-switch, and none of them
@@ -238,10 +362,12 @@ Save, and **earns nothing** — no stage, no schedule change, no count. Prefer a
 Implement these as Astro layouts/pages. Keep them composable.
 
 - **`BaseLayout`** — `<head>` (meta, OG tags, theme init inline script to avoid FOUC), skip-to-content link, global header, footer, theme toggle.
-- **`LessonLayout`** — wraps MDX content; adds breadcrumb, sticky ToC (generated from headings), prev/next, complexity table slot, "mark complete" control, reading-time. *M7 adds:* a "Builds on:" prerequisites row (from frontmatter, build-validated against real slugs) and an end-of-lesson **"What's next"** section merging mark-complete with the next-lesson card. Prev/next follow **global** lesson order, naming the track when it changes — never dead-ending at a track boundary (§3 "no dead ends").
-- **Home page** — hero (one-line value prop + subhead), 2–3 feature blurbs (interactive / beginner-friendly / free), track cards linking to `/learn`, footer. *M7 adds:* a hero **product demo panel** at ≥1024px — a build-time `renderStatic()` frame of a real trace (never a hand-drawn mock), stacking below the CTA on mobile.
-- **Curriculum index** — two columns/sections (Foundations, Algorithms); each lesson as a card: number, title, one-line summary, difficulty chip, estimated minutes, done-checkmark. *M7 adds:* a resume CTA, per-track progress, and a reset-progress control. *M8.2 adds:* a ready-to-review strip directly under the page head — at most two cards, zero DOM when empty, never any "overdue"/countdown vocabulary. *M8 amends:* the done-checkmark becomes the first of three **mastery pips** (the existing check glyph is pip 1's fill, preserving the mental model); the per-track counter is drawn as a ring showing `N of M complete · Practiced n · Mastered n` — the self-reported completion count is never displayed alone. Difficulty-chip treatment may become semantic soft-fill (M7.3, designer sign-off) — the difficulty **word** is always retained.
-- **Glossary** — alphabetical; jump-to-letter bar (sticky at every breakpoint, single-row scrollable on mobile); each entry: term, per-term anchor id, 1–2 sentence definition, `Also called:` aliases, "introduced in →" link.
+- **`LessonLayout`** — wraps MDX content; adds breadcrumb, sticky ToC (generated from headings), prev/next, complexity table slot, "mark complete" control, reading-time. *M7 adds:* a "Builds on:" prerequisites row (from frontmatter, build-validated against real slugs) and an end-of-lesson **"What's next"** section merging mark-complete with the next-lesson card. Prev/next follow **global** lesson order, naming the track when it changes — never dead-ending at a track boundary (§3 "no dead ends"). *(Amended by the course expansion, decision D-04: "global" now means **within the lesson's own course**, since `order` is per course and a global sort would interleave three unrelated sequences. Crossing a module boundary still names the module; the end of a course is a real end, not a dead end. Prerequisites are still resolved across the whole catalogue — one course may build on another.)*
+- **Home page** — hero (one-line value prop + subhead), 2–3 feature blurbs (interactive / beginner-friendly / free), track cards linking to `/learn`, footer. *M7 adds:* a hero **product demo panel** at ≥1024px — a build-time `renderStatic()` frame of a real trace (never a hand-drawn mock), stacking below the CTA on mobile. *(Amended by the course expansion, `docs/courses/AMENDMENTS.md` C-7: the cards are **course** cards, each naming and linking its modules, and the hero copy, the footer tagline and the `WebSite` JSON-LD describe a catalogue of engineering courses rather than an algorithms site — without renaming the product. The feature blurbs are the one thing deliberately **not** broadened: all three are about the step-through instrument, which the two prose courses do not mount, so the section is headed "What an algorithms lesson actually does" instead of being reworded to cover courses it is not true of.)*
+- **Curriculum index** — two columns/sections (Foundations, Algorithms); each lesson as a card: number, title, one-line summary, difficulty chip, estimated minutes, done-checkmark. *M7 adds:* a resume CTA, per-track progress, and a reset-progress control. *M8.2 adds:* a ready-to-review strip directly under the page head — at most two cards, zero DOM when empty, never any "overdue"/countdown vocabulary. *M8 amends:* the done-checkmark becomes the first of three **mastery pips** (the existing check glyph is pip 1's fill, preserving the mental model); the per-track counter is drawn as a ring showing `N of M complete · Practiced n · Mastered n` — the self-reported completion count is never displayed alone. Difficulty-chip treatment may become semantic soft-fill (M7.3, designer sign-off) — the difficulty **word** is always retained. *(Split in two by the course expansion, C-2 / decision D-05: everything from "two columns/sections" onward now lives on the **course page** and is rendered by one shared `CourseIndex.astro`, whose sections are that course's modules in `TRACK_IDS` order — a module with no published lesson is absent rather than promised. `/learn/` keeps the page head, the resume CTA, the review strip, the reset control and the learning-days line, and renders one card per course carrying its blurb, a meta line of lesson count · module count · duration · difficulty, a `TrackArc` ring and a CTA. Every count on both pages is derived from the published collection, so a lesson added tomorrow moves the numbers with no edit.)*
+- **Course page** *(added by the course expansion, C-2)* — `/learn/{course}/`: the course's title, description, prerequisites, outcomes and meta line, a resume CTA scoped to that course, then one section per module (heading, blurb, `TrackArc`, `LessonCard`s). Three four-line files under `src/pages/learn/` pass a course id to `CourseIndex.astro`; all course copy lives in `src/lib/courses.ts` and all module copy in `src/lib/tracks.ts`, so no page states either of its own.
+- **Glossary** — alphabetical; jump-to-letter bar (sticky at every breakpoint, single-row scrollable on mobile); each entry: term, per-term anchor id, 1–2 sentence definition, `Also called:` aliases, "introduced in →" link. *(Left DSA-scoped by the course expansion, decision D-12. New-course prose may **not** link into the glossary — the validator rejects it — so 112 lessons can be written without touching a curated list and no lesson blocks on a term that does not exist yet. Terms pointing *at* the new lessons are safe and are polish, not a gate item.)*
+- **Prose artifacts: tables, fenced code, figures** *(added by the course expansion, C-6, decisions D-08/D-09)* — the site had none of the three. A small local rehype plugin in `astro.config.mjs` — written inline, no package — wraps every markdown `<table>` in a keyboard-reachable `div.table-scroll` and marks every markdown fence `md-code`; `LessonLayout` styles both and includes them in the measure-breakout and print rules. **A wrapper rather than CSS on the table itself**, because `display: block; overflow-x: auto` on a `<table>` strips its semantics from the accessibility tree in Chrome and Firefox — a real regression traded for a scrollbar — while the wrapper keeps `<table>` semantics and its `tabindex` is what WCAG 2.1.1 (and axe's `scrollable-region-focusable`) requires. `md-code` is what keeps the new `pre` styling from fighting `<CodeTabs>`: component output never passes through rehype. Diagrams are `Figure.astro` plus one component per diagram in `src/components/diagrams/`, each hand-written inline SVG coloured from the design tokens; `Figure` owns the `<svg>`, the accessible name, the description and the caption, so those cannot drift between diagrams, and it scrolls rather than shrinking or stretching. **Inline SVG rather than Mermaid**: client-side Mermaid is a large dependency against the ≤ 60 KB budget, build-time Mermaid pulls a headless browser into the build, and a static `.svg` cannot repaint itself for the light/dark tokens — inline SVG is the only option that is zero-dependency, zero-JS, themable and printable.
 
 ---
 
@@ -271,6 +397,9 @@ Build these reusable components (Astro components unless they need interactivity
 | `Challenge` | island (minimal) | *M8.3* — input-crafting trial validated against the run's final metrics; a build-time `witness` input proves solvability or the build fails |
 | `FinalRun` | island (minimal) | *M8.3* — one numeric prediction per lesson; truth computed at build time |
 | `WhatsNext` | static | *M7.2* — end-of-lesson section merging mark-complete with the next-lesson card |
+| `CourseCard` | static markup, host-painted | *course expansion* — the catalogue item on `/learn/`: title, blurb, meta line, `TrackArc` ring, CTA |
+| `CourseIndex` | static | *course expansion* — the body of one course page: module sections, arcs, lesson cards and a course-scoped resume CTA; the three `/learn/{course}/` pages are four-line files that pass it a course id |
+| `Figure` | static | *course expansion* — the frame every diagram is drawn inside: it owns the `<svg>`, the accessible name, the description and the caption; one component per diagram in `src/components/diagrams/` supplies only the children |
 
 **Gamification components (M8) inherit every rule in this spec plus the design stance in
 `docs/m8-gamification.md`:** mastery states are the only progress currency; nothing rewards
@@ -623,29 +752,32 @@ Define as CSS custom properties + Tailwind theme extension. Support light & dark
 
 ---
 
-## 16. Directory structure (target)
+## 16. Directory structure
 
 ```
 learndsa/
-├─ astro.config.mjs
-├─ tailwind.config.ts
+├─ astro.config.mjs               # also hosts the rehype prose pass (§8)
 ├─ tsconfig.json
 ├─ package.json
 ├─ src/
+│  ├─ content.config.ts           # content-collection schema (§7)
 │  ├─ content/
-│  │  ├─ config.ts                # content-collection schema (§7)
-│  │  └─ lessons/*.mdx
+│  │  └─ lessons/*.mdx            # 127 lessons, flat, across three courses
 │  ├─ layouts/
 │  │  ├─ BaseLayout.astro
 │  │  └─ LessonLayout.astro
 │  ├─ pages/
 │  │  ├─ index.astro
-│  │  ├─ learn/index.astro
+│  │  ├─ learn/index.astro        # the CATALOGUE: one card per course (§6)
+│  │  ├─ learn/dsa.astro          # one static page per course, because
+│  │  ├─ learn/kubernetes.astro   #   [slug].astro already owns /learn/{slug}/
+│  │  ├─ learn/system-design.astro
 │  │  ├─ learn/[slug].astro       # renders a lesson from the collection
 │  │  ├─ glossary.astro
 │  │  ├─ about.astro
 │  │  └─ 404.astro
 │  ├─ components/                 # §9 inventory
+│  │  └─ diagrams/                # inline-SVG drawings, one per file (§8)
 │  ├─ viz/
 │  │  ├─ core/                    # Step/Trace/Player/registry types (§11.2)
 │  │  ├─ algorithms/              # one instrumented algorithm per file
@@ -656,11 +788,16 @@ learndsa/
 │  │  ├─ tokens.css               # design tokens (§13)
 │  │  └─ global.css
 │  └─ lib/                        # small utils (localStorage, toc, reading-time)
+├─ scripts/                       # build and check scripts, incl. validate-content
 ├─ public/                        # static assets, fonts, og images
 └─ tests/
    ├─ unit/                       # vitest: algorithm traces, utils
    └─ e2e/                        # playwright: smoke + axe a11y
 ```
+
+This is the tree as built, not a plan. It said `(target)` while it carried a
+`tailwind.config.ts` that Tailwind v4 does not use and a `src/content/config.ts`
+that has always been `src/content.config.ts`; both are corrected above.
 
 ---
 
@@ -761,8 +898,29 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
 - [ ] `npm run build` passes with no errors or warnings.
 - [ ] `npm run lint` and `npm run format:check` clean.
 - [ ] `npm run test` (Vitest) green, incl. a trace test for each shipped algorithm.
+- [ ] `npm run validate:content` clean — the sixth command, added by the course expansion
+      (`docs/courses/AMENDMENTS.md` C-5, decision D-14). **CI runs it as
+      `npm run validate:content -- --strict`.** Nine defect classes are mechanical here rather than
+      reviewed: placeholder markers, `PracticeCheck` bookkeeping, per-module `order` contiguity, the
+      `estimatedMinutes` band, `CONTENT_STYLE.md` §1's ban list, a viz-coupled component in a prose
+      lesson, a figure superseded by a correction, an out-of-charset glyph, and Appendix A/B
+      coverage. Each was added *after* a reviewer found that class of defect by hand. **What
+      `--strict` adds:** a `docs/courses/coverage.json` topic whose lesson is planned in
+      `CURRICULUM.md` but not yet written is a warning by default and an error under the flag, so the
+      authoring pass stays green commit by commit (§0: never leave the tree broken at a commit
+      boundary) while "every Appendix topic is taught" stays a checked claim. A topic naming a slug
+      that is neither published nor planned is an error at any strictness — it is a typo. The
+      validator also runs non-strict inside `npm run test`, which is what puts it in this gate twice.
 - [ ] Playwright smoke + axe checks pass (no critical a11y violations).
-- [ ] Each shipped lesson has: all 7 required sections (§7.1–7.7; §7.8 Final Run is optional), a working stepper visualization with custom input, correct 3-language code, correct complexity table.
+- [ ] Each shipped lesson has all its required sections and no placeholder content. For a **`dsa`**
+      lesson that is §7.1–7.7 (§7.8 Final Run is optional), a working stepper visualization with
+      custom input, correct 3-language code and a correct complexity table. For a **Kubernetes or
+      System Design** lesson it is the section shape in §7 (five required headings, three optional,
+      in order), a working manifest, command, worked estimate or figure in "How it works", and no
+      visualization or complexity table at all. The command above machine-checks the parts a machine
+      can: the headings and their order, that no section is empty, the word floor, no viz-coupled
+      component, no `complexity`, every fence's language, every manifest's `apiVersion`/`kind`. That
+      the artifact is real, correct and actually runs is still read by a human.
 - [ ] Keyboard-only walkthrough of one lesson works, including all viz controls.
 - [ ] JS-disabled: all prose/code readable; viz degrades gracefully.
 - [ ] Meets JS budget (§4) — enforced by `tests/e2e/js-budget.spec.ts`, which fails the run if any
@@ -800,8 +958,9 @@ cannot see, so anyone adding surface of the same shape has to know about them.**
 - Do we want a lightweight "was this helpful?" thumbs (no backend, localStorage only)? Default: skip for v1.
 - Exact three code languages: spec says Python / JavaScript / Java — confirm before M4 if there's a preference.
 - ~~**M7.3 difficulty chips**~~ **settled (redesign 2026-08, amendment D-1):** badge-the-exception,
-  on the `/learn` grid only — the chip renders on a curriculum card when the lesson is *not*
-  `beginner` (2 of 15). The lesson page keeps its chip unconditionally, because a reader arriving
+  on the curriculum grid only — the chip renders on a `LessonCard` when the lesson is *not*
+  `beginner` (2 of the 15 lessons that existed when the rule shipped; since the course expansion
+  those cards live on the course pages, §8). The lesson page keeps its chip unconditionally, because a reader arriving
   there has no comparison set in front of them. This carries the original neutral-chip reasoning
   forward rather than reversing it.
 - ~~**Glossary search island**~~ **settled (redesign 2026-08, amendment G-1):** shipped. It filters

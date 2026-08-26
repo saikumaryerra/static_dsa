@@ -1,0 +1,259 @@
+---
+title: 'Replication, Partitioning and Sharding'
+slug: 'sd-replication-and-sharding'
+course: 'system-design'
+track: 'sd-data'
+order: 18
+summary: 'Replication copies the same data and buys reads and durability; sharding splits different data and buys writes. Why they are not interchangeable, and why the shard key is the decision you cannot undo cheaply.'
+difficulty: 'intermediate'
+prerequisites: ['sd-relational-databases', 'sd-consistency-models']
+estimatedMinutes: 9
+tags:
+  ['system-design', 'replication', 'sharding', 'partitioning', 'scalability']
+explainPrompt: 'Why does adding read replicas do nothing for a database that is saturated on writes?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say which problem replication solves and which one sharding solves, without confusing them.
+- Choose a shard key from the access patterns, and name what it makes impossible.
+- Describe what a resharding actually involves, and why it is planned rather than performed.
+
+## Intuition
+
+Two words that get used as if they were one.
+
+**Replication copies the same data to more machines. Partitioning splits
+different data across them.** Everything else follows from that sentence. A
+replica holds everything the primary holds, so it can answer any read and can
+take over if the primary dies. A partition — a **shard**, when the partitions
+live on separate machines — holds a slice, so it can only answer questions about
+its slice, and the other machines are doing genuinely different work.
+
+The consequence people get wrong: **replication buys read capacity, availability
+and durability. It buys no write capacity at all.** Every replica applies every
+write the primary accepted, so ten replicas do ten times the write work of one
+and raise the ceiling by nothing. If the write path is saturated, adding replicas
+makes it slightly worse.
+
+**Sharding is the tool that buys write capacity**, and it charges for it in a
+currency you have been spending freely: any query, join or transaction that spans
+shards is now a distributed operation your application has to assemble, and the
+key you split on is close to permanent. Those are different tools for different
+problems, and reaching for the wrong one is the most common storage mistake in a
+design review.
+
+## How it works
+
+**Replication topologies.** Single-leader is the default: one primary takes
+writes, followers apply the stream and serve reads. Multi-leader accepts writes
+in more than one place and therefore needs conflict resolution. Leaderless spreads
+both reads and writes across replicas and uses quorums, which is the machinery in
+[Consistency Models, CAP and PACELC](/learn/sd-consistency-models/).
+
+The choice inside single-leader that matters is synchronous against asynchronous.
+A synchronous follower must acknowledge before the write commits, so no
+acknowledged write is lost on failover and every write pays the slowest
+follower's latency. An asynchronous follower lags, so a failover promotes a node
+that is missing the last few writes — writes the client was told had succeeded.
+Most systems run one synchronous follower and several asynchronous ones — the
+generally accepted industry position between the two.
+
+Replication lag is also where read-your-writes goes missing, and routing a
+session's reads to the primary for a few seconds after it writes is the standard,
+cheap answer.
+
+**Partitioning strategies.** There are two, and they trade the same thing in
+opposite directions:
+
+```text
+Range partitioning       key space cut into contiguous ranges
+  keeps range scans      "all orders in March" is one or two shards
+  invites hotspots       today's writes all land on the newest range
+
+Hash partitioning        shard = hash(key) mod N, or a hash ring
+  spreads writes evenly  no shard is hotter than another by construction
+  destroys range scans   "all orders in March" touches every shard
+```
+
+**Sizing.** The number of shards comes out of the write rate and the reference
+ceiling for one node, not out of a preference:
+
+```text
+Assumptions
+  20,000 writes/s at peak
+  one indexed relational primary ≈ a few thousand writes/s, call it 2,000
+  4 TB of data today, growing about 2 TB/year
+
+Shards needed for the write path
+  20,000 ÷ 2,000  =  10   → round up to 16 for headroom and clean key ranges
+
+What replication would have done instead
+  each replica applies all 20,000 writes as well
+  → more read capacity, more durability, the same write ceiling
+```
+
+**The shard key.** This is the decision you cannot undo cheaply, because it
+decides which machine every row lives on, which queries are one hop, and which
+are a fan-out to every shard. Three failure shapes recur.
+
+A **hot key** puts disproportionate traffic on one shard: partition a
+social product by author and one account with fifty million followers makes one
+shard the whole system's bottleneck while the others idle. A **monotonically
+increasing key** — an auto-increment id, a timestamp — sends every new write to
+the newest range, so under range partitioning you have built one active shard and
+fifteen archives. And a key that **does not appear in your common queries** turns
+every read into a scatter-gather across all shards, which costs the slowest shard
+every time.
+
+The usual repairs are composite and deliberate: hash the key to spread it, prefix
+it with something that varies (a tenant id, a bucket number) so that time still
+sorts inside a partition, and give any known outlier its own treatment rather
+than pretending the distribution is uniform.
+
+<Callout variant="warning">
+  **Resharding is a migration, not a setting.** Changing the key or the shard
+  count means every row may need to move. The real operation is: stand up the
+  new layout, dual-write or replay a change stream into it, backfill the
+  history, verify the two agree, cut reads over, then cut writes and keep a
+  rollback path. It runs for as long as copying the data takes — and the system
+  is serving traffic throughout.
+</Callout>
+
+```text
+Moving 4 TB between shards over a link also carrying live traffic
+  4 TB  =  32 Tbit  =  32,000,000 Mbit
+  at 500 Mbps of usable copy bandwidth
+  32,000,000 ÷ 500  =  64,000 s  ≈  18 hours for one copy pass
+  before verification, before cutover, before rollback rehearsal
+```
+
+That arithmetic is the argument for consistent hashing and virtual nodes, which
+exist to make the moved fraction small: adding one machine to a ring of N moves
+roughly 1/N of the data rather than remapping everything. It is also the argument
+for doing everything else first.
+
+## Trade-offs
+
+**Do the cheaper things before sharding.** Read replicas and a cache for the read
+path. [Better indexes](/learn/sd-relational-databases/) and shorter transactions
+for the write path. Moving blobs to
+[object storage](/learn/sd-object-storage/) and cold rows to an archive, which
+shrinks the working set.
+Functional partitioning — putting a heavy table on its own database — buys a
+whole machine's capacity for one schema change and keeps every query
+single-node.
+
+**What sharding costs.** Cross-shard joins move into the application as
+scatter-gather with a slowest-shard tail. Transactions across shards need
+two-phase commit or a redesign that avoids them, and the redesign is usually
+better. Uniqueness across shards is no longer free. Operations multiply: sixteen
+primaries and their followers are sixteen failovers, backups and upgrades. And
+the schema change you used to run in one place now runs sixteen times.
+
+**When to shard.** When one primary's write path is genuinely saturated, or the
+working set no longer fits in memory anywhere, or the data volume is past what
+one machine can hold or restore in an acceptable time. Not before — a partitioned
+table holding fifty thousand rows is cost with no benefit.
+
+## Common pitfalls
+
+- **Adding replicas to fix a write bottleneck.** Tempting because "add capacity"
+  sounds general, and replicas are the easiest capacity to add. They apply every
+  write themselves, so the ceiling does not move.
+- **Sharding on the auto-increment primary key with range partitioning.**
+  Tempting because it is the column you already have and the ranges are tidy.
+  Every write goes to the last shard.
+- **Assuming failover is lossless.** With asynchronous replication the promoted
+  follower is behind, so some acknowledged writes are gone. Decide whether that
+  is acceptable _before_ the incident, and configure a synchronous follower if it
+  is not.
+- **Letting the application join across shards in a loop.** Tempting because each
+  call is fast. It is N round trips and the p99 is the slowest shard's, every
+  time.
+- **No plan for the second reshard.** The first one is survived on adrenaline. If
+  the tooling is not kept, the next growth step is the same project again.
+
+## Interview notes
+
+Answer the two questions separately and in order, because interviewers listen for
+whether you can tell them apart. "Reads are 30,000 per second — replicas and a
+cache. Writes are 20,000 per second against a primary that does a couple of
+thousand — that is the part that needs sharding." Two problems, two tools, stated
+as two sentences.
+
+Then commit to a shard key and immediately name what it costs. "Partition by
+`tenant_id`, hashed, because every query in the product is scoped to a tenant;
+the price is that cross-tenant analytics has to fan out, so I would send that to
+a separate analytics store." Naming the query your key makes expensive is the
+signal that you have chosen rather than guessed.
+
+## Key takeaways
+
+- **Replication copies data; partitioning splits it.** They solve different
+  problems and are not substitutes.
+- **Replicas buy reads, availability and durability — never write capacity**,
+  because every replica applies every write.
+- **Hash partitioning spreads writes and destroys range scans; range
+  partitioning preserves scans and invites hotspots.**
+- **The shard key decides which queries are one hop and which are a fan-out**,
+  and hot keys, monotonic keys and keys absent from your queries are the three
+  recurring mistakes.
+- **Resharding is a data migration with dual writes, backfill, verification and
+  cutover** — measured in hours or days of copying, so exhaust replicas, caching,
+  indexing and archiving first.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A database is at 95% CPU, and the load is almost entirely writes. A colleague proposes adding two read replicas. What will happen?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Nothing helpful, and slightly worse than nothing. Under single-leader
+  replication the primary still accepts every write, so the work saturating it
+  is untouched — and it now also has to serve the replication stream to two more
+  followers, which adds network and bookkeeping to a node with no headroom. The
+  premise says the load is almost entirely writes, so there is no meaningful
+  read traffic on the primary for the replicas to take away. What would move the
+  ceiling: reducing the write work itself (dropping unused indexes, shortening
+  transactions, batching), moving a heavy table to its own database, or
+  partitioning the write path across shards. Replicas are the right answer to a
+  read problem and the wrong answer to this one.
+</PracticeCheck>
+
+**2. A multi-tenant analytics product shards by `event_timestamp` in ranges. Writes are 15,000 per second across sixteen shards. Why is fifteen of those sixteen machines idle?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because a timestamp only ever increases, and range partitioning sends a key to
+  the shard whose range contains it. Every event happening now falls in the
+  newest range, so all 15,000 writes per second land on one shard while the
+  other fifteen hold history that nobody is writing to — the cluster has the
+  write ceiling of a single machine and the operational cost of sixteen. Reads
+  are lopsided in the same way, since recent data is what most queries want. The
+  fix is to make the leading part of the key something that varies across
+  concurrent writes: hash on `tenant_id`, or use a composite key of tenant and
+  time so that time still sorts *inside* a partition while the partition itself
+  is chosen by something with spread. Time is a good clustering key and a bad
+  partition key.
+</PracticeCheck>
+
+**3. A sharded store has grown from 4 shards to needing 8. Why is "change the modulus from 4 to 8" not a deployment step?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because the modulus is what says where every existing row lives, so changing
+  it relocates most of the data: with `hash(key) mod N`, going from 4 to 8 moves
+  roughly half of every shard's rows, and until a row has actually been copied,
+  reads computed with the new modulus look in a shard that does not have it.
+  There is no instant at which both are true, which is why this is a migration —
+  stand up the new layout, dual-write, backfill the history, verify the copies
+  agree, cut reads over, then writes, keeping a rollback path throughout — and
+  the copying alone runs for hours against terabytes on a live system. A hash
+  ring with virtual nodes is the structural answer: it moves about 1/N of the
+  data when a node is added instead of half of it, which turns the same growth
+  step into a much smaller migration rather than into no migration at all.
+</PracticeCheck>

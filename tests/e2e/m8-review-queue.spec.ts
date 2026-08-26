@@ -24,6 +24,7 @@ import { openCustomInput } from './utils/disclosure';
 import {
   blockStorage,
   cardPips,
+  coursePage,
   completeKey,
   curriculum,
   daysAgo,
@@ -125,8 +126,10 @@ async function expectZeroStripDom(page: Page): Promise<void> {
  * "nothing was due" and "nothing works".
  */
 async function expectIslandAlive(page: Page): Promise<void> {
-  await expect(trackArc(page, 'foundations')).toBeVisible();
-  await expect(trackCount(page, 'foundations')).toHaveText(
+  // The catalogue's own ring is per COURSE since decision D-05 — same
+  // `renderTracks` pass, same proof that the island reached the end of a render.
+  await expect(trackArc(page, 'dsa')).toBeVisible();
+  await expect(trackCount(page, 'dsa')).toHaveText(
     /^\d+ of \d+ done on this device$/,
   );
 }
@@ -421,8 +424,11 @@ test.describe('following an invitation', () => {
 
     await page.goto(LEARN);
     // Reviewed today, so it is not offered again: the invitation was answered,
-    // not merely dismissed.
+    // not merely dismissed. The strip is on the catalogue; the card that shows
+    // the new stage is on the course page (decision D-05), so the loop closing
+    // is proved on both.
     await expectZeroStripDom(page);
+    await page.goto(coursePage());
     await expect(cardPips(page, slug)).toHaveAttribute(
       'data-stage',
       'mastered',
@@ -544,7 +550,7 @@ test.describe('degraded — no JS, no store', () => {
       );
 
       // DISCRIMINATOR: the M7 page underneath is intact and navigable.
-      await expect(page.locator('[data-lesson-card]').first()).toBeVisible();
+      await expect(page.locator('[data-course-card]').first()).toBeVisible();
       await expect(page.locator('[data-resume-link]')).toBeVisible();
     });
   });
@@ -567,7 +573,7 @@ test.describe('degraded — no JS, no store', () => {
     await expectZeroStripDom(page);
     // DISCRIMINATOR: the index is fully usable, so the island degraded rather
     // than taking the page down with it.
-    await expect(page.locator('[data-lesson-card]').first()).toBeVisible();
+    await expect(page.locator('[data-course-card]').first()).toBeVisible();
     await expect(page.locator('[data-resume-link]')).toBeVisible();
     expect(errors, 'no script may throw when storage is blocked').toEqual([]);
   });

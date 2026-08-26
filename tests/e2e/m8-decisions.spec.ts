@@ -53,6 +53,11 @@ import {
 const LESSON = 'arrays';
 const LESSON_URL = `/learn/${LESSON}/`;
 const LEARN = '/learn/';
+/**
+ * The page holding the lesson cards and the module arcs. `/learn/` is the
+ * catalogue since the course expansion (decision D-05).
+ */
+const COURSE = '/learn/dsa/';
 
 /**
  * Countdown shapes, in any wording — a number of time units that could only be
@@ -256,6 +261,9 @@ test.describe("the curriculum card's accessible name is its content", () => {
   }) => {
     const lessons = await curriculum(page);
     const target = lessons[0]!;
+    // The cards moved to the course page with decision D-05; `curriculum` still
+    // reads the catalogue, which injects every course's lessons.
+    await page.goto(COURSE);
     const card = page.locator(`[data-lesson-card][data-slug="${target.slug}"]`);
 
     // The rule, checked across EVERY card so a single "fixed" one cannot slip
@@ -301,7 +309,8 @@ test.describe("the curriculum card's accessible name is its content", () => {
     const lessons = await curriculum(page);
     const target = lessons[0]!;
     await seedComplete(page, [target.slug]);
-    await page.reload();
+    // The cards moved to the course page with decision D-05.
+    await page.goto(COURSE);
 
     const card = page.locator(`[data-lesson-card][data-slug="${target.slug}"]`);
     await expect(cardLabel(page, target.slug)).toHaveText('Learned');

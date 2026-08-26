@@ -147,12 +147,25 @@ test.describe('the artifact under a sub-path (Plan D R3)', () => {
     await page.getByRole('link', { name: 'LearnDSA' }).first().click();
     await expect(page).toHaveURL(`${prefix}/`);
 
-    // …and back down into a lesson from the home curriculum, which is how a
-    // reader actually arrives.
-    await page.locator('.curriculum .track__lesson').first().click();
+    // …and back down through the home curriculum, which is how a reader
+    // actually arrives. Since decision D-05 the home page names the COURSES and
+    // their modules, so the walk is root → course page → lesson. The module row
+    // carries a FRAGMENT as well as a path, which is the case a relative rewrite
+    // is most likely to mangle.
+    await page.locator('.curriculum .course-block__item').first().click();
+    await expect(page).toHaveURL(
+      new RegExp(`^.*${prefix}/learn/[a-z0-9-]+/#track-[a-z0-9-]+$`),
+    );
+    await page.locator('[data-lesson-card]').first().click();
     await expect(page).toHaveURL(new RegExp(`^.*${prefix}/learn/[a-z0-9-]+/$`));
     await expect(page.locator('h1')).toBeVisible();
 
+    // Let the last page finish fetching before judging what failed to load. A
+    // lesson page pulls its island chunks after `h1` is painted, so ending the
+    // test there aborts requests that were fine — which reads as a broken
+    // sub-path and is not one. The walk grew a hop with decision D-05, which is
+    // what made the race visible.
+    await page.waitForLoadState('networkidle');
     expect(failures, 'requests the browser could not load').toEqual([]);
   });
 
@@ -275,7 +288,14 @@ test.describe('the artifact under a sub-path — the reader’s walk', () => {
       .click();
     await expect(page).toHaveURL(`${prefix}/learn/`);
 
-    // Depth 1 → depth 2. The card IS the anchor (`<a data-lesson-card>`), and
+    // Depth 1 → depth 2, through the catalogue's course card. `/learn/` lists
+    // the courses since the expansion (decision D-05), so the reader's walk has
+    // one more hop — and it is a hop between two pages at the SAME depth, which
+    // is the case a document-relative href gets wrong most easily.
+    await page.locator('[data-course-card][data-course="dsa"]').click();
+    await expect(page).toHaveURL(`${prefix}/learn/dsa/`);
+
+    // Depth 2 → depth 2. The card IS the anchor (`<a data-lesson-card>`), and
     // its href is written by the build, so this is the ordinary reader path.
     await page.locator('[data-lesson-card][data-slug="binary-search"]').click();
     await expect(page).toHaveURL(`${prefix}/learn/binary-search/`);

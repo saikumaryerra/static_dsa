@@ -1,0 +1,294 @@
+---
+title: 'RBAC and ServiceAccounts'
+slug: 'k8s-rbac'
+course: 'kubernetes'
+track: 'k8s-security'
+order: 35
+summary: 'RBAC is a permit book with no eraser: a binding grants, nothing revokes, and the only honest way to know what a subject can do is to ask the API server with kubectl auth can-i.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-namespaces-and-kubectl', 'k8s-objects-and-manifests']
+estimatedMinutes: 9
+tags: ['kubernetes', 'rbac', 'serviceaccount', 'security', 'least-privilege']
+explainPrompt: 'Why can adding a RoleBinding never take away a permission that another binding already granted?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Read a Role and say exactly which requests it permits.
+- Bind a permission to a person and to a workload, and say why the two are
+  different kinds of subject.
+- Check a permission by asking the API server rather than by reading YAML.
+- Cut a workload off from the API server when it has no business calling it.
+
+## Intuition
+
+Every request the API server accepts is answered in stages. The first is
+authentication, which decides _who is asking_; the second is authorization,
+which decides _whether that requester may do this verb, to this resource, in
+this namespace_. Later stages — admission, where the cluster applies rules of
+its own — belong to [Admission Control](/learn/k8s-admission-control/).
+Role-Based Access Control — RBAC — is the authorizer nearly every cluster runs,
+and it is a small idea with sharp edges.
+
+**RBAC is a permit book, not a set of locks.** A rule is one sentence: these
+verbs, on these resources, in this API group. A request is allowed when some
+rule bound to the requester says so, and denied otherwise. That is the entire
+evaluation, and it does not depend on the order the rules were written in.
+
+Two consequences follow, and they are the two people get wrong.
+
+**It is additive, and there is no deny.** Nothing in the API expresses "may
+not". A subject holds the union of every rule bound to them, so adding a binding
+can only widen what they can do. Withdrawing a permission means finding and
+deleting every binding that granted it; there is no rule you can add that
+cancels another one.
+
+**Kubernetes has no User object.** `kubectl get users` is not a command, because
+a user is whatever the authenticator reports: a certificate subject, a claim in
+an OIDC token, a name your cloud provider hands over. RBAC binds to that name as
+a plain string. Misspell it and the binding is created, stored and listed
+happily, granting permissions to nobody at all.
+
+A ServiceAccount is the mirror image — a real, namespaced object you create, and
+the identity a Pod presents when it calls the API server. People arrive from
+outside the cluster; workloads are issued an identity inside it.
+
+## How it works
+
+Four kinds, and the split between them is the whole design:
+
+| Object               | Says                                    | Scope         |
+| -------------------- | --------------------------------------- | ------------- |
+| `Role`               | which verbs on which resources          | one namespace |
+| `ClusterRole`        | the same, plus cluster-scoped resources | whole cluster |
+| `RoleBinding`        | who holds a Role or ClusterRole         | one namespace |
+| `ClusterRoleBinding` | who holds a ClusterRole                 | whole cluster |
+
+A Role carries no subjects, and a binding carries no rules. Keeping them apart
+is what lets one set of rules be handed to twenty subjects without being written
+twenty times.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: log-reader
+  namespace: shop
+rules:
+  - apiGroups: ['']
+    resources: ['pods', 'pods/log']
+    verbs: ['get', 'list', 'watch']
+```
+
+The empty string in `apiGroups` is the core group — the one that gives you
+`v1` — and it is written as `''` rather than omitted. `pods/log` is a
+subresource, and it is separate from `pods` on purpose: reading the object and
+reading what the container printed are different privileges.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: log-reader
+  namespace: shop
+subjects:
+  - kind: User
+    name: alice@example.com
+    apiGroup: rbac.authorization.k8s.io
+  - kind: ServiceAccount
+    name: log-reader
+    namespace: shop
+roleRef:
+  kind: Role
+  name: log-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+One binding, two subjects, one shared set of rules. A `User` subject carries the
+RBAC API group because the name is an external string; a `ServiceAccount`
+subject carries a namespace instead, because it names an object.
+
+The pairing worth memorising is the crossed one: **a RoleBinding may reference a
+ClusterRole**, and the rules then apply only inside that binding's namespace.
+This is how the built-in `view`, `edit` and `admin` ClusterRoles are reused
+across forty namespaces without forty copies of the rules.
+
+### Ask, do not read
+
+A Role plus a binding plus a group membership you cannot see is not something to
+evaluate in your head. Ask the server that will actually decide:
+
+```bash
+kubectl auth can-i get pods -n shop
+kubectl auth can-i delete secrets -n shop
+```
+
+```text
+yes
+no
+```
+
+Those answer for you, one line each, and when a teammate says a permission is
+not working they settle it on the spot. Asking on somebody else's behalf takes
+`--as`, which needs impersonation permission of your own and names a
+ServiceAccount as `system:serviceaccount:shop:log-reader`:
+
+```bash
+kubectl auth can-i --list -n shop --as alice@example.com
+```
+
+That prints a table of every rule applying to the subject, a column each for
+resources, non-resource URLs, resource names and verbs. It is the fastest way to
+find the binding you forgot about.
+
+### The token a Pod gets
+
+Every Pod runs as a ServiceAccount — the namespace's `default` one if you name
+none — and the kubelet supplies its credential as a **projected volume**: a
+signed token that is short-lived, bound to a named audience, tied to the Pod,
+and refreshed in place by the kubelet before it expires. It is not a long-lived
+Secret sitting in the namespace waiting to be copied. `kubectl create token`
+mints an equivalent one on demand for scripts and CI.
+
+The `default` ServiceAccount can do almost nothing, which is correct — and a Pod
+that never calls the API server should not carry the credential at all:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: web
+          image: nginx:1.29
+```
+
+That one field removes the mounted token, so a compromised container has no
+cluster credential to steal. The same field on a ServiceAccount object turns it
+off for every Pod using that account, and the Pod-level setting wins.
+
+<Callout variant="warning">
+  Permission to create Pods in a namespace is permission to _use any
+  ServiceAccount in that namespace_, and therefore to act with its rules. That
+  is the escalation path most audits miss: a developer with `create` on `pods`
+  and nothing else can run a Pod as a ServiceAccount that reads every Secret.
+  Reading Secrets through the API is only one of the routes listed in [Secret
+  Management in Practice](/learn/k8s-secret-management/).
+</Callout>
+
+## Trade-offs
+
+**Least privilege costs iterations.** The honest workflow is to grant nothing,
+run the workload, read the `Forbidden` error, and add exactly the verb and
+resource it names. That is three or four rounds for a controller. The tempting
+shortcut — bind `cluster-admin` now and narrow it later — never gets narrowed,
+because nothing fails once it is broad.
+
+**Wildcards and aggregation trade review for reach.** `verbs: ['*']` on
+`resources: ['*']` is one line and unreviewable; enumerating verbs is longer and
+tells the next reader what the workload does. Aggregation is the same trade
+made slowly: an aggregated ClusterRole holds no rules of its own and collects
+them from every ClusterRole carrying a matching label, so what it grants widens
+when somebody creates an unrelated object — which is how the built-in `view` and
+`edit` come to cover a CRD an add-on installed last week. ClusterRoleBindings
+have the same shape of problem: they are cluster-wide and namespace-less, so a
+mistake in one has no blast-radius limit.
+
+**Some verbs are worth more than they look.** `escalate` and `bind` let a
+subject grant permissions they do not hold. `impersonate` lets them become
+somebody else. `create` on `pods/exec` is a shell in a running container. None
+of those read as dangerous in a diff of a `verbs` list.
+
+## Common pitfalls
+
+- **Auditing by reading YAML.** Group memberships, aggregated ClusterRoles and
+  the bindings shipped by add-ons are all invisible in your own manifests.
+  `kubectl auth can-i --list --as` is the only answer that comes from the
+  component that decides.
+- **Expecting a deny rule to exist.** People write a narrow Role, see the subject
+  do something anyway, and look for the deny they need to add. The permission is
+  coming from a second binding, and the fix is to delete it.
+- **A ClusterRole where a Role was meant.** Binding a ClusterRole with a
+  ClusterRoleBinding grants it in every namespace, including the ones holding
+  other teams' Secrets. The manifests differ by one word.
+- **Leaving `default` mounted everywhere.** The token is mounted unless you say
+  otherwise, so every container in the cluster ships a cluster credential by
+  default, including the ones that only serve static files.
+- **Binding a name nobody has.** A `User` subject is an unvalidated string, so
+  `alice` and `alice@example.com` are two different people and only one of them
+  exists.
+
+## Key takeaways
+
+- **RBAC is allow-only and additive.** A subject holds the union of every rule
+  bound to them, and no rule can subtract from another.
+- **Roles say what, bindings say who** — and a RoleBinding pointed at a
+  ClusterRole grants those rules inside one namespace.
+- **Users are external strings; ServiceAccounts are objects.** Only the second
+  kind can be created, listed or misspelled into existence.
+- A Pod's credential is a **projected, audience-bound, short-lived token**
+  refreshed by the kubelet, and `automountServiceAccountToken: false` removes it
+  from workloads that never call the API.
+- **`kubectl auth can-i` is the answer to "does this actually work"**, because it
+  asks the same authorizer the real request will hit.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Role in the `shop` namespace grants only `get` on `configmaps`. Its holder deletes a Deployment in `shop` anyway. What is the most likely explanation, and what will not fix it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  A second binding is granting the permission, and RBAC has given the subject
+  the union of both. The candidates are a ClusterRoleBinding that applies in
+  every namespace, a RoleBinding in `shop` pointing at a broad ClusterRole such
+  as `edit`, or a binding to a group the person belongs to rather than to their
+  name. What will not fix it is editing the narrow Role: there is no deny rule,
+  so nothing you add to one Role can cancel a grant made somewhere else. Find
+  the other binding with `kubectl auth can-i --list --as`, then delete or narrow
+  it.
+</PracticeCheck>
+
+**2. A developer has `create` on `pods` in `payments` and no permission on `secrets` at all. Why is that not the boundary it looks like?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Creating a Pod includes choosing the ServiceAccount it runs as, and any
+  ServiceAccount in that namespace is available to it. If one of them can read
+  `secrets` — a controller's account, or one somebody bound `edit` to — the
+  developer runs a Pod under that account and acts with its rules. Their own
+  rules are never consulted, because the requests come from the Pod's identity,
+  not from them. So the permissions of every ServiceAccount in a namespace are
+  effectively the ceiling for anyone who can run a Pod there, which is why
+  namespace design and RBAC design are the same exercise.
+</PracticeCheck>
+
+**3. Your team wants an audit that lists every person who can delete a Deployment in production. Why is reading the RBAC manifests in Git not enough?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The manifests are one input among several. Group membership comes from the
+  authenticator, not from the cluster, so a binding to a group tells you nothing
+  about who is in it. Add-ons and the distribution itself install their own
+  ClusterRoles and bindings that were never in your repository. Aggregated
+  ClusterRoles collect rules from other ClusterRoles by label, so the rules a
+  binding grants can change when an unrelated object is created. And a binding
+  in Git may name a subject who no longer exists, or omit one who does. The
+  audit has to be run against the live API server — `kubectl auth can-i delete
+  deployments --as` per subject — because that is the component whose answer is
+  the one that counts.
+</PracticeCheck>

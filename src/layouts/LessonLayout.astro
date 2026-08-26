@@ -44,6 +44,7 @@ import WhatsNext from '../components/WhatsNext.astro';
 import { courseJsonLd } from '../lib/structured-data';
 import type { LessonRef } from '../lib/progress';
 import type { Track } from '../lib/tracks';
+import type { CourseId } from '../lib/courses';
 import type { CollectionEntry } from 'astro:content';
 import type { MarkdownHeading } from 'astro';
 
@@ -70,6 +71,8 @@ interface Props {
   summary: string;
   difficulty: 'beginner' | 'intermediate';
   track: Track;
+  /** The course this lesson belongs to — the breadcrumb's middle crumb. */
+  course: CourseId;
   estimatedMinutes: number;
   readingMinutes: number;
   slug: string;
@@ -86,6 +89,7 @@ const {
   summary,
   difficulty,
   track,
+  course,
   estimatedMinutes,
   readingMinutes,
   slug,
@@ -119,7 +123,7 @@ const explainPrompt = entry.data.explainPrompt;
   <div class="lesson">
     <div class="lesson__grid">
       <article class="lesson__article">
-        <Breadcrumb track={track} title={title} />
+        <Breadcrumb course={course} track={track} title={title} />
 
         <header class="lesson__header">
           <h1>{title}</h1>
@@ -144,24 +148,54 @@ const explainPrompt = entry.data.explainPrompt;
               </svg>
               {estimatedMinutes} min lesson
             </span>
-            <span aria-hidden="true" class="lesson__dot">·</span>
-            <span class="lesson__meta-item">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-              </svg>
-              {readingMinutes} min read
-            </span>
+            {
+              /* The reading estimate, shown ONLY when it is smaller than the
+                 lesson estimate — because the pair means "the whole lesson
+                 takes N, of which M is reading", and that sentence is only
+                 informative when M < N.
+
+                 The course expansion is what made the guard necessary. Every
+                 lesson used to carry a visualization, so the doing time was
+                 always real and the two numbers always differed (binary search
+                 still reads "10 min lesson · 7 min read"). A prose lesson has
+                 no visualization, so the two computations converge: 46 of 127
+                 lessons rendered the same number twice, and 14 rendered a
+                 READING time longer than the lesson time that is supposed to
+                 contain it — a header contradicting itself.
+
+                 The rejected alternative was to redefine `estimatedMinutes` as
+                 `readingMinutes + 2..5` and re-derive it for every lesson. It
+                 was measured: 93 of 112 lessons would have been restated 2-3
+                 minutes longer, inflating every course total, to satisfy a
+                 formula rather than a judgement about how long a lesson takes.
+                 Suppressing a duplicate is the smaller and truer change. */
+            }
+            {
+              readingMinutes < estimatedMinutes && (
+                <>
+                  <span aria-hidden="true" class="lesson__dot">
+                    ·
+                  </span>
+                  <span class="lesson__meta-item">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                    </svg>
+                    {readingMinutes} min read
+                  </span>
+                </>
+              )
+            }
 
             {
               /* Where this lesson stands, in the one progress currency (M8.1).
@@ -214,7 +248,13 @@ const explainPrompt = entry.data.explainPrompt;
 
         <hr class="lesson__rule lesson__rule--wide" />
 
-        <WhatsNext slug={slug} lessons={lessons} prev={prev} next={next} />
+        <WhatsNext
+          slug={slug}
+          lessons={lessons}
+          prev={prev}
+          next={next}
+          course={course}
+        />
 
         {
           /* The note sits AFTER that section, not inside it: it appears on the
@@ -368,7 +408,9 @@ const explainPrompt = entry.data.explainPrompt;
      extra width was bought for the drawing. A bench takes all of it. */
   .lesson-body :global(> .viz),
   .lesson-body :global(> .codetabs),
-  .lesson-body :global(> .complexity-table) {
+  .lesson-body :global(> .complexity-table),
+  .lesson-body :global(> .table-scroll),
+  .lesson-body :global(> .figure) {
     max-width: var(--container-max);
   }
 
@@ -384,6 +426,64 @@ const explainPrompt = entry.data.explainPrompt;
 
   .lesson-body :global(.bench__stage > *) {
     max-width: 100%;
+  }
+
+  /* ---- Markdown prose artifacts (course expansion, decision D-09) ---- */
+
+  /* A fenced code block. `md-code` is added by the rehype pass in
+     astro.config.mjs and can ONLY be on a real markdown fence — `<CodeTabs>`'
+     `<pre>` never passes through rehype — so this rule and the one inside that
+     component cannot fight. The recipe is deliberately the same as CodeTabs':
+     one code block should not look like two things on one site.
+     `tabindex="0"` comes from the same pass, so a block wide enough to scroll
+     is reachable from the keyboard (WCAG 2.1.1). */
+  .lesson-body :global(pre.md-code) {
+    margin: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    font-size: var(--text-sm);
+    overflow-x: auto;
+  }
+
+  /* Markdown tables. The wrapper is what scrolls, so the `<table>` keeps its
+     semantics; `min-width: 100%` lets a narrow table still fill the column
+     while a wide one overflows its wrapper rather than the page. */
+  .lesson-body :global(.table-scroll) {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .lesson-body :global(.table-scroll > table) {
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
+  }
+
+  .lesson-body :global(.table-scroll th),
+  .lesson-body :global(.table-scroll td) {
+    padding: var(--space-3) var(--space-4);
+    text-align: start;
+    vertical-align: top;
+    border-block-end: 1px solid var(--border);
+  }
+
+  .lesson-body :global(.table-scroll th) {
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .lesson-body :global(.table-scroll td) {
+    color: var(--text-muted);
+  }
+
+  .lesson-body :global(.table-scroll tbody tr:last-child th),
+  .lesson-body :global(.table-scroll tbody tr:last-child td) {
+    border-block-end: none;
   }
 
   /* M7.1 RSP-4: a visualizer wrapped in an anchor/test-hook div (e.g.

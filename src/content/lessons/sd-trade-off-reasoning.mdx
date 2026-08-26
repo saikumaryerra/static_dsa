@@ -1,0 +1,203 @@
+---
+title: 'Reasoning About Trade-offs'
+slug: 'sd-trade-off-reasoning'
+course: 'system-design'
+track: 'sd-foundations'
+order: 4
+summary: 'A decision is a choice, a reason and an accepted cost. Write all three, name the alternative you rejected, and say what would make you revisit it.'
+difficulty: 'beginner'
+prerequisites: ['sd-design-workflow', 'sd-capacity-estimation']
+estimatedMinutes: 9
+tags: ['system-design', 'trade-offs', 'decisions', 'architecture']
+explainPrompt: 'Why is a choice nobody can argue against not yet a decision?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Write a decision as a choice, a reason with a number in it, and an accepted cost.
+- Name the alternative you rejected and what would make you revisit the choice.
+- Spend argument on the decisions that are expensive to undo.
+
+## Intuition
+
+[A Repeatable Design Workflow](/learn/sd-design-workflow/) established that a
+design is a set of trades rather than a set of choices, and that a decision
+nobody can argue with has not been made. This lesson is about the form the
+argument takes.
+
+**A trade has two sides, and most write-ups record one.** "We use a cache" names
+the benefit and hides the price, which is exactly why it feels agreeable in a
+review. The complete sentence has three parts: the choice, the reason that made
+it the better option, and the cost you are knowingly accepting in exchange — and
+a fourth that almost nobody writes down, which is what would make you revisit
+it.
+
+The reason has to come from outside your own taste. In practice it comes from one
+of two places you already have: a number from
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/), or a line from the
+non-functional list in
+[Functional and Non-Functional Requirements](/learn/sd-requirements/). QPS
+appears in most of them, because most architectural constraints are ultimately a
+rate.
+
+## How it works
+
+Write the decision in five labelled parts. The labels matter more than the
+format: each one is a question people forget to answer.
+
+```text
+Decision   Cache the catalogue read path in memory, 60-second TTL.
+Because    Catalogue reads peak near 6,000 QPS; edits run about 5 per minute,
+           so peak reads outnumber average edits by roughly 70,000 to 1.
+Cost       An edit is invisible for up to 60 s.
+           A cold cache sends full read traffic at the primary, which cannot
+           serve it — the cache is load-bearing, not an optimisation.
+Rejected   Read replicas alone. They add capacity but save little per read,
+           and the estimate says the binding constraint is request rate.
+Revisit    If editors report stale reads, or if peak reads pass 20,000 QPS.
+```
+
+**Because** is where the number goes. **Cost** is the half that gets dropped, and
+it has to be a cost you would actually notice — the second line above is the one
+that matters, because it converts a performance optimisation into a component
+with its own availability requirement. **Rejected** proves you compared against
+something; a choice with no named alternative was not a choice. **Revisit** turns
+the decision into something reviewable instead of permanent.
+
+**The costs repeat.** Most architectural decisions are drawn from a small set of
+trades, and knowing the set means you can state the cost before you have finished
+thinking about the choice.
+
+| Decision                   | What you buy                     | What you pay                                         |
+| -------------------------- | -------------------------------- | ---------------------------------------------------- |
+| Add a cache                | read throughput, lower latency   | staleness, and a cold-start failure mode             |
+| Add read replicas          | read capacity, availability      | replication lag, and reads that disagree             |
+| Partition the data         | write capacity, storage headroom | cross-partition queries, and a key you cannot change |
+| Do the work asynchronously | fast responses, burst absorption | delay, duplicates, and out-of-order work             |
+| Denormalise                | fewer joins, faster reads        | write amplification, more places to be wrong         |
+| Stronger consistency       | simpler application code         | latency, and less availability during a partition    |
+| One more nine              | fewer and shorter outages        | redundancy cost, and operational load                |
+| Use a managed service      | less to operate                  | less control, and a dependency you cannot fix        |
+
+The right-hand column is not a warning. It is the sentence you owe the reader,
+and every entry in it is a topic the next module makes precise: replication lag,
+delivery semantics, availability during a partition, idempotency, and the retry
+behaviour that turns a slow dependency into an outage.
+
+**Then weigh the argument by reversibility.** A cache TTL is a configuration
+change; a partition key is in every row you have ever written, and changing it is
+a migration. Spend the discussion where the undo is expensive. A cheap,
+reversible decision made quickly and revisited later beats a correct decision
+made three weeks late, and the reverse is true for the expensive ones.
+
+<Callout variant="tip">
+  When two options look close, ask which one you would rather be wrong about.
+  That question is usually more answerable than "which is better", and it
+  answers the question you actually face, because you will be wrong about some
+  of them.
+</Callout>
+
+## Trade-offs
+
+**The discipline is not free.** Writing five labelled parts for every choice
+turns a design review into a document review, and a team that does it for
+everything spends its attention on decisions that did not need it. Reserve the
+full form for what is expensive to undo, and let the rest be a sentence.
+
+**A stated cost can become a stated excuse.** "We knew about that" is not the
+same as "we accepted that", and a written trade-off can be used afterwards to
+make a bad outcome look intended. The protection is **Revisit**: a cost with a
+threshold attached is a commitment to look again, not permission to stop
+thinking.
+
+**Some decisions genuinely have no interesting trade-off.** Storing passwords
+hashed, or putting a database in a private network, are not trades — they are
+requirements. Manufacturing a cost for them wastes the form and teaches people to
+skim it.
+
+## Common pitfalls
+
+- **The one-sided sentence.** "We chose PostgreSQL because it is reliable" names
+  no cost and no alternative, so it cannot be evaluated.
+- **Comparing against nothing.** Every argument for a component is secretly a
+  comparison with the design that omits it. Name that design.
+- **A cost nobody will ever see.** If you cannot say which metric or which user
+  complaint would reveal the cost, you have not identified it yet.
+- **Trading at a scale you do not have.** A multi-region write path bought for a
+  single-region product pays latency on every write and inherits a
+  conflict-resolution problem, and buys nothing at all until there is a second
+  region.
+- **Treating reversible and irreversible decisions the same.** An hour arguing
+  about a cache TTL is an hour not spent on the partition key.
+
+## Interview notes
+
+The complete sentence is the whole skill, and it fits in one breath: "I would
+cache the catalogue for 60 seconds; the cost is up to a minute of staleness after
+an edit, which I think is acceptable for a catalogue; I would revisit it if
+editors complain." Say it that way every time and the discussion becomes a
+conversation between two engineers rather than a quiz.
+
+Two habits help. **Reject something out loud** — naming the option you did not
+take shows the comparison happened. And **say which decision you are least sure
+about**; volunteering the weakest link reads as judgement, and it steers the
+remaining time toward the part worth spending it on.
+
+## Key takeaways
+
+- A decision is **a choice, a reason with a number in it, and an accepted cost**.
+  Two of the three is an announcement.
+- **If nobody can disagree with the sentence, it is not a decision.** Arguability
+  is the test.
+- Name the **rejected alternative** and the **condition that would make you
+  revisit**; without them the choice is neither comparative nor reviewable.
+- The costs repeat: staleness, lag, delay, duplicates, write amplification,
+  cross-partition queries, operational load.
+- **Argue in proportion to the undo cost.** Cheap and reversible decisions should
+  be made quickly.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A design says "we will use a message queue between the upload service and the transcoder". Rewrite it as a decision.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  It needs the other four parts. The choice is the queue; the reason is a
+  number, such as uploads arriving in bursts several times the sustained rate
+  while transcoding runs at a fixed throughput, so without a buffer the burst is
+  dropped or the upload blocks. The cost is that a video is not watchable the
+  moment the upload finishes, that a job can be delivered twice and so must be
+  safe to repeat, and that the queue is now a component that can fill up and
+  needs its own monitoring. The rejected alternative is transcoding inline in
+  the upload request. Revisit if the backlog stops draining within its target.
+</PracticeCheck>
+
+**2. Two candidate storage designs look equally good on paper. What question breaks the tie, and why that one?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Which one is cheaper to be wrong about. Both designs are being judged on
+  assumptions that will turn out partly false, so the useful comparison is not
+  which is better under the assumptions but which leaves you a cheaper exit when
+  they change. A store you can migrate off in a week is worth real performance
+  against one you cannot leave for a year. That question also tends to surface
+  the hidden costs — a partition key baked into every row, a query pattern only
+  one engine supports — which a straight feature comparison hides.
+</PracticeCheck>
+
+**3. A reviewer says: "you listed the cost of the cache, so the design is fine." Why is that not quite right?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because writing a cost down is not the same as accepting it, and neither is
+  the same as being able to detect it. Three things have to hold: someone with
+  the authority to accept up to a minute of staleness has actually accepted it;
+  there is a signal that would reveal the cost being paid, such as a stale-read
+  complaint or a cache-hit ratio falling; and there is a threshold at which the
+  decision gets looked at again. Without those, the cost line is documentation
+  of a risk rather than a decision about one — which is the failure mode the
+  Revisit field exists to prevent.
+</PracticeCheck>

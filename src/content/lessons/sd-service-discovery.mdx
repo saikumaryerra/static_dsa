@@ -1,0 +1,247 @@
+---
+title: 'Service Discovery and Coordination'
+slug: 'sd-service-discovery'
+course: 'system-design'
+track: 'sd-async'
+order: 22
+summary: 'Discovery is a naming problem solved with a registry that is always slightly stale; coordination is an agreement problem solved with consensus, which costs a majority round trip per decision and still needs fencing tokens.'
+difficulty: 'intermediate'
+prerequisites: ['sd-load-balancers', 'sd-consistency-models']
+estimatedMinutes: 9
+tags:
+  ['system-design', 'service-discovery', 'coordination', 'consensus', 'leases']
+explainPrompt: 'Why is a fencing token needed when the leader already holds a lease?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Turn a service name into a healthy address, and bound how stale that answer is.
+- Say what a consensus group costs per decision, and how many failures it takes.
+- Recognise split brain, and fence against it instead of trusting a lease.
+- Keep coordination out of the request path and out of the data path.
+
+## Intuition
+
+**Discovery is a naming problem. Coordination is an agreement problem.** They
+are taught together because the same cluster usually provides both, and they are
+worth separating because their costs differ by orders of magnitude.
+
+Discovery answers "where is the payments service?" when instances start, stop,
+move and fail continuously. A registry holds the current set of addresses and a
+health signal, and hands out an answer. Crucially, **that answer is always a
+little out of date** — an instance can die a microsecond after the registry
+served its address — so discovery is a best-effort optimisation over a client
+that must retry anyway.
+
+Coordination answers "which of you is the leader?", "who holds this lock?",
+"what is the current configuration?" — questions where several machines must
+reach the **same** answer, and where two different answers is a defect rather
+than staleness. That is consensus, and consensus is expensive: every decision
+costs a round trip to a majority, and the group stops deciding entirely when it
+loses one.
+
+The design rule follows from the gap. Discovery is cheap and can be wrong for a
+few seconds. Coordination is costly and must not be wrong, so put as little
+through it as you can.
+
+## How it works
+
+**Registration and health.** An instance registers on start with its address and
+metadata, refreshes a heartbeat, and deregisters on a clean shutdown. Instances
+that die badly are removed when their heartbeat lapses. The window in which a
+name resolves to a dead instance is a sum, and it is longer than people expect:
+detection is interval × threshold plus one timeout, as
+[Load Balancers and Reverse Proxies](/learn/sd-load-balancers/) sets out, plus
+propagation to the registry, plus whatever the client has cached.
+
+```text
+health check every 5 s, timeout 1 s, 3 consecutive failures to eject
+  detection                       =  5 × 3 + 1  =  16 s
+  registry propagation to clients                ≈   5 s
+  client-side cache or DNS TTL of 30 s           ≈  30 s
+  worst case a client dials a dead instance      ≈  51 s
+```
+
+Nearly a minute is why every caller retries against another address, with backoff
+and a budget. No registry setting removes that window; it only makes it shorter
+and the health checks more expensive.
+
+**Two shapes of discovery.** In _client-side_ discovery the caller asks the
+registry for the set and picks an instance itself: one fewer hop and per-caller
+balancing, at the price of a client library in every language. In _server-side_
+discovery the caller sends to a stable address and a proxy resolves: one place
+to operate, at the price of a hop in the path. DNS is the common middle, and it
+inherits DNS's caching behaviour, including clients that ignore TTLs. All three
+are generally accepted industry architecture rather than anybody's proprietary
+design.
+
+**Consensus, and its price.** A consensus algorithm makes a group of nodes agree
+on an ordered sequence of decisions despite crashes and lost messages. Raft
+(Ongaro and Ousterhout, 2014) is what most current systems implement; Paxos is
+the older family it was designed to be more teachable than. The mechanism is a
+majority: a decision commits when more than half the group has durably recorded
+it.
+
+```text
+group of 5 nodes, majority = 3
+  survives 2 failures and still decides
+  loses 3 → the group cannot commit anything, including electing a leader
+
+one decision = one round trip from the leader to a majority
+  inside one datacentre   0.5 ms round trip  →  order of a few thousand
+                                                serialised decisions/s
+  across continents       150 ms round trip  →  single figures per second
+  batching raises the throughput; it cannot lower the latency floor
+```
+
+That table is the argument for keeping coordination small. A store whose write
+path is a majority round trip suits membership, leadership, locks and a few
+kilobytes of configuration, and is hopeless as a database — and a group
+stretched across regions pays the cross-continent floor on every decision, as
+[Consistency Models, CAP and PACELC](/learn/sd-consistency-models/) describes.
+Google's Chubby paper (Burrows, 2006) is a publicly documented example of this
+shape: a lock service that, in practice, was used mostly as a name service and a
+small configuration store.
+
+**Leader election is consensus wearing a hat.** The group agrees on one value —
+"node 3 leads until time T" — and that value is a **lease**, not a fact. The
+danger is a leader that has not noticed it lost the lease: partitioned from the
+group, or paused by garbage collection or a hypervisor stall, it wakes up still
+believing it leads while a new leader is already working. Two leaders, both
+sincere: **split brain**.
+
+<Callout variant="warning">
+  **Fencing tokens are the honest answer to split brain.** Each leadership term
+  carries a number that only increases. The leader sends its token with every
+  write to the shared resource; the resource remembers the highest token it has
+  seen and rejects anything lower. The deposed leader's writes are then refused
+  by the storage rather than prevented by good timing. The term is Kleppmann's
+  (2017); the underlying lease mechanism is Gray and Cheriton's (1989). The
+  limit is honest too — a resource that cannot check a token cannot be fenced,
+  and then the only protection left is making the writes idempotent.
+</Callout>
+
+## Trade-offs
+
+**Use a registry** as soon as instances outnumber what a static list can track,
+or as soon as they move — autoscaling, rolling deploys and failover all
+invalidate hardcoded addresses. **Do not** put a registry in front of a fixed,
+small set of endpoints; a configuration file that changes twice a year is
+cheaper to operate and cannot go down.
+
+**Use consensus** for the small set of facts where disagreement is a bug: who
+leads, who holds a correctness-protecting lock, what the configuration is, which
+members exist. **Do not** put it in the request path for ordinary data; its
+capacity is one serialised decision stream and its dataset is expected to fit in
+memory on every node.
+
+The costs are specific. **Losing a majority stops the group completely**, where
+a single node with a manual failover would be degraded rather than dead — and
+redundancy only helps to the degree failures are independent, so five nodes in
+one rack are five correlated nodes
+([Availability and Durability](/learn/sd-availability-and-durability/)).
+Distributed locks that are only an optimisation are worth having cheaply; locks
+that protect correctness need fencing, or an idempotent resource, or they are
+decoration.
+
+## Common pitfalls
+
+- **Trusting a resolved address.** The registry holds a cached opinion about
+  liveness, so a client without retries and backoff turns every eviction window
+  into user errors — and a runtime that caches an address for the whole process
+  lifetime keeps dialling a machine retired at breakfast.
+- **A registry with no fail-static behaviour.** When the registry is unreachable
+  the correct move is to keep using the last known set; the tempting one is to
+  resolve to nothing, which converts a registry outage into a total outage.
+- **A restart herd.** Every instance re-registering and re-resolving at once
+  after a deploy is a load spike aimed at the one component everything needs.
+- **Treating a lock as a guarantee.** A held lease and a running process are not
+  the same thing once a pause is possible, and the gap is where split brain
+  lives.
+- **Coordinating too much.** Every decision that goes through consensus inherits
+  its latency and its quorum requirement, so a chatty use of it makes the whole
+  system as available as the smallest quorum.
+
+## Interview notes
+
+Say the staleness out loud — a registry is an optimisation over a caller that
+retries, not a source of truth, and quoting the eviction window shows you know
+which.
+
+For anything with a leader, name the failure and the fence in one sentence:
+"leadership is a lease from the consensus group, and because a paused leader can
+wake up believing it still leads, every write to the shared store carries a
+fencing token the store checks." Then say what you deliberately did **not**
+coordinate — that is the sentence that shows you know what it costs.
+
+## Key takeaways
+
+- **Discovery is best-effort naming**: the answer is always slightly stale, so
+  clients retry and the eviction window is interval × threshold, plus one
+  timeout, plus caching.
+- **Consensus costs a majority round trip per decision** — a few thousand a
+  second inside a datacentre, single figures across continents.
+- A group of 5 **tolerates 2 failures and stops entirely at 3**; that is a real
+  availability cost, not only a durability gain.
+- **A leader holds a lease, not a fact.** A paused or partitioned leader that
+  wakes up is split brain.
+- **Fencing tokens** — monotonic per term, checked by the resource — are what
+  make leadership safe; a resource that cannot check one cannot be fenced.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A service is behind a name with a 30-second DNS TTL, and instances are health-checked every 5 seconds with a 3-failure threshold. An instance dies. For how long can callers still be sent to it, and what should they do about it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Add the windows rather than taking the largest. Detection is 5 × 3 = 15
+  seconds plus the failing probe's own timeout before the instance is declared
+  unhealthy, then the change has to propagate to whatever answers queries
+  (another 5 seconds or so), and then a client that resolved the name a moment
+  before the change keeps its cached answer for up to another 30 seconds — so
+  roughly 50 seconds in the worst case, and longer for a client that caches
+  beyond the TTL, which many runtimes do. Shortening the interval and the TTL
+  narrows the window and costs more checks and more lookups; it never closes it,
+  because a healthy instance can die immediately after passing a check. The
+  behaviour that actually fixes it belongs to the caller: connect with a short
+  timeout, retry the next address on a connection failure, and use a retry
+  budget so a widespread failure does not become a retry storm.
+</PracticeCheck>
+
+**2. A team runs a 5-node consensus cluster for leader election and configuration. They propose storing per-user session data in it too, "since it is already replicated and consistent". What do you tell them?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  That the properties they like are exactly what makes it the wrong store for
+  that data. Every write commits by a round trip to a majority, so the cluster
+  handles one serialised stream of decisions — order of thousands per second
+  inside a datacentre — while session writes scale with users and arrive
+  constantly. The dataset is expected to fit in memory on every node, because
+  each node holds a full copy, so sessions would grow it without bound. And the
+  blast radius changes: today losing a majority stops elections and
+  configuration changes, which most systems survive for a few minutes; once
+  sessions live there, the same event logs everybody out. Sessions want a
+  partitioned key-value store with expiry, and the consensus cluster keeps the
+  small, rarely written facts that must not disagree.
+</PracticeCheck>
+
+**3. A leader-elected job holds a 30-second lease. Its process pauses for 45 seconds on a garbage collection, wakes up, and continues writing to shared storage. What has happened, and what would have prevented the damage?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Its lease expired while it was paused, the group elected a new leader, and the
+  old one resumed with no idea that any time had passed — it had not crashed,
+  and nothing tells a process it was frozen. Two leaders are now writing to the
+  same storage, each correctly believing it holds the lease: split brain, from a
+  pause rather than a network fault. Checking the lease before writing does not
+  fix it, because the pause can land between the check and the write. What
+  prevents the damage is fencing: each leadership term carries a number that
+  only increases, the leader sends it with every write, and the storage rejects
+  any write whose token is lower than the highest it has seen — so the old
+  leader's writes are refused rather than merely discouraged. Where the storage
+  cannot check a token, the remaining option is to make the writes idempotent
+  and keyed so a stale leader cannot corrupt anything.
+</PracticeCheck>

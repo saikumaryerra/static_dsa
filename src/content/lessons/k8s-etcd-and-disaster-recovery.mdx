@@ -1,0 +1,243 @@
+---
+title: 'etcd, HA and Disaster Recovery'
+slug: 'k8s-etcd-and-disaster-recovery'
+course: 'kubernetes'
+track: 'k8s-production'
+order: 55
+summary: 'Every part of a cluster can be rebuilt from an image except the one datastore that holds what you asked for — which makes etcd the only thing worth a real backup, and a restore nobody has rehearsed worth very little.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-what-kubernetes-is', 'k8s-backup-and-snapshots']
+estimatedMinutes: 10
+tags:
+  ['kubernetes', 'production', 'etcd', 'disaster-recovery', 'high-availability']
+explainPrompt: 'Why does a four-member etcd cluster tolerate no more failures than a three-member one?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what etcd holds and what it does not, and why that decides your backup plan.
+- Size an etcd cluster from the quorum rule, and name what a control-plane outage stops.
+- Take a snapshot, describe the restore, and state exactly what the restore loses.
+
+## Intuition
+
+Almost everything in a cluster is reproducible. Nodes come from a machine image,
+the kubelet is a package, and the controllers, the scheduler and the API server
+are containers you can recreate from a manifest. Lose any of them and you
+rebuild from something you already have.
+
+**etcd is the cluster's only original.** It holds the desired state — every
+object the API server has ever accepted — and there is no second copy anywhere
+in the system. That single fact sorts operational work: the parts of a cluster
+that need a backup are the parts nothing else can reconstruct, and there is
+exactly one of them.
+
+The second idea is how etcd stays honest about that state. A write is committed
+only when a **majority** of members have recorded it, so the cluster survives
+losing a minority and stops accepting writes when it loses more.
+**A majority of an even number is no better than a majority of the odd number
+below it** — which is why etcd clusters are three or five members and never
+four.
+
+## How it works
+
+### What is in etcd, and what is not
+
+In it: Deployments, Pods, Services, Secrets, ConfigMaps, RBAC bindings,
+CustomResourceDefinitions and every custom resource, plus the PersistentVolume
+and PersistentVolumeClaim _objects_.
+
+Not in it: the bytes on the volume those objects point at, the images in your
+registry, and the repository your manifests came from. Restoring etcd restores
+the cluster's **intent**, never its data — the distinction
+[Snapshots, Backup and Restore](/learn/k8s-backup-and-snapshots/) makes about
+volumes applies here one level up.
+
+<Callout variant="warning">
+  A Secret sits in etcd in the clear unless encryption at rest is configured on
+  the API server — base64 is how the API represents the bytes in `data`, not
+  storage encryption. An etcd snapshot file is therefore a credential dump, and
+  belongs somewhere with the access controls of one. If encryption at rest *is*
+  on, the snapshot is unreadable without the key — so the key needs its own
+  backup, kept somewhere the cluster's failure cannot take with it.
+</Callout>
+
+### Quorum, and why three
+
+| Members | Majority | Failures tolerated |
+| ------- | -------- | ------------------ |
+| 1       | 1        | 0                  |
+| 3       | 2        | 1                  |
+| 4       | 3        | 1                  |
+| 5       | 3        | 2                  |
+
+Four members tolerate the same single failure as three, need one more
+acknowledgement on every write, and give you one more machine that can break.
+Three is the working default; five is for clusters where an entire failure
+domain can vanish and you still want a member to spare. The count is only half
+of it — three members in one rack tolerate one machine failure and zero rack
+failures.
+
+When quorum is lost, etcd stops accepting writes. The API server can no longer
+record anything, so from the outside the cluster appears frozen.
+
+### What a control-plane outage actually stops
+
+Running Pods keep running. The kubelet already knows which Pods belong to its
+node, and the container runtime does not ask permission to keep a process alive.
+A container that crashes is still restarted by its own kubelet.
+
+What stops is everything that requires the API server: scheduling new Pods,
+every controller's reconciliation, autoscaling, and all of `kubectl`. A subtler
+one: EndpointSlices stop being updated, so a Pod that dies stays listed as an
+endpoint and traffic keeps being sent to it. The cluster does not fail loudly —
+it stops noticing things.
+
+### The HA shape
+
+Three control-plane nodes, an etcd member on each (**stacked**) or on separate
+machines (**external**), and a load balancer in front of the API servers.
+Stacked needs fewer machines and ties each etcd member's fate to a control-plane
+node; external separates those failure domains and gives you a second cluster to
+operate. The controller manager and the scheduler run on every control-plane
+node but elect a leader, so only one instance acts at a time.
+
+etcd writes to disk before acknowledging, so its latency is your API server's
+latency. A slow or shared disk shows up as a cluster that feels sluggish for
+reasons nothing in the workload explains.
+
+### Snapshot and restore
+
+```bash
+etcdctl --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  snapshot save /backup/etcd-2026-08-26.db
+```
+
+From etcd 3.6 the two tools are split by job. `etcdctl` takes the snapshot
+against a running cluster; `etcdutl` works on the resulting file, with
+`etcdutl snapshot status` to check it and `etcdutl snapshot restore` to write a
+fresh data directory from it.
+
+Restoring is not a per-object operation. Every member is restored from the
+**same** snapshot and started as a new cluster, so the whole cluster is rolled
+back to one moment: anything created after the snapshot is gone, anything
+deleted after it is back. Kubelets then reconcile toward that restored intent
+and terminate the Pods it does not contain. That is correct behaviour, and it is
+a shock if you were thinking of the restore as repair rather than as travel
+backwards.
+
+### Two disasters, two tools
+
+| The disaster                                                                | What restores it                                                                                                          |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| etcd corrupted, quorum unrecoverable, a bad bulk delete                     | etcd snapshot — a whole-cluster rollback to a point in time                                                               |
+| One namespace deleted; the cluster is gone; the workload must run elsewhere | object-level backup (Velero, an ecosystem tool, plus volume snapshots) — namespace-scoped and portable to another cluster |
+
+On a managed cluster the first row is not available to you: the provider runs
+etcd and you cannot snapshot it. Object-level backup is then the only lever you
+own — a smaller loss than it sounds, because most incidents want one namespace
+back rather than the whole cluster rolled back.
+
+Both plans need two numbers. **RPO** is how much work you accept losing — a
+snapshot every thirty minutes is an RPO of thirty minutes. **RTO** is how long
+recovery takes, and nobody knows it until they have rehearsed it.
+
+## Trade-offs
+
+**How often to snapshot.** Frequency buys RPO and nothing else, so it is worth
+what an hour of lost cluster changes would cost you: every fifteen to thirty
+minutes on a busy cluster, hourly on a quiet one.
+
+**Three members or five.** Five survives two simultaneous failures and makes
+every write wait for three acknowledgements instead of two. Take five when your
+failure domains genuinely come in fives — three zones and five members is mostly
+expense.
+
+**Snapshot or object-level backup.** The snapshot is complete and blunt:
+everything, all at once, all the way back. Object-level backup is selective and
+portable, and it can miss what a controller created and nobody labelled. Most
+teams need the second and take the first as well, when they can.
+
+## Common pitfalls
+
+- **An even number of members.** Two feels like redundancy and is strictly worse
+  than one: two members need both to be present for a majority, so either
+  failure stops writes.
+- **The snapshot on the same disk as etcd.** The most convenient location shares
+  a failure domain with the thing it protects.
+- **Never restoring.** A backup that has not been restored is a hypothesis. The
+  first restore is where you find out that the certificate paths changed, the
+  encryption key was not backed up, or the file was zero bytes for a month.
+- **Expecting volume data back.** The PersistentVolumeClaim comes back because
+  it is an object; whatever is on the disk is whatever is on the disk. Volume
+  snapshots are a separate plan with a separate schedule.
+- **Restoring one member into a live cluster.** A restore makes a _new_ cluster
+  from a file; a single member restored beside two live ones is a member with a
+  different history, and etcd will not accept it.
+
+## Key takeaways
+
+- etcd holds **every object the API server accepted, and nothing else** — no
+  volume data, no images, no repository.
+- A quorum is a majority, so **three members tolerate one failure and four
+  tolerate one as well**; failure domains matter as much as the count.
+- A control-plane outage **does not stop running Pods**; it stops scheduling,
+  reconciliation, endpoint updates and `kubectl`.
+- Restoring a snapshot is a **whole-cluster rollback**: everything created since
+  is gone, everything deleted since returns, and kubelets converge on the
+  restored intent.
+- On a managed cluster you cannot snapshot etcd, so **object-level backup is the
+  recovery plan** — and either way, RTO is a rehearsed number, not an estimate.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your etcd cluster has four members spread over two racks, two in each. One rack loses power. What happens, and would three members have been better?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Four members need three for a majority, so losing two leaves two and quorum is
+  gone: etcd accepts no writes, the API server records nothing, and the cluster
+  freezes while every running Pod carries on. Three would have been a coin toss
+  rather than a certainty: across two racks they must split two and one, so
+  losing the one-member rack keeps quorum and losing the two-member rack does
+  not, where two and two loses it whichever rack goes. The count still is not
+  the fix in this scenario; the layout is. Quorum survives a rack failure only
+  when no single rack holds a majority, which means three members in three
+  failure domains (or five across three, at two-two-one).
+</PracticeCheck>
+
+**2. At 08:30 someone deletes forty Deployments by accident. At 09:00 you restore last night's etcd snapshot. Name two things that come back and two that do not.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Back: the forty deleted Deployments, and every other object exactly as it
+  stood when the snapshot was taken — RBAC, ConfigMaps, Secrets, custom
+  resources. Not back: anything created between the snapshot and 09:00, so a
+  release shipped at 08:00 disappears and has to be applied again; and the
+  contents of any PersistentVolume, because volume data was never in etcd — the
+  claims return, pointing at disks whose current contents nobody rolled back.
+  There is a third effect worth expecting: Pods started after the snapshot are
+  not in the restored state, so kubelets terminate them as they reconcile.
+</PracticeCheck>
+
+**3. Your cluster is managed; the provider runs etcd and you have no access to it. Compliance asks for a documented recovery from "someone deletes the production namespace". What do you build?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because the etcd lever is not yours, the plan is object-level: a scheduled
+  backup of that namespace's objects with volume snapshots for its claims, using
+  an ecosystem tool such as Velero, stored outside the cluster's own account or
+  project. Your GitOps repository covers everything you declared and is worth
+  naming as the second source, but it does not hold objects that controllers and
+  operators created, and it holds no data at all. Then the part that makes it a
+  plan rather than a wish: restore it into a scratch cluster on a schedule and
+  record how long it took, so the RTO in the document is a measurement. Add the
+  prevention too — namespace deletion should not be within reach of the
+  credentials people use daily.
+</PracticeCheck>

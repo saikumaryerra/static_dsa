@@ -1,0 +1,286 @@
+---
+title: 'NetworkPolicies'
+slug: 'k8s-network-policies'
+course: 'kubernetes'
+track: 'k8s-networking'
+order: 16
+summary: 'Selecting a Pod with any NetworkPolicy flips that Pod to default-deny for that direction — and the object is accepted and stored whether or not your CNI plugin enforces a single rule of it.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-networking-model', 'k8s-labels-and-selectors']
+estimatedMinutes: 9
+tags: ['kubernetes', 'networkpolicy', 'security', 'cni', 'service-mesh']
+explainPrompt: 'Why does adding a NetworkPolicy that allows one thing end up blocking everything else?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Explain why selecting a Pod with a policy switches it to default-deny for that
+  direction.
+- Write ingress and egress policies, including the one every default-deny cluster
+  forgets.
+- Say what a NetworkPolicy cannot express, and where a service mesh takes over.
+
+## Intuition
+
+The first lesson in this module left you with a flat network where every Pod can
+reach every other Pod. Nothing has narrowed that since. A NetworkPolicy is how
+you narrow it, and it does not work the way a firewall rule list works.
+
+**A NetworkPolicy is not a rule you add to a firewall; it is the switch that
+turns the firewall on for one Pod.** While no policy selects a Pod, that Pod is
+wide open — every source may reach it, and it may reach anywhere. The moment
+_any_ policy selects it for a direction, that Pod's default for that direction
+becomes deny, and the only traffic that still flows is what some policy
+explicitly allows.
+
+Two consequences follow, and together they are the whole mental model.
+
+**Policies are additive.** Several policies may select the same Pod, and the Pod
+allows the union of everything they permit. Adding a policy can never take away
+something another policy allowed.
+
+**There are no deny rules.** The API has no way to express "block this". You
+cannot carve an exception out of an allowance; you write the allowance narrower.
+Anyone looking for a `deny` field is looking for a mechanism that was
+deliberately left out, because a set of pure allow rules has one meaning no
+matter what order they are evaluated in.
+
+<Callout variant="warning">
+  **A NetworkPolicy does nothing unless the cluster's CNI plugin implements
+  it.** The kind is core Kubernetes, so the API server validates it, stores it,
+  and shows it in `kubectl get networkpolicy` — on every cluster, including ones
+  with no enforcement whatsoever. Some plugins never implemented the API at all.
+  Nothing warns you: you get an object that looks exactly like a working
+  security control while all traffic flows as before. Verify by testing a
+  connection you believe is now blocked, not by reading the manifest back.
+</Callout>
+
+## How it works
+
+The usual first policy selects every Pod in a namespace and allows nothing:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: shop
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+```
+
+An empty `podSelector` matches every Pod in the namespace, and `policyTypes`
+naming `Ingress` with no `ingress` block means "selected, nothing allowed". Every
+Pod in `shop` now rejects incoming connections. Note what it does not do: egress
+is untouched, because no policy selects these Pods for that direction, so they
+can still open connections outward freely.
+
+Then you allow back what should work:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-from-web
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: web
+      ports:
+        - protocol: TCP
+          port: 8080
+```
+
+Pods labelled `app: api` now accept TCP 8080 from Pods labelled `app: web` in the
+same namespace, and nothing else — the union of the two policies. Selectors work
+exactly as they do everywhere else in Kubernetes, which is why
+[labels are an interface](/learn/k8s-labels-and-selectors/) rather than a note to
+yourself: changing a Pod's labels changes who may talk to it.
+
+**Three details decide whether a policy means what you think.**
+
+`podSelector` inside a `from` entry is **namespace-local**. To allow traffic from
+another namespace you need a `namespaceSelector`, and namespaces are matched by
+their own labels — `kubernetes.io/metadata.name` is set automatically and is the
+usual way to name one.
+
+**The list structure is the trap.** Entries in the `from` array are ORed, but
+`podSelector` and `namespaceSelector` written inside the _same_ entry are ANDed.
+Two dashes means "Pods with this label **in this namespace**, or any Pod in that
+namespace". One dash means "Pods with this label, in that namespace". Both parse;
+they permit very different things.
+
+**Policies select Pods, never Services.** A connection to a ClusterIP is
+rewritten to a Pod address by the dataplane, and what the policy evaluates is the
+client Pod and the destination Pod. You cannot allow "traffic to the `api`
+Service"; you allow traffic to the Pods behind it.
+
+Egress is the same shape in the other direction, and it has one universal
+gotcha — turning it on breaks name resolution unless you say otherwise:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: shop
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+```
+
+Without that, a default-deny-egress namespace produces the most confusing outage
+in this module: every lookup fails, so every error your application logs is a DNS
+error, and DNS is working perfectly.
+
+For addresses outside the cluster, `ipBlock` takes a CIDR with an optional
+`except` list — the one place a NetworkPolicy expresses a subtraction, and it
+subtracts from an allowance rather than denying anything.
+
+```bash
+kubectl get networkpolicy -n shop
+kubectl describe networkpolicy api-from-web -n shop
+kubectl exec -n shop client -- curl -s --max-time 5 http://api:8080/healthz
+```
+
+The third command is the only one of the three that tells you anything about
+enforcement.
+
+## Trade-offs
+
+**Default-deny is cheap on day one and expensive on day four hundred.** Turning
+it on in a new namespace costs an afternoon of finding the connections that
+matter. Retrofitting it onto a running system means discovering an undocumented
+dependency during an incident, which is why the honest advice is to start with
+`default-deny-ingress` per namespace and open holes as they are needed.
+
+**Labels become a security boundary.** Anyone who can set labels on a Pod can
+change what that Pod is allowed to reach, so the permissions that govern
+workloads in a namespace now govern its network policy too.
+
+**Policy is per-Pod, not per-route, and this is where a service mesh starts.** A
+NetworkPolicy works at layer 3 and 4, and its notion of identity is label-based
+but enforced on addresses: the plugin resolves your selectors to Pod addresses
+and filters on those. That segments a cluster, and it stops at three limits. It
+cannot express request-level rules — methods, paths, headers. It cannot prove who
+the caller is, because an address is not a credential. And it encrypts nothing,
+so Pod-to-Pod traffic is as protected as the underlying network makes it.
+
+A service mesh — Istio and Linkerd are the common ones, and both are ecosystem
+software, not core Kubernetes — puts a proxy in the path of every Pod's traffic,
+as a sidecar or a per-node agent. That proxy gives each workload a cryptographic
+identity, mutual TLS between workloads, authorization policy on HTTP methods and
+paths, and per-request telemetry, retries and timeouts. The price is a second
+control plane to run and upgrade, a proxy's CPU and memory beside every Pod,
+added latency on every call, and one more layer to debug when something is slow.
+
+Adopt them in that order. NetworkPolicy is already in the API and costs you
+nothing but labels; reach for a mesh when you specifically need identity,
+encryption or layer-7 rules, not because segmentation sounded like a mesh
+problem. Some CNI plugins offer layer-7 aware policy through their own CRDs,
+which is a middle option — and, like the mesh, ecosystem rather than core.
+
+## Common pitfalls
+
+- **Trusting an unenforced policy.** The object applies, `kubectl get` lists it,
+  and nothing is being blocked because the plugin does not implement the API.
+  This is the most dangerous shape a security control can take: it reports
+  success by existing.
+- **Default-deny egress with no DNS allowance.** Tempting because egress feels
+  like the more thorough half to lock down, and the resulting failure points at
+  the wrong subsystem entirely.
+- **One dash where two were meant.** Combining `namespaceSelector` and
+  `podSelector` in one `from` entry narrows to the intersection. It is a single
+  character and it silently changes the meaning of the rule in both directions.
+- **Forgetting that a bare `podSelector` cannot see other namespaces.** A policy
+  that looks like it allows the monitoring scraper allows only a Pod of that name
+  in the same namespace, so the scrape keeps failing.
+
+## Key takeaways
+
+- **A NetworkPolicy is enforced by the CNI plugin, not by Kubernetes.** An
+  unenforced policy is accepted, stored and displayed exactly like an enforced
+  one, so test the block.
+- **Selecting a Pod flips it to default-deny for that direction.** Unselected
+  Pods stay wide open, and each direction is independent.
+- Policies are **additive and allow-only**: the Pod permits the union of
+  everything that selects it, and there is no way to write a deny.
+- **Default-deny egress breaks DNS** until you allow UDP and TCP port 53 to the
+  cluster's DNS Pods.
+- NetworkPolicy is **layer 3 and 4 segmentation**. Identity, encryption and
+  request-level rules are where a service mesh begins — and a mesh is ecosystem
+  software with a real running cost.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A namespace has no policies. You add one that allows `app: web` Pods to reach `app: api` Pods on port 8080. A monitoring Pod that was scraping `api` on port 9090 immediately stops working. Why?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The new policy selects the `api` Pods for ingress, and that selection is what
+  changes their default: before it existed nothing selected them, so everything
+  was allowed; now that something does, the only ingress that survives is what
+  some policy explicitly permits. The policy permits TCP 8080 from `app: web`
+  and says nothing about port 9090 or about the monitoring Pod, so that traffic
+  falls outside every allowance and is dropped. Nothing denied the scraper — it
+  lost the blanket permission it had been relying on. The fix is a second policy
+  allowing the monitoring Pod on 9090, since policies are additive and the two
+  will be unioned — and if the scraper runs in a `monitoring` namespace, as most
+  do, that policy needs a `namespaceSelector`, not a bare `podSelector`, which
+  only ever sees Pods in the policy's own namespace.
+</PracticeCheck>
+
+**2. You apply a `default-deny-ingress` policy in a namespace, verify the object with `kubectl get networkpolicy`, and traffic that should now be blocked keeps flowing. Give the most likely explanation and how you would confirm it.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The cluster's CNI plugin does not implement the NetworkPolicy API. Enforcement
+  is entirely the plugin's job; the API server's role ends at validating and
+  storing the object, so `kubectl get` proves the object exists and proves
+  nothing about whether any packet is being filtered. Confirm it by checking
+  which plugin the cluster runs and whether policy enforcement is part of it or
+  needs enabling, and by testing directly — open a connection from a Pod that
+  the policy should now be blocking and see whether it succeeds. That test is
+  the only evidence that means anything here, and it is worth running once per
+  cluster before any policy is relied on.
+</PracticeCheck>
+
+**3. Your team wants "the orders service may only call `POST /charge` on the payments service, and the call must be authenticated". How much of that can a NetworkPolicy do?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Only the coarse half. A NetworkPolicy can allow the payments Pods to accept
+  connections from the orders Pods on the payments port and deny every other
+  source, which is real and worth having. It cannot see inside the connection,
+  so the method and the path are invisible to it — it operates at layer 3 and 4,
+  and `POST /charge` is layer 7. It also cannot authenticate anything: the
+  identity it enforces on is a Pod address derived from labels, so any workload
+  that can obtain those labels or that address is indistinguishable from the
+  real caller. Method-and-path rules plus a cryptographic caller identity are
+  what a service mesh adds, with mutual TLS and authorization policy, and that
+  is the point at which the extra control plane starts paying for itself.
+</PracticeCheck>

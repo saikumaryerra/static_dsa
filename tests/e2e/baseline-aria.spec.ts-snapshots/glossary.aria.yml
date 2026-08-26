@@ -37,7 +37,9 @@
       - listitem:
         - link "D":
           - /url: "#letter-d"
-      - listitem: E
+      - listitem:
+        - link "E":
+          - /url: "#letter-e"
       - listitem:
         - link "F":
           - /url: "#letter-f"
@@ -51,7 +53,9 @@
         - link "I":
           - /url: "#letter-i"
       - listitem: J
-      - listitem: K
+      - listitem:
+        - link "K":
+          - /url: "#letter-k"
       - listitem:
         - link "L":
           - /url: "#letter-l"
@@ -87,6 +91,12 @@
       - listitem: Z
   - region "A":
     - heading "A" [level=2]
+    - term: Adaptive bitrate
+    - definition:
+      - paragraph: A streaming technique in which the same content is encoded at several quality rungs and the player picks which rung to fetch for each short segment. The client decides, because only it knows its measured throughput, how much buffer it holds and how large its screen is.
+      - paragraph:
+        - link "Introduced in Video Delivery":
+          - /url: ../learn/sd-netflix-video-delivery/
     - term: Adjacency list
     - definition:
       - paragraph: A graph representation that stores, for each vertex, a list of the vertices it connects to. It is memory-efficient for sparse graphs, where most vertices have few edges.
@@ -99,6 +109,12 @@
       - paragraph:
         - link "Introduced in Graphs":
           - /url: ../learn/graphs/
+    - term: Admission control
+    - definition:
+      - paragraph: The stage between authorization and storage where plugins inspect a submitted object, change it, or refuse it before it is written to etcd. Every write to the API server passes through it, whoever sent it, which is where cluster-wide rules of your own belong.
+      - paragraph:
+        - link "Introduced in Admission Control":
+          - /url: ../learn/k8s-admission-control/
     - term: Array
     - definition:
       - paragraph: A contiguous block of memory holding a fixed-size sequence of elements, each reachable in constant time by its position. It is the most fundamental data structure and the basis for many others.
@@ -107,6 +123,12 @@
           - /url: ../learn/arrays/
   - region "B":
     - heading "B" [level=2]
+    - term: Backpressure
+    - definition:
+      - paragraph: "A signal from an overloaded component that makes its callers slow down or stop, instead of letting work pile up out of sight. Its mechanism is the bounded queue: when the queue is full the producer is blocked or rejected, and that rejection is information the caller can act on."
+      - paragraph:
+        - link "Introduced in Idempotency, Retries and Backpressure":
+          - /url: ../learn/sd-idempotency-and-backpressure/
     - term: Base case
     - definition:
       - paragraph: The condition in a recursive function that can be answered without further recursion, stopping the chain of calls. Without a reachable base case the recursion never terminates.
@@ -155,6 +177,13 @@
           - /url: ../learn/hash-tables/
   - region "C":
     - heading "C" [level=2]
+    - term: Cache stampede
+    - definition:
+      - paragraph: Many concurrent requests missing on the same hot key at once, so all of them go to the origin together and the load it was being spared arrives in one burst. It happens at the moment of a miss — a TTL expiring, or a cold cache tier — rather than because of the miss itself.
+      - paragraph: "Also called: thundering herd, dogpile"
+      - paragraph:
+        - link "Introduced in Caching":
+          - /url: ../learn/sd-caching/
     - term: Call stack
     - definition:
       - paragraph: The stack the program uses to track active function calls, pushing a frame on each call and popping it on return. Recursion depth is limited by how many frames the call stack can hold.
@@ -181,8 +210,40 @@
       - paragraph:
         - link "Introduced in Hash Tables":
           - /url: ../learn/hash-tables/
+    - term: Consistency model
+    - definition:
+      - paragraph: The contract a storage system offers about which values a read is allowed to return, given the writes that have already happened. It becomes a real question the moment data lives on more than one machine, because "the current value" stops being a single well-defined thing.
+      - paragraph:
+        - link "Introduced in Consistency Models, CAP and PACELC":
+          - /url: ../learn/sd-consistency-models/
+    - term: Content delivery network
+    - definition:
+      - paragraph: "A fleet of caching reverse proxies in data centres near readers, plus the routing that sends each reader to a near one. It saves two separate things: the round trip to a distant origin, and the bandwidth of serving one popular object to millions of people."
+      - paragraph: "Also called: CDN"
+      - paragraph:
+        - link "Introduced in Content Delivery Networks":
+          - /url: ../learn/sd-cdn/
+    - term: Control plane
+    - definition:
+      - paragraph: "The components that hold a Kubernetes cluster’s intent and run the loops acting on it: the API server, etcd, the scheduler and the controller manager. Worker nodes run your containers; the control plane decides what should run and where."
+      - paragraph:
+        - link "Introduced in What Kubernetes Is":
+          - /url: ../learn/k8s-what-kubernetes-is/
   - region "D":
     - heading "D" [level=2]
+    - term: DaemonSet
+    - definition:
+      - paragraph: A workload controller that runs one Pod on every node and adds one automatically when a node joins the cluster. It fits per-node agents such as log shippers and metrics collectors, where the node list decides the replica count rather than you.
+      - paragraph:
+        - link "Introduced in DaemonSets, Jobs and CronJobs":
+          - /url: ../learn/k8s-daemonsets-jobs-cronjobs/
+    - term: Dead-letter queue
+    - definition:
+      - paragraph: A separate queue a broker moves a message to once it has failed too many times, so one bad message neither blocks the consumers nor disappears. Nothing drains it automatically, which makes it an ongoing commitment rather than a setting.
+      - paragraph: "Also called: DLQ"
+      - paragraph:
+        - link "Introduced in Message Queues":
+          - /url: ../learn/sd-message-queues/
     - term: Depth-first search
     - definition:
       - paragraph: A graph traversal that follows one path as far as it can before backtracking to explore alternatives, using a stack or recursion. It is well suited to cycle detection and topological ordering.
@@ -190,6 +251,12 @@
       - paragraph:
         - 'link "Introduced in Graph Traversal: BFS & DFS"':
           - /url: ../learn/graph-traversal/
+    - term: Desired state
+    - definition:
+      - paragraph: The configuration you write down and hand to Kubernetes — three replicas of this image, reachable under this name — as distinct from the current state the cluster is actually in. Controllers exist to close the gap between the two.
+      - paragraph:
+        - link "Introduced in What Kubernetes Is":
+          - /url: ../learn/k8s-what-kubernetes-is/
     - term: Divide and conquer
     - definition:
       - paragraph: A problem-solving strategy that breaks a problem into smaller independent subproblems, solves each recursively, and combines their results. Merge sort and quick sort are classic examples.
@@ -203,6 +270,21 @@
       - paragraph:
         - link "Introduced in Intro to Dynamic Programming":
           - /url: ../learn/dynamic-programming/
+  - region "E":
+    - heading "E" [level=2]
+    - term: Event stream
+    - definition:
+      - paragraph: An append-only log of records that readers consume by position rather than by taking work off it, so reading removes nothing and independent readers each hold their own cursor. Records leave on a retention policy, not because somebody processed them.
+      - paragraph: "Also called: append-only log"
+      - paragraph:
+        - link "Introduced in Event Streams":
+          - /url: ../learn/sd-event-streams/
+    - term: Eventual consistency
+    - definition:
+      - paragraph: A model in which replicas converge if writes stop, so a read may return a stale value and nothing bounds how stale it is. Answers are fast because each replica replies from its own copy without waiting for the others to agree.
+      - paragraph:
+        - link "Introduced in Consistency Models, CAP and PACELC":
+          - /url: ../learn/sd-consistency-models/
   - region "F":
     - heading "F" [level=2]
     - term: FIFO
@@ -241,6 +323,12 @@
           - /url: ../learn/heaps/
   - region "I":
     - heading "I" [level=2]
+    - term: Idempotency
+    - definition:
+      - paragraph: The property that performing an operation more than once has the same effect as performing it once. It has to be designed in, usually with a key the client generates once per logical operation and resends on every retry of it.
+      - paragraph:
+        - link "Introduced in Idempotency, Retries and Backpressure":
+          - /url: ../learn/sd-idempotency-and-backpressure/
     - term: In-place
     - definition:
       - paragraph: A description of an algorithm that transforms its input using only a small, constant amount of extra memory rather than allocating a separate copy. In-place sorts like insertion sort rearrange the original array directly.
@@ -260,8 +348,23 @@
       - paragraph:
         - 'link "Introduced in Sorting I: Bubble, Selection, Insertion"':
           - /url: ../learn/sorting-basics/
+  - region "K":
+    - heading "K" [level=2]
+    - term: kubelet
+    - definition:
+      - paragraph: The agent running on every worker node that watches the API server for Pods assigned to its node, tells the container runtime to start them, and reports back what is actually running. It is how the control plane’s decisions become running containers on a machine.
+      - paragraph:
+        - link "Introduced in What Kubernetes Is":
+          - /url: ../learn/k8s-what-kubernetes-is/
   - region "L":
     - heading "L" [level=2]
+    - term: Label selector
+    - definition:
+      - paragraph: A query over labels that names a set of objects without naming any of them individually, such as the Pods a Service routes to. It is evaluated afresh every time, so a Pod created later with matching labels joins the set on its own.
+      - paragraph: "Also called: selector"
+      - paragraph:
+        - link "Introduced in Labels, Selectors and Annotations":
+          - /url: ../learn/k8s-labels-and-selectors/
     - term: Leaf
     - definition:
       - paragraph: A tree node with no children, sitting at the outer edge of the structure. Leaves mark where a branch of the tree ends.
@@ -281,6 +384,12 @@
       - paragraph:
         - link "Introduced in Linear & Binary Search":
           - /url: ../learn/binary-search/
+    - term: Linearizability
+    - definition:
+      - paragraph: "The strictest consistency model for a single object: every read returns the most recently acknowledged write, and the system behaves as though one copy handled all operations in one order. It costs coordination, at least a round trip to a majority of replicas."
+      - paragraph:
+        - link "Introduced in Consistency Models, CAP and PACELC":
+          - /url: ../learn/sd-consistency-models/
     - term: Linked list
     - definition:
       - paragraph: A linear data structure whose elements are separate nodes, each holding a value and a reference to the next node. Unlike an array it grows and shrinks without shifting elements, but it gives up constant-time indexed access.
@@ -310,6 +419,12 @@
           - /url: ../learn/sorting-efficient/
   - region "N":
     - heading "N" [level=2]
+    - term: NetworkPolicy
+    - definition:
+      - paragraph: An object that restricts which traffic may reach or leave the Pods it selects. A Pod no policy selects is wide open; the moment any policy selects it for a direction, that direction defaults to deny and only explicitly allowed traffic still flows.
+      - paragraph:
+        - link "Introduced in NetworkPolicies":
+          - /url: ../learn/k8s-network-policies/
     - term: Node
     - definition:
       - paragraph: A single unit of a linked structure that stores a value together with one or more references to other nodes. Nodes are the building blocks of linked lists, trees, and graphs.
@@ -318,6 +433,12 @@
           - /url: ../learn/linked-lists/
   - region "O":
     - heading "O" [level=2]
+    - term: Operator
+    - definition:
+      - paragraph: A controller that encodes what an experienced human operator would do for one piece of software — take the backup, promote the replica, run the upgrade in the order that does not lose data. It watches a custom resource kind added to the API and reconciles it like any built-in object.
+      - paragraph:
+        - link "Introduced in CRDs and Operators":
+          - /url: ../learn/k8s-operators/
     - term: Optimal substructure
     - definition:
       - paragraph: The property that an optimal answer to a problem is built directly from optimal answers to its subproblems. It is what lets dynamic programming combine smaller results into the full solution.
@@ -332,12 +453,32 @@
           - /url: ../learn/dynamic-programming/
   - region "P":
     - heading "P" [level=2]
+    - term: p99 latency
+    - definition:
+      - paragraph: /The duration \d+% of requests come in at or below over some window\. Percentiles are reported rather than an average because latency is a distribution, and a page assembled from many calls meets the slow tail far more often than the tail’s share of requests suggests\./
+      - paragraph: "Also called: 99th-percentile latency"
+      - paragraph:
+        - link "Introduced in Latency and Throughput":
+          - /url: ../learn/sd-latency-and-throughput/
     - term: Partition
     - definition:
       - paragraph: The step in quick sort that rearranges a range so every element less than the pivot comes before it and every greater element comes after. After partitioning, the pivot sits in its final sorted position.
       - paragraph:
         - 'link "Introduced in Sorting II: Merge & Quick"':
           - /url: ../learn/sorting-efficient/
+    - term: PersistentVolumeClaim
+    - definition:
+      - paragraph: A request for storage that states how much space, which access mode and which class of disk a workload needs, without naming any particular device. Kubernetes binds it to a PersistentVolume, and the claim gives the data a name that outlives every Pod that mounts it.
+      - paragraph: "Also called: PVC"
+      - paragraph:
+        - link "Introduced in PersistentVolumes and Claims":
+          - /url: ../learn/k8s-persistent-volumes/
+    - term: Pod
+    - definition:
+      - paragraph: "The smallest unit Kubernetes schedules: one or more containers sharing an IP address, a hostname, a set of volumes and a single lifetime, always placed on the same node. A Pod is never moved — when its node is lost, a replacement Pod is created elsewhere with a new name and address."
+      - paragraph:
+        - link "Introduced in Pods and the Pod Lifecycle":
+          - /url: ../learn/k8s-pods/
     - term: Pointer
     - definition:
       - paragraph: A reference from one node to another that links the pieces of a data structure together. Following pointers is how you traverse a linked list, tree, or graph.
@@ -360,14 +501,59 @@
       - paragraph:
         - 'link "Introduced in Sorting II: Merge & Quick"':
           - /url: ../learn/sorting-efficient/
+    - term: Quorum
+    - definition:
+      - paragraph: The number of replicas that must answer before a read or a write counts as done. Choosing sizes whose sum exceeds the number of replicas makes every read set overlap every write set, so a read reaches at least one copy carrying the last completed write.
+      - paragraph:
+        - link "Introduced in Consistency Models, CAP and PACELC":
+          - /url: ../learn/sd-consistency-models/
   - region "R":
     - heading "R" [level=2]
+    - term: RBAC
+    - definition:
+      - paragraph: "Role-based access control: the authorizer nearly every cluster runs, deciding whether a requester may perform a given verb on a given resource, in a namespace or across the cluster. It is purely additive — a subject holds the union of every rule bound to them, and nothing in the API expresses a denial."
+      - paragraph:
+        - link "Introduced in RBAC and ServiceAccounts":
+          - /url: ../learn/k8s-rbac/
+    - term: Reconciliation
+    - definition:
+      - paragraph: "The loop a controller repeats forever: read the desired state, read the current state, and take one step to close the gap. Because every pass reads the world afresh rather than replaying instructions, a controller recovers from a crash, a dropped notification, or a situation nobody anticipated."
+      - paragraph: "Also called: control loop, reconciliation loop"
+      - paragraph:
+        - link "Introduced in Desired State and Reconciliation":
+          - /url: ../learn/k8s-desired-state/
+    - term: Recovery point objective
+    - definition:
+      - paragraph: "How much data a system accepts losing in a disaster, stated as a span of time: an objective of five minutes means up to five minutes of writes may be gone. It is bought by writing copies more often — snapshots, continuous replication, synchronous commits."
+      - paragraph: "Also called: RPO"
+      - paragraph:
+        - link "Introduced in Observability, Failure Handling and DR":
+          - /url: ../learn/sd-observability-and-recovery/
+    - term: Recovery time objective
+    - definition:
+      - paragraph: How long a system accepts being unavailable after a disaster before it is serving again. It is bought by having somewhere to fail over to, and by having rehearsed the failover rather than reading about it.
+      - paragraph: "Also called: RTO"
+      - paragraph:
+        - link "Introduced in Observability, Failure Handling and DR":
+          - /url: ../learn/sd-observability-and-recovery/
     - term: Recursion
     - definition:
       - paragraph: A technique where a function solves a problem by calling itself on smaller versions of the same problem until it reaches a case simple enough to answer directly. It expresses naturally self-similar problems concisely.
       - paragraph:
         - link "Introduced in Recursion":
           - /url: ../learn/recursion/
+    - term: ReplicaSet
+    - definition:
+      - paragraph: The controller that keeps a stated number of Pods matching its selector alive, creating or deleting Pods until the count is right. It knows nothing about versions, which is why a Deployment sits above it and gives every distinct Pod template its own ReplicaSet.
+      - paragraph:
+        - link "Introduced in Deployments and ReplicaSets":
+          - /url: ../learn/k8s-deployments/
+    - term: Replication
+    - definition:
+      - paragraph: Copying the same data to more machines, so any copy can serve a read and another can take over when the primary fails. It buys read capacity, availability and durability, and no write capacity at all, because every replica applies every write.
+      - paragraph:
+        - link "Introduced in Replication, Partitioning and Sharding":
+          - /url: ../learn/sd-replication-and-sharding/
   - region "S":
     - heading "S" [level=2]
     - term: Selection sort
@@ -376,6 +562,25 @@
       - paragraph:
         - 'link "Introduced in Sorting I: Bubble, Selection, Insertion"':
           - /url: ../learn/sorting-basics/
+    - term: ServiceAccount
+    - definition:
+      - paragraph: A namespaced object that provides the identity a workload presents when it calls the API server, and that permission rules can be bound to. Human users are not Kubernetes objects at all; a ServiceAccount is an identity the cluster itself issues.
+      - paragraph:
+        - link "Introduced in RBAC and ServiceAccounts":
+          - /url: ../learn/k8s-rbac/
+    - term: Shard key
+    - definition:
+      - paragraph: The field whose value decides which shard a record lives on. It settles which queries are one hop and which must ask every shard, and it is close to permanent, because changing it means moving rows.
+      - paragraph: "Also called: partition key"
+      - paragraph:
+        - link "Introduced in Replication, Partitioning and Sharding":
+          - /url: ../learn/sd-replication-and-sharding/
+    - term: Sharding
+    - definition:
+      - paragraph: "Splitting different data across separate machines so each holds only a slice, which is the tool that raises the write ceiling. It charges for that: any query, join or transaction spanning shards becomes a distributed operation the application has to assemble itself."
+      - paragraph:
+        - link "Introduced in Replication, Partitioning and Sharding":
+          - /url: ../learn/sd-replication-and-sharding/
     - term: Space complexity
     - definition:
       - paragraph: A measure of how much extra memory an algorithm needs as its input grows, expressed in Big-O notation. It counts working storage beyond the input itself.
@@ -388,6 +593,18 @@
       - paragraph:
         - link "Introduced in Stacks":
           - /url: ../learn/stacks/
+    - term: StatefulSet
+    - definition:
+      - paragraph: A workload controller that gives its Pods stable numbered identities, each with a predictable DNS name and its own PersistentVolumeClaim that survives rescheduling. It supplies names, order and disks; replication, leader election and failover remain the application’s job.
+      - paragraph:
+        - link "Introduced in StatefulSets":
+          - /url: ../learn/k8s-statefulsets/
+    - term: StorageClass
+    - definition:
+      - paragraph: A named kind of storage a cluster can create on demand, pairing a provisioner with parameters such as disk type, encryption or zone. Naming a class in a claim means "make me one of these, at my size" rather than "hand me one from the shelf".
+      - paragraph:
+        - link "Introduced in StorageClasses and Access Modes":
+          - /url: ../learn/k8s-storage-classes/
   - region "T":
     - heading "T" [level=2]
     - term: Tabulation
@@ -396,12 +613,24 @@
       - paragraph:
         - link "Introduced in Intro to Dynamic Programming":
           - /url: ../learn/dynamic-programming/
+    - term: Taint
+    - definition:
+      - paragraph: A mark on a node that makes it unsuitable by default, so the scheduler will not place a Pod there unless the Pod carries a matching toleration. It is the node repelling workloads, the mirror image of affinity, where a workload is drawn towards a node.
+      - paragraph:
+        - link "Introduced in Taints, Tolerations and Topology Spread":
+          - /url: ../learn/k8s-taints-and-spread/
     - term: Time complexity
     - definition:
       - paragraph: A measure of how the number of steps an algorithm takes scales with the size of its input, expressed in Big-O notation. It lets you compare algorithms without running them on a specific machine.
       - paragraph:
         - link "Introduced in Complexity & Big-O":
           - /url: ../learn/complexity-big-o/
+    - term: Toleration
+    - definition:
+      - paragraph: "A field on a Pod that allows it to be scheduled onto a node carrying a matching taint. It is permission rather than attraction: tolerating a taint does not make a node more attractive, so dedicating hardware needs a selector or affinity as well."
+      - paragraph:
+        - link "Introduced in Taints, Tolerations and Topology Spread":
+          - /url: ../learn/k8s-taints-and-spread/
     - term: Tree
     - definition:
       - paragraph: A hierarchical data structure of nodes connected by edges, with one root at the top and no cycles. Each node branches into child nodes, forming subtrees.
@@ -409,7 +638,7 @@
         - link "Introduced in Trees & Binary Search Trees":
           - /url: ../learn/trees-bst/
 - contentinfo:
-  - paragraph: LearnDSA — see data structures and algorithms in motion.
+  - paragraph: LearnDSA — free engineering courses you work through at your own pace.
   - navigation "Footer":
     - list:
       - listitem:

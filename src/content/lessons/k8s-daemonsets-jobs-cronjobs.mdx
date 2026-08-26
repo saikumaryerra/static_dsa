@@ -1,0 +1,287 @@
+---
+title: 'DaemonSets, Jobs and CronJobs'
+slug: 'k8s-daemonsets-jobs-cronjobs'
+course: 'kubernetes'
+track: 'k8s-workloads'
+order: 10
+summary: 'Three workloads where you do not choose the replica count: the node list chooses it, the amount of work chooses it, or the clock does.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments']
+estimatedMinutes: 9
+tags: ['kubernetes', 'daemonsets', 'jobs', 'cronjobs', 'batch']
+explainPrompt: 'Why does a Job template have to set restartPolicy to OnFailure or Never?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say who decides the Pod count for a DaemonSet, a Job and a CronJob.
+- Configure a Job with `completions`, `parallelism` and `backoffLimit`, and know
+  when it gives up.
+- Choose a `concurrencyPolicy` for scheduled work that sometimes overruns.
+- Name a case where each of the three is the wrong object.
+
+## Intuition
+
+A Deployment asks you for a number. That is fine when the number is a capacity
+decision, and useless when the number is a consequence of something else.
+
+**These three workloads take the count out of your hands.** A DaemonSet runs one
+Pod per node, so the node list decides. A Job runs until a stated amount of work
+has succeeded, so the work decides. A CronJob creates a Job on a schedule, so the
+clock decides. Everything else — templates, labels, selectors, Pods — is what you
+already know.
+
+Two of them also **end**. Almost everything in Kubernetes is a loop keeping
+something alive; a Job is the object for work that is supposed to stop, and its
+odder rules all follow from that.
+
+## How it works
+
+### One Pod per node: DaemonSet
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-logger
+spec:
+  selector:
+    matchLabels:
+      app: node-logger
+  template:
+    metadata:
+      labels:
+        app: node-logger
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: logger
+          image: busybox:1.37
+          command: ['sh', '-c', 'tail -F /var/log/syslog']
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+```
+
+There is no `replicas` field, and that is the whole idea. The DaemonSet
+controller creates one Pod per eligible node, pinning each to its node so the
+scheduler places it there. Add a node to the cluster and a Pod appears on it
+without anyone applying anything; remove the node and the Pod goes with it. A
+`nodeSelector` in the template narrows "every node" to a subset, such as only the
+nodes with GPUs. The `tolerations` block above is what lets the agent also run on
+control-plane nodes, which are tainted to keep ordinary workloads off.
+
+Updates roll node by node, governed by `updateStrategy.rollingUpdate.maxUnavailable`,
+which defaults to one.
+
+**Use one for something every node needs**: log collection, a metrics agent, a
+CNI plugin, a storage driver, a security agent. **Do not use one for anything
+per-application** — a proxy that belongs to your service belongs in your Pod, not
+on every node in the cluster. And do the multiplication before you ship: 100m of
+CPU across 500 nodes is 50 cores you have permanently spent.
+
+### Work that ends: Job
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: report-backfill
+spec:
+  completions: 8
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimit: 4
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: report
+          image: python:3.13-slim
+          command:
+            [
+              'python',
+              '-c',
+              'import os; print("shard", os.environ["JOB_COMPLETION_INDEX"])',
+            ]
+```
+
+A Job creates Pods until `completions` of them have succeeded, running at most
+`parallelism` at a time. `completionMode: Indexed` gives each one a fixed index,
+exposed to the container as `JOB_COMPLETION_INDEX`, so eight shards of a backfill
+can divide the work without coordinating. Leave that out and you get eight
+interchangeable runs instead.
+
+`backoffLimit` — six by default — is how many Pod failures the Job tolerates
+before it gives up, marks itself failed and stops creating Pods, with an
+exponential delay between attempts. `activeDeadlineSeconds` is a wall-clock cap
+that ends the Job regardless. `ttlSecondsAfterFinished` deletes the finished Job
+and its Pods after the given delay; without it, every Job you ever ran stays in the namespace — a useful archive at
+ten Jobs, a mess at ten thousand.
+
+The template's `restartPolicy` must be `OnFailure` or `Never`. `Always` is rejected
+by the API, because a container the kubelet restarts forever can never be
+observed to succeed, and success is the only thing a Job is waiting for.
+
+<Callout variant="tip">
+  A failed Pod and a failed Job are different events. With `backoffLimit: 4`,
+  four Pods can crash and the Job still succeeds on the fifth attempt. Read
+  `kubectl describe job report-backfill` before concluding anything from one
+  unhappy Pod.
+</Callout>
+
+### Work on a schedule: CronJob
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-report
+spec:
+  schedule: '17 2 * * *'
+  timeZone: 'Europe/London'
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: report
+              image: python:3.13-slim
+              command: ['python', '-c', 'print("nightly report")']
+```
+
+A CronJob is a factory: at each tick of the five-field `schedule` it creates a
+Job, and the Job does the rest. `timeZone` fixes which zone the schedule is read
+in — without it, the schedule follows the time zone of the controller manager,
+which is rarely the one you were thinking of.
+
+`concurrencyPolicy` decides what happens when a run is still going at the next
+tick: `Allow` (the default) starts a second one anyway, `Forbid` skips the new
+run, `Replace` kills the old one and starts fresh. `startingDeadlineSeconds`
+limits how late a missed run may still start. If more than 100 consecutive
+schedules are missed — a controller outage, a long-suspended cluster — the
+controller stops trying and records an error rather than stampeding.
+
+The two history limits keep a few finished Jobs around so you can read their
+logs, which is why `kubectl get jobs` shows a short list rather than a year of
+them.
+
+## Trade-offs
+
+| Object    | Who sets the count | Reach for it when                     | Not when                                                                 |
+| --------- | ------------------ | ------------------------------------- | ------------------------------------------------------------------------ |
+| DaemonSet | the node list      | every node needs an agent             | the work is per-application, or the per-node cost multiplies badly       |
+| Job       | `completions`      | the work finishes and success matters | the process should never exit, or steps must run in order                |
+| CronJob   | the clock          | periodic work you can see fail        | you need sub-minute timing, strict once-only runs, or a dependency graph |
+
+Two costs are worth stating plainly. **A CronJob is not a workflow engine**: it
+has no notion of "after B succeeds", no retries with conditions, no fan-out to a
+graph. Workflow engines exist in the ecosystem rather than in core Kubernetes,
+and reaching for one is a legitimate answer.
+
+**And scheduled runs are not exactly-once.** A tick can occasionally produce two
+Jobs, and a Job can occasionally run a Pod twice, so the work itself has to be
+safe to repeat. Design the task to be idempotent and the whole class of problems
+disappears.
+
+## Common pitfalls
+
+- **Copying `restartPolicy: Always` from a Deployment into a Job.** The API
+  rejects it, and the error arrives at apply time — which is at least early, but
+  the reason is worth understanding rather than editing away.
+- **Omitting `ttlSecondsAfterFinished`.** Tempting, because a finished Pod costs
+  no CPU. It costs API objects, and a namespace with 40,000 completed Pods makes
+  every `kubectl get pods` slow for everyone.
+- **A CronJob with `Allow` and a job that sometimes overruns.** Every tick adds
+  another concurrent run, and the pile-up is usually discovered when the database
+  falls over rather than when the schedule slips.
+- **Ignoring the multiplication in a DaemonSet.** Requests, log volume and
+  connections to your backend all scale with the node count, and a cluster
+  autoscaler makes the node count something you no longer control.
+- **Using a Job for a long-running process.** It runs happily, produces no useful
+  `completions` signal, and gives you none of the rollout machinery a Deployment
+  offers.
+
+## Key takeaways
+
+- **A DaemonSet has no `replicas`**: the node list is the count, so new nodes get
+  the Pod automatically, and every request you set is multiplied by the fleet
+  size.
+- A Job runs until `completions` Pods succeed, at most `parallelism` at once, and
+  **gives up after `backoffLimit` Pod failures** — six by default.
+- A Job template must use `restartPolicy: OnFailure` or `Never`, because
+  **a Job is waiting for an exit that `Always` would never allow**.
+- `ttlSecondsAfterFinished` is what stops finished Jobs accumulating forever.
+- A CronJob creates Jobs on a schedule; `concurrencyPolicy` handles overruns, and
+  **the work must be idempotent** because scheduled execution is not exactly-once.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A CronJob runs every five minutes and usually takes two. Under load it sometimes takes twelve. With the default settings, what happens, and which single field fixes it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The default `concurrencyPolicy` is `Allow`, so the next tick creates a second
+  Job while the first is still running, and the tick after that creates a third.
+  Under sustained load you accumulate concurrent runs competing for the same
+  database or the same output file, which usually makes each run slower and the
+  pile-up worse. Set `concurrencyPolicy: Forbid` to skip a tick while the
+  previous run is active, or `Replace` if the freshest run is the one that
+  matters and the old one can be abandoned. `Forbid` is the safer default for
+  anything that writes.
+</PracticeCheck>
+
+**2. A Job Pod exits with code 1. It happens three times. What is the Job doing, which field governs it, and why can the template not set `restartPolicy: Always`?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The Job counts the failures against `backoffLimit` and creates another Pod
+  after an exponentially growing delay, so with the default of six it will keep
+  trying — three failures is not a failed Job. Once the limit is reached, the
+  Job is marked failed and stops creating Pods. `restartPolicy: Always` is
+  rejected because it tells the kubelet to restart the container in place
+  forever: the container would never be observed as terminated-successfully, so
+  the Job could never count a completion, and a Job that cannot ever finish is a
+  contradiction. `OnFailure` restarts the container inside the same Pod, `Never`
+  creates a fresh Pod each time — the second gives you more to debug with,
+  because each attempt leaves its own Pod and its own logs.
+</PracticeCheck>
+
+**3. You need a metrics agent on every node, including nodes added by the autoscaler tomorrow and the control-plane nodes. Which object, and which two parts of the manifest are doing the work?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A DaemonSet. The first load-bearing part is what is *absent*: there is no
+  `replicas` field, so the controller creates one Pod per eligible node and
+  picks up new nodes as they join, with no manifest change. The second is the
+  `tolerations` block — control-plane nodes carry a taint that repels ordinary
+  workloads, so an agent that must run there needs a toleration for
+  `node-role.kubernetes.io/control-plane`. Before shipping it, multiply the
+  Pod's resource requests by the largest node count the autoscaler is allowed to
+  reach; that product, not the single-Pod figure, is what the agent actually
+  costs.
+</PracticeCheck>

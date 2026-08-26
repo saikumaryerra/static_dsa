@@ -1,0 +1,270 @@
+---
+title: 'Taints, Tolerations and Topology Spread'
+slug: 'k8s-taints-and-spread'
+course: 'kubernetes'
+track: 'k8s-scheduling'
+order: 29
+summary: 'A taint lets a node refuse Pods that have not been given permission to be there, and a topology spread constraint turns "keep my replicas apart" from an all-or-nothing rule into a dial you can set.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-how-scheduling-works', 'k8s-affinity']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scheduling', 'taints', 'topology']
+explainPrompt: 'Why does a Pod on a node that has gone unreachable take about five minutes to be recreated elsewhere?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say which direction a taint works in, and why a toleration is not an
+  attraction.
+- Name the three taint effects and what each does to a Pod already running.
+- Set `maxSkew` and `whenUnsatisfiable` to spread a workload across failure
+  domains.
+
+## Intuition
+
+Affinity is the Pod talking. Everything in the previous lesson was a workload
+describing where it would like to be, and a node with no opinion accepted
+whatever arrived.
+
+**A taint is the node talking back.** It marks the node as unsuitable by
+default, and only a Pod carrying the matching toleration is considered at all.
+The two mechanisms are opposites and they compose: affinity draws a Pod towards
+a node, a taint pushes every Pod away from one, and a toleration removes that
+push for a specific workload.
+
+The crucial word is _removes_. **A toleration is permission, not attraction.**
+It says this Pod may be placed on tainted nodes; it says nothing about wanting
+to be. Give an expensive GPU node a taint and give a batch job the toleration,
+and the batch job may still land on an ordinary node — because tolerating a
+taint does not raise a node's score. Dedicating hardware takes both halves: a
+taint to keep others out, and a selector or affinity to draw the intended
+workload in.
+
+The second half of this lesson is a different problem with a family
+resemblance. Anti-affinity can say "never two of these together"; it cannot say
+"keep the counts within one of each other". Topology spread is that dial.
+
+## How it works
+
+A taint is a key, an optional value and an effect, applied to the node:
+
+```bash
+kubectl taint nodes gpu-1 workload=gpu:NoSchedule
+kubectl taint nodes gpu-1 workload=gpu:NoSchedule-
+kubectl describe node gpu-1 | grep -A2 Taints
+```
+
+The three effects differ in when they act:
+
+| Effect             | What it does                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `NoSchedule`       | No new Pod is placed here without a matching toleration. Pods already running stay.  |
+| `PreferNoSchedule` | A scoring penalty, not a filter. Used when there is nowhere else, otherwise avoided. |
+| `NoExecute`        | As `NoSchedule`, **and** running Pods without the toleration are evicted.            |
+
+The Pod's side is a list, matched by `key`, `operator` and `effect`:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: trainer
+spec:
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: gpu
+      effect: NoSchedule
+  nodeSelector:
+    pool: gpu
+  containers:
+    - name: trainer
+      image: busybox:1.37
+      command: ['sh', '-c', 'sleep 3600']
+```
+
+`operator: Exists` with no `value` tolerates any value of that key; omit the
+`key` as well and the Pod tolerates everything, which is what a node-level
+monitoring DaemonSet does deliberately and what an application should never do.
+
+**The cluster taints nodes on your behalf, and one of those taints explains a
+number you have probably wondered about.** When a node stops reporting, the node
+controller adds `node.kubernetes.io/unreachable` with effect `NoExecute`; a
+failing node also picks up `node.kubernetes.io/not-ready`. Admission adds a
+toleration for both of those to every Pod with `tolerationSeconds: 300`. That is
+why a Pod on a node that loses power is not recreated immediately: the eviction
+waits five minutes, on the assumption that a node which briefly stopped
+answering is more likely to come back than to be gone. `kubectl cordon` uses the
+same machinery — it adds `node.kubernetes.io/unschedulable:NoSchedule`.
+
+**Topology spread constraints** count Pods per domain and cap the difference:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: web
+        - maxSkew: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: web
+      containers:
+        - name: web
+          image: nginx:1.29
+```
+
+The skew of a domain is the number of matching Pods in it minus the number in
+the emptiest domain. `maxSkew: 1` across three zones therefore gives 2/2/2 for
+six replicas, and refuses to make it 3/2/1. `whenUnsatisfiable` is the whole
+argument in one field: `DoNotSchedule` makes the constraint a filter and leaves
+the Pod `Pending` when it cannot be met, while `ScheduleAnyway` demotes it to a
+scoring preference. The manifest above is a common shape — insist on zones,
+prefer hosts.
+
+**A domain only exists where its label does.** A node without
+`topology.kubernetes.io/zone` is in no zone at all, and under `DoNotSchedule`
+the scheduler refuses to place the Pod there: apply the manifest above to a
+cluster whose nodes are unlabelled and all six replicas sit `Pending` with
+`didn't match pod topology spread constraints (missing required label)`. A cloud
+provider's controller sets that label; kind, minikube and k3d do not. On a local
+cluster either label the nodes first — `kubectl label node worker-1
+topology.kubernetes.io/zone=a` — or spread on `kubernetes.io/hostname`, which
+every node always carries.
+
+<Callout variant="tip">
+  `minDomains` is for the domain that does not exist yet. An empty zone whose
+  nodes are there is already counted: it holds zero Pods, so the global minimum
+  is zero and `maxSkew: 1` forces a Pod into it without any help. The case the
+  arithmetic cannot see is a zone with no eligible nodes at all — two zones then
+  look perfectly balanced with each other. `minDomains: 3` says treat the global
+  minimum as zero until three eligible domains exist, so the Pods stay `Pending`
+  and a cluster autoscaler is given a reason to create nodes in the third zone.
+  It is valid only with `whenUnsatisfiable: DoNotSchedule`; the API rejects it
+  outright next to `ScheduleAnyway`.
+</Callout>
+
+Constraints are evaluated when a Pod is placed, against the Pods that exist at
+that moment. Scale down from six to four and you may end up with 2/2/0; nothing
+repairs the skew afterwards. During a rolling update, old and new Pods both
+match `app: web` and are counted together — `matchLabelKeys` exists for that
+case, adding the value of a Pod label such as the revision hash to the selector
+so each revision is counted on its own.
+
+## Trade-offs
+
+**Taints are a strong default and a coarse one.** They are the only mechanism
+that keeps a node clear of workloads that have said nothing about it, which is
+what you want for expensive hardware, a node pool with a licence restriction, or
+the control plane. The cost is that every legitimate workload now needs a
+toleration, and a missing one produces a `Pending` Pod whose message names a
+taint the author has never heard of.
+
+**Spread versus anti-affinity.** Required anti-affinity is absolute and cheap to
+reason about: one per domain, or `Pending`. Spread is a dial, degrades on
+request, and lets you say "roughly even" — which is what most services actually
+want. It is also cheaper for the scheduler to evaluate. Anti-affinity remains
+the right answer when two Pods genuinely must never share a machine.
+
+**`DoNotSchedule` trades availability for balance.** A perfectly balanced
+workload that will not scale up during a zone outage has chosen the wrong side
+of that trade for most services; `ScheduleAnyway` with a real spread most of the
+time is usually the better default.
+
+## Common pitfalls
+
+- **Tolerating a taint and expecting placement.** The toleration only removes
+  the refusal. Without a `nodeSelector` or node affinity the Pod is free to land
+  anywhere, and dedicated nodes end up shared.
+- **Using `NoExecute` on a live node without checking.** It evicts running Pods
+  that lack the toleration, immediately and with no rollout budget applied.
+- **A blanket `operator: Exists` toleration.** It looks like a fix for one
+  `Pending` Pod and quietly opts the workload into being scheduled onto
+  control-plane nodes, unhealthy nodes and nodes being drained.
+- **Assuming spread is maintained.** It is a scheduling-time check. Scale-downs,
+  evictions and node failures all leave a skew that nothing corrects.
+- **A spread constraint whose `labelSelector` does not match the Pod itself.**
+  The Pod is then counted in no domain and the constraint quietly does nothing.
+
+## Key takeaways
+
+- **A taint repels; a toleration only removes the repulsion.** Dedicated
+  hardware needs a taint _and_ a selector or affinity.
+- The effects are `NoSchedule`, `PreferNoSchedule` and `NoExecute` — and only
+  **`NoExecute` touches Pods that are already running**.
+- Built-in `NoExecute` taints for `not-ready` and `unreachable`, plus the
+  default 300-second toleration, are why a dead node's Pods take **about five
+  minutes** to be recreated.
+- **`maxSkew` is the allowed difference between the fullest and emptiest
+  domain**, and `whenUnsatisfiable` decides whether the constraint is a filter
+  or a preference.
+- Spread is checked **when a Pod is scheduled**, so a workload can drift out of
+  balance and stay there.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You taint three GPU nodes with `workload=gpu:NoSchedule` and add the matching toleration to a training Job. The Job's Pods land on ordinary nodes. Nothing is broken. Why?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because a toleration is permission, not preference. The taint removed the GPU
+  nodes from consideration for every other Pod, and the toleration put them back
+  into consideration for this one — that is all it did. Scoring then ran across
+  every feasible node, GPU and ordinary alike, and the ordinary nodes are
+  perfectly feasible for a Pod that never said it needed a GPU. Add the missing
+  half: label the GPU nodes and give the Job a `nodeSelector` or required node
+  affinity for that label, so the taint keeps others out and the selector draws
+  this workload in.
+</PracticeCheck>
+
+**2. Six replicas, three zones, `maxSkew: 1` with `whenUnsatisfiable: DoNotSchedule` on the zone key. One zone goes offline and you scale to nine. What happens?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The two surviving zones can take some of the new Pods, but not all of them.
+  With the third zone unavailable the count can rise to 3/3 across the two live
+  zones while the offline zone holds whatever the scheduler still counts there;
+  the moment placing another Pod would push the difference between the fullest
+  and the emptiest domain past one, `DoNotSchedule` turns the constraint into a
+  filter and the remaining Pods stay `Pending`. That is the constraint doing
+  exactly what it was told, and it is also the trade-off: you asked for balance
+  in preference to capacity, and a zone outage is precisely when those two goals
+  conflict. `ScheduleAnyway` would have taken the unbalanced placement and
+  served the traffic.
+</PracticeCheck>
+
+**3. A colleague fixes a `Pending` Pod by giving it `tolerations: [{operator: Exists}]`. It schedules. What have they actually agreed to?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A toleration with `operator: Exists` and no key tolerates every taint in the
+  cluster, so the Pod is now willing to be placed on control-plane nodes, on
+  nodes a colleague has cordoned or is draining, on nodes tainted for dedicated
+  hardware, and on nodes carrying condition taints for memory pressure or disk
+  pressure. It also tolerates the `NoExecute` taints for `not-ready` and
+  `unreachable` with no `tolerationSeconds`, which means the Pod will sit on a
+  node that has stopped reporting rather than being recreated elsewhere after
+  five minutes. The `Pending` message named one taint; the repair should name
+  that one taint too.
+</PracticeCheck>

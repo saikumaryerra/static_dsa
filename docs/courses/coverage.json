@@ -1,0 +1,1452 @@
+{
+  "$comment": "Appendix A/B topic coverage (docs/courses/SPEC.md Appendix D item 9). Every topic must map to at least one EXISTING published lesson; scripts/validate-content.mjs fails the build otherwise. Counts per appendix section are pinned in tests/unit/coverage.test.ts so a topic cannot be quietly dropped.",
+  "topics": [
+    {
+      "id": "A1.1",
+      "appendix": "A1",
+      "topic": "what Kubernetes is",
+      "lessons": [
+        "k8s-what-kubernetes-is"
+      ]
+    },
+    {
+      "id": "A1.2",
+      "appendix": "A1",
+      "topic": "why orchestration exists",
+      "lessons": [
+        "k8s-what-kubernetes-is"
+      ]
+    },
+    {
+      "id": "A1.3",
+      "appendix": "A1",
+      "topic": "containers vs orchestration",
+      "lessons": [
+        "k8s-what-kubernetes-is"
+      ]
+    },
+    {
+      "id": "A1.4",
+      "appendix": "A1",
+      "topic": "cluster architecture",
+      "lessons": [
+        "k8s-what-kubernetes-is"
+      ]
+    },
+    {
+      "id": "A1.5",
+      "appendix": "A1",
+      "topic": "control plane vs worker nodes",
+      "lessons": [
+        "k8s-what-kubernetes-is"
+      ]
+    },
+    {
+      "id": "A1.6",
+      "appendix": "A1",
+      "topic": "the API and the API server",
+      "lessons": [
+        "k8s-objects-and-manifests"
+      ]
+    },
+    {
+      "id": "A1.7",
+      "appendix": "A1",
+      "topic": "declarative configuration",
+      "lessons": [
+        "k8s-objects-and-manifests",
+        "k8s-what-kubernetes-is"
+      ]
+    },
+    {
+      "id": "A1.8",
+      "appendix": "A1",
+      "topic": "desired vs current state and reconciliation",
+      "lessons": [
+        "k8s-desired-state"
+      ]
+    },
+    {
+      "id": "A1.9",
+      "appendix": "A1",
+      "topic": "clusters, nodes, namespaces",
+      "lessons": [
+        "k8s-namespaces-and-kubectl"
+      ]
+    },
+    {
+      "id": "A1.10",
+      "appendix": "A1",
+      "topic": "kubectl essentials and manifest anatomy",
+      "lessons": [
+        "k8s-namespaces-and-kubectl",
+        "k8s-objects-and-manifests"
+      ]
+    },
+    {
+      "id": "A1.11",
+      "appendix": "A1",
+      "topic": "a local cluster for the exercises",
+      "lessons": [
+        "k8s-local-cluster"
+      ]
+    },
+    {
+      "id": "A2.1",
+      "appendix": "A2",
+      "topic": "Pods",
+      "lessons": [
+        "k8s-pods"
+      ]
+    },
+    {
+      "id": "A2.2",
+      "appendix": "A2",
+      "topic": "ReplicaSets",
+      "lessons": [
+        "k8s-deployments"
+      ]
+    },
+    {
+      "id": "A2.3",
+      "appendix": "A2",
+      "topic": "Deployments",
+      "lessons": [
+        "k8s-deployments"
+      ]
+    },
+    {
+      "id": "A2.4",
+      "appendix": "A2",
+      "topic": "StatefulSets",
+      "lessons": [
+        "k8s-statefulsets"
+      ]
+    },
+    {
+      "id": "A2.5",
+      "appendix": "A2",
+      "topic": "DaemonSets",
+      "lessons": [
+        "k8s-daemonsets-jobs-cronjobs"
+      ]
+    },
+    {
+      "id": "A2.6",
+      "appendix": "A2",
+      "topic": "Jobs",
+      "lessons": [
+        "k8s-daemonsets-jobs-cronjobs"
+      ]
+    },
+    {
+      "id": "A2.7",
+      "appendix": "A2",
+      "topic": "CronJobs",
+      "lessons": [
+        "k8s-daemonsets-jobs-cronjobs"
+      ]
+    },
+    {
+      "id": "A2.8",
+      "appendix": "A2",
+      "topic": "labels and selectors",
+      "lessons": [
+        "k8s-labels-and-selectors"
+      ]
+    },
+    {
+      "id": "A2.9",
+      "appendix": "A2",
+      "topic": "annotations",
+      "lessons": [
+        "k8s-labels-and-selectors"
+      ]
+    },
+    {
+      "id": "A2.10",
+      "appendix": "A2",
+      "topic": "Pod lifecycle and phases",
+      "lessons": [
+        "k8s-pods"
+      ]
+    },
+    {
+      "id": "A2.11",
+      "appendix": "A2",
+      "topic": "init containers and sidecars",
+      "lessons": [
+        "k8s-init-and-sidecar-containers"
+      ]
+    },
+    {
+      "id": "A3.1",
+      "appendix": "A3",
+      "topic": "the networking model",
+      "lessons": [
+        "k8s-networking-model"
+      ]
+    },
+    {
+      "id": "A3.2",
+      "appendix": "A3",
+      "topic": "Pod-to-Pod communication",
+      "lessons": [
+        "k8s-networking-model"
+      ]
+    },
+    {
+      "id": "A3.3",
+      "appendix": "A3",
+      "topic": "Services: ClusterIP, NodePort, LoadBalancer, headless",
+      "lessons": [
+        "k8s-services"
+      ]
+    },
+    {
+      "id": "A3.4",
+      "appendix": "A3",
+      "topic": "DNS and service discovery",
+      "lessons": [
+        "k8s-dns-and-discovery"
+      ]
+    },
+    {
+      "id": "A3.5",
+      "appendix": "A3",
+      "topic": "Ingress",
+      "lessons": [
+        "k8s-ingress-and-gateway"
+      ]
+    },
+    {
+      "id": "A3.6",
+      "appendix": "A3",
+      "topic": "Gateway API",
+      "lessons": [
+        "k8s-ingress-and-gateway"
+      ]
+    },
+    {
+      "id": "A3.7",
+      "appendix": "A3",
+      "topic": "NetworkPolicies",
+      "lessons": [
+        "k8s-network-policies"
+      ]
+    },
+    {
+      "id": "A3.8",
+      "appendix": "A3",
+      "topic": "where service meshes fit",
+      "lessons": [
+        "k8s-network-policies"
+      ]
+    },
+    {
+      "id": "A4.1",
+      "appendix": "A4",
+      "topic": "ConfigMaps",
+      "lessons": [
+        "k8s-configmaps"
+      ]
+    },
+    {
+      "id": "A4.2",
+      "appendix": "A4",
+      "topic": "Secrets",
+      "lessons": [
+        "k8s-secrets"
+      ]
+    },
+    {
+      "id": "A4.3",
+      "appendix": "A4",
+      "topic": "environment variables",
+      "lessons": [
+        "k8s-injecting-configuration"
+      ]
+    },
+    {
+      "id": "A4.4",
+      "appendix": "A4",
+      "topic": "mounted configuration",
+      "lessons": [
+        "k8s-injecting-configuration"
+      ]
+    },
+    {
+      "id": "A4.5",
+      "appendix": "A4",
+      "topic": "immutable ConfigMaps and Secrets",
+      "lessons": [
+        "k8s-injecting-configuration"
+      ]
+    },
+    {
+      "id": "A4.6",
+      "appendix": "A4",
+      "topic": "secret-management considerations",
+      "lessons": [
+        "k8s-secret-management"
+      ]
+    },
+    {
+      "id": "A4.7",
+      "appendix": "A4",
+      "topic": "security implications of configuration",
+      "lessons": [
+        "k8s-secrets",
+        "k8s-secret-management"
+      ]
+    },
+    {
+      "id": "A5.1",
+      "appendix": "A5",
+      "topic": "ephemeral storage",
+      "lessons": [
+        "k8s-volumes"
+      ]
+    },
+    {
+      "id": "A5.2",
+      "appendix": "A5",
+      "topic": "volumes",
+      "lessons": [
+        "k8s-volumes"
+      ]
+    },
+    {
+      "id": "A5.3",
+      "appendix": "A5",
+      "topic": "PersistentVolumes and PersistentVolumeClaims",
+      "lessons": [
+        "k8s-persistent-volumes"
+      ]
+    },
+    {
+      "id": "A5.4",
+      "appendix": "A5",
+      "topic": "StorageClasses and dynamic provisioning",
+      "lessons": [
+        "k8s-storage-classes"
+      ]
+    },
+    {
+      "id": "A5.5",
+      "appendix": "A5",
+      "topic": "access modes",
+      "lessons": [
+        "k8s-storage-classes"
+      ]
+    },
+    {
+      "id": "A5.6",
+      "appendix": "A5",
+      "topic": "CSI",
+      "lessons": [
+        "k8s-storage-classes"
+      ]
+    },
+    {
+      "id": "A5.7",
+      "appendix": "A5",
+      "topic": "StatefulSets with persistent data",
+      "lessons": [
+        "k8s-stateful-data"
+      ]
+    },
+    {
+      "id": "A5.8",
+      "appendix": "A5",
+      "topic": "snapshots, backup and restore",
+      "lessons": [
+        "k8s-backup-and-snapshots"
+      ]
+    },
+    {
+      "id": "A6.1",
+      "appendix": "A6",
+      "topic": "requests and limits",
+      "lessons": [
+        "k8s-requests-and-limits"
+      ]
+    },
+    {
+      "id": "A6.2",
+      "appendix": "A6",
+      "topic": "QoS classes",
+      "lessons": [
+        "k8s-requests-and-limits"
+      ]
+    },
+    {
+      "id": "A6.3",
+      "appendix": "A6",
+      "topic": "how scheduling works",
+      "lessons": [
+        "k8s-how-scheduling-works"
+      ]
+    },
+    {
+      "id": "A6.4",
+      "appendix": "A6",
+      "topic": "node selectors",
+      "lessons": [
+        "k8s-affinity"
+      ]
+    },
+    {
+      "id": "A6.5",
+      "appendix": "A6",
+      "topic": "affinity and anti-affinity",
+      "lessons": [
+        "k8s-affinity"
+      ]
+    },
+    {
+      "id": "A6.6",
+      "appendix": "A6",
+      "topic": "taints and tolerations",
+      "lessons": [
+        "k8s-taints-and-spread"
+      ]
+    },
+    {
+      "id": "A6.7",
+      "appendix": "A6",
+      "topic": "topology spread",
+      "lessons": [
+        "k8s-taints-and-spread"
+      ]
+    },
+    {
+      "id": "A6.8",
+      "appendix": "A6",
+      "topic": "ResourceQuota and LimitRange",
+      "lessons": [
+        "k8s-quotas-and-priority"
+      ]
+    },
+    {
+      "id": "A6.9",
+      "appendix": "A6",
+      "topic": "priority and preemption",
+      "lessons": [
+        "k8s-quotas-and-priority"
+      ]
+    },
+    {
+      "id": "A6.10",
+      "appendix": "A6",
+      "topic": "autoscaling concepts",
+      "lessons": [
+        "k8s-requests-and-limits",
+        "k8s-horizontal-pod-autoscaler"
+      ]
+    },
+    {
+      "id": "A7.1",
+      "appendix": "A7",
+      "topic": "liveness, readiness and startup probes",
+      "lessons": [
+        "k8s-probes"
+      ]
+    },
+    {
+      "id": "A7.2",
+      "appendix": "A7",
+      "topic": "rolling updates",
+      "lessons": [
+        "k8s-rolling-updates"
+      ]
+    },
+    {
+      "id": "A7.3",
+      "appendix": "A7",
+      "topic": "rollout history and rollback",
+      "lessons": [
+        "k8s-rolling-updates"
+      ]
+    },
+    {
+      "id": "A7.4",
+      "appendix": "A7",
+      "topic": "PodDisruptionBudgets",
+      "lessons": [
+        "k8s-disruption-budgets"
+      ]
+    },
+    {
+      "id": "A7.5",
+      "appendix": "A7",
+      "topic": "graceful shutdown",
+      "lessons": [
+        "k8s-graceful-shutdown"
+      ]
+    },
+    {
+      "id": "A7.6",
+      "appendix": "A7",
+      "topic": "failure scenarios",
+      "lessons": [
+        "k8s-disruption-budgets",
+        "k8s-graceful-shutdown"
+      ]
+    },
+    {
+      "id": "A8.1",
+      "appendix": "A8",
+      "topic": "RBAC",
+      "lessons": [
+        "k8s-rbac"
+      ]
+    },
+    {
+      "id": "A8.2",
+      "appendix": "A8",
+      "topic": "ServiceAccounts",
+      "lessons": [
+        "k8s-rbac"
+      ]
+    },
+    {
+      "id": "A8.3",
+      "appendix": "A8",
+      "topic": "least privilege",
+      "lessons": [
+        "k8s-rbac"
+      ]
+    },
+    {
+      "id": "A8.4",
+      "appendix": "A8",
+      "topic": "Pod Security Admission and the Pod Security Standards",
+      "lessons": [
+        "k8s-pod-security-admission"
+      ]
+    },
+    {
+      "id": "A8.5",
+      "appendix": "A8",
+      "topic": "security contexts",
+      "lessons": [
+        "k8s-security-contexts"
+      ]
+    },
+    {
+      "id": "A8.6",
+      "appendix": "A8",
+      "topic": "network isolation",
+      "lessons": [
+        "k8s-security-contexts",
+        "k8s-network-policies"
+      ]
+    },
+    {
+      "id": "A8.7",
+      "appendix": "A8",
+      "topic": "image security and supply chain",
+      "lessons": [
+        "k8s-image-security"
+      ]
+    },
+    {
+      "id": "A8.8",
+      "appendix": "A8",
+      "topic": "secrets handling",
+      "lessons": [
+        "k8s-secret-management"
+      ]
+    },
+    {
+      "id": "A8.9",
+      "appendix": "A8",
+      "topic": "admission control",
+      "lessons": [
+        "k8s-admission-control"
+      ]
+    },
+    {
+      "id": "A9.1",
+      "appendix": "A9",
+      "topic": "logs",
+      "lessons": [
+        "k8s-logs-and-events"
+      ]
+    },
+    {
+      "id": "A9.2",
+      "appendix": "A9",
+      "topic": "events",
+      "lessons": [
+        "k8s-logs-and-events"
+      ]
+    },
+    {
+      "id": "A9.3",
+      "appendix": "A9",
+      "topic": "metrics",
+      "lessons": [
+        "k8s-metrics"
+      ]
+    },
+    {
+      "id": "A9.4",
+      "appendix": "A9",
+      "topic": "traces",
+      "lessons": [
+        "k8s-tracing"
+      ]
+    },
+    {
+      "id": "A9.5",
+      "appendix": "A9",
+      "topic": "monitoring architecture",
+      "lessons": [
+        "k8s-monitoring-architecture"
+      ]
+    },
+    {
+      "id": "A9.6",
+      "appendix": "A9",
+      "topic": "alerting",
+      "lessons": [
+        "k8s-monitoring-architecture"
+      ]
+    },
+    {
+      "id": "A9.7",
+      "appendix": "A9",
+      "topic": "debugging unhealthy workloads",
+      "lessons": [
+        "k8s-debugging-workflow"
+      ]
+    },
+    {
+      "id": "A10.1",
+      "appendix": "A10",
+      "topic": "Horizontal Pod Autoscaler",
+      "lessons": [
+        "k8s-horizontal-pod-autoscaler"
+      ]
+    },
+    {
+      "id": "A10.2",
+      "appendix": "A10",
+      "topic": "Vertical Pod Autoscaler concepts",
+      "lessons": [
+        "k8s-vertical-and-cluster-autoscaling"
+      ]
+    },
+    {
+      "id": "A10.3",
+      "appendix": "A10",
+      "topic": "cluster autoscaling",
+      "lessons": [
+        "k8s-vertical-and-cluster-autoscaling"
+      ]
+    },
+    {
+      "id": "A10.4",
+      "appendix": "A10",
+      "topic": "event-driven scaling",
+      "lessons": [
+        "k8s-event-driven-scaling"
+      ]
+    },
+    {
+      "id": "A10.5",
+      "appendix": "A10",
+      "topic": "bottlenecks",
+      "lessons": [
+        "k8s-capacity-planning"
+      ]
+    },
+    {
+      "id": "A10.6",
+      "appendix": "A10",
+      "topic": "capacity planning",
+      "lessons": [
+        "k8s-capacity-planning"
+      ]
+    },
+    {
+      "id": "A11.1",
+      "appendix": "A11",
+      "topic": "CI/CD with Kubernetes",
+      "lessons": [
+        "k8s-images-and-tags",
+        "k8s-gitops"
+      ]
+    },
+    {
+      "id": "A11.2",
+      "appendix": "A11",
+      "topic": "immutable images and tagging",
+      "lessons": [
+        "k8s-images-and-tags"
+      ]
+    },
+    {
+      "id": "A11.3",
+      "appendix": "A11",
+      "topic": "rollout strategies",
+      "lessons": [
+        "k8s-rollout-strategies"
+      ]
+    },
+    {
+      "id": "A11.4",
+      "appendix": "A11",
+      "topic": "blue/green",
+      "lessons": [
+        "k8s-rollout-strategies"
+      ]
+    },
+    {
+      "id": "A11.5",
+      "appendix": "A11",
+      "topic": "canary",
+      "lessons": [
+        "k8s-rollout-strategies"
+      ]
+    },
+    {
+      "id": "A11.6",
+      "appendix": "A11",
+      "topic": "GitOps",
+      "lessons": [
+        "k8s-gitops"
+      ]
+    },
+    {
+      "id": "A11.7",
+      "appendix": "A11",
+      "topic": "Helm",
+      "lessons": [
+        "k8s-helm"
+      ]
+    },
+    {
+      "id": "A11.8",
+      "appendix": "A11",
+      "topic": "Kustomize",
+      "lessons": [
+        "k8s-kustomize"
+      ]
+    },
+    {
+      "id": "A11.9",
+      "appendix": "A11",
+      "topic": "environment management",
+      "lessons": [
+        "k8s-gitops",
+        "k8s-multi-environment"
+      ]
+    },
+    {
+      "id": "A12.1",
+      "appendix": "A12",
+      "topic": "multi-environment strategy",
+      "lessons": [
+        "k8s-multi-environment"
+      ]
+    },
+    {
+      "id": "A12.2",
+      "appendix": "A12",
+      "topic": "cluster upgrades and version skew",
+      "lessons": [
+        "k8s-upgrades"
+      ]
+    },
+    {
+      "id": "A12.3",
+      "appendix": "A12",
+      "topic": "etcd and disaster recovery",
+      "lessons": [
+        "k8s-etcd-and-disaster-recovery"
+      ]
+    },
+    {
+      "id": "A12.4",
+      "appendix": "A12",
+      "topic": "high availability",
+      "lessons": [
+        "k8s-etcd-and-disaster-recovery"
+      ]
+    },
+    {
+      "id": "A12.5",
+      "appendix": "A12",
+      "topic": "multi-tenancy",
+      "lessons": [
+        "k8s-multi-tenancy"
+      ]
+    },
+    {
+      "id": "A12.6",
+      "appendix": "A12",
+      "topic": "cost optimization",
+      "lessons": [
+        "k8s-cost-optimization"
+      ]
+    },
+    {
+      "id": "A12.7",
+      "appendix": "A12",
+      "topic": "security posture",
+      "lessons": [
+        "k8s-multi-tenancy",
+        "k8s-admission-control"
+      ]
+    },
+    {
+      "id": "A12.8",
+      "appendix": "A12",
+      "topic": "CRDs and Operators",
+      "lessons": [
+        "k8s-operators"
+      ]
+    },
+    {
+      "id": "A12.9",
+      "appendix": "A12",
+      "topic": "operational maturity",
+      "lessons": [
+        "k8s-multi-environment",
+        "k8s-cost-optimization"
+      ]
+    },
+    {
+      "id": "A12.10",
+      "appendix": "A12",
+      "topic": "common production failure modes",
+      "lessons": [
+        "k8s-upgrades",
+        "k8s-rollout-failures"
+      ]
+    },
+    {
+      "id": "A13.1",
+      "appendix": "A13",
+      "topic": "a systematic debugging workflow",
+      "lessons": [
+        "k8s-debugging-workflow"
+      ]
+    },
+    {
+      "id": "A13.2",
+      "appendix": "A13",
+      "topic": "CrashLoopBackOff",
+      "lessons": [
+        "k8s-pod-startup-failures"
+      ]
+    },
+    {
+      "id": "A13.3",
+      "appendix": "A13",
+      "topic": "ImagePullBackOff",
+      "lessons": [
+        "k8s-pod-startup-failures"
+      ]
+    },
+    {
+      "id": "A13.4",
+      "appendix": "A13",
+      "topic": "Pending Pods",
+      "lessons": [
+        "k8s-scheduling-failures"
+      ]
+    },
+    {
+      "id": "A13.5",
+      "appendix": "A13",
+      "topic": "readiness failures",
+      "lessons": [
+        "k8s-rollout-failures"
+      ]
+    },
+    {
+      "id": "A13.6",
+      "appendix": "A13",
+      "topic": "DNS failures",
+      "lessons": [
+        "k8s-network-failures"
+      ]
+    },
+    {
+      "id": "A13.7",
+      "appendix": "A13",
+      "topic": "Service connectivity",
+      "lessons": [
+        "k8s-network-failures"
+      ]
+    },
+    {
+      "id": "A13.8",
+      "appendix": "A13",
+      "topic": "insufficient resources",
+      "lessons": [
+        "k8s-scheduling-failures"
+      ]
+    },
+    {
+      "id": "A13.9",
+      "appendix": "A13",
+      "topic": "scheduling failures",
+      "lessons": [
+        "k8s-scheduling-failures"
+      ]
+    },
+    {
+      "id": "A13.10",
+      "appendix": "A13",
+      "topic": "broken rollouts",
+      "lessons": [
+        "k8s-rollout-failures"
+      ]
+    },
+    {
+      "id": "A14.1",
+      "appendix": "A14",
+      "topic": "deploy a stateless web service",
+      "lessons": [
+        "k8s-project-stateless-service"
+      ]
+    },
+    {
+      "id": "A14.2",
+      "appendix": "A14",
+      "topic": "add service discovery",
+      "lessons": [
+        "k8s-project-stateless-service"
+      ]
+    },
+    {
+      "id": "A14.3",
+      "appendix": "A14",
+      "topic": "add configuration and secrets",
+      "lessons": [
+        "k8s-project-config-and-storage"
+      ]
+    },
+    {
+      "id": "A14.4",
+      "appendix": "A14",
+      "topic": "add persistent storage",
+      "lessons": [
+        "k8s-project-config-and-storage"
+      ]
+    },
+    {
+      "id": "A14.5",
+      "appendix": "A14",
+      "topic": "add health checks",
+      "lessons": [
+        "k8s-project-health-and-rollout"
+      ]
+    },
+    {
+      "id": "A14.6",
+      "appendix": "A14",
+      "topic": "implement autoscaling",
+      "lessons": [
+        "k8s-project-health-and-rollout"
+      ]
+    },
+    {
+      "id": "A14.7",
+      "appendix": "A14",
+      "topic": "implement a safe rollout",
+      "lessons": [
+        "k8s-project-health-and-rollout"
+      ]
+    },
+    {
+      "id": "A14.8",
+      "appendix": "A14",
+      "topic": "observe and troubleshoot the application",
+      "lessons": [
+        "k8s-project-observe-and-debug"
+      ]
+    },
+    {
+      "id": "B1.1",
+      "appendix": "B1",
+      "topic": "a repeatable design workflow, end to end",
+      "lessons": [
+        "sd-design-workflow"
+      ]
+    },
+    {
+      "id": "B1.2",
+      "appendix": "B1",
+      "topic": "functional and non-functional requirements",
+      "lessons": [
+        "sd-requirements"
+      ]
+    },
+    {
+      "id": "B1.3",
+      "appendix": "B1",
+      "topic": "capacity estimation, with reference numbers",
+      "lessons": [
+        "sd-capacity-estimation"
+      ]
+    },
+    {
+      "id": "B1.4",
+      "appendix": "B1",
+      "topic": "latency",
+      "lessons": [
+        "sd-latency-and-throughput"
+      ]
+    },
+    {
+      "id": "B1.5",
+      "appendix": "B1",
+      "topic": "throughput",
+      "lessons": [
+        "sd-latency-and-throughput"
+      ]
+    },
+    {
+      "id": "B1.6",
+      "appendix": "B1",
+      "topic": "availability",
+      "lessons": [
+        "sd-availability-and-durability"
+      ]
+    },
+    {
+      "id": "B1.7",
+      "appendix": "B1",
+      "topic": "durability",
+      "lessons": [
+        "sd-availability-and-durability"
+      ]
+    },
+    {
+      "id": "B1.8",
+      "appendix": "B1",
+      "topic": "consistency and consistency models (CAP, PACELC)",
+      "lessons": [
+        "sd-consistency-models"
+      ]
+    },
+    {
+      "id": "B1.9",
+      "appendix": "B1",
+      "topic": "scalability",
+      "lessons": [
+        "sd-latency-and-throughput",
+        "sd-replication-and-sharding"
+      ]
+    },
+    {
+      "id": "B1.10",
+      "appendix": "B1",
+      "topic": "reliability",
+      "lessons": [
+        "sd-availability-and-durability",
+        "sd-observability-and-recovery"
+      ]
+    },
+    {
+      "id": "B1.11",
+      "appendix": "B1",
+      "topic": "idempotency",
+      "lessons": [
+        "sd-idempotency-and-backpressure"
+      ]
+    },
+    {
+      "id": "B1.12",
+      "appendix": "B1",
+      "topic": "timeouts, retries, circuit breakers and backpressure",
+      "lessons": [
+        "sd-idempotency-and-backpressure"
+      ]
+    },
+    {
+      "id": "B1.13",
+      "appendix": "B1",
+      "topic": "trade-off reasoning",
+      "lessons": [
+        "sd-trade-off-reasoning"
+      ]
+    },
+    {
+      "id": "B2.1",
+      "appendix": "B2",
+      "topic": "load balancers",
+      "lessons": [
+        "sd-load-balancers"
+      ]
+    },
+    {
+      "id": "B2.2",
+      "appendix": "B2",
+      "topic": "reverse proxies",
+      "lessons": [
+        "sd-load-balancers"
+      ]
+    },
+    {
+      "id": "B2.3",
+      "appendix": "B2",
+      "topic": "CDNs",
+      "lessons": [
+        "sd-cdn"
+      ]
+    },
+    {
+      "id": "B2.4",
+      "appendix": "B2",
+      "topic": "caches",
+      "lessons": [
+        "sd-caching"
+      ]
+    },
+    {
+      "id": "B2.5",
+      "appendix": "B2",
+      "topic": "relational databases",
+      "lessons": [
+        "sd-relational-databases"
+      ]
+    },
+    {
+      "id": "B2.6",
+      "appendix": "B2",
+      "topic": "NoSQL databases",
+      "lessons": [
+        "sd-nosql-databases"
+      ]
+    },
+    {
+      "id": "B2.7",
+      "appendix": "B2",
+      "topic": "object storage",
+      "lessons": [
+        "sd-object-storage"
+      ]
+    },
+    {
+      "id": "B2.8",
+      "appendix": "B2",
+      "topic": "message queues",
+      "lessons": [
+        "sd-message-queues"
+      ]
+    },
+    {
+      "id": "B2.9",
+      "appendix": "B2",
+      "topic": "event streams",
+      "lessons": [
+        "sd-event-streams"
+      ]
+    },
+    {
+      "id": "B2.10",
+      "appendix": "B2",
+      "topic": "search indexes",
+      "lessons": [
+        "sd-search-indexes"
+      ]
+    },
+    {
+      "id": "B2.11",
+      "appendix": "B2",
+      "topic": "workers",
+      "lessons": [
+        "sd-workers-and-schedulers"
+      ]
+    },
+    {
+      "id": "B2.12",
+      "appendix": "B2",
+      "topic": "schedulers",
+      "lessons": [
+        "sd-workers-and-schedulers"
+      ]
+    },
+    {
+      "id": "B2.13",
+      "appendix": "B2",
+      "topic": "service discovery",
+      "lessons": [
+        "sd-service-discovery"
+      ]
+    },
+    {
+      "id": "B2.14",
+      "appendix": "B2",
+      "topic": "rate limiters",
+      "lessons": [
+        "sd-rate-limiting"
+      ]
+    },
+    {
+      "id": "B2.15",
+      "appendix": "B2",
+      "topic": "replication",
+      "lessons": [
+        "sd-replication-and-sharding"
+      ]
+    },
+    {
+      "id": "B2.16",
+      "appendix": "B2",
+      "topic": "partitioning and sharding",
+      "lessons": [
+        "sd-replication-and-sharding"
+      ]
+    },
+    {
+      "id": "B2.17",
+      "appendix": "B2",
+      "topic": "distributed coordination",
+      "lessons": [
+        "sd-service-discovery"
+      ]
+    },
+    {
+      "id": "B2.18",
+      "appendix": "B2",
+      "topic": "API design and data modeling",
+      "lessons": [
+        "sd-api-design"
+      ]
+    },
+    {
+      "id": "B2.19",
+      "appendix": "B2",
+      "topic": "observability",
+      "lessons": [
+        "sd-observability-and-recovery"
+      ]
+    },
+    {
+      "id": "B2.20",
+      "appendix": "B2",
+      "topic": "failure handling and disaster recovery",
+      "lessons": [
+        "sd-observability-and-recovery"
+      ]
+    },
+    {
+      "id": "B3.1",
+      "appendix": "B3",
+      "topic": "Netflix-like requirements: accounts, profiles, catalogue, search, recommendations, playback, subtitles, watch history, continue watching, personalization, multiple devices",
+      "lessons": [
+        "sd-netflix-requirements"
+      ]
+    },
+    {
+      "id": "B3.2",
+      "appendix": "B3",
+      "topic": "Netflix-like architecture: clients, edge, auth, catalogue, playback, storage, caches, pipelines, analytics",
+      "lessons": [
+        "sd-netflix-architecture"
+      ]
+    },
+    {
+      "id": "B3.3",
+      "appendix": "B3",
+      "topic": "Netflix-like experimentation (A/B testing)",
+      "lessons": [
+        "sd-netflix-recommendations"
+      ]
+    },
+    {
+      "id": "B3.4",
+      "appendix": "B3",
+      "topic": "Netflix-like recommendations and personalization",
+      "lessons": [
+        "sd-netflix-recommendations"
+      ]
+    },
+    {
+      "id": "B3.5",
+      "appendix": "B3",
+      "topic": "Netflix-like video delivery: encoding, segmentation, ABR, CDN, origin, DRM",
+      "lessons": [
+        "sd-netflix-video-delivery"
+      ]
+    },
+    {
+      "id": "B3.6",
+      "appendix": "B3",
+      "topic": "Netflix-like playback state across devices",
+      "lessons": [
+        "sd-netflix-playback-state"
+      ]
+    },
+    {
+      "id": "B3.7",
+      "appendix": "B3",
+      "topic": "Netflix-like scale and reliability: spikes, regional failure, cache efficiency, degradation, multi-region, chaos engineering",
+      "lessons": [
+        "sd-netflix-reliability"
+      ]
+    },
+    {
+      "id": "B3.8",
+      "appendix": "B3",
+      "topic": "Netflix-like trade-offs: why each component exists",
+      "lessons": [
+        "sd-netflix-reliability",
+        "sd-netflix-architecture"
+      ]
+    },
+    {
+      "id": "B4.1",
+      "appendix": "B4",
+      "topic": "Spotify-like requirements: accounts, artists, albums, tracks, playlists, follows, likes, search, recommendations, playback, offline, history, podcasts",
+      "lessons": [
+        "sd-spotify-requirements"
+      ]
+    },
+    {
+      "id": "B4.2",
+      "appendix": "B4",
+      "topic": "Spotify-like architecture: API, user, catalogue, playlist and playback services, search, storage, CDN, cache, streaming, analytics",
+      "lessons": [
+        "sd-spotify-architecture"
+      ]
+    },
+    {
+      "id": "B4.3",
+      "appendix": "B4",
+      "topic": "Spotify-like music delivery: encoding, object storage, CDN, caching, regional distribution",
+      "lessons": [
+        "sd-spotify-audio-delivery"
+      ]
+    },
+    {
+      "id": "B4.4",
+      "appendix": "B4",
+      "topic": "Spotify-like offline caching and rights",
+      "lessons": [
+        "sd-spotify-audio-delivery"
+      ]
+    },
+    {
+      "id": "B4.5",
+      "appendix": "B4",
+      "topic": "Spotify-like recommendation architecture: events, features, candidates, ranking, feedback, offline vs online",
+      "lessons": [
+        "sd-spotify-recommendations"
+      ]
+    },
+    {
+      "id": "B4.6",
+      "appendix": "B4",
+      "topic": "Spotify-like playlist consistency: concurrent and collaborative edits, ordering, sync, conflicts",
+      "lessons": [
+        "sd-spotify-playlists"
+      ]
+    },
+    {
+      "id": "B4.7",
+      "appendix": "B4",
+      "topic": "Spotify-like scale and reliability: catalogue size, listening-event volume, bursts, outages, degradation",
+      "lessons": [
+        "sd-spotify-reliability"
+      ]
+    },
+    {
+      "id": "B5.1",
+      "appendix": "B5",
+      "topic": "YouTube-like requirements: upload, processing, playback, channels, subscriptions, comments, likes, views, search, recommendations, notifications, creator analytics",
+      "lessons": [
+        "sd-youtube-requirements"
+      ]
+    },
+    {
+      "id": "B5.2",
+      "appendix": "B5",
+      "topic": "YouTube-like upload pipeline: resumable upload, object storage, metadata, queue, transcoding, thumbnails, validation and moderation, copyright matching, publishing, CDN",
+      "lessons": [
+        "sd-youtube-upload-pipeline"
+      ]
+    },
+    {
+      "id": "B5.3",
+      "appendix": "B5",
+      "topic": "YouTube-like playback: manifests, segments, ABR, CDN, cache, origin, hot vs cold",
+      "lessons": [
+        "sd-youtube-playback"
+      ]
+    },
+    {
+      "id": "B5.4",
+      "appendix": "B5",
+      "topic": "YouTube-like search: indexing, ranking, freshness, metadata, autocomplete, distribution",
+      "lessons": [
+        "sd-youtube-search"
+      ]
+    },
+    {
+      "id": "B5.5",
+      "appendix": "B5",
+      "topic": "YouTube-like recommendations: candidate generation, ranking, personalization, watch history, feedback",
+      "lessons": [
+        "sd-youtube-recommendations"
+      ]
+    },
+    {
+      "id": "B5.6",
+      "appendix": "B5",
+      "topic": "YouTube-like comments and engagement: write volume, pagination, moderation, abuse",
+      "lessons": [
+        "sd-youtube-engagement"
+      ]
+    },
+    {
+      "id": "B5.7",
+      "appendix": "B5",
+      "topic": "YouTube-like counters and notification fan-out",
+      "lessons": [
+        "sd-youtube-engagement"
+      ]
+    },
+    {
+      "id": "B5.8",
+      "appendix": "B5",
+      "topic": "YouTube-like scale: storage, bandwidth, uploads, transcoding, view traffic, hot videos, regional failure",
+      "lessons": [
+        "sd-youtube-scale"
+      ]
+    },
+    {
+      "id": "B5.9",
+      "appendix": "B5",
+      "topic": "YouTube-like live streaming",
+      "lessons": [
+        "sd-youtube-playback"
+      ]
+    },
+    {
+      "id": "B6.1",
+      "appendix": "B6",
+      "topic": "the comparison table across all eleven concerns",
+      "lessons": [
+        "sd-comparison-table"
+      ]
+    },
+    {
+      "id": "B6.2",
+      "appendix": "B6",
+      "topic": "teaching beyond the table: why similar products need different architectures",
+      "lessons": [
+        "sd-comparison-why-different",
+        "sd-comparison-applying"
+      ]
+    }
+  ]
+}

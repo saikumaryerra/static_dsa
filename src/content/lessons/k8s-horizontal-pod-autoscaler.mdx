@@ -1,0 +1,305 @@
+---
+title: 'The Horizontal Pod Autoscaler'
+slug: 'k8s-horizontal-pod-autoscaler'
+course: 'kubernetes'
+track: 'k8s-scaling'
+order: 44
+summary: 'An HPA is not a rule engine that adds a Pod above eighty percent — it divides measured load by your target, multiplies the replica count by that ratio, and moves there in one step.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-requests-and-limits', 'k8s-metrics']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scaling', 'autoscaling', 'hpa']
+explainPrompt: 'Why does an HPA measure CPU as a percentage of the request rather than a percentage of the node?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Work out the replica count an HPA will pick, from the metric and the target.
+- Write an `autoscaling/v2` HorizontalPodAutoscaler and read `kubectl get hpa`.
+- Choose a signal that falls as replicas rise, and spot one that never will.
+- Say when horizontal scaling is the wrong answer to a load problem.
+
+## Intuition
+
+The name suggests a rule engine — above eighty percent add a Pod, below thirty
+take one away. That is not what it does, and expecting it to is the source of
+most surprise about how far it moves.
+
+**An HPA is a ratio, not a rule.** On a short fixed interval it reads one number
+per Pod, averages it, divides that average by the target you wrote down, and
+multiplies the current replica count by the result:
+
+```text
+desired = ceil( currentReplicas * ( currentMetric / targetMetric ) )
+```
+
+Nothing in that sentence is incremental. Four replicas averaging 90% CPU against
+a 50% target want `ceil(4 * 1.8)` = 8 replicas, and the controller asks for eight
+straight away rather than climbing there one Pod at a time. On a cluster running
+1.36 a single replica pinned at 200% of its request, with a 60% target, went to
+four in one step — `ceil(1 * 3.33)` is 4, which was also the ceiling it had been
+given.
+
+Two consequences follow from the arithmetic and are worth holding on to. The
+metric **must fall as replicas rise**, or the ratio never comes back to one and
+the HPA climbs until it hits `maxReplicas`. And a small wobble should not move
+anything, which is why the controller ignores any ratio within a tolerance band
+of 1 — 10% cluster-wide by default.
+
+## How it works
+
+### The signal, and where the number comes from
+
+The default signal is CPU, expressed as a percentage of the container's
+**request** — not of the node, and not of the limit. A Pod requesting `200m` and
+burning `300m` is at 150%, on a node that may be almost idle. That is the whole
+reason the number is comparable across a fleet of different machines, and it is
+also why the request is load-bearing: the same `300m` of usage reads as 30%
+against a generous request and 150% against a tight one, so the request decides
+when scaling happens as much as the target does. [Requests, Limits and
+QoS](/learn/k8s-requests-and-limits/) is the lesson underneath this one.
+
+The usage figure comes from **metrics-server** through the `metrics.k8s.io` API,
+the same source `kubectl top` reads — an add-on that is not part of a default
+Kubernetes install, though several distributions bundle it. No metrics-server, no
+CPU or memory scaling — the other metric types below reach the HPA through a
+different adapter. [Metrics](/learn/k8s-metrics/) covers what it does and does
+not keep.
+
+`autoscaling/v2` accepts five kinds of metric, and the last two are the ones
+worth knowing about:
+
+| Type                | Reads                                              |
+| ------------------- | -------------------------------------------------- |
+| `Resource`          | CPU or memory averaged across the Pods             |
+| `ContainerResource` | the same, for one named container in the Pod       |
+| `Pods`              | a custom per-Pod metric, averaged                  |
+| `Object`            | one metric on one object, such as a Service        |
+| `External`          | something outside the cluster, such as queue depth |
+
+`Object` and `External` are how an HPA scales on anything other than resource
+usage, and they need a metrics adapter serving that API — which is the door the
+next lessons walk through.
+
+### A HorizontalPodAutoscaler
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: shop
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+```
+
+`scaleTargetRef` names anything with a `scale` subresource — a Deployment, a
+StatefulSet, a ReplicaSet. The HPA writes a replica count into that object and
+stops there; the existing controllers do the rest, which is why autoscaling
+inherits rolling updates and disruption budgets without knowing they exist.
+
+```bash
+kubectl get hpa -n shop
+kubectl describe hpa web -n shop
+```
+
+```text
+NAME   REFERENCE        TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+web    Deployment/web   cpu: 200%/60%   1         4         4          2m10s
+```
+
+`TARGETS` is the current value against the target. When it reads `<unknown>`, the
+controller could not compute a value at all, and `describe` says why.
+
+### What it does with the number
+
+Left alone, the controller applies defaults that are asymmetric on purpose:
+
+- **Scaling up is immediate**, and limited to doubling the replica count or
+  adding four Pods, whichever is greater. Both were true of the run above, which
+  went from one replica to four in a single step.
+- **Scaling down waits.** A five-minute stabilization window means the
+  controller takes the _highest_ recommendation from the last 300 seconds, so
+  load has to stay down for five minutes before anything is removed.
+
+Adding capacity late costs you an outage; removing it late costs you a few
+minutes of a machine. The defaults price those two mistakes differently, and the
+`behavior` field lets you re-price them:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: shop
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  minReplicas: 2
+  maxReplicas: 40
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 900
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+```
+
+That says: never shed more than a tenth of the fleet a minute, and only after
+fifteen quiet minutes. A per-direction `tolerance` field exists too, in beta on
+1.36, for workloads where the 10% band is the wrong width.
+
+### Reading its mind
+
+`kubectl describe hpa` carries three conditions, and they answer three different
+questions:
+
+```text
+Conditions:
+  Type            Status  Reason            Message
+  ----            ------  ------            -------
+  AbleToScale     True    ReadyForNewScale  recommended size matches current size
+  ScalingActive   True    ValidMetricFound  the HPA was able to successfully calculate a replica count from cpu resource utilization (percentage of request)
+  ScalingLimited  True    TooManyReplicas   the desired replica count is more than the maximum replica count
+```
+
+`ScalingActive: False` means the metric is broken and the HPA is doing nothing at
+all. `ScalingLimited: True` means the arithmetic wanted more than `maxReplicas`
+allows — the fleet is pinned at the ceiling and the ceiling, not the load, is now
+deciding your capacity. That condition is the one to alert on.
+
+## Trade-offs
+
+**When it fits.** Stateless request handling where per-Pod load genuinely falls
+as you add Pods, and where the traffic moves faster than a human can. Web
+front-ends, API servers, stateless renderers.
+
+**What it costs.** Reaction time, which is longer than people expect: the scrape
+interval, the controller's own period, the Pod's start-up, then its readiness
+probe. A minute is normal. If your spike arrives in ten seconds, autoscaling
+does not save you — a floor of replicas that can absorb it does.
+
+**It only writes a number.** An HPA that asks for forty Pods on a cluster with
+room for twelve gets twelve running and twenty-eight `Pending`. Horizontal
+scaling of Pods and scaling of nodes are two mechanisms, and the next lesson is
+the other one.
+
+**When not to use it.** A leader-elected singleton, where a second replica is a
+correctness bug. A StatefulSet whose replicas hold data, where adding one means
+provisioning a volume and rebalancing. And anything whose bottleneck is
+downstream — if the database connection pool is the limit, more replicas make
+the outage arrive sooner.
+
+<Callout variant="warning">
+  Never run a VerticalPodAutoscaler and an HPA against the same resource metric.
+  One changes the request, the other measures usage as a percentage of the
+  request, so each one moves the other's denominator and the pair oscillates.
+  Split them — CPU for the HPA, memory for the VPA — or use neither.
+</Callout>
+
+## Common pitfalls
+
+- **No CPU request on a container.** The HPA cannot compute a percentage of
+  nothing, so `TARGETS` reads `<unknown>/60%` and the condition names the
+  offender: `missing request for cpu in container web of Pod web-666c8c8f8-fm5bk`.
+  It is tempting because the Deployment works perfectly without a request — until
+  the day it has to scale.
+- **Memory as the signal for a runtime that never gives memory back.** A JVM or a
+  Go service holds its heap after the load drops, so the metric stays high, the
+  HPA never scales down, and the fleet ratchets upward. Memory is a good signal
+  only for a process whose footprint tracks its work.
+- **Leaving `replicas` in the Deployment.** The HPA sets it, the next apply from
+  the repository sets it back, and the fleet flaps on every sync. Remove the
+  field from the manifest the HPA targets.
+- **`minReplicas` equal to `maxReplicas`.** It looks like a safety measure and it
+  is an off switch: the ratio is computed, then clamped to the only value allowed.
+- **A signal that does not respond to replica count.** A container throttled at
+  its CPU limit reports the same utilization no matter how many copies exist, so
+  the HPA climbs to `maxReplicas` and stays there, having changed nothing.
+
+## Key takeaways
+
+- The HPA computes `ceil(replicas * current / target)` and moves there in **one
+  step**, within a 10% tolerance band — it is a ratio, not an incremental rule.
+- **Utilization is a percentage of the request**, so the request is the number
+  that decides when scaling happens; the node's size never enters the arithmetic.
+- **Up fast, down slow**: doubling or four Pods immediately, against a five-minute
+  stabilization window before anything is removed.
+- The metric must **fall as replicas rise**. A signal that does not respond to
+  replica count sends the fleet to `maxReplicas` and holds it there.
+- An HPA writes a replica count and nothing else. Whether those Pods find room is
+  a separate mechanism's problem.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Six replicas are averaging 90% CPU against a 50% target, with `maxReplicas: 20`. What replica count does the HPA ask for, and does it get there in one move?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  `ceil(6 * 90 / 50)` is `ceil(10.8)`, so it asks for 11, and 11 is under the
+  ceiling of 20 so nothing clamps it. It does get there in one move: the default
+  scale-up policy allows doubling the fleet or adding four Pods, whichever is
+  greater, and doubling six is twelve — more than the five extra Pods it needs.
+  The ratio 1.8 is also far outside the 10% tolerance band, so the controller
+  acts rather than ignoring the reading. Note what it did *not* do: it did not
+  add one Pod, measure again, and repeat. The whole distance is computed from
+  one sample.
+</PracticeCheck>
+
+**2. An HPA on a Deployment shows `cpu: <unknown>/60%`, and `describe` reports `ScalingActive: False` with `missing request for cpu` in one container. The Deployment has two containers and the application container does declare a CPU request. Why is the whole HPA stuck, and what is the fix?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Utilization is computed per Pod by summing usage across the containers and
+  dividing by the summed requests, so a single container with no CPU request
+  leaves the denominator undefined and the Pod contributes no usable value. With
+  no value the controller cannot compute an average at all, sets `ScalingActive`
+  to `False`, and stops: it holds the fleet at its current size and reports why
+  in that condition. What it does not do is fall back to the containers that are
+  specified. The fix is a CPU request on the second container, which here is
+  probably a sidecar somebody added without touching `resources`. The
+  alternative is a `ContainerResource` metric naming the application container,
+  which measures that one container and ignores the sidecar entirely.
+</PracticeCheck>
+
+**3. A worker Deployment reads jobs from a queue. Each worker spends most of its time waiting on network I/O, so CPU sits around 15% however deep the backlog gets. An HPA targets 60% CPU. Predict its behaviour during a backlog, and say what property the right signal would need.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  It scales the fleet *down*. The ratio is `15 / 60` = 0.25, far outside the 10%
+  tolerance band, so the controller acts on it rather than ignoring it: once the
+  five-minute stabilization window has passed with the reading that low, it
+  takes the fleet down toward `minReplicas` — shrinking the consumer pool
+  exactly while the backlog grows. The signal is not merely weak, it points the
+  wrong way, because a worker blocked on I/O looks idle by the only measure the
+  HPA is watching. The right signal has to satisfy the rule the arithmetic
+  depends on: it must fall as replicas rise. Queue depth per worker does — twice
+  the consumers, half the backlog each — and so does jobs waiting per replica or
+  oldest-message age. None of those is a resource metric, so they reach an HPA
+  through the `Object` or `External` types and an adapter that serves them.
+</PracticeCheck>

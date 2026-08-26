@@ -12,8 +12,10 @@ input-crafting trials, your own one-sentence "why does this work?" note, and a c
 learned something — that never leaves your device.
 
 Built with Astro + TypeScript, prerendered to plain HTML/CSS with small islands of JS. No server, no
-database, no accounts, no analytics, no tracking. 15 lessons across two tracks; **all planned
-milestones (M1–M8) have shipped.**
+database, no accounts, no analytics, no tracking. **All planned milestones (M1–M8) have shipped**,
+and the catalogue now holds three courses: Data Structures & Algorithms (15 lessons, built around
+the visualizations), Kubernetes (67 lessons, 14 modules) and System Design (45 lessons, 9 modules) —
+the latter two prose and diagrams rather than instruments. See `docs/courses/SPEC.md` for that expansion.
 
 ## Quick start
 
@@ -29,24 +31,30 @@ database or network access at runtime.
 
 ## Commands
 
-| Command                                 | What it does                                                                                                                                               |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                           | dev server on :4321                                                                                                                                        |
-| `npm run build`                         | `astro check` (type gate), a static build into `dist/`, then `scripts/portablize.mjs` — the pass that makes every internal URL relative                    |
-| `npm run preview`                       | serves the built `dist/` on :4321                                                                                                                          |
-| `npm run rehost <url>`                  | stamps a built `dist/` with the URL it will be served at, sub-path included (`npm run rehost https://sample.com/learndsa`) — for hosts with no build step  |
-| `npm run lint` / `npm run format:check` | ESLint / Prettier, both must be clean                                                                                                                      |
-| `npm run format`                        | rewrite files with Prettier                                                                                                                                |
-| `npm test`                              | Vitest unit suite (`environment: 'node'`, no DOM, no `localStorage`)                                                                                       |
-| `npm run test:e2e`                      | Playwright + axe; locally it builds and previews first, so it needs :4321 free, plus :4322 for the sub-path portability project                            |
-| `npm run og`                            | regenerates the Open Graph card from the real renderer — run by hand, never in the build                                                                   |
-| `npm run icons`                         | re-rasterizes `public/favicon-32.png` and `public/apple-touch-icon.png` from `public/favicon.svg` — run by hand after any edit to the mark                 |
-| `npm run fonts`                         | re-cuts `public/fonts/*.woff2` to the characters `src/` actually contains, verifies every one renders, and rewrites `src/styles/font-charset.ts`           |
-| `npm run audit:frames`                  | per instrument: how the drawing's viewBox varies across a full trace, and whether step 0 fits its own box — run by hand after any renderer geometry change |
+| Command                                 | What it does                                                                                                                                                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run dev`                           | dev server on :4321                                                                                                                                                                                          |
+| `npm run build`                         | `astro check` (type gate), a static build into `dist/`, then `scripts/portablize.mjs` — the pass that makes every internal URL relative                                                                      |
+| `npm run preview`                       | serves the built `dist/` on :4321                                                                                                                                                                            |
+| `npm run rehost <url>`                  | stamps a built `dist/` with the URL it will be served at, sub-path included (`npm run rehost https://sample.com/learndsa`) — for hosts with no build step                                                    |
+| `npm run lint` / `npm run format:check` | ESLint / Prettier, both must be clean                                                                                                                                                                        |
+| `npm run format`                        | rewrite files with Prettier                                                                                                                                                                                  |
+| `npm test`                              | Vitest unit suite (`environment: 'node'`, no DOM, no `localStorage`)                                                                                                                                         |
+| `npm run test:e2e`                      | Playwright + axe; locally it builds and previews first, so it needs :4321 free, plus :4322 for the sub-path portability project                                                                              |
+| `npm run og`                            | regenerates the Open Graph card from the real renderer — run by hand, never in the build                                                                                                                     |
+| `npm run icons`                         | re-rasterizes `public/favicon-32.png` and `public/apple-touch-icon.png` from `public/favicon.svg` — run by hand after any edit to the mark                                                                   |
+| `npm run fonts`                         | re-cuts `public/fonts/*.woff2` to the characters `src/` actually contains, verifies every one renders, and rewrites `src/styles/font-charset.ts`                                                             |
+| `npm run audit:frames`                  | per instrument: how the drawing's viewBox varies across a full trace, and whether step 0 fits its own box — run by hand after any renderer geometry change                                                   |
+| `npm run validate:content`              | the lesson content validator: metadata, ordering, sections, word bounds, links, diagrams, code fences, Kubernetes API versions, Appendix coverage. `-- --strict` also requires every planned lesson to exist |
 
 **Definition of Done for any change** (spec §18): `npm run build`, `npm run lint`,
-`npm run format:check`, `npm test` and `npm run test:e2e` all clean. CI (`.github/workflows/ci.yml`)
-runs exactly those five as the `DoD gate`.
+`npm run format:check`, `npm test`, `npm run validate:content` and `npm run test:e2e` all clean. CI
+(`.github/workflows/ci.yml`) runs exactly those six as the `DoD gate`, with the validator in
+`--strict` mode.
+
+**Do not run `npm run test:e2e` while other heavy processes are running.** It uses
+`retries: 0` locally with full parallelism, so a loaded machine produces axe timeouts and chunk-load
+failures that all pass when the machine is quiet.
 
 Note for the two regression baselines. `tests/e2e/baseline-aria.spec.ts` runs everywhere.
 `tests/e2e/baseline-visual.spec.ts` is **seeded and armed on CI** — 14 PNGs are committed and the
@@ -84,9 +92,13 @@ passed all 14 captures unchanged — the **aria** baseline is what catches that 
 
 ```
 src/content/lessons/*.mdx   one file per lesson: frontmatter + prose + components
+                            flat, with `k8s-`/`sd-` slug prefixes for the two new courses
 src/viz/                    the visualization pipeline (see below) + the id → module registry
 src/components/, layouts/   Astro components; a few carry small client scripts ("islands")
-src/lib/                    shared logic: progress/mastery store, challenges data, theme, glossary…
+src/lib/                    shared logic: progress/mastery store, challenges data, theme, glossary,
+                            courses.ts + tracks.ts (course → module → lesson), progress-paint.ts
+src/components/diagrams/    one .astro per figure; Figure.astro owns the <svg> and the a11y wiring
+scripts/lib/                the content validator, shared by the CLI and its Vitest suite
 src/styles/tokens.css       the design tokens — the single source of truth for colour/type/space
 public/fonts/               the two self-hosted IBM Plex subsets, generated by `npm run fonts`
 tests/unit/, tests/e2e/     Vitest (pure functions) and Playwright (DOM, storage, a11y)

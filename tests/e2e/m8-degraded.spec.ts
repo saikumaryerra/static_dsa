@@ -29,6 +29,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   blockStorage,
+  coursePage,
   gradeQuestion,
   masteryKey,
   openQuestion,
@@ -42,6 +43,12 @@ import { linkTarget } from './utils/urls';
 const LESSON = 'arrays';
 const LESSON_URL = `/learn/${LESSON}/`;
 const LEARN = '/learn/';
+/**
+ * The page holding the lesson cards and the module arcs. `/learn/` is the
+ * catalogue since the course expansion (decision D-05); the reset control and
+ * the review strip stayed there, everything per-lesson moved here.
+ */
+const COURSE = coursePage();
 
 /** Accessible names of every button a reader can actually see and press. */
 async function visibleButtonNames(page: Page): Promise<string[]> {
@@ -142,15 +149,26 @@ test.describe('JavaScript disabled — the page is M7, plus one line of static c
     }
   });
 
-  test('the curriculum index shows no ring, no pips and no reset control', async ({
+  test('the catalogue and the course page show no ring, no pips and no reset control', async ({
     page,
   }) => {
+    // Both halves, because the course expansion (decision D-05) split them: the
+    // reset control stayed on the catalogue, the arcs and the cards moved to the
+    // course page. Checking one would leave the other's JS-off behaviour untested.
     await page.goto(LEARN);
+    await expect(page.locator('[data-reset-toggle]:visible')).toHaveCount(0);
+    await expect(page.locator('[data-track-progress]:visible')).toHaveCount(0);
+    const catalogue = await page.locator('body').innerText();
+    expect(catalogue).not.toContain('done on this device');
+    expect(catalogue).not.toMatch(/\bPracticed \d/);
+    expect(catalogue).not.toMatch(/\bMastered \d/);
+    await expect(page.locator('[data-resume-link]')).toBeVisible();
+
+    await page.goto(COURSE);
 
     await expect(page.locator('[data-stage]')).toHaveCount(0);
     await expect(page.locator('[data-mastery-pips]:visible')).toHaveCount(0);
     await expect(page.locator('[data-track-progress]:visible')).toHaveCount(0);
-    await expect(page.locator('[data-reset-toggle]:visible')).toHaveCount(0);
     await expect(page.locator('[data-lesson-card][data-complete]')).toHaveCount(
       0,
     );
@@ -226,7 +244,7 @@ test.describe('storage blocked (private mode) — absent, never broken', () => {
     // CONTROL, on this same build with the store working: the arc reveals
     // itself and states a number. "Hidden" below is therefore a decision about
     // blocked storage, not a dead island or a missing component.
-    await page.goto(LEARN);
+    await page.goto(COURSE);
     const foundations = trackArc(page, 'foundations');
     await expect(foundations).toBeVisible();
     await expect(foundations.locator('[data-track-count]')).toHaveText(
@@ -256,16 +274,20 @@ test.describe('storage blocked (private mode) — absent, never broken', () => {
       0,
     );
     await expect(page.locator('[data-mastery-pips]:visible')).toHaveCount(0);
-    // Nothing to delete, so the control says so (aria-disabled, never
-    // `disabled`, so a reader who tabbed onto it keeps focus).
-    await expect(page.locator('[data-reset-toggle]')).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
     // DISCRIMINATOR for the blocked pass: the page is still fully usable, so
     // the island degraded rather than taking the index down with it.
     await expect(page.locator('[data-resume-link]')).toBeVisible();
     await expect(page.locator('[data-lesson-card]').first()).toBeVisible();
+
+    // The reset control lives on the catalogue since decision D-05. Nothing to
+    // delete, so it says so (aria-disabled, never `disabled`, so a reader who
+    // tabbed onto it keeps focus). Storage is still blocked here: `blockStorage`
+    // installs an init script, so it survives the navigation.
+    await page.goto(LEARN);
+    await expect(page.locator('[data-reset-toggle]')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
 
     expect(errors, 'no script may throw when storage is blocked').toEqual([]);
   });
@@ -327,7 +349,7 @@ test.describe('a record this build cannot trust', () => {
     await page.goto(LESSON_URL);
 
     await expect(page.locator('[data-lesson-stage]')).toBeHidden();
-    await page.goto(LEARN);
+    await page.goto(COURSE);
     await expect(page.locator('[data-mastery-pips][data-stage]')).toHaveCount(
       0,
     );

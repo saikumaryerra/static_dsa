@@ -39,7 +39,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import Visualizer from '../viz/Visualizer.astro';
 import { webSiteJsonLd } from '../lib/structured-data';
 import { resumeLabel, type LessonRef } from '../lib/progress';
-import { TRACK_ORDER, TRACK_COPY } from '../lib/tracks';
+import { TRACK_COPY, tracksForCourse } from '../lib/tracks';
+import { COURSE_COPY, COURSE_ORDER, coursePath } from '../lib/courses';
 
 const published = await getCollection('lessons', ({ data }) => data.published);
 const totalLessons = published.length;
@@ -69,7 +70,7 @@ const promises = [
 ];
 
 /**
- * Human-readable difficulty spread for a track's lessons (M5 design §3.5) — e.g.
+ * Human-readable difficulty spread for a course's lessons (M5 design §3.5) — e.g.
  * "8 beginner · 1 intermediate" or "All beginner". Difficulty as words (never a
  * color-only chip) keeps it accessible (§3.8, WCAG 1.4.1).
  */
@@ -79,28 +80,39 @@ function difficultySpread(lessons: CollectionEntry<'lessons'>[]): string {
   const parts = (['beginner', 'intermediate'] as const)
     .filter((d) => counts[d] > 0)
     .map((d) => `${counts[d]} ${d}`);
-  // A single-difficulty track reads "All beginner" rather than "9 beginner".
+  // A single-difficulty course reads "All beginner" rather than "9 beginner".
   return parts.length === 1
     ? `All ${parts[0].split(' ')[1]}`
     : parts.join(' · ');
 }
 
 /**
- * The two tracks with their real contents. The home page used to show a
- * paragraph *about* each track; it now shows the lessons themselves, because a
- * visitor deciding whether this site covers what they came for should not have
- * to take a summary's word for it, and because fifteen named links are fifteen
- * ways in for the reader who arrived wanting exactly one of them.
+ * The courses with their real contents. The home page used to show a paragraph
+ * *about* each track; it then showed all fifteen lessons, because a visitor
+ * deciding whether this site covers what they came for should not have to take a
+ * summary's word for it.
+ *
+ * Course expansion (decision D-05): it names the MODULES now, not every lesson.
+ * The same argument still holds — the reader sees the real contents — but a
+ * hundred-odd lesson links on a landing page is a directory, not an answer, and
+ * a module title says what a group of four lessons covers in one line. The
+ * lessons themselves are one click away on the course page.
  */
-const tracks = TRACK_ORDER.map((id) => {
-  const lessons = published
-    .filter((l) => l.data.track === id)
-    .sort((a, b) => a.data.order - b.data.order);
+const courses = COURSE_ORDER.map((id) => {
+  const lessons = published.filter((l) => l.data.course === id);
   const minutes = lessons.reduce((sum, l) => sum + l.data.estimatedMinutes, 0);
+  const modules = tracksForCourse(id)
+    .map((track) => ({
+      id: track,
+      heading: TRACK_COPY[track].heading,
+      count: lessons.filter((l) => l.data.track === track).length,
+    }))
+    // An empty module is a plan, not something to advertise.
+    .filter((module) => module.count > 0);
   return {
     id,
-    ...TRACK_COPY[id],
-    lessons,
+    ...COURSE_COPY[id],
+    modules,
     count: lessons.length,
     totalMinutes: Math.round(minutes / 5) * 5,
     spread: difficultySpread(lessons),
@@ -119,10 +131,16 @@ const lessonRefs: LessonRef[] = published
     title: data.title,
     order: data.order,
     track: data.track,
+    course: data.course,
   }))
-  .sort((a, b) => a.order - b.order);
+  .sort(
+    (a, b) =>
+      COURSE_ORDER.indexOf(a.course as (typeof COURSE_ORDER)[number]) -
+        COURSE_ORDER.indexOf(b.course as (typeof COURSE_ORDER)[number]) ||
+      a.order - b.order,
+  );
 
-/** First lesson in global order — the JS-off / nothing-stored destination. */
+/** First lesson in catalogue order — the JS-off / nothing-stored destination. */
 const firstLesson = lessonRefs[0];
 
 /**
@@ -136,11 +154,14 @@ const resumeFallback = firstLesson
 
 /** Two-digit lesson number, matching the curriculum cards. */
 const num = (order: number) => String(order).padStart(2, '0');
+
+/** `2 lessons` / `1 lesson` — a landing page that says "1 lessons" reads as unfinished. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 ---
 
 <BaseLayout
-  title="LearnDSA — see data structures and algorithms in motion"
-  description="Free, interactive lessons on data structures and algorithms. Play, pause, and step through every swap, pointer move, and recursive call — on your own input."
+  title="LearnDSA — algorithms, Kubernetes and system design, one step at a time"
+  description="Free, interactive engineering courses. Step through algorithms on your own input, then learn the systems they run inside: Kubernetes from fundamentals to production, and system design from principles to real architectures."
   canonicalPath="/"
   wide
 >
@@ -150,11 +171,12 @@ const num = (order: number) => String(order).padStart(2, '0');
        Left-aligned per wireframe (a centred rag breaks with longer strings). -->
   <section class="hero">
     <div class="hero__copy">
-      <h1 class="hero__title">See data structures and algorithms in motion</h1>
+      <h1 class="hero__title">See how the machine actually works</h1>
       <p class="hero__lede">
-        Fifteen lessons that teach the core of computer science by showing you
-        the algorithm running. Every swap, pointer move and recursive call, one
-        step at a time — on your own input, in your own browser.
+        {courses.length} free courses — data structures and algorithms, Kubernetes,
+        and system design. The algorithms run in your browser, one step at a time,
+        on your own input. The rest is taught the same way: one idea per lesson, with
+        a real manifest, a worked estimate or a diagram you can read.
       </p>
       <div class="hero__actions">
         <a
@@ -170,7 +192,7 @@ const num = (order: number) => String(order).padStart(2, '0');
              it into the label. */
         }
         <a href="/learn/" class="hero__secondary">
-          See all {totalLessons} lessons <span aria-hidden="true">→</span>
+          Browse all {courses.length} courses <span aria-hidden="true">→</span>
         </a>
       </div>
 
@@ -242,10 +264,14 @@ const num = (order: number) => String(order).padStart(2, '0');
   </section>
 
   <!-- What a lesson gives you. Borderless and whitespace-separated (editorial,
-       not dashboard), and each claim is about the instrument directly above. -->
+       not dashboard), and each claim is about the instrument directly above.
+       Scoped to the algorithms course in its heading since the course expansion:
+       all three claims are about the instrument, and the Kubernetes and System
+       Design lessons do not mount one. Overclaiming here would have been the
+       cheapest way to make the new courses sound like something they are not. -->
   <section class="promises" aria-labelledby="promises-heading">
     <h2 id="promises-heading" class="section-heading">
-      What a lesson actually does
+      What an algorithms lesson actually does
     </h2>
     <div class="promises__grid">
       {
@@ -259,37 +285,47 @@ const num = (order: number) => String(order).padStart(2, '0');
     </div>
   </section>
 
-  <!-- The curriculum itself: two tracks, every lesson named and linked. -->
+  <!-- The curriculum itself: every course, with its modules named and linked. -->
   <section class="curriculum" aria-labelledby="curriculum-heading">
     <div class="curriculum__head">
       <h2 id="curriculum-heading" class="section-heading">
-        {totalLessons} lessons, two tracks
+        {totalLessons} lessons, {courses.length} courses
       </h2>
       <p class="curriculum__intro">
-        Work through them in order, or start at whichever one you came for —
-        nothing is locked, and every lesson names what it builds on.
+        Work through a course in order, or start at whichever topic you came for
+        — nothing is locked, and every lesson names what it builds on.
+        Kubernetes and System Design are prose and diagrams rather than
+        instruments: one idea per lesson, each with something you could actually
+        apply, run or estimate.
       </p>
     </div>
-    <div class="curriculum__tracks">
+    <div class="curriculum__courses">
       {
-        tracks.map((track) => (
-          <div class="track">
-            <h3 class="track__title">
-              <a href={`/learn/#track-${track.id}`}>{track.heading}</a>
+        courses.map((course) => (
+          <div class="course-block">
+            <h3 class="course-block__title">
+              <a href={coursePath(course.id)}>{course.title}</a>
             </h3>
-            <p class="track__meta tabular-nums">
-              {track.count} lessons · ~{track.totalMinutes} min · {track.spread}
+            <p class="course-block__meta tabular-nums">
+              {plural(course.count, 'lesson')} · ~{course.totalMinutes} min ·{' '}
+              {course.spread}
             </p>
-            <ol class="track__list" role="list">
-              {track.lessons.map((lesson) => (
+            <ol class="course-block__list" role="list">
+              {course.modules.map((module, index) => (
                 <li>
-                  <a href={`/learn/${lesson.data.slug}/`} class="track__lesson">
-                    <span class="track__num tabular-nums" aria-hidden="true">
-                      {num(lesson.data.order)}
+                  <a
+                    href={`${coursePath(course.id)}#track-${module.id}`}
+                    class="course-block__item"
+                  >
+                    <span
+                      class="course-block__num tabular-nums"
+                      aria-hidden="true"
+                    >
+                      {num(index + 1)}
                     </span>
-                    <span class="track__name">{lesson.data.title}</span>
-                    <span class="track__mins tabular-nums">
-                      {lesson.data.estimatedMinutes} min
+                    <span class="course-block__name">{module.heading}</span>
+                    <span class="course-block__mins tabular-nums">
+                      {plural(module.count, 'lesson')}
                     </span>
                   </a>
                 </li>
@@ -523,37 +559,37 @@ const num = (order: number) => String(order).padStart(2, '0');
     line-height: var(--leading-relaxed);
   }
 
-  .curriculum__tracks {
+  .curriculum__courses {
     display: grid;
     gap: var(--space-10);
     margin-top: var(--space-8);
   }
 
   @media (min-width: 900px) {
-    .curriculum__tracks {
+    .curriculum__courses {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: var(--space-12);
       align-items: start;
     }
   }
 
-  .track__title {
+  .course-block__title {
     font-size: var(--text-xl);
     font-weight: var(--weight-semibold);
   }
 
-  .track__title a:hover {
+  .course-block__title a:hover {
     text-decoration: underline;
     text-underline-offset: 3px;
   }
 
-  .track__meta {
+  .course-block__meta {
     margin-top: var(--space-1);
     font-size: var(--text-sm);
     color: var(--text-muted);
   }
 
-  .track__list {
+  .course-block__list {
     margin-top: var(--space-4);
     list-style: none;
     padding: 0;
@@ -562,14 +598,14 @@ const num = (order: number) => String(order).padStart(2, '0');
     border-top: 1px solid var(--border);
   }
 
-  .track__list li {
+  .course-block__list li {
     border-bottom: 1px solid var(--border);
   }
 
   /* The whole row is the target, and it clears 44px (WCAG 2.5.5) without a
      card's worth of padding. Grid rather than flex so the numbers, the names
      and the minutes each hold their own column across every row. */
-  .track__lesson {
+  .course-block__item {
     display: grid;
     grid-template-columns: 2.25rem minmax(0, 1fr) auto;
     align-items: center;
@@ -583,23 +619,23 @@ const num = (order: number) => String(order).padStart(2, '0');
   /* Fill AND underline, never colour alone: the achromatic chrome leaves the
      fill move nearly invisible on its own (M7.3), so hover carries two signals
      exactly as `.btn-secondary` and the collapsed disclosure rows do. */
-  .track__lesson:hover {
+  .course-block__item:hover {
     background-color: var(--brand-soft);
   }
 
-  .track__lesson:hover .track__name {
+  .course-block__item:hover .course-block__name {
     text-decoration: underline;
     text-underline-offset: 2px;
   }
 
-  .track__num {
+  .course-block__num {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     color: var(--text-muted);
     padding-inline-start: var(--space-2);
   }
 
-  .track__mins {
+  .course-block__mins {
     font-size: var(--text-sm);
     color: var(--text-muted);
     padding-inline-end: var(--space-2);

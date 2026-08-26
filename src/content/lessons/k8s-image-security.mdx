@@ -1,0 +1,248 @@
+---
+title: 'Image Security and the Supply Chain'
+slug: 'k8s-image-security'
+course: 'kubernetes'
+track: 'k8s-security'
+order: 38
+summary: 'A scanner proves a known vulnerability is present, a signature proves who published the bytes, and an SBOM is an inventory — three different claims, none of which is the claim that an image is safe.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods']
+estimatedMinutes: 9
+tags: ['kubernetes', 'security', 'images', 'supply-chain', 'sbom']
+explainPrompt: 'Why does a signed image with a clean vulnerability scan still tell you nothing about whether the code inside it is safe?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a tag is and why a digest is a different kind of reference.
+- State precisely what a scan, a signature and an SBOM each establish.
+- Pin an image so the bytes running tomorrow are the bytes you reviewed today.
+- Decide where in the pipeline each check belongs.
+
+## Intuition
+
+Everything a cluster runs arrives as an image somebody else assembled, from a
+base layer somebody else published, containing packages a third party maintains.
+The Pod spec that pulls it is one line. That line is the largest trust decision
+in the manifest, and it usually gets the least review.
+
+**A tag is a bookmark; a digest is the book.** `web:1.4.2` is a mutable pointer
+in a registry — whoever can push may repoint it, and the same tag can mean
+different bytes on two nodes an hour apart. `web@sha256:...` is a content
+address: the registry computes it from the bytes, so the reference either
+resolves to exactly the content you reviewed or fails.
+
+Three separate controls sit on top of that, and confusing them is where most
+supply-chain programmes go wrong. Each one proves something narrow:
+
+| Control  | Proves                                                                         | Does not prove                                          |
+| -------- | ------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Scanning | some component in the image matches a known vulnerability record, at scan time | that the image is safe, or that anything is exploitable |
+| Signing  | who published these exact bytes, and that they have not changed since          | anything about quality, correctness or vulnerabilities  |
+| SBOM     | what components and versions the image contains                                | any verdict at all — it is an inventory                 |
+
+Read that table twice. "Signed and scanned clean" is a statement about
+provenance and about one database's contents on one day. It is not a statement
+that the software is good.
+
+## How it works
+
+### Pinning
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  namespace: shop
+spec:
+  imagePullSecrets:
+    - name: registry-creds
+  containers:
+    - name: web
+      image: ghcr.io/shop/web@sha256:c1a4b0c9e8ee1d0b3d7ba21b0a2f4c8f9e6d5b4a3c2109f8e7d6c5b4a3928170
+      imagePullPolicy: IfNotPresent
+```
+
+With a digest, `IfNotPresent` is the correct pull policy: the reference cannot
+change meaning, so re-pulling proves nothing. With a mutable tag you need
+`Always`, and even that leaves a window — two Pods of one Deployment can be
+running different content if the tag moved between their pulls. What a moving
+tag then does to a release and to a rollback is the subject of
+[Immutable Images and Tagging](/learn/k8s-images-and-tags/).
+
+`imagePullSecrets` names a Secret of type `kubernetes.io/dockerconfigjson`
+holding registry credentials. The Pod's ServiceAccount can carry the same field,
+which is the usual way to avoid repeating it in every manifest.
+
+Ask a running Pod what it actually pulled:
+
+```bash
+kubectl get pod web -n shop \
+  -o jsonpath='{.status.containerStatuses[0].imageID}'
+```
+
+That prints the digest the node resolved, which is the only reference that
+answers "what is running right now". Comparing it to the digest your pipeline
+signed is a one-line audit.
+
+### What a scanner does
+
+A scanner reads the image's layers, works out which packages and versions are
+present, and matches them against vulnerability databases. Trivy and Grype are
+the common open-source ones; every registry vendor ships one. All of them are
+ecosystem tooling, not part of Kubernetes.
+
+The result is a list of known records. It is time-bound in both directions: a
+vulnerability published tomorrow is in an image that scanned clean today, and
+a "critical" finding may sit in a library path the application never calls. So
+scan continuously against the images you are running, not once at build, and
+treat the output as a work queue rather than a gate you passed.
+
+### What a signature does
+
+Signing binds an identity to a digest. Sigstore and its `cosign` tool are the
+common route, and keyless signing is the interesting part: instead of a private
+key somebody has to guard, the signer authenticates with an identity provider —
+typically the CI system's own workload identity — and the signature records that
+identity in a public transparency log. Verification then answers "was this exact
+digest signed by our build pipeline, on our repository".
+
+That is provenance, and it is worth a great deal: it closes the gap where an
+attacker pushes to your registry, and it makes "where did this image come from"
+answerable. It says nothing about what the pipeline built.
+
+A **provenance attestation** goes further and describes _how_ the artifact was
+built — source repository, commit, builder — following the SLSA framework's
+vocabulary. It is signed the same way and is subject to the same limit: it
+attests to a process, not to a result.
+
+### What an SBOM does
+
+A Software Bill of Materials lists every component in the image with its version
+and, usually, its licence. SPDX and CycloneDX are the two formats you will meet.
+Build tools generate one from the build itself, which is more accurate than
+inferring it from a finished image.
+
+The SBOM is what makes the next incident survivable. When a widely-used library
+turns out to be vulnerable, the question is "which of our four hundred images
+contain it, and at what version". Without an inventory that is an archaeology
+project; with one it is a query. It renders no judgement of its own.
+
+<Callout variant="tip">
+  A smaller base image carries fewer packages, so it produces a shorter scan
+  report and a shorter SBOM. Distroless and minimal images take that to its
+  conclusion by shipping no shell and no package manager. The trade is real: the
+  usual way to investigate a misbehaving container is to open a shell in it, and
+  there is not one. Ephemeral debug containers are the replacement, and they are
+  the Troubleshooting module's material.
+</Callout>
+
+### Where the checks go
+
+Scanning and signing belong in the pipeline, where a failure blocks a release
+and nobody is paged. Verification belongs at admission, where the cluster
+refuses an image that carries no valid signature from your builder. Kubernetes
+has no built-in image verification, so that step is an admission webhook or a
+policy engine — the subject of
+[Admission Control](/learn/k8s-admission-control/).
+
+## Trade-offs
+
+**A gate that blocks releases gets weakened.** "No critical vulnerabilities"
+sounds absolute until the base image ships one with no fix available, and the
+usual outcome is a growing ignore file that nobody reviews. Policies that survive
+tend to be phrased around what a team can act on: no new criticals relative to
+the last release, a deadline per severity, an explicit and dated exception.
+
+**Digest pinning fights automation.** Pinned digests are unambiguous and they do
+not update themselves, so an unattended image is a frozen image accumulating
+unpatched packages. The working combination is a bot that opens a pull request
+raising the digest, so the update is reviewed and the reference stays exact.
+
+**Verification at admission adds a dependency to every Pod creation.** A webhook
+that checks signatures calls out to a registry or a transparency log, which means
+latency on every matching request and a decision about what happens when it is
+unreachable.
+
+## Common pitfalls
+
+- **Treating a clean scan as a safety claim.** It is the most quotable output in
+  the pipeline, and it means only that no component matched a known record when
+  the scan ran.
+- **Signing without verifying.** Signatures produced by CI and never checked by
+  anything are an expensive log entry. The value is entirely in the enforcement.
+- **`:latest` in production.** It removes any relationship between the manifest
+  and the bytes, so a rollback to the previous manifest rolls back to whatever
+  the tag currently points at.
+- **Scanning only at build.** The image does not change, but the database does,
+  so the image you approved in March is unassessed by June unless you rescan.
+- **Registry credentials with push rights on a workload.** A pull secret only
+  needs pull; a leaked one that can also push turns a compromised Pod into a
+  supply-chain compromise.
+
+## Key takeaways
+
+- **A tag is mutable and a digest is not.** Pin by digest and let a bot raise the
+  pin, so the reference stays exact without going stale.
+- **A scanner proves a known vulnerability is present**, at the moment it ran. It
+  cannot prove absence, and it does not measure exploitability.
+- **A signature proves provenance, not quality.** It tells you who published
+  these bytes and that they are unaltered.
+- **An SBOM is an inventory, not a verdict** — and it is the artifact that makes
+  the next library-wide vulnerability a query instead of an investigation.
+- **Kubernetes verifies none of this by itself.** Enforcement at the cluster edge
+  is an admission-time policy you add.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your pipeline signs every image, scans it, and reports zero known vulnerabilities. A reviewer asks whether the image is safe to run. What can you honestly claim?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Two narrow things. The signature establishes that these exact bytes were
+  published by your pipeline and have not been altered since, so the image is
+  the one your build produced rather than something substituted in the registry.
+  The scan establishes that at the moment it ran, no component in the image
+  matched a record in the databases the scanner consulted. Neither statement
+  covers vulnerabilities not yet published, vulnerabilities the databases do not
+  carry, or defects in the code your own team wrote — which no scanner is
+  looking for. "Safe" is not a claim any of these tools makes; what you have is
+  known provenance and a known-vulnerability status with a timestamp on it.
+</PracticeCheck>
+
+**2. Your pipeline signed a digest. The manifest in Git names `ghcr.io/shop/web:1.4.2`, and a Pod from it is running now. How do you establish whether that Pod is running the bytes you signed, and why does the answer cover only that one Pod?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Read `.status.containerStatuses[0].imageID` on the Pod and compare it with the
+  digest your pipeline signed. That field is the digest the node resolved when
+  it pulled, so an exact match is proof rather than inference, and a mismatch
+  says the tag moved. It covers one Pod because the tag is a mutable pointer and
+  the pull is per node: `1.4.2` is not `:latest`, so the default
+  `imagePullPolicy` is `IfNotPresent` and a node that already holds the tag
+  never asks the registry again — a Pod scheduled later, on a node with no
+  cached copy, pulls whatever `1.4.2` points at by then. Two Pods of one
+  Deployment can therefore carry different digests under one unchanged manifest,
+  so the honest audit reads every Pod. Naming the digest in the manifest is what
+  retires the question.
+</PracticeCheck>
+
+**3. A new vulnerability lands in a compression library used across your estate. Which artifact answers "are we affected", and why do the other two not?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The SBOM. It is the inventory of components and versions per image, so the
+  question becomes a search over the SBOMs you have stored rather than a
+  rebuild-and-rescan of every image. Signatures are the wrong tool because they
+  say who published the bytes and nothing about what is inside them. Scan
+  reports are the wrong tool because they were produced before this
+  vulnerability existed, so every one of them is clean on it — rescanning would
+  eventually give the answer, but only after every image has been fetched and
+  processed, which is the slow path you keep an inventory to avoid. This is the
+  reason to store SBOMs as build artifacts rather than generating them on
+  demand: the moment you need one is the moment you have no time to make it.
+</PracticeCheck>

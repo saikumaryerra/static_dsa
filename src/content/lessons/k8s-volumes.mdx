@@ -1,0 +1,236 @@
+---
+title: 'Ephemeral Storage and Volumes'
+slug: 'k8s-volumes'
+course: 'kubernetes'
+track: 'k8s-storage'
+order: 21
+summary: 'A container writes into a thin layer that is destroyed the moment the container is replaced; a volume is a directory the Pod owns, and picking the right lifetime is most of what storage asks of you.'
+difficulty: 'beginner'
+prerequisites: ['k8s-pods']
+estimatedMinutes: 8
+tags: ['kubernetes', 'storage', 'volumes', 'ephemeral']
+explainPrompt: 'Why does a file written to an emptyDir survive a container crash, when a file written next to the binary does not?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Describe what a container's filesystem is made of, and what a restart does to it.
+- Choose between the container filesystem, an `emptyDir` and a projected ConfigMap.
+- Set `ephemeral-storage` requests and limits, and predict what the kubelet evicts.
+- Recognise the two volume types that look durable and are not.
+
+## Intuition
+
+A container image is a stack of read-only layers. When the container runtime
+starts a container it does not copy that stack; it adds one thin **writable
+layer** on top, and every file the process creates or modifies lands there. That
+layer is created with the container and deleted with it — and "restart" means
+"replace", so a container that crashes and comes back does not come back to the
+files it wrote.
+
+**A container's filesystem is a whiteboard; a volume is a filing cabinet the
+room owns.** The whiteboard is wiped whenever the person at it is replaced. The
+cabinet belongs to the room, so it is still there for whoever walks in next, and
+everyone in the room can open it.
+
+That gives you three lifetimes to write into, and almost every storage mistake
+is a confusion between two of them:
+
+| Where you write                 | Gone when                                                                              |
+| ------------------------------- | -------------------------------------------------------------------------------------- |
+| The container filesystem        | The container is replaced — a crash, a probe failure, an image change                  |
+| A Pod volume such as `emptyDir` | The Pod is deleted — a rescheduled replacement is a new Pod with a new empty directory |
+| A PersistentVolume              | You say so, or the reclaim policy says so                                              |
+
+This lesson covers the first two. The third has its own vocabulary and the next
+lesson is about nothing else.
+
+## How it works
+
+A volume is declared **once per Pod** and mounted **once per container**. The
+two halves are deliberately separate: `spec.volumes` says what exists and where
+it comes from, and each container's `volumeMounts` says where it appears in that
+container's filesystem. One volume can be mounted at different paths in
+different containers, or in only one of them.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: renderer
+spec:
+  containers:
+    - name: app
+      image: nginx:1.29
+      resources:
+        requests:
+          ephemeral-storage: 200Mi
+        limits:
+          ephemeral-storage: 1Gi
+      volumeMounts:
+        - name: cache
+          mountPath: /var/cache/app
+        - name: settings
+          mountPath: /etc/app
+          readOnly: true
+  volumes:
+    - name: cache
+      emptyDir:
+        sizeLimit: 500Mi
+    - name: settings
+      configMap:
+        name: renderer-settings
+```
+
+**`emptyDir` is the Pod's scratch disk.** The kubelet creates an empty directory
+on the node when the Pod is assigned there, mounts it into every container that
+asks for it, and deletes it when the Pod is removed from the node. A container
+crash does not touch it — the Pod is the same Pod — which is exactly why a cache
+or a handoff between two containers belongs here rather than beside the binary.
+Rescheduling is a different story: the replacement Pod is a new Pod on a
+possibly different node, and it gets a new empty directory.
+
+Setting `emptyDir.medium: Memory` backs it with a tmpfs instead. Reads and writes
+never touch the disk, the contents disappear on a node reboot, and — the part
+people are surprised by — the bytes count against the container's **memory**
+limit, so a large file there gets the Pod killed for using too much memory.
+
+**`configMap` and `secret` volumes are projections, not storage.** The kubelet
+renders the object's keys as files and keeps them in step when the object
+changes. Mount them `readOnly: true`; writing to one is not how you change a
+ConfigMap. The manifest above assumes a ConfigMap named `renderer-settings`
+already exists, and the Pod waits in `ContainerCreating` until it does.
+
+**`hostPath` mounts a path from the node itself**, and it is the one that looks
+like the answer and is not. The data is tied to a single machine, so a Pod that
+lands elsewhere finds nothing, and a Pod that can mount an arbitrary host path
+can read and modify the node — including other containers' files. It is for node
+agents that genuinely need the host, and a DaemonSet reading `/var/log` is the
+honest use of it.
+
+### Ephemeral storage is a scheduled resource
+
+The container writable layers, disk-backed `emptyDir` volumes and container logs
+on a node all share one filesystem, and it fills up. So Kubernetes accounts for
+it the same way it accounts for CPU and memory:
+
+- `requests.ephemeral-storage` is what the scheduler subtracts from a node's
+  capacity when deciding whether your Pod fits.
+- `limits.ephemeral-storage` is what the kubelet enforces. A Pod whose total
+  ephemeral usage crosses it is **evicted**, not throttled and not blocked — the
+  write succeeds and then the Pod goes away.
+- `sizeLimit` on an `emptyDir` behaves the same way. It is an eviction trigger,
+  not a quota that returns `ENOSPC`.
+
+When the node's own free space runs low the kubelet reports `DiskPressure` and
+starts evicting Pods, preferring the ones furthest above their requests. A Pod
+that declared no ephemeral request is furthest above it by definition.
+
+```bash
+kubectl describe node kind-worker
+kubectl get events --field-selector reason=Evicted
+```
+
+<Callout variant="note">
+  There is a fourth option that sits between the Pod scratch disk and a
+  permanent volume: a **generic ephemeral volume**, declared with
+  `ephemeral.volumeClaimTemplate` inside `spec.volumes`. It provisions a real
+  volume from a storage class — real capacity, real driver — and deletes it with
+  the Pod. Use it when `emptyDir` is not big or fast enough but the data is
+  still worthless after the Pod stops.
+</Callout>
+
+## Trade-offs
+
+**What `emptyDir` buys you.** No provisioning, no waiting, no cost line, and
+node-local speed. It is the right answer for caches, temporary files during a
+conversion, and anything one container produces for another in the same Pod.
+
+**What it costs.** The capacity belongs to the node and is shared with every
+other Pod on it, there is no durability at all, and nothing outside the Pod can
+read it. If losing the data means re-doing an hour of work or losing a customer
+record, this is the wrong lifetime.
+
+**Memory-backed against disk-backed.** tmpfs removes disk contention and gives
+you predictable latency; it charges you real RAM against a limit that will kill
+the Pod rather than slow it down. Reach for it for small, hot, genuinely
+throwaway data.
+
+## Common pitfalls
+
+- **Writing application data next to the binary.** It works in development,
+  where the container is never replaced, and it is silently lost the first time
+  a probe fails in production. The failure looks like a bug in the application.
+- **Using `hostPath` because it survived a restart.** It survives because the
+  data is on that one node, which also means the next scheduling decision loses
+  it — and it hands the Pod the node's filesystem on the way.
+- **Expecting `sizeLimit` to stop the write.** It does not. It evicts the Pod
+  afterwards, so the symptom is a Pod that vanishes rather than a full disk.
+- **Forgetting logs.** A container writing verbosely to stdout consumes the same
+  node filesystem as everything else, and a node evicting healthy Pods for
+  `DiskPressure` is often one chatty container away from fine.
+- **Declaring no ephemeral request.** The scheduler then assumes you need
+  nothing, and the kubelet ranks you first for eviction when the node fills.
+
+## Key takeaways
+
+- A container's writable layer **dies with the container**. Restart means
+  replacement, and replacement means an empty filesystem.
+- A volume is declared once in `spec.volumes` and mounted per container in
+  `volumeMounts`; the split is what lets two containers share one directory.
+- **`emptyDir` has the Pod's lifetime**, not the container's and not the node's —
+  it survives crashes and does not survive rescheduling.
+- `medium: Memory` makes an `emptyDir` a tmpfs whose contents **count against the
+  container's memory limit**.
+- Ephemeral storage is **scheduled and enforced**: requests affect placement,
+  limits and `sizeLimit` cause eviction rather than a failed write.
+- `hostPath` is node-local and privileged. It is for node agents, not for
+  persistence.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A container writes an uploaded file to `/app/uploads`, which is not a volume. The liveness probe fails, the kubelet restarts the container, and the file is gone — but `kubectl get pod` shows the same Pod, same name, same age. Explain the discrepancy.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The Pod is genuinely the same object — same name, same IP, same volumes, same
+  age — because a liveness failure restarts the *container*, not the Pod.
+  Restarting a container means the runtime discards it and starts a fresh one
+  from the image, which means a fresh writable layer with nothing in it. The
+  uploaded file was in that layer, so it went with it. Mounting an `emptyDir` at
+  `/app/uploads` would have kept the file, because the directory belongs to the
+  Pod and the Pod never went away — though it would still be lost if the Pod
+  itself were rescheduled, which is what the next lesson is for.
+</PracticeCheck>
+
+**2. A Pod declares `emptyDir: { medium: Memory, sizeLimit: 2Gi }` and its container has `limits.memory: 512Mi`. The application writes a 1 GiB file into it. What happens, and why is that not a `sizeLimit` problem?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  A memory-backed `emptyDir` is a tmpfs, and tmpfs pages are memory that counts
+  against the container's memory limit. Writing 1 GiB into it takes the
+  container past its 512Mi limit, so it is killed for memory — `OOMKilled` —
+  long before the 2Gi `sizeLimit` is anywhere near relevant. The `sizeLimit` is
+  doing nothing wrong; it is not the smaller of the two ceilings. The fix is to
+  decide which resource you actually meant to spend: drop `medium: Memory` so
+  the file lands on the node's disk and is accounted as ephemeral storage, or
+  raise the memory limit above the largest file you intend to hold.
+</PracticeCheck>
+
+**3. Someone proposes `hostPath: /data/postgres` for a database, arguing that the data survived every restart in testing. Give the two independent reasons to refuse.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  First, durability is an illusion of the test: the data survived because the
+  Pod kept landing on the same node. The moment it is rescheduled — a drained
+  node, a failed machine, a rolling update that picks a different one — it
+  starts against an empty or, worse, a stale directory that some earlier Pod
+  left behind. Second, `hostPath` is a privilege escalation surface. The
+  container gets direct access to the node's filesystem at that path, and a path
+  chosen carelessly gives it access to other workloads' files, container runtime
+  state or host credentials. The right answer is a PersistentVolumeClaim, which
+  gives the data a lifetime independent of any one node.
+</PracticeCheck>

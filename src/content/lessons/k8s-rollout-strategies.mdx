@@ -1,0 +1,261 @@
+---
+title: 'Blue/Green and Canary'
+slug: 'k8s-rollout-strategies'
+course: 'kubernetes'
+track: 'k8s-delivery'
+order: 49
+summary: 'A rolling update spreads the risk of a release across every user; blue/green and canary decide instead who is exposed, for how long, and how fast you can take it back.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-rolling-updates', 'k8s-services']
+estimatedMinutes: 9
+tags: ['kubernetes', 'delivery', 'rollout', 'canary', 'blue-green']
+explainPrompt: 'Why does a canary with no per-version measurement give you no more safety than a rolling update?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name the three dials every release strategy turns, and which one each strategy
+  moves.
+- Switch traffic between two versions with a Service selector, and say what the
+  switch does not undo.
+- Choose between a replica-ratio canary and a weighted-routing canary, and state
+  the limits of each.
+
+## Intuition
+
+A rolling update changes the risk of a release from "everything at once" to
+"gradually, to everyone". That is a real improvement and it is not a choice
+about _who_ is exposed: every user has the same chance of meeting the new code
+from the first new Pod onwards.
+
+**A release strategy is a bet, and the strategy decides who pays if you lose.**
+Three dials describe every option. How much traffic sees the new version. How
+long it sees it before you commit. How fast you can put the old version back.
+Rolling turns the first dial slowly and leaves the third at "another rolling
+update". Blue/green pins the first dial at 0% and then to 100% in one step, and
+in exchange makes the third dial nearly instant. A canary holds the first dial
+at a small number on purpose, for a stated length of time, so that a decision
+can be made with evidence.
+
+That last clause is the part people skip. A canary is a delivery mechanism
+plus a signal, and the signal is what makes it a canary. Five per cent of
+traffic on a new version for ten minutes, with nobody comparing that version's
+errors and latency against the other ninety-five, is a rolling update with extra
+objects.
+
+## How it works
+
+Neither pattern is a Kubernetes feature. Both are built out of Services,
+selectors and — for the finer version — a routing layer above them.
+
+### Blue/green: two Deployments, one selector
+
+Run two complete Deployments, labelled `version: blue` and `version: green`, and
+point one Service at whichever is live:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: shop
+spec:
+  selector:
+    app: web
+    version: blue
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+```
+
+Deploy green alongside blue, wait for it to be ready, verify it — through a
+second Service that only you use, or a header-based route — then move the
+selector:
+
+```bash
+kubectl -n shop patch service web \
+  -p '{"spec":{"selector":{"app":"web","version":"green"}}}'
+```
+
+The EndpointSlice controller rebuilds the Service's slice from the Pods that now
+match, and new connections go to green. Rollback is the same command with
+`blue` in it, which is why blue/green is the strategy with the best worst case:
+seconds, with a version you have already seen working.
+
+Two details decide whether it behaves. Established connections to blue Pods are
+not cut by the selector change — traffic already in flight finishes where it
+started — so blue has to keep running through a drain window rather than being
+deleted at the moment of the flip. And only _ready_ endpoints receive traffic —
+the slice lists every matching Pod, each carrying a readiness condition — so
+flipping to a version whose Pods are not ready yet leaves the Service with
+nothing eligible to serve, which is an outage you caused with a working command.
+
+**Use it when** the release is risky, capacity is affordable, and the change is
+compatible with whatever blue and green share. **Do not use it when** doubling
+the workload is expensive, when the risky part of the release is a database
+migration or a queue format that both versions touch, or for a StatefulSet,
+where a second copy means a second set of identities and disks rather than a
+second set of replicas.
+
+### Canary: a small share, on purpose
+
+The coarse version needs nothing new. Two Deployments whose Pods share one
+Service selector are load-balanced together, so nine old replicas and one new
+give roughly 10% — the frame from
+[Rolling Updates and Rollback](/learn/k8s-rolling-updates/). Its granularity is
+one replica, so 1% needs a hundred replicas, and the share is a share of
+_connections_ rather than requests: a client holding a keep-alive connection
+stays wherever it landed.
+
+The precise version puts a routing layer above the Services and splits by
+weight. In the Gateway API — an ecosystem set of CRDs implemented by a
+controller you install, not part of core Kubernetes — that is one field:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web
+  namespace: shop
+spec:
+  parentRefs:
+    - name: public
+  rules:
+    - backendRefs:
+        - name: web-stable
+          port: 80
+          weight: 95
+        - name: web-canary
+          port: 80
+          weight: 5
+```
+
+Weights are applied per request, so the split holds regardless of connection
+lifetime, and the same route can send a cohort by header — internal staff
+first — before any public traffic is involved. Progressive-delivery controllers
+such as Argo Rollouts and Flagger drive that field in a loop: shift, wait,
+compare metrics, promote or abort. They are ecosystem tools too.
+
+<Callout variant="note">
+  Whatever splits the traffic, the comparison has to be per version. An
+  aggregate error-rate dashboard with 5% of traffic on the canary dilutes a
+  totally broken canary into a 5% blip, which looks like noise. Label the
+  canary's metrics by version and compare the two populations, and set both
+  thresholds in advance: what aborts, and how many requests must arrive before
+  the number means anything.
+</Callout>
+
+## Trade-offs
+
+**Every strategy here still runs two versions at once**, against one database,
+one cache and one set of queues — for a minute in a rolling update, for an hour
+in a canary. Backwards compatibility between adjacent versions is the price of
+admission to all of them, and the only escape is downtime.
+
+**None of them roll back data.** A selector flip restores a set of Pods. It does
+not restore a schema, a consumed message, or a row the new version wrote in a
+format the old one cannot read. A release whose risk lives outside the Pod
+template has no fast rollback under any strategy, and recognising which releases
+those are is more valuable than either pattern.
+
+**The cost is objects and attention.** Blue/green doubles capacity for the
+window and doubles the things that can be misconfigured. A canary adds a routing
+layer, a metrics split, and a decision somebody has to make. Against a service
+with three replicas and a handful of users, a rolling update with a readiness
+probe and a working `rollout undo` is the proportionate answer, and reaching for
+more is cost without cover.
+
+## Common pitfalls
+
+- **A canary nobody measures.** It feels safer, which is the danger: the
+  ceremony is doing the reassuring, not the evidence.
+- **Flipping the Service before the new Pods are ready.** The slice is rebuilt
+  immediately and the old Pods no longer match, so a healthy blue and a
+  not-yet-ready green leave the Service with no ready endpoint to route to.
+- **Deleting the old version at the moment of the switch.** In-flight
+  connections are still on it, and it is your rollback.
+- **Expecting 1% from three replicas.** Replica-ratio granularity is 1/N, and
+  the ratio is over connections rather than requests.
+- **Canarying a background worker.** A queue consumer takes work because it is
+  running, not because a router sent it there — traffic weights have no effect
+  on it at all.
+- **Treating blue/green as cover for a migration.** Both colours share the
+  database, so the migration is live for both the moment it runs.
+
+## Key takeaways
+
+- **Rolling exposes everyone a little; blue/green exposes nobody then everyone;
+  a canary exposes a chosen few** — the difference is who carries the risk.
+- **A Service selector is the switch.** Changing it moves new connections
+  atomically and leaves established ones alone.
+- **Only ready endpoints receive traffic**, so a premature flip is a Service
+  with nothing eligible to serve, not a slow one.
+- **Replica-ratio canaries are coarse and connection-based**; weighted routing
+  above the Service is per request and can also select by header.
+- **A canary without a per-version signal and a pre-agreed threshold is
+  theatre**, and none of these strategies roll back data.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You patch the Service selector from `version: blue` to `version: green`. Within a second every request returns an error, and the blue Pods are still running and healthy. What happened, and what is the fastest correct response?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The selector decides which Pods the Service's EndpointSlice lists, and only
+  the ones marked ready receive traffic. If green is deployed but not yet ready
+  — still starting, or failing its readiness probe — the slice now lists green's
+  Pods with a readiness condition of false, so there is nothing eligible to
+  serve and connections are refused. Blue is healthy and irrelevant: it no
+  longer matches the selector, so it is not in the slice at all. The fastest
+  correct response is to patch the selector back to `blue`, which restores
+  service in seconds because those Pods never stopped. Then find out why green
+  was not ready. Read the slice with `kubectl get endpointslices -l
+  kubernetes.io/service-name=web -o yaml` and look at each endpoint's
+  `conditions.ready` — the plain table view does not show readiness, so it will
+  look populated and tell you nothing — then `kubectl describe pod` on a green
+  Pod for the reason. The procedural fix is to gate the flip: wait for green's
+  rollout to complete and confirm it has ready endpoints before touching the
+  Service.
+</PracticeCheck>
+
+**2. A canary ran at 5% for ten minutes. The dashboards were flat, so you promoted it, and the error rate jumped immediately. Give three distinct reasons the canary could have been flat and still wrong.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  First, dilution: if the dashboard aggregates both versions, a canary failing
+  every request shows up as roughly a 5% error rate overall, which on a noisy
+  service is indistinguishable from a bad afternoon. The comparison has to be
+  between the two populations, labelled by version. Second, volume: ten minutes
+  of 5% traffic may be a few hundred requests, and a fault that affects one
+  request in two hundred is not reliably visible in that sample. The floor
+  should be a request count, not a wall-clock duration. Third, coverage: 5% of
+  traffic is not 5% of every code path. A fault in a rare endpoint, an admin
+  flow, a specific client version, or a scheduled job may never have been
+  exercised at all — and if the split is by connection rather than by request,
+  the canary's population is skewed towards whoever happened to reconnect. A
+  fourth possibility worth naming is load: a fault that only appears at full
+  concurrency cannot appear at a twentieth of it.
+</PracticeCheck>
+
+**3. Your service holds long-lived WebSocket connections, typically for hours. What does that change about these strategies?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Every mechanism here acts on new connections, so with hour-long connections
+  the traffic split is not a traffic split — it is a split of whoever happens to
+  connect during the window. A 5% weight means 5% of *new* connections, and the
+  canary population is therefore made of reconnecting clients, which is a biased
+  sample and a small one. A blue/green flip does not disconnect anyone, so blue
+  keeps serving most users for hours after the switch, and "we have released" is
+  not true until the connections turn over. The practical answer is to make
+  connection lifetime part of the rollout: cap it server-side so clients
+  reconnect predictably, watch metrics labelled by version rather than
+  aggregates, and size the observation window in connection turnover rather than
+  minutes. A replica-ratio canary is the weakest option here, because the ratio
+  it produces is governed by connection lifetime rather than by anything you
+  set.
+</PracticeCheck>

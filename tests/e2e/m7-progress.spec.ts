@@ -24,6 +24,13 @@ import { expect, test, type Page } from '@playwright/test';
 import { linkTarget, resolveFrom } from './utils/urls';
 
 const LEARN = '/learn/';
+/**
+ * The page holding the lesson cards and the module arcs. Since the course
+ * expansion (decision D-05) `/learn/` is the CATALOGUE — it keeps the resume
+ * CTA, the reset control and the review strip, all of which describe the device
+ * rather than one course — and everything per-lesson lives here.
+ */
+const COURSE = '/learn/dsa/';
 const HOME = '/';
 const FIRST_LESSON = { slug: 'complexity-big-o', title: 'Complexity & Big-O' };
 const SECOND_LESSON = { slug: 'arrays', title: 'Arrays' };
@@ -126,7 +133,7 @@ test.describe('/learn resume CTA', () => {
 
     await page.goto(LEARN);
     await expect(resumeLabel(page)).toContainText('Continue: 10 ·');
-    await linkTarget(page, resumeLink(page)).toMatch(/^\/learn\/[a-z-]+\/$/);
+    await linkTarget(page, resumeLink(page)).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
     // The CTA links into the OTHER track, which is the whole point.
     const href = (await resumeLink(page).getAttribute('href')) ?? '';
     // Resolved, not read: the island builds this href against the deployment
@@ -291,8 +298,10 @@ test.describe('home hero continue line', () => {
 interface LessonRef {
   slug: string;
   title: string;
+  /** Order WITHIN THE COURSE — not unique across the catalogue (decision D-04). */
   order: number;
   track: string;
+  course: string;
 }
 
 /**
@@ -312,8 +321,19 @@ async function curriculum(page: Page): Promise<LessonRef[]> {
       title: string;
       order: number;
       track: string;
+      course: string;
     }[];
-    return list.sort((a, b) => a.order - b.order);
+    // `order` is per-course since decision D-04, so the catalogue's one sequence
+    // is (course, order). Spelled out rather than imported so this test never
+    // inherits the bug it exists to catch.
+    const courses = ['dsa', 'kubernetes', 'system-design'];
+    const rank = (course: string) => {
+      const at = courses.indexOf(course);
+      return at === -1 ? courses.length : at;
+    };
+    return list.sort(
+      (a, b) => rank(a.course) - rank(b.course) || a.order - b.order,
+    );
   });
 }
 
@@ -331,17 +351,17 @@ async function slugsOfTrack(page: Page, track: string | null) {
     .map((l) => l.slug);
 }
 
-test.describe('/learn per-track counters and card marks', () => {
+test.describe('the course page: per-module counters and card marks', () => {
   test('counters report this device and update with a completion', async ({
     page,
   }) => {
-    await page.goto(LEARN);
+    await page.goto(COURSE);
     await expect(trackCount(page, 'foundations')).toHaveText(
       `0 of ${FOUNDATIONS_TOTAL} done on this device`,
     );
 
     await seedComplete(page, [FIRST_LESSON.slug, SECOND_LESSON.slug]);
-    await page.goto(LEARN);
+    await page.goto(COURSE);
     await expect(trackCount(page, 'foundations')).toHaveText(
       `2 of ${FOUNDATIONS_TOTAL} done on this device`,
     );
@@ -361,7 +381,7 @@ test.describe('/learn per-track counters and card marks', () => {
   });
 });
 
-test.describe('/learn reset control', () => {
+test.describe('the catalogue reset control', () => {
   test('asks for confirmation, then clears completion and restores the new-user state', async ({
     page,
   }) => {
@@ -405,16 +425,16 @@ test.describe('/learn reset control', () => {
     await toggle.click();
     await page.locator('[data-reset-confirm]').click();
 
-    // Every surface is back to the new-user state, in place, without a reload.
+    // Every surface ON THIS PAGE is back to the new-user state, in place,
+    // without a reload. Since decision D-05 the catalogue's own arc is the
+    // COURSE arc, so the count it repaints is the course total — the same
+    // `renderTracks` pass the module arcs use on the course page.
     await expect(panel).toBeHidden();
     await expect(resumeLabel(page)).toHaveText(
       `Start with 01 · ${FIRST_LESSON.title}`,
     );
-    await expect(trackCount(page, 'foundations')).toHaveText(
-      `0 of ${FOUNDATIONS_TOTAL} done on this device`,
-    );
-    await expect(page.locator('[data-lesson-card][data-complete]')).toHaveCount(
-      0,
+    await expect(trackCount(page, 'dsa')).toHaveText(
+      /^0 of \d+ done on this device$/,
     );
     await expect(toggle).toHaveAttribute('aria-disabled', 'true');
     await expect(page.locator('[data-progress-status]')).toContainText(
@@ -427,6 +447,16 @@ test.describe('/learn reset control', () => {
     await page.reload();
     await expect(resumeLabel(page)).toHaveText(
       `Start with 01 · ${FIRST_LESSON.title}`,
+    );
+
+    // The course page agrees: no module counter and no card claims a mark that
+    // the catalogue just deleted.
+    await page.goto(COURSE);
+    await expect(trackCount(page, 'foundations')).toHaveText(
+      `0 of ${FOUNDATIONS_TOTAL} done on this device`,
+    );
+    await expect(page.locator('[data-lesson-card][data-complete]')).toHaveCount(
+      0,
     );
   });
 
@@ -607,39 +637,45 @@ test.describe("What's next — prev/next", () => {
     await linkTarget(page, links.first()).toBe(`/learn/${lessons[1]!.slug}/`);
   });
 
-  test('the last lesson is not a dead end', async ({ page }) => {
+  test('the last lesson of a course is not a dead end', async ({ page }) => {
+    // Per course since decision D-04: prev/next chains inside a course, so the
+    // end of one is a real ending rather than a doorway into an unrelated
+    // subject. Derived, never hardcoded — the last lesson is whichever one has
+    // the highest `order` in its own course.
     const lessons = await curriculum(page);
-    const last = lessons[lessons.length - 1]!;
+    const inCourse = lessons.filter((l) => l.course === 'dsa');
+    const last = inCourse[inCourse.length - 1]!;
     await page.goto(`/learn/${last.slug}/`);
 
     // The synthetic card keeps the same treatment as a real "next", so the end
-    // of the curriculum reads as an ending rather than as missing markup.
+    // of the course reads as an ending rather than as missing markup.
     const links = navLinks(page);
     await expect(links).toHaveCount(2);
     const card = links.nth(0);
-    await linkTarget(page, card).toBe('/learn/');
+    await linkTarget(page, card).toBe(COURSE);
     await expect(card).toHaveClass(/track-card/);
-    await expect(card).toContainText("That's the whole curriculum");
-    await expect(card).toContainText('Back to all lessons');
+    await expect(card).toContainText("That's all of");
+    await expect(card).toContainText('Back to the course');
     // …and the way back is still there.
     await linkTarget(page, links.nth(1)).toBe(
-      `/learn/${lessons[lessons.length - 2]!.slug}/`,
+      `/learn/${inCourse[inCourse.length - 2]!.slug}/`,
     );
   });
 
-  test('the one track crossing is named in both directions (IA-5)', async ({
+  test('a track crossing is named in both directions (IA-5)', async ({
     page,
   }) => {
-    const lessons = await curriculum(page);
+    const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
     // Derived, never hardcoded: the boundary is wherever the track changes in
-    // global order.
+    // course order. Scoped to one COURSE since decision D-04 — the chain no
+    // longer runs through the whole catalogue, so "exactly once" is a fact about
+    // this course rather than about the site.
     const index = lessons.findIndex(
       (lesson, i) => i > 0 && lesson.track !== lessons[i - 1]!.track,
     );
-    expect(
-      index,
-      'the curriculum must cross tracks exactly once',
-    ).toBeGreaterThan(0);
+    expect(index, 'this course must cross tracks exactly once').toBeGreaterThan(
+      0,
+    );
     const before = lessons[index - 1]!;
     const after = lessons[index]!;
 
@@ -687,11 +723,11 @@ test.describe('JavaScript disabled', () => {
     // …and the index is still one link away for a reader who wants to choose.
     await linkTarget(
       page,
-      page.getByRole('link', { name: 'See all 15 lessons', exact: true }),
+      page.getByRole('link', { name: /^Browse all \d+ courses$/ }),
     ).toBe(LEARN);
   });
 
-  test('/learn still points somewhere useful and exposes no dead control', async ({
+  test('the catalogue and the course page point somewhere useful and expose no dead control', async ({
     page,
   }) => {
     await page.goto(LEARN);
@@ -707,8 +743,19 @@ test.describe('JavaScript disabled', () => {
     // JS-only controls hide behind the <noscript> kill-switch rather than
     // sitting there doing nothing when clicked.
     await expect(page.locator('[data-reset-toggle]')).toBeHidden();
-    // Counters stay hidden rather than reporting "0 of 9" about a device the
-    // build cannot see.
+    // The catalogue's own rings stay hidden rather than reporting "0 of 15"
+    // about a device the build cannot see.
+    await expect(page.locator('[data-track-progress="dsa"]')).toBeHidden();
+    // Every course is still reachable: the cards are plain links.
+    const courses = page.locator('[data-course-card]');
+    expect(await courses.count()).toBeGreaterThanOrEqual(3);
+    await linkTarget(page, courses.first()).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
+
+    // The course page keeps the same contract one level down.
+    await page.goto(COURSE);
+    await expect(resumeLabel(page)).toHaveText(
+      `Start with 01 · ${FIRST_LESSON.title}`,
+    );
     await expect(
       page.locator('[data-track-progress="foundations"]'),
     ).toBeHidden();
@@ -744,12 +791,12 @@ test.describe('JavaScript disabled', () => {
 });
 
 test.describe('storage blocked (private mode)', () => {
-  test('/learn degrades to its server-rendered state without throwing', async ({
+  test('the course page degrades to its server-rendered state without throwing', async ({
     page,
   }) => {
     const errors = trackPageErrors(page);
     await blockStorage(page);
-    await page.goto(LEARN);
+    await page.goto(COURSE);
 
     // FIRST, the discriminator: every assertion below also passes on a page
     // whose island never executed at all, which would make this test unable to
@@ -768,9 +815,12 @@ test.describe('storage blocked (private mode)', () => {
     await expect(page.locator('[data-lesson-card][data-complete]')).toHaveCount(
       0,
     );
-    // …and the reset control stays inert, because there is provably nothing to
-    // delete. It must stay aria-disabled rather than `disabled`, so a reader who
-    // has tabbed onto it does not lose focus to <body>.
+    // …and the reset control — on the catalogue since decision D-05 — stays
+    // inert, because there is provably nothing to delete. It must stay
+    // aria-disabled rather than `disabled`, so a reader who has tabbed onto it
+    // does not lose focus to <body>. `blockStorage` installs an init script, so
+    // the store is still throwing after this navigation.
+    await page.goto(LEARN);
     const toggle = page.locator('[data-reset-toggle]');
     await expect(toggle).toHaveAttribute('aria-disabled', 'true');
     // `force`, because Playwright's actionability check reads `aria-disabled`
@@ -778,6 +828,8 @@ test.describe('storage blocked (private mode)', () => {
     // scruples, and the point of the test is that the handler declines.
     await toggle.click({ force: true });
     await expect(page.locator('[data-reset-panel]')).toBeHidden();
+
+    await page.goto(COURSE);
 
     // No counter may claim progress it cannot read — and M8.1 sharpened what
     // that means here. This test used to require an exact "0 of 9 done on this

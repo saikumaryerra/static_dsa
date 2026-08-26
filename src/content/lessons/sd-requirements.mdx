@@ -1,0 +1,219 @@
+---
+title: 'Functional and Non-Functional Requirements'
+slug: 'sd-requirements'
+course: 'system-design'
+track: 'sd-foundations'
+order: 2
+summary: 'Turn a vague brief into a list of what the system does, a shorter list of numbers saying how well it must do it, and an out-of-scope list that keeps the design finishable.'
+difficulty: 'beginner'
+prerequisites: ['sd-design-workflow']
+estimatedMinutes: 10
+tags: ['system-design', 'requirements', 'scope', 'non-functional']
+explainPrompt: 'Why can a non-functional requirement only shape an architecture once it carries a number?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Write a functional requirement as one action a user would recognise.
+- Replace adjectives like "fast" and "reliable" with targets an architecture can be argued from.
+- Say what you are not building, and record the assumptions that got you there.
+
+## Intuition
+
+A brief arrives as a sentence: "we need playlists". Two different lists hide
+inside it. The first is what the system does — create a playlist, add a track,
+share a link. The second is how well it has to do those things: how quickly, how
+often it may be wrong, how much of the time it must answer at all.
+
+**Functional requirements are verbs; non-functional requirements are numbers.**
+That distinction is more useful than it looks. If a line has no verb a user would
+recognise, it is not a functional requirement. If a line has an adjective and no
+number, it is not yet a non-functional requirement — it is a wish.
+
+The second list is the one that produces the architecture. "Add a track to a
+playlist" constrains almost nothing; a text file on one machine satisfies it. "An
+added track appears on the other devices of that listener within five seconds,
+and an acknowledged add survives the loss of one machine" has already bought
+replication, a delivery path to idle clients, and a write that cannot be
+acknowledged locally. Same feature, different system.
+
+There is a third list, and it is the one people skip: **what you are not
+building.** Scope is a requirement, not a disclaimer at the end of a design,
+because an unstated exclusion is an assumption somebody else will make
+differently.
+
+## How it works
+
+**Start with the verbs.** Write five to eight lines, each one an actor, an action
+and an object. Stop when the next line you want to write is a feature nobody
+asked for: a functional list much longer than that, for a first design, is
+usually a scope problem wearing a requirements costume.
+
+**Then interrogate each verb with three questions.** How quickly must it finish?
+How stale, or how wrong, may its answer be? What happens when the component
+behind it is unavailable? Those questions are where non-functional requirements
+come from — derived from the feature list rather than copied off a checklist,
+which is why they end up specific to this system.
+
+**Then replace every adjective with a target.** This is the step that turns a
+requirements document into an argument. QPS below means queries per second, the
+unit the rest of this course estimates in.
+
+| Adjective        | The requirement it should have been                    | What that forces                               |
+| ---------------- | ------------------------------------------------------ | ---------------------------------------------- |
+| fast             | p99 read latency under 150 ms at 5,000 QPS             | a cache, or an index built for that read       |
+| always up        | 99.9% availability per month, measured on reads        | redundancy across zones, plus health checking  |
+| never loses data | an acknowledged write survives the loss of one machine | replicate before acknowledging                 |
+| fresh            | an edit is visible on other devices within 5 seconds   | invalidation or push, not a long TTL           |
+| scalable         | 10x today's traffic with no redesign                   | stateless services and a partitionable key     |
+| secure           | only the owner and invited editors may write           | authorisation on the read path, not the client |
+
+Note what the right-hand column is doing: every number in the middle column has
+already decided something. That is the test — if changing the number would not
+change the design, the number is decoration.
+
+<Callout variant="note">
+  Latency percentiles, availability nines, durability and consistency models
+  each get a lesson in the next module. Here they are only targets you write
+  down; the skill is noticing that "fast" is not one and "p99 under 150 ms at
+  5,000 QPS" is.
+</Callout>
+
+**Then write the exclusions and the assumptions.** An assumption is a requirement
+you invented because nobody was available to ask; label it as one so the reader
+can challenge it rather than inherit it. Put all three lists on one page:
+
+```text
+Playlist service — requirements (Spotify-like; the scale figures are assumptions)
+
+Functional
+  F1  A listener creates, renames and deletes a playlist.
+  F2  A listener adds, removes and reorders tracks in a playlist.
+  F3  A listener shares a playlist by link; the link grants read-only access.
+  F4  A listener sees the same playlists on every signed-in device.
+
+Non-functional
+  N1  p99 playlist read under 150 ms within the region of the listener.
+  N2  99.9% monthly availability for reads, 99.5% for writes.
+  N3  An acknowledged edit survives the loss of one machine.
+  N4  An edit is visible on the other devices of that listener within 5 s.
+  N5  Only the owner and invited editors may write; every read is authorised.
+
+Out of scope
+  X1  Several people editing one playlist at the same moment.
+  X2  Offline playback and downloads.
+  X3  Automatically generated or recommended playlists.
+
+Assumptions
+  A1  50 million listeners, 20 playlists each, 40 tracks per playlist.
+  A2  Reads outnumber writes by roughly 100 to 1.
+  A3  A track reference is an id, not audio; audio delivery is another system.
+```
+
+That page is the output of steps 1 and 2 of
+[A Repeatable Design Workflow](/learn/sd-design-workflow/), and the input to the
+estimate: A1 is the kind of assumption
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/) multiplies.
+
+## Trade-offs
+
+**Tightening a non-functional requirement always spends something.** Moving
+availability from 99.9% to 99.99% is not a stricter promise on the same
+architecture — it is a different one, for reasons
+[Availability and Durability](/learn/sd-availability-and-durability/) works
+through. Ask who is paying before writing the extra nine.
+
+**Requirements written too early become fiction.** For a product nobody has
+shipped, N1 is a guess, and designing hard against a guessed number is how teams
+build for traffic that never arrives. Write the number, label it an assumption,
+and say what would make you revisit it.
+
+**Cutting scope is the cheapest lever you have, and it is unpopular.** X1 above
+removes concurrent editing, and with it a conflict-resolution problem that could
+outweigh everything else on the page — a product decision made in a technical
+meeting, which is why it has to be written down rather than quietly assumed.
+
+## Common pitfalls
+
+- **Adjectives with no number.** "Highly available" is tempting because everyone
+  nods at it. Nobody can disagree with it either, which is the problem.
+- **One target for the whole system.** Reads and writes rarely deserve the same
+  availability, and a background job does not deserve the latency budget of a
+  page load. A single global number is usually the wrong number twice.
+- **Skipping the out-of-scope list to look ambitious.** An unstated exclusion is
+  not a smaller design; it is a design where two people believe different things.
+- **Copying a number from a system you admire.** Their p99 came from their
+  traffic and their money.
+
+## Interview notes
+
+The first three minutes are graded harder than any other part of the discussion,
+and they are the part most candidates skip. Ask about the verbs, then ask the
+three interrogation questions about the one or two verbs that carry the load.
+
+Two moves read as seniority. **Propose the number yourself** rather than waiting
+to be given it — "I will assume 50 million listeners and reads outnumbering
+writes about 100 to 1, tell me if that is off" puts an assumption where it can be
+corrected. And **say the exclusion out loud**: "I am leaving out collaborative
+editing, because it changes the write path more than everything else combined."
+That is scope control, and it is the same skill the job is.
+
+## Key takeaways
+
+- **Functional requirements are verbs, non-functional requirements are numbers.**
+  A line with an adjective and no number is not a requirement yet.
+- **The non-functional list produces the architecture.** If changing a number
+  would not change the design, the number is decoration.
+- Derive non-functional requirements **from the feature list**: how quickly, how
+  stale is tolerable, and what happens when it is unavailable.
+- **Scope is a requirement**, and an assumption labelled as one can be challenged
+  instead of inherited.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A stakeholder says the system must be "highly available and fast". What do you write down, and what do you ask?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Write two lines with numbers in them, and label both as assumptions until
+  somebody confirms them: "99.9% monthly availability, measured on reads" and
+  "p99 read latency under 200 ms at 5,000 QPS". Proposing the numbers is the job
+  — neither adjective constrains a design, and a stakeholder rarely arrives with
+  a percentile. Each line already forces something: 99.9% forces redundancy
+  across zones, and a latency target at a stated rate forces a cache or a
+  purpose-built index. Then ask the three questions that would turn the
+  assumptions into facts: is availability measured on reads, on writes or both;
+  what rate should the latency target hold at; and what does an hour of downtime
+  cost, because that is what decides whether the honest answer is 99.9% or
+  99.99%.
+</PracticeCheck>
+
+**2. Why is "an acknowledged edit survives the loss of one machine" a non-functional requirement, when "edit a playlist" is a functional one, even though both are about editing?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Because they answer different questions. "Edit a playlist" is what the system
+  does — a user-visible action, satisfiable by a single process writing to a
+  local file. "An acknowledged edit survives the loss of one machine" is how
+  well it must do it, and it is falsifiable: you can kill a machine and check.
+  The second line is also the one that changes the architecture: it rules out
+  acknowledging a write before it has been replicated. The feature is the same
+  in both sentences; the system underneath is not.
+</PracticeCheck>
+
+**3. You are designing a photo-sharing feature and have thirty minutes. Which is the more valuable use of five of them: adding three more features to the functional list, or writing the out-of-scope list?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The out-of-scope list, almost always. Three more features add breadth you will
+  not have time to design, and each one quietly widens what the architecture has
+  to satisfy. The exclusions do the opposite: "no video, no editing, no albums,
+  no public search" removes whole subsystems from the discussion and lets the
+  remaining twenty-five minutes go deep on the upload and delivery path, which
+  is where the interesting problems are. It also protects you from a reviewer
+  who assumed video was included and judged your design against a system you
+  never claimed to be building.
+</PracticeCheck>

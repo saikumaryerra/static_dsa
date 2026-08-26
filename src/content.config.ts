@@ -14,6 +14,7 @@
 import { defineCollection } from 'astro:content';
 import { z } from 'astro:schema';
 import { glob } from 'astro/loaders';
+import { TRACK_IDS } from './lib/tracks.ts';
 
 /** Big-O string guard, e.g. `"O(log n)"` — catches malformed complexity claims. */
 const bigO = z
@@ -27,7 +28,18 @@ const lessons = defineCollection({
   schema: z.object({
     title: z.string(),
     slug: z.string().regex(/^[a-z0-9-]+$/, 'slug must be kebab-case'),
-    track: z.enum(['foundations', 'algorithms']),
+    // A track is the MODULE-sized grouping inside a course (course expansion,
+    // decision D-04). The two original ids are the two modules of the `dsa`
+    // course, so no existing lesson's frontmatter changed. The enum is built
+    // from `TRACK_IDS` rather than restated here, so a track exists in exactly
+    // one place and a typo in frontmatter fails the build.
+    track: z.enum(TRACK_IDS),
+    // The course this lesson belongs to. Defaults to `dsa` so the 15 lessons
+    // that predate the course expansion need no edit.
+    course: z.enum(['dsa', 'kubernetes', 'system-design']).default('dsa'),
+    // Order WITHIN THE COURSE, 1..N. It was global while there was one course;
+    // it is per-course now, which is what keeps prev/next inside a course and
+    // leaves the `dsa` numbering (1..15) exactly as it was.
     order: z.number().int().positive(),
     summary: z.string(),
     difficulty: z.enum(['beginner', 'intermediate']),
@@ -37,10 +49,17 @@ const lessons = defineCollection({
     // getStaticPaths and fails the build there (M7.2).
     prerequisites: z.array(z.string()).default([]),
     estimatedMinutes: z.number().int().positive(),
-    complexity: z.object({
-      time: z.object({ best: bigO, average: bigO, worst: bigO }),
-      space: z.object({ worst: bigO }),
-    }),
+    // OPTIONAL since the course expansion (decision D-07): there is no honest
+    // Big-O for "ConfigMaps and Secrets" or "CAP and PACELC". `ComplexityTable`
+    // and the `## Complexity` section render only where a lesson declares it,
+    // which today means every algorithmic lesson and nothing else. Inventing
+    // `O(1)` placeholders to satisfy a required field was explicitly rejected.
+    complexity: z
+      .object({
+        time: z.object({ best: bigO, average: bigO, worst: bigO }),
+        space: z.object({ worst: bigO }),
+      })
+      .optional(),
     tags: z.array(z.string()).default([]),
     // §7's Explain-it-back prompt (M8.3): the ONE "why does this work?" question
     // this lesson asks the reader to answer in their own words after they mark

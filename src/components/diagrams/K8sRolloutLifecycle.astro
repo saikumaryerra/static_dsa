@@ -1,0 +1,159 @@
+---
+/**
+ * A rolling update, revision by revision — three states of one Deployment,
+ * read left to right.
+ *
+ * Supplies only the shapes; `Figure` owns the `<svg>`, the accessible name and
+ * description, the scroll frame and the caption. Every class comes from
+ * Figure's drawing kit, so nothing here states a colour and both themes and
+ * forced-colors mode come free.
+ *
+ * The claim the picture makes: the old ReplicaSet is still there at the end.
+ * That is why ReplicaSet v1 occupies the SAME y-slot in all three states —
+ * the eye tracks one object across the timeline and finds it still drawn, still
+ * owned by the Deployment, holding zero Pods — and why the state-3 v1 box is the
+ * one accent box in the figure. The new ReplicaSet in state 2 deliberately gets
+ * no special treatment; it is not the point.
+ *
+ * The Deployment box is byte-identical in all three states, at identical
+ * coordinates. Nothing about it moves, because nothing about it changes: a
+ * rollout is the controller moving replicas between the ReplicaSets underneath
+ * it.
+ *
+ * LAYOUT NOTE. Boxes sit at X+18 inside a 220-wide state group, which leaves an
+ * 18-unit lane on each side. The connector from the Deployment to ReplicaSet v2
+ * runs down the LEFT lane at X+9 and enters v2's left edge, because a straight
+ * drop would cross ReplicaSet v1. It branches off the v1 connector at y=98, in
+ * the clear band between the Deployment (ends 82) and v1 (starts 114), so one
+ * line forks to two children rather than two lines leaving one box. The
+ * step-to-step arrows sit at y=207, in the gap between the two ReplicaSet rows,
+ * where they cross nothing.
+ *
+ * TYPE TIERS: object kinds are `.dg-label`, the pod-template-hash term is
+ * `.dg-sub` with its value in `.dg-mono` beside it (prose then identifier),
+ * annotations under each state are `.dg-mono` for literal fields and commands
+ * with a `.dg-sub` gloss beneath, and the step names over the dashed groups are
+ * `.dg-legend`.
+ *
+ * TEXT WIDTHS are eyeballed against conservative per-character estimates —
+ * nothing in the build measures them — which is why the hash line is split into
+ * a short term and a 4-character value rather than one long mono string.
+ */
+import Figure from '../Figure.astro';
+---
+
+<Figure
+  viewBox="0 0 720 378"
+  title="A rolling update, revision by revision"
+  description="Three states of one rolling update, drawn left to right and joined by arrows. Every state contains the same Deployment box, named web, at the top, in the same position, with a connector running down from it to each ReplicaSet it owns. Step 1, before: the Deployment owns a single ReplicaSet v1, pod-template-hash 7d9f, holding three Pods; the notes read revision 1, replicas 3, one template in play. Step 2, mid-rollout: the Deployment now owns two ReplicaSets. ReplicaSet v1, pod-template-hash 7d9f, is down to two Pods, and a new ReplicaSet v2, pod-template-hash 5c2b, holds one Pod; the notes read maxSurge 1, maxUnavailable 1, at most 4 Pods at once. Step 3, after: ReplicaSet v2 holds three Pods and ReplicaSet v1 holds none. ReplicaSet v1 is still drawn, in the same position as in the first two states, and its connector from the Deployment is still there; the box is highlighted and reads 0 Pods, kept for rollback. Its notes read kubectl rollout undo, scales v1 back up and v2 back down. The pod-template-hash is the only label that separates the two ReplicaSets."
+  caption="Nothing deletes ReplicaSet v1 when it empties. It stays, scaled to zero, still owned by the Deployment, still holding the Pod template it was created for, and that scaled-to-zero object is the entire rollback mechanism: revisionHistoryLimit is a count of how many of them you keep."
+  minWidth={660}
+>
+  <!-- ============ Step 1: before ============ -->
+  <rect class="dg-group" x="8" y="12" width="220" height="352"></rect>
+  <text class="dg-legend" x="18" y="31">Step 1: before</text>
+
+  <rect class="dg-box" x="26" y="40" width="184" height="42"></rect>
+  <text class="dg-label" x="118" y="59" text-anchor="middle">Deployment</text>
+  <text class="dg-mono" x="118" y="75" text-anchor="middle">web</text>
+
+  <!-- Deployment owns ReplicaSet v1 -->
+  <line class="dg-line" x1="118" y1="82" x2="118" y2="106"></line>
+  <polygon class="dg-head" points="118,114 113,104 123,104"></polygon>
+
+  <rect class="dg-box" x="26" y="114" width="184" height="84"></rect>
+  <text class="dg-label" x="38" y="134">ReplicaSet v1</text>
+  <text class="dg-sub" x="38" y="151">pod-template-hash:</text>
+  <text class="dg-mono" x="174" y="151">7d9f</text>
+  <rect class="dg-box" x="38" y="161" width="44" height="26"></rect>
+  <text class="dg-sub" x="60" y="178" text-anchor="middle">Pod</text>
+  <rect class="dg-box" x="94" y="161" width="44" height="26"></rect>
+  <text class="dg-sub" x="116" y="178" text-anchor="middle">Pod</text>
+  <rect class="dg-box" x="150" y="161" width="44" height="26"></rect>
+  <text class="dg-sub" x="172" y="178" text-anchor="middle">Pod</text>
+
+  <text class="dg-mono" x="26" y="320">revision 1</text>
+  <text class="dg-mono" x="26" y="336">replicas: 3</text>
+  <text class="dg-sub" x="26" y="352">one template in play</text>
+
+  <!-- time passes -->
+  <line class="dg-line" x1="229" y1="207" x2="237" y2="207"></line>
+  <polygon class="dg-head" points="246,207 236,202 236,212"></polygon>
+
+  <!-- ============ Step 2: mid-rollout ============ -->
+  <rect class="dg-group" x="250" y="12" width="220" height="352"></rect>
+  <text class="dg-legend" x="260" y="31">Step 2: mid-rollout</text>
+
+  <rect class="dg-box" x="268" y="40" width="184" height="42"></rect>
+  <text class="dg-label" x="360" y="59" text-anchor="middle">Deployment</text>
+  <text class="dg-mono" x="360" y="75" text-anchor="middle">web</text>
+
+  <!-- One connector forks: down to v1, and round the left lane to v2 -->
+  <line class="dg-line" x1="360" y1="82" x2="360" y2="106"></line>
+  <polygon class="dg-head" points="360,114 355,104 365,104"></polygon>
+  <line class="dg-line" x1="360" y1="98" x2="259" y2="98"></line>
+  <line class="dg-line" x1="259" y1="98" x2="259" y2="258"></line>
+  <polygon class="dg-head" points="268,258 259,253 259,263"></polygon>
+
+  <rect class="dg-box" x="268" y="114" width="184" height="84"></rect>
+  <text class="dg-label" x="280" y="134">ReplicaSet v1</text>
+  <text class="dg-sub" x="280" y="151">pod-template-hash:</text>
+  <text class="dg-mono" x="416" y="151">7d9f</text>
+  <rect class="dg-box" x="280" y="161" width="44" height="26"></rect>
+  <text class="dg-sub" x="302" y="178" text-anchor="middle">Pod</text>
+  <rect class="dg-box" x="336" y="161" width="44" height="26"></rect>
+  <text class="dg-sub" x="358" y="178" text-anchor="middle">Pod</text>
+
+  <rect class="dg-box" x="268" y="216" width="184" height="84"></rect>
+  <text class="dg-label" x="280" y="236">ReplicaSet v2</text>
+  <text class="dg-sub" x="280" y="253">pod-template-hash:</text>
+  <text class="dg-mono" x="416" y="253">5c2b</text>
+  <rect class="dg-box" x="280" y="263" width="44" height="26"></rect>
+  <text class="dg-sub" x="302" y="280" text-anchor="middle">Pod</text>
+
+  <text class="dg-mono" x="268" y="320">maxSurge: 1</text>
+  <text class="dg-mono" x="268" y="336">maxUnavailable: 1</text>
+  <text class="dg-sub" x="268" y="352">at most 4 Pods at once</text>
+
+  <!-- time passes -->
+  <line class="dg-line" x1="471" y1="207" x2="479" y2="207"></line>
+  <polygon class="dg-head" points="488,207 478,202 478,212"></polygon>
+
+  <!-- ============ Step 3: after ============ -->
+  <rect class="dg-group" x="492" y="12" width="220" height="352"></rect>
+  <text class="dg-legend" x="502" y="31">Step 3: after</text>
+
+  <rect class="dg-box" x="510" y="40" width="184" height="42"></rect>
+  <text class="dg-label" x="602" y="59" text-anchor="middle">Deployment</text>
+  <text class="dg-mono" x="602" y="75" text-anchor="middle">web</text>
+
+  <!-- v1 is empty, and its connector is still here: still owned, not orphaned -->
+  <line class="dg-line" x1="602" y1="82" x2="602" y2="106"></line>
+  <polygon class="dg-head" points="602,114 597,104 607,104"></polygon>
+  <line class="dg-line" x1="602" y1="98" x2="501" y2="98"></line>
+  <line class="dg-line" x1="501" y1="98" x2="501" y2="258"></line>
+  <polygon class="dg-head" points="510,258 501,253 501,263"></polygon>
+
+  <rect class="dg-box dg-box--accent" x="510" y="114" width="184" height="84"
+  ></rect>
+  <text class="dg-label" x="522" y="134">ReplicaSet v1</text>
+  <text class="dg-sub" x="522" y="151">pod-template-hash:</text>
+  <text class="dg-mono" x="658" y="151">7d9f</text>
+  <text class="dg-sub" x="522" y="170">0 Pods</text>
+  <text class="dg-label" x="522" y="189">kept for rollback</text>
+
+  <rect class="dg-box" x="510" y="216" width="184" height="84"></rect>
+  <text class="dg-label" x="522" y="236">ReplicaSet v2</text>
+  <text class="dg-sub" x="522" y="253">pod-template-hash:</text>
+  <text class="dg-mono" x="658" y="253">5c2b</text>
+  <rect class="dg-box" x="522" y="263" width="44" height="26"></rect>
+  <text class="dg-sub" x="544" y="280" text-anchor="middle">Pod</text>
+  <rect class="dg-box" x="578" y="263" width="44" height="26"></rect>
+  <text class="dg-sub" x="600" y="280" text-anchor="middle">Pod</text>
+  <rect class="dg-box" x="634" y="263" width="44" height="26"></rect>
+  <text class="dg-sub" x="656" y="280" text-anchor="middle">Pod</text>
+
+  <text class="dg-mono" x="510" y="320">kubectl rollout undo</text>
+  <text class="dg-sub" x="510" y="336">scales v1 back up</text>
+  <text class="dg-sub" x="510" y="352">and v2 back down</text>
+</Figure>

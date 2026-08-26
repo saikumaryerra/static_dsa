@@ -1,0 +1,234 @@
+---
+title: 'Personalisation and Experimentation'
+slug: 'sd-netflix-recommendations'
+course: 'system-design'
+track: 'sd-netflix'
+order: 27
+summary: 'Ranking a catalogue of tens of thousands per profile — offline, nearline and online — and running the experiments that decide whether a ranking change was an improvement at all.'
+difficulty: 'intermediate'
+prerequisites: ['sd-netflix-architecture', 'sd-event-streams']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'recommendations', 'experimentation']
+explainPrompt: 'Why can an offline evaluation say a ranking model is better and still be no reason to ship it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Rank a small catalogue without the candidate-generation stage a huge corpus needs.
+- Split the pipeline into offline, nearline and online work, and say what belongs where.
+- Design an A/B test that can answer the question being asked of it.
+- Name the feedback loops that make a recommender wrong about itself.
+
+## Intuition
+
+The home page is a ranking problem twice: which rows appear, and what goes in each
+row. Both are per profile, and both have to be delivered in the few milliseconds a
+page render can spare.
+
+**The rule that resolves that is: precompute the expensive part, personalise the
+cheap part at request time.** Model training and catalogue scoring happen hours
+ahead, in batch. The request path reads the result and adjusts it — filter what is
+unavailable in this region, drop what this profile finished last night, reorder
+for a television rather than a phone. Serving a recommendation is a cache read
+with a little arithmetic on top.
+
+**Catalogue size decides the shape of the pipeline.** The 2016 RecSys paper _Deep
+Neural Networks for YouTube Recommendations_ (Covington, Adams and Sargin)
+describes two stages: candidate generation cuts a corpus of millions down to
+hundreds, and only then does a richer ranking model score them, because scoring
+the whole corpus per request is out of the question. With tens of thousands of
+titles, a Netflix-like platform can score a large fraction of the catalogue per
+profile in batch, so the two-stage split becomes a cost optimisation rather than a
+necessity. Same problem, different architecture, because the numbers differ.
+
+The third idea is uncomfortable: **an offline metric cannot tell you a ranking
+change is an improvement.** It measures agreement with behaviour that the old
+ranking produced. Only an experiment on live traffic measures the change itself.
+
+## How it works
+
+```text
+offline   (hours to days)
+  event stream -> feature generation -> train -> score catalogue per profile
+                                                      |
+nearline  (seconds to minutes)                        v
+  a play, a rating, a finish -> update features, invalidate affected rows
+                                                      |
+online    (milliseconds)                              v
+  request -> read precomputed rows -> filter, dedupe, re-rank with context -> page
+```
+
+The three tiers are generally accepted industry architecture wherever ranking
+costs too much to run on the request path; a recommender small enough to rank
+inline needs none of them. The boundaries between them are where the design
+choices live.
+
+**Offline** owns training and batch scoring. It reads the event stream that the
+[architecture lesson](/learn/sd-netflix-architecture/) routes from playback, joins
+it with catalogue metadata, and writes ranked rows per profile into a cache. It is
+allowed to be hours stale and is measured in cost per profile, not latency.
+
+**Nearline** exists because some staleness is unacceptable: a title finished ten
+minutes ago must leave continue watching, and a title started an hour ago should
+influence what is shown tonight. It reacts to individual events with small updates
+rather than a rerun.
+
+**Online** is the request path, and it does only work that needs the request:
+regional availability, maturity settings for this profile, deduplication across
+rows, device and time-of-day context, and the experiment assignment. Its budget is
+a few milliseconds inside a page that fans out to several services.
+
+**When to precompute and when not to.** Precompute when the inputs change slowly
+relative to the request rate and the output is expensive — which is why ranking
+rows is batch work. Compute online when the input _is_ the request: nothing about
+the device, the hour or the last title finished can be known in advance.
+
+**Cold start** has two halves. A new profile has no history, so it gets regional
+popularity plus whatever taste it declared during sign-up, refined within a few
+sessions. A new title has no interactions, so it is placed by metadata and
+content similarity until enough behaviour accumulates. The popularity row that
+covers the first case is also the degradation path when personalisation is
+unavailable, which is the [reliability lesson](/learn/sd-netflix-reliability/).
+
+**Experimentation.** Randomised online experiments are generally accepted industry
+practice for exactly the reason above: a ranking change's effect is not knowable
+from historical data. A workable experiment has five parts decided before it
+starts.
+
+| Part           | What it means, and what goes wrong without it                                                  |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| Hypothesis     | One sentence naming the expected direction; without it, any moving metric becomes the result   |
+| Primary metric | One metric chosen in advance — otherwise twenty metrics guarantee a winner by chance           |
+| Guardrails     | Playback start success, rebuffer ratio, page latency: a ranking win that hurts these is a loss |
+| Assignment     | A deterministic hash of profile id and experiment id, so the bucket is sticky and stateless    |
+| Duration       | Fixed in advance from the effect size worth detecting, and at least one full weekly cycle      |
+
+Assignment by **profile** rather than by request or device is the detail people
+get wrong. A metric computed per profile is meaningless if the profile
+experienced both variants, and a profile that flips variants between its
+television and its phone is a bad product as well as a bad measurement. The unit
+above it is a real alternative rather than a mistake: assigning by account keeps a
+household on one variant, which removes spillover between profiles that watch
+together, and costs a smaller effective sample and coarser per-profile metrics.
+
+<Callout variant="warning">
+  **The feedback loop.** A recommender trains on the impressions it chose to
+  show, so a title it never surfaces never accumulates evidence that it should
+  be surfaced. Left alone this narrows over time and looks like success, because
+  the metric it optimises keeps improving. The standard answer is a deliberate
+  exploration budget — a small share of slots given to items the model is unsure
+  about — accepted as a cost, not as an accident.
+</Callout>
+
+## Trade-offs
+
+**Precomputed rows buy latency and cost freshness.** Rows computed overnight serve
+in single-digit milliseconds and cannot know about this morning. The nearline tier
+buys back the freshness that matters and adds a second pipeline to operate.
+
+**Personalisation costs cache efficiency.** A per-profile page cannot be stored in
+a shared cache at all; the shell, the artwork and the catalogue metadata behind it
+can. Splitting a page along that line is where the hit ratio comes from.
+
+**A metric is a proxy.** Optimising the chosen number will produce exactly that
+number, including through routes nobody wanted — thumbnails that overpromise, rows
+that reward familiarity over discovery. Guardrails and a long-running holdback
+group, measured against everything shipped since, are how a team keeps the proxy
+honest.
+
+**Model complexity costs serving cost and explainability.** A model nobody can
+explain is also a model nobody can debug when a row looks wrong, and someone will
+ask why a title appeared.
+
+## Common pitfalls
+
+- **Shipping on offline evaluation alone.** It is the cheap measurement, and it
+  scores agreement with data the previous model generated.
+- **Assigning buckets per request.** Tempting because it splits traffic exactly,
+  and it destroys the experiment by giving one profile both variants.
+- **Watching results daily and stopping when significant.** Repeated looks at
+  accumulating data inflate false positives; fix the duration in advance, or use a
+  method designed for sequential testing.
+- **Running for three days.** Viewing is strongly weekly, so a test that never sees
+  a weekend measures Tuesday.
+- **Treating recommendations as a system of record.** They are rebuildable from
+  events, so a bad model is a rollback rather than a restore — but only if the
+  events, not the rows, are the durable thing.
+- **Serving a personalised page from a shared cache.** The failure mode is showing
+  one profile another's home page.
+
+## Interview notes
+
+Lead with the catalogue size. "There are tens of thousands of titles, so I can
+score most of the catalogue per profile in batch and skip a separate
+candidate-generation stage" tells an interviewer the design came from the numbers,
+and it invites the follow-up worth having — what would change at a billion items.
+
+Then say how you would know it worked. Naming a primary metric, two guardrails and
+a fixed duration before describing the model is the difference between a candidate
+who designs recommenders and one who has shipped a change to real users.
+
+## Key takeaways
+
+- Serving is a **cache read**: expensive ranking happens offline, and the request
+  path only filters, dedupes and re-ranks with context.
+- **A small catalogue removes the need for candidate generation** that the 2016
+  YouTube recommendations paper's corpus made unavoidable.
+- **Nearline is the tier that earns its keep**, reacting to a single play in
+  seconds without rerunning a batch job.
+- **Offline metrics cannot decide a ranking change**; a randomised experiment with
+  a pre-declared metric, guardrails and duration can.
+- A recommender **trains on what it showed**, so exploration is a budgeted cost
+  rather than an optional refinement.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. The 2016 YouTube recommendations paper describes candidate generation followed by ranking. Why does a Netflix-like platform not need the first stage?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the stage exists to make an intractable corpus tractable, and this
+  corpus is not intractable. Candidate generation cuts millions of items to a
+  few hundred so that a richer model can afford to score them; with tens of
+  thousands of titles, a batch job can score a large fraction of the catalogue
+  for every profile and store the result, so the request path reads rows rather
+  than selecting candidates. The stage is a cost optimisation here rather than a
+  requirement — it may still be worth adding if scoring cost or the number of
+  profiles makes full scoring expensive, but it is a choice, not a constraint.
+  The general lesson is that corpus size, not fashion, is what decides whether a
+  recommender needs two stages.
+</PracticeCheck>
+
+**2. An offline evaluation shows a new model predicts held-out watches 6% better than the current one. Is that a reason to ship it?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It is a reason to run an experiment, not a reason to ship. The held-out
+  watches were produced by profiles browsing pages the *current* model built, so
+  the evaluation rewards a new model for agreeing with the old model's choices:
+  a title the current ranking never surfaced could not have been watched, and
+  predicting that nobody watched it scores well. The measurement also says
+  nothing about the things a live change touches — page latency, playback start
+  success, whether people watch longer or only click more. Ship it behind an
+  experiment with a primary metric declared in advance, guardrails on start
+  success and latency, and a duration covering at least one full week.
+</PracticeCheck>
+
+**3. To get an exactly even split, a team assigns experiment buckets per request rather than per profile.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The split will indeed be even, and the experiment will measure nothing. A
+  profile refreshing its home page would land in the treatment and then the
+  control, so every per-profile metric mixes both variants and the difference
+  between the groups shrinks toward zero however good the change is. It is also
+  a worse product: rows would reorder between refreshes, and any feature with
+  memory — a row the profile scrolled, a title dismissed — would behave
+  inconsistently. Assign on a deterministic hash of profile id and experiment
+  id: the bucket is stable for the life of the test, every service can compute
+  it without a lookup, and the split is even enough over hundreds of millions of
+  profiles.
+</PracticeCheck>

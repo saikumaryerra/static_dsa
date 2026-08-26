@@ -1,0 +1,246 @@
+---
+title: 'Services'
+slug: 'k8s-services'
+course: 'kubernetes'
+track: 'k8s-networking'
+order: 13
+summary: 'A Service is a stable address in front of a changing set of Pods — and ClusterIP, NodePort and LoadBalancer are not three mechanisms but one, with progressively more of the outside world attached.'
+difficulty: 'beginner'
+prerequisites: ['k8s-networking-model', 'k8s-labels-and-selectors']
+estimatedMinutes: 9
+tags: ['kubernetes', 'services', 'clusterip', 'loadbalancer', 'networking']
+explainPrompt: 'Why is there no process anywhere in the cluster listening on a ClusterIP?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+import K8sRequestFlow from '../../components/diagrams/K8sRequestFlow.astro';
+
+## What you'll learn
+
+- Describe the path from a ClusterIP to a Pod, and which component programs it.
+- Write a Service and say what `port`, `targetPort` and `nodePort` each mean.
+- Choose between ClusterIP, NodePort, LoadBalancer and headless, including when
+  each is the wrong answer.
+
+## Intuition
+
+The previous lesson left you with a real but temporary address per Pod. A
+Deployment replaces Pods on every rollout, every crash and every scale event, so
+anything that dials a Pod address directly is holding a reference that expires.
+You want something that does not.
+
+**A Service is a stable front door, and there is nobody standing behind it.**
+That second half is the part worth internalising. A ClusterIP looks like a
+server: it has an address, you connect to it, something answers. But no interface
+in the cluster holds that address and no process is bound to it. It is a rule
+installed on every node, saying: a packet headed for this address is rewritten to
+one of these Pod addresses, chosen per connection.
+
+ClusterIP, NodePort and LoadBalancer are not three designs. **They nest.**
+ClusterIP is the base. (Headless is not a fourth type: `service.spec.type`
+accepts only `ClusterIP`, `NodePort`, `LoadBalancer` and `ExternalName`, and a
+headless Service is `type: ClusterIP` with `clusterIP: None`.)
+NodePort is a ClusterIP plus a port opened on every node. LoadBalancer is a
+NodePort plus something outside the cluster pointing at those ports. Headless is
+the odd one out — it opts out of having a front door at all, and hands you the
+Pod addresses instead.
+
+## How it works
+
+A Service selects Pods with a label selector, exactly as a ReplicaSet does — see
+[Labels, Selectors and Annotations](/learn/k8s-labels-and-selectors/). The
+endpoints controller watches that selector and maintains **EndpointSlices**: the
+list of addresses and ports of the Pods that currently match _and are ready_.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+```
+
+`port` is the port on the Service — what clients connect to. `targetPort` is the
+port on the Pod, and it may be a name declared in the Pod's `containerPort`,
+which lets two versions of a workload listen on different numbers behind one
+Service. Getting these the wrong way round is the single most common Service bug.
+
+On every node, **kube-proxy** watches Services and EndpointSlices and programs
+the node's packet-filtering rules so that traffic to `10.96.0.42:80` is rewritten
+to a ready Pod's `10.244.2.15:8080`. It does this in `iptables` mode or `nftables`
+mode; the older IPVS mode was **removed in Kubernetes 1.36**. On some clusters the
+CNI plugin takes the job over entirely and kube-proxy is not running at all.
+
+<Callout variant="note">
+  kube-proxy programs the **dataplane** — it makes the address reach a Pod. It
+  has nothing to do with names. Turning `web` into `10.96.0.42` is cluster DNS's
+  job, and it is a separate system that fails separately. That split is the
+  whole of the next lesson.
+</Callout>
+
+<K8sRequestFlow />
+
+**NodePort** keeps everything above and additionally opens the same port on
+every node in the cluster, from the range 30000–32767 by default:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-nodeport
+spec:
+  type: NodePort
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      nodePort: 30080
+```
+
+Any node's address on port 30080 now reaches the Service, including nodes running
+none of its Pods — they forward to a node that does.
+
+**LoadBalancer** adds one more layer: the cloud controller sees the type, asks
+the provider for a load balancer, points it at the NodePorts, and writes the
+resulting address into `status.loadBalancer`. The Service still has a ClusterIP
+and still has a NodePort; nothing was replaced. Because there is no provider to
+ask on a laptop cluster, the address never arrives — [A Local Cluster for the
+Exercises](/learn/k8s-local-cluster/) covers what to do instead.
+
+Setting `externalTrafficPolicy: Local` on a NodePort or LoadBalancer Service
+stops the extra hop between nodes, which preserves the client's source address —
+at the cost of nodes with no matching Pod failing their health check and
+traffic spreading by node rather than by Pod.
+
+**Headless** is `clusterIP: None`. No virtual address is allocated, kube-proxy
+programs nothing, and a lookup of the name returns the Pod addresses themselves,
+leaving the choice to the client. This is how a StatefulSet gives each replica a
+resolvable name of its own — the manifest and the per-Pod records are in
+[StatefulSets](/learn/k8s-statefulsets/).
+
+```bash
+kubectl get svc web -o wide
+kubectl get endpointslices -l kubernetes.io/service-name=web
+kubectl port-forward service/web 8080:80
+```
+
+The middle command is the one to reach for first when a Service does not work:
+it shows what the selector actually found.
+
+## Trade-offs
+
+| Type             | Use it when                                                                                                           | Do not use it when                                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ClusterIP**    | Anything inside the cluster calls anything else inside it. This is the default and the right answer most of the time. | You need traffic from outside — it is unreachable from there by design.                                                                         |
+| **NodePort**     | You are on hardware with no cloud load balancer, or you are giving an external load balancer something to point at.   | It is your public front door. Node addresses are not stable, the port range is unfriendly, and there is no TLS termination or hostname routing. |
+| **LoadBalancer** | One workload needs its own external address from a cloud that provides them, especially for non-HTTP protocols.       | You have twenty HTTP services — that is twenty load balancers and twenty bills. Route them through one Ingress or Gateway instead.              |
+| **Headless**     | Clients must address individual Pods: clustered databases, peer discovery, or a client doing its own balancing.       | You wanted a single stable address. There is none, and a client that caches the first answer will keep using one Pod.                           |
+
+**A Service balances connections, not requests.** Each new connection is sent to
+a Pod and stays there. With HTTP/1.1 keep-alive, gRPC or any long-lived
+connection, a client that opens one connection sends every request to one Pod,
+and scaling up moves no traffic at all. The fixes are client-side balancing over
+a headless Service, or a proxy that speaks the protocol.
+
+**A Service with no selector is a legitimate tool.** You can create one and
+manage its EndpointSlice yourself, giving an external database a cluster-local
+name that you can repoint later without touching any application.
+
+**Only ready Pods receive traffic.** That makes readiness probes part of your
+routing, not only your rollout, and it is why a Service with matching Pods can
+still have no endpoints.
+
+## Common pitfalls
+
+- **`port` and `targetPort` swapped.** Both are integers in the same block and
+  both look plausible, so the manifest applies cleanly and every connection is
+  refused.
+- **A selector that matches nothing.** One character wrong in a label and the
+  Service is perfectly valid with an empty EndpointSlice. Connections hang or are
+  refused, and nothing in `kubectl get svc` looks wrong.
+- **Assuming `externalIPs`.** It is deprecated in 1.36 but still accepted: the
+  manifest applies, the API server warns that clusters may no longer implement
+  it, and the address appears in `EXTERNAL-IP` — while nothing routes. A field
+  that applies and does nothing is harder to notice than one that is rejected.
+  Use a NodePort, a LoadBalancer or an Ingress instead.
+- **Using NodePort as production ingress.** It is tempting because it works
+  immediately. You then own node address changes, a port nobody can remember and
+  TLS you have to terminate somewhere else.
+- **Expecting a LoadBalancer per service to stay cheap.** Each one is a separate
+  cloud resource with a separate address and a separate charge, and the cost is
+  invisible until the monthly bill.
+
+## Key takeaways
+
+- A Service is **a selector plus a stable address**; the endpoints controller
+  turns the selector into EndpointSlices of ready Pods.
+- **kube-proxy programs the dataplane on every node** so a ClusterIP reaches a
+  Pod. No process listens on a ClusterIP. IPVS mode was removed in 1.36.
+- The types **nest**: NodePort is ClusterIP plus a port on every node,
+  LoadBalancer is NodePort plus an external balancer. Headless opts out of the
+  virtual address entirely.
+- `port` is the Service's port and `targetPort` is the Pod's — and only **ready**
+  Pods appear as endpoints.
+- Balancing happens **per connection**. Long-lived connections pin themselves to
+  one Pod, whatever the replica count says.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. `kubectl get svc web` shows a ClusterIP and the right ports, but every request from another Pod times out. What do you check first, and why does the Service still look healthy?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Check the endpoints — `kubectl get endpointslices -l
+  kubernetes.io/service-name=web`. A Service stores a selector, not a list of
+  Pods, so it is a complete and valid object whether or not that query matches
+  anything; `kubectl get svc` prints the address it was allocated and has
+  nothing to say about membership. Read the slice properly, though: it lists
+  every matching Pod, ready or not, and the readiness lives in a per-endpoint
+  `conditions.ready` that the table columns do not print. So use
+  `kubectl get endpointslices -l kubernetes.io/service-name=web -o
+  jsonpath='{.items[*].endpoints[*].conditions.ready}'`. No addresses at all
+  means the selector matches nothing; addresses with `ready: false` means the
+  selector is right and the readiness probe is failing. Those are different
+  bugs. If the endpoints are there and ready, the next suspect is `targetPort`
+  pointing at a port the container is not listening on.
+</PracticeCheck>
+
+**2. Your team runs twelve HTTP services and gives each a LoadBalancer Service. What is wrong with that, and what changes if one of the twelve serves a non-HTTP protocol?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Twelve LoadBalancer Services means twelve cloud load balancers, twelve
+  external addresses and twelve certificates to manage, all to route traffic
+  that a single balancer could distinguish by hostname. HTTP carries the
+  destination in the request itself, so one front door plus host and path rules
+  does the same job — which is what Ingress and the Gateway API are for, and
+  they still send traffic to these Services once inside. The one that is not
+  HTTP is different: if it speaks a custom TCP or UDP protocol there is no
+  hostname in the traffic to route on, so a dedicated LoadBalancer with its own
+  address is the honest answer for that service and worth its cost.
+</PracticeCheck>
+
+**3. A gRPC client Pod connects to a ClusterIP Service. You scale the backing Deployment from 2 replicas to 10 and see no change in load distribution. Explain.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  kube-proxy chooses a Pod when a connection is established, and the choice
+  holds for the life of that connection. gRPC runs many requests over one
+  long-lived HTTP/2 connection, so the client picked a Pod once, at start-up,
+  and every request since has gone there — scaling up added eight Pods that
+  nothing is dialling, because no new connections are being made. The eight are
+  ready, healthy and in the EndpointSlice, which is why nothing looks broken.
+  The fixes are to balance in the client, usually over a headless Service so it
+  can see each Pod address, or to put a proxy that understands gRPC in the path
+  so balancing happens per request.
+</PracticeCheck>

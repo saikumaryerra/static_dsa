@@ -1,0 +1,257 @@
+---
+title: 'Message Queues'
+slug: 'sd-message-queues'
+course: 'system-design'
+track: 'sd-async'
+order: 19
+summary: 'A queue hands each unit of work to whichever consumer is free, deletes it on acknowledgement and redelivers it when nobody answers — which is what makes at-least-once the honest default and a dead-letter queue an ongoing commitment.'
+difficulty: 'intermediate'
+prerequisites: ['sd-idempotency-and-backpressure']
+estimatedMinutes: 9
+tags:
+  ['system-design', 'message-queues', 'asynchrony', 'reliability', 'delivery']
+explainPrompt: 'Why does a queue delete a message on acknowledgement, and what does that make impossible?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Decouple a producer from a consumer, and name the three things the decoupling costs.
+- Choose delivery semantics knowing that "exactly once" is not one of the options.
+- Size a consumer pool, and read queue depth as a backlog with a drain time.
+- Treat a dead-letter queue as work somebody has to do.
+
+## Intuition
+
+**A queue is a shared to-do list that deletes an item when somebody says they
+have done it.** A producer appends work; the broker holds it durably; one of
+several competing consumers takes an item, does it, and acknowledges. On that
+acknowledgement the item is gone, and no other consumer ever sees it.
+
+That one sentence contains most of the behaviour. Because a message is deleted
+on acknowledgement, a queue fans out **work**, not information: ten consumers on
+one queue do a tenth of the total each, and a second team that also wants those
+events cannot have them. Because the broker holds the message durably, the
+producer and the consumer no longer have to be healthy at the same moment.
+
+What a queue solves is a step in a request path that the caller should not wait
+for, or cannot: a video to transcode, an invoice to render, a welcome email to
+send. It exists because the producer's deadline and the consumer's throughput
+are two different numbers, and a buffer is the only honest way to hold them
+apart. Decoupling happens in three dimensions at once — **time** (the consumer
+may be restarting), **rate** (the producer may burst far above what the consumer
+sustains) and **failure** (a consumer crash loses no work).
+
+## How it works
+
+In the visibility-timeout family of brokers the mechanism is a lease. A consumer
+does not remove a message when it receives one; it takes it **invisible for a
+while** — the visibility timeout — and the broker deletes it only on
+acknowledgement. If the acknowledgement does not arrive before the lease
+expires, the message becomes visible again and somebody else gets it. Brokers
+differ in the detail — the lease-and-redelivery shape is generally accepted
+industry architecture, and other brokers redeliver when the consumer's
+connection drops instead of on a per-message timer.
+
+```text
+t=0    consumer A receives message M, lease 30 s
+t=25   A is still working — a downstream call is slow
+t=30   the lease expires; the broker makes M visible again
+t=31   consumer B receives M and starts the same work
+t=40   A finishes and acknowledges
+       the work has now happened twice, and only the consumer's
+       idempotency decides whether that mattered
+```
+
+Every delivery guarantee falls out of where the acknowledgement sits. Ack
+**before** doing the work and you have at-most-once: a crash loses the message
+silently. Ack **after** and you have at-least-once: a crash, a slow job or an
+expired lease produces a duplicate. There is no third option end to end. What
+gets sold as "exactly once" is at-least-once delivery plus a consumer whose
+effect is idempotent, which
+[Idempotency, Retries and Backpressure](/learn/sd-idempotency-and-backpressure/)
+builds with a client-supplied key — so the message carries that key and the
+consumer decides what a repeat means.
+
+A message that fails every time needs somewhere to go. In that same family the
+broker counts redeliveries, and after a threshold moves the message to a
+**dead-letter queue**: a separate queue that nothing drains automatically.
+Elsewhere the same queue is fed by an explicit rejection, a message TTL or an
+overflowing queue rather than by a redelivery count. That is the point —
+one poison message must not block the fleet, and it must not be discarded
+either.
+
+Keep the message small and let it name the work rather than carry it:
+
+```json
+{
+  "message_id": "01J8Z3K5Q7V2",
+  "type": "invoice.render",
+  "order_id": "8812",
+  "idempotency_key": "invoice-order-8812",
+  "attempt": 3,
+  "enqueued_at": "2026-08-26T09:14:02Z"
+}
+```
+
+A message may be delivered minutes after it was written, so a copy of the order
+inside it is a copy that can be stale. An identifier the consumer re-reads is
+current by construction.
+
+Now size the consumers, and take the backlog seriously. The 70% target below is
+the utilisation curve from
+[Latency and Throughput](/learn/sd-latency-and-throughput/), not an arbitrary
+headroom figure.
+
+```text
+Assumptions
+  peak arrivals        2,000 messages/s
+  daily average          600 messages/s
+  one message costs       50 ms of consumer time
+  one consumer thread   1 ÷ 0.05  =  20 messages/s
+
+Threads
+  2,000 ÷ 20                    =  100 threads to exactly break even
+  target ~70% utilisation       =  150 threads  (3,000 messages/s)
+  running at 100% is where queueing time climbs steeply
+
+A 10-minute downstream outage, consumers completing nothing
+  2,000 × 600 s                 =  1,200,000 messages waiting
+
+Draining, once arrivals fall back to the daily average
+  spare capacity  3,000 − 600   =  2,400 messages/s
+  1,200,000 ÷ 2,400             =  500 s, call it 8 minutes
+```
+
+The last two lines are the reason queue depth is a first-class metric: a
+ten-minute incident produced eight further minutes of lateness after it ended.
+Alarm on the **age of the oldest message** rather than the count — a hundred
+thousand messages that are two seconds old is a healthy system, and a hundred
+messages that are an hour old is a stuck one.
+
+<Callout variant="warning">
+  **A dead-letter queue is an operational commitment, not a setting.** Enabling
+  it moves failures out of sight; nothing rescues those messages unless somebody
+  looks. It needs a named owner, an alarm that fires when its depth leaves zero,
+  and a replay path that is safe to run — which it is only if consumers are
+  idempotent.
+</Callout>
+
+## Trade-offs
+
+**Use a queue when the caller does not need the result**, when a burst has to be
+absorbed by something cheaper than more capacity, or when a step is allowed to
+fail and be retried without the user noticing.
+
+**Do not use one when the caller needs the answer now.** A queue in a
+synchronous read path adds an enqueue, a poll and two failure modes to a call
+that could have been a function. Do not use one when order across all items is
+required: strict global ordering means one message in flight at a time, which
+is the throughput of a single consumer. And do not use one when the work is
+cheaper than the message — publishing, storing and redelivering costs more than
+a millisecond of CPU.
+
+The standing costs are three. You lose the synchronous error path: the producer
+gets an acknowledgement from the broker, not from the work, so the user needs a
+status they can poll and you need a way to answer "did it happen?". You lose the
+stack trace, because the failure is now in a different process at a different
+time. And at-least-once pushes idempotency into every consumer, permanently.
+
+## Common pitfalls
+
+- **Treating the queue as unlimited.** It is a buffer, and a buffer with no
+  bound converts overload into unbounded lateness. Tempting because a full queue
+  looks like a failure and an infinite one looks like resilience.
+- **A dead-letter queue nobody reads.** It is the tidiest way to lose data:
+  every dashboard stays green while the messages accumulate.
+- **Retrying a poison message forever.** A malformed payload will fail
+  identically on the thousandth attempt, and meanwhile it is consuming the
+  capacity that healthy messages need.
+- **Putting the whole entity in the message.** It looks efficient — no extra
+  read — and it means a late delivery applies yesterday's values.
+- **Assuming order.** Competing consumers, redelivery and retries all reorder
+  work; anything that depends on sequence needs a key that keeps it together, or
+  a design that does not care.
+
+## Interview notes
+
+Whenever you draw a queue, say three things in the same breath: the delivery
+semantics, how the consumer is made idempotent, and what the user sees while the
+work is pending. "The upload enqueues a transcode job, the worker is idempotent
+on the asset id so a redelivery is a no-op, and the client polls a status
+endpoint" is a design. "We put it on a queue" is a box.
+
+Then say what happens when the consumers cannot keep up, because that is the
+question that separates people who have run one from people who have drawn one.
+Queue depth, oldest-message age, a dead-letter queue with an owner, and the
+drain arithmetic above are the whole answer.
+
+## Key takeaways
+
+- A queue **deletes a message on acknowledgement**, so it distributes work
+  among competing consumers and cannot replay it to anybody else.
+- Delivery is **at-most-once or at-least-once**; "exactly once" end to end is
+  at-least-once plus an idempotent consumer.
+- Where the broker uses one, the visibility timeout is the whole mechanism: **a
+  lease that expires mid-job produces a duplicate**, so leases must exceed the
+  slowest realistic run.
+- **Queue depth is a backlog with a drain time** — alarm on the age of the
+  oldest message, and size consumers below full utilisation.
+- A **dead-letter queue needs an owner, an alarm and a replay path**, or it is
+  a place data goes to be forgotten.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A consumer's visibility timeout is 30 seconds, and about 1% of jobs legitimately take 90 seconds because of a slow third-party call. What happens to those jobs, and what are the fixes?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Each of those jobs is redelivered while it is still running: at 30 seconds the
+  lease expires, a second consumer starts the same work, and at 60 seconds a
+  third joins. The slowest 1% therefore run three times and the third-party call
+  happens three times — with the first consumer's acknowledgement at 90 seconds
+  deleting a message two others are still working on. There are three real
+  fixes. Raise the timeout above the slowest realistic run, which delays
+  legitimate redelivery after a crash by the same amount. Have the consumer
+  extend its lease with a heartbeat while it works, which keeps fast redelivery
+  for genuine failures. Or split the job so no single unit takes 90 seconds.
+  Whichever you choose, the consumer still has to be idempotent on the
+  third-party call, because a redelivery is always possible.
+</PracticeCheck>
+
+**2. A colleague proposes: "we get exactly-once processing by acknowledging only after the work has committed." What does that actually give you?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It gives you at-least-once, which is the right choice — but not exactly-once.
+  Acknowledging after the commit removes one failure mode: work can no longer be
+  lost by a crash between receiving and doing. It cannot remove the other one,
+  because the commit and the acknowledgement are two separate steps in two
+  separate systems. A crash after the commit and before the acknowledgement
+  leaves work that is done and a message that will be redelivered, and no
+  reordering of those two steps helps: put the acknowledgement first and you
+  lose work instead. The property that makes the duplicate harmless is on the
+  consumer's side — an idempotency key stored in the same transaction as the
+  effect, so the second delivery finds the work already recorded and returns
+  without repeating it.
+</PracticeCheck>
+
+**3. After a bad deploy, a dead-letter queue holds 40,000 messages. What has to happen before any of them is replayed?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  First, the bug has to be fixed and deployed, or a replay only refills the
+  dead-letter queue. Second, somebody has to look at a sample and confirm the
+  40,000 have one cause: a dead-letter queue collects everything that exceeded
+  its retry limit, so a bad deploy's messages may be sitting alongside genuinely
+  malformed payloads that will never succeed, and those need discarding rather
+  than replaying. Third, check that the messages are still meaningful — if they
+  carry entity identifiers the consumer re-reads, they are current; if they
+  carry copies of state, some of that state has since changed and replaying
+  applies stale values. Finally, replay at a controlled rate into the live
+  queue. Forty thousand messages injected at once is a self-inflicted burst on
+  top of normal traffic, and it is the second outage that usually gets
+  remembered.
+</PracticeCheck>

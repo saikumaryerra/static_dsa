@@ -1,0 +1,241 @@
+---
+title: 'Three Platforms Side by Side'
+slug: 'sd-comparison-table'
+course: 'system-design'
+track: 'sd-comparison'
+order: 43
+summary: 'Eleven concerns across a streaming, a music and a video-sharing platform, read down each column as one shape and across each row as one spectrum — with the audiences normalised so the comparison is about design rather than about assumptions.'
+difficulty: 'intermediate'
+prerequisites: ['sd-netflix-requirements', 'sd-spotify-requirements']
+estimatedMinutes: 9
+tags: ['system-design', 'comparison', 'architecture', 'trade-offs']
+explainPrompt: 'Why is a comparison table a set of axes rather than a scoreboard?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import MediaDeliveryComparison from '../../components/diagrams/MediaDeliveryComparison.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Read the table down a column, as one platform's shape, and across a row, as one concern's spectrum.
+- Separate the rows a product decides from the rows an architecture derives.
+- Compare three case studies whose assumed audiences differ, without comparing the assumptions by mistake.
+- Say when the table orients a design, and when it misleads one.
+
+## Intuition
+
+Three products, one button. Streaming, music and video sharing all end in "press
+play and media arrives", and below that button they share almost nothing:
+different ingest, different storage, different caches, different consistency
+arguments.
+
+**The table is a set of axes, not a scoreboard.** Each cell is a position on a
+spectrum, and a position only means something next to the other two: "tens of
+thousands of titles" is a small catalogue because there is a billion-item column
+beside it.
+
+**A column is a shape; a row is a spectrum.** Down a column is one product's
+coherent set of pressures, which is what an architecture answers. Across a row is
+the range one concern can take, which is what lets you place a fourth product you
+have never designed.
+
+One caution before the numbers. The three case studies assumed different
+audiences — 100,000,000 daily profiles, 50,000,000 daily listeners and
+500,000,000 daily viewers — so their totals differ by audience as much as by
+design. Every absolute figure below is divided by its own audience first.
+
+## How it works
+
+Eleven concerns, three columns. Each cell is either a stated requirement from a
+case study or a generally accepted industry shape, never a claim about a
+specific company's internals.
+
+| Concern               | Streaming (Netflix-like)                                                    | Music (Spotify-like)                                             | Video sharing (YouTube-like)                                  |
+| --------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------- |
+| Primary media         | Long-form video, few titles per session                                     | Short audio tracks, many per session                             | Video of every length, user-generated                         |
+| Catalogue size        | Tens of thousands of titles                                                 | Order of 100 million tracks, rich metadata and rights            | Order of a billion videos; the long tail dominates            |
+| Ingest model          | Curated, low-volume, high-touch studio delivery                             | Label and distributor delivery, structured metadata and licences | Continuous user upload: resumable, validated, moderated       |
+| Processing            | Encode once per title into many renditions                                  | Per-track audio transcode, cheap and batchable                   | Transcoding at extreme scale, where publish latency matters   |
+| Delivery              | CDN (content delivery network) and adaptive bitrate; predictable, cacheable | CDN and small files; prefetch and offline                        | CDN and adaptive bitrate; hot-video spikes over a long tail   |
+| Write traffic         | Low: history and ratings                                                    | Medium: playlists, likes, listening events                       | Very high: comments, likes, views, uploads                    |
+| Consistency hot spots | Playback position across devices                                            | Playlist edits, collaborative playlists                          | View and like counters, comment ordering                      |
+| Recommendations       | Ranking over a small catalogue                                              | Personalisation plus audio and collaborative similarity          | Discovery over billions of items, where freshness is critical |
+| Trust and moderation  | Minimal, because the catalogue is curated                                   | Low; rights enforcement                                          | Central: abuse, spam, copyright matching                      |
+| Real-time needs       | Low                                                                         | Medium: device sync                                              | High: live and notifications                                  |
+| Monetisation shape    | Subscription                                                                | Subscription plus an ad-supported tier                           | Ads, subscriptions, creator revenue share                     |
+
+**Read down the streaming column** and one sentence covers it: a small catalogue
+behind an enormous data plane. Tens of thousands of curated titles are a couple
+of petabytes and a few hundred megabytes of metadata, while delivery reaches tens
+of terabits per second. The rest follows — encode each title slowly and once,
+because the cost is amortised over millions of views; preposition it, because
+next week's popularity is knowable; keep the one consistency argument, the
+playback position, per profile rather than global.
+
+**Read down the music column** and the sentence inverts: an enormous catalogue in
+front of a modest data plane. A hundred million tracks are around a petabyte of
+audio and 200 GB of metadata, so the catalogue is cacheable whole — and a
+three-minute item restarts the work of playback twenty times a day per listener.
+Request rate, not bandwidth, is the shaping number, which is why this column's
+hard problems are authorisation rate, event volume and concurrent playlist
+edits.
+
+**Read down the [video-sharing column](/learn/sd-youtube-requirements/)** and
+both sides are large and, more importantly, _unbounded_. Uploads arrive at about
+thirty a second and never stop, so the catalogue grows daily, popularity is
+heavy-tailed, and moderation sits inside the publish path. Publish latency
+competes with encode quality here, the reverse of the streaming trade.
+
+<MediaDeliveryComparison />
+
+**Now read across the rows**, and notice they are not peers. Six are **given** —
+the product decides them and engineering inherits them: primary media, catalogue
+size, ingest model, trust and moderation, real-time needs, monetisation shape.
+Five are **derived** — what an architecture computes from the first six:
+processing, delivery, write traffic, consistency hot spots, recommendations.
+Change a given and the derived cells move with it, which is the next lesson.
+
+The shapes become concrete once the audience is divided out, using each case
+study's own assumptions and the conventions from
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/).
+
+```text
+Egress per daily user
+  Streaming     2 h at 4 Mbps      = 28,800 Mbit/day / 100,000 s = 0.3 Mbps
+  Music         1 h at 128 kbps    =    460 Mbit/day / 100,000 s = 0.005 Mbps
+  Video sharing 40 min at 3 Mbps   =  7,200 Mbit/day / 100,000 s = 0.07 Mbps
+
+Session starts per daily user
+  Streaming     4 playback starts     Music 20 plays     Video sharing 8 videos
+
+Totals from the case-study estimates, and the audience each assumed
+  Streaming      30 Tbps average  over 100,000,000 daily profiles
+  Music         230 Gbps average  over  50,000,000 daily listeners
+  Video sharing  36 Tbps average  over 500,000,000 daily viewers
+```
+
+A streaming viewer moves about sixty times a listener's bytes and starts a fifth
+as many sessions, and the video-sharing viewer sits between them on both counts.
+That middle position matters: item shape is not what distinguishes the third
+column — ingest, trust and unbounded growth are.
+
+<Callout variant="note">
+  **Two catalogue figures that look contradictory.** Tens of thousands of
+  curated titles come to roughly 2 PB of stored renditions; a hundred million
+  music tracks come to roughly 1 PB. Rows and bytes are different quantities,
+  and the row is about rows. Only the video-sharing column is large in both: a
+  billion videos, roughly an exabyte, growing by about 3 PB a day.
+</Callout>
+
+**When the table earns its place.** Use it to orient on an unfamiliar product, to
+find which concern binds before drawing anything, and to catch a design that has
+borrowed a mechanism from the wrong column. Do not use it as a ranking, as a
+substitute for a requirements sheet and an estimate, or as a finished answer for
+a product sitting between columns. Its cells are qualitative, and a decision
+needs the number underneath — which is what
+[Reasoning About Trade-offs](/learn/sd-trade-off-reasoning/) asks for.
+
+## Trade-offs
+
+**Eleven rows is a compression.** "Delivery: CDN and adaptive bitrate" is a whole
+lesson in five words; two columns sharing that cell still differ in segment size,
+cache residency and origin fill rate. The table indexes the detail rather than
+replacing it.
+
+**Three points do not define a space.** The axes are real; the sample is tiny. A
+live-only platform has almost no catalogue, and a collaborative document tool has
+no delivery row at all.
+
+**It is a snapshot.** Cells move as products do, so an architecture argued from
+one inherits a review date.
+
+## Common pitfalls
+
+- **Reading the table as a ranking.** "Which is hardest" is not a question it
+  answers: the columns are demanding on different resources — bandwidth, request
+  rate, unbounded growth and trust.
+- **Copying a column instead of an axis.** Prepositioning every title is correct
+  with predictable popularity and ruinous over a long tail. The reasoning
+  transfers; the mechanism does not.
+- **Comparing totals across different assumed audiences.** Raw egress across the
+  three case studies compares 100, 50 and 500 million daily users. Divide
+  first.
+- **Reading "very high write traffic" as a volume statement.** The difficulty in
+  the counters cell is contention on a few hot objects, which arrives long before
+  the aggregate rate is interesting.
+
+## Interview notes
+
+The table answers "how would your design change if…" without restarting: name the
+axis the question moved, then the derived cells that follow — "if users upload, the catalogue becomes unbounded and its popularity unpredictable, so
+prepositioning stops working, storage needs tiering, and moderation enters the
+publish path."
+
+If you get one question about an unfamiliar product, ask about the ingest model.
+It constrains the most derived rows: catalogue growth, popularity predictability,
+whether moderation is on the publish path, and the encode budget per item.
+
+## Key takeaways
+
+- The table is **eleven axes, not a scoreboard**: each cell is a position
+  relative to the other two columns.
+- **Six rows are given by the product, five derived by the architecture**, so
+  changing a given moves several cells at once.
+- **Streaming is a small catalogue behind a huge data plane, music a huge
+  catalogue in front of a modest one**; video sharing is unbounded on both sides.
+- Divide by audience first: **0.3, 0.005 and 0.07 Mbps per daily user** is the
+  honest comparison, not 30 Tbps against 230 Gbps.
+- Catalogue **rows and catalogue bytes are different quantities**, and the largest
+  of each sits in a different column.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A colleague reads the table and concludes that the video-sharing platform is the most demanding of the three, since it has the largest catalogue and the highest write traffic. What is wrong with the conclusion, given that both of those cells are correct?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Both premises are right, and the conclusion still does not follow, because
+  "most demanding" is not a quantity the table measures. The rows are not
+  commensurable: catalogue size is a row count and write traffic is a rate, and
+  neither converts into egress, where two of the three columns run to tens of
+  terabits per second. Each column is demanding on a different resource, so a
+  comparison has to name one — on unbounded growth and trust the video-sharing
+  column is hardest, on delivered bytes per user the streaming column is at 0.3
+  Mbps against 0.07, and on request work per delivered byte the music column is.
+  The two cited cells even point at different problems: a billion rows is a
+  metadata and recall problem, while high write traffic is a contention problem.
+</PracticeCheck>
+
+**2. The ingest model row and the delivery row are not independent. Trace the link in both directions.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Curated ingest means a small number of items arrive on a schedule someone
+  controls, so popularity is forecastable: a title can be encoded carefully once
+  and pushed into caches before anyone asks for it, and the cache hit ratio is
+  high because the whole catalogue fits near viewers. Continuous user upload
+  inverts every step: items arrive unpredictably, most are watched almost never,
+  a few become hot without warning, and no cache can hold the tail — so delivery
+  becomes pull-through caching with tiered origin storage, and the design
+  question moves to how fast a suddenly hot video fills the caches. Backwards,
+  the same link is a constraint: a delivery design that depends on
+  prepositioning is a bet on the ingest model staying curated, and it fails the
+  day the product accepts uploads.
+</PracticeCheck>
+
+**3. A new product has continuous user upload, but a catalogue of only tens of thousands of items, and nearly every user watches nearly all of them. Which cells of the video-sharing column stop applying, and which stay?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The trust cells stay, because they follow from who produces the content:
+  uploads mean abuse, spam and copyright matching in the publish path, and
+  publish latency still competes with encode quality. The long-tail cells stop
+  applying. With a small catalogue that everyone watches, popularity is
+  concentrated rather than heavy-tailed, so the cache hit ratio is high,
+  prepositioning becomes viable again, and tiered cold storage buys little.
+  Recommendations lose their candidate-generation stage, because ranking the
+  whole catalogue per user is affordable at tens of thousands of items. The
+  counters cell gets worse rather than better: everyone converging on the same
+  few objects is exactly the hot-key contention problem, concentrated.
+</PracticeCheck>

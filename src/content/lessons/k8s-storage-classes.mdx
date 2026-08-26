@@ -1,0 +1,277 @@
+---
+title: 'StorageClasses and Access Modes'
+slug: 'k8s-storage-classes'
+course: 'kubernetes'
+track: 'k8s-storage'
+order: 23
+summary: 'A StorageClass turns a claim into a real disk without anyone pre-creating one, and an access mode is a property the backing storage either has or does not — ReadWriteMany least of all.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-persistent-volumes']
+estimatedMinutes: 9
+tags: ['kubernetes', 'storage', 'storageclass', 'csi', 'access-modes']
+explainPrompt: 'Why can a claim ask for ReadWriteMany, be accepted by the API server, and still never bind?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Explain what a StorageClass names, and what happens when a claim asks for one.
+- State what each of the four access modes actually promises.
+- Say why `WaitForFirstConsumer` exists, and what `Immediate` costs in a
+  multi-zone cluster.
+- Describe what CSI is and why it changes who ships your storage code.
+
+## Intuition
+
+In the previous lesson somebody had to create the PersistentVolume before a claim
+could bind to it. On almost every real cluster nobody does, because the cluster
+knows how to make one.
+
+**A StorageClass is a menu item, not a disk.** It names a provisioner and a set
+of parameters — SSD-backed, encrypted, in this availability zone — and asking for
+that class means "make me one of these, at my size", not "hand me one from the
+shelf". The provisioner calls the storage system, the storage system creates
+something real, and a PersistentVolume object appears already bound to your claim.
+
+The consequence is that the PersistentVolume becomes an object you _read_ rather
+than write. You write a claim, name a class, and the volume is an implementation
+detail you inspect when something is wrong.
+
+## How it works
+
+A StorageClass is a small, cluster-scoped object:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: 'true'
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+```
+
+- **`provisioner`** is the name of the driver that does the work.
+- **`parameters`** are passed straight through to that driver. They are the
+  driver's vocabulary, not Kubernetes' — nothing in the API knows what `gp3`
+  means, and a typo here surfaces as a provisioning error on the claim rather
+  than as a rejected StorageClass.
+- **`reclaimPolicy`** is stamped onto every volume this class creates. It
+  defaults to `Delete`, which is the default that deletes data.
+- **`volumeBindingMode`** decides _when_ provisioning happens.
+- **`allowVolumeExpansion`** decides whether editing a bound claim's requested
+  size is permitted at all.
+
+A claim picks one by name, and can also ask for the exact sharing guarantee it
+needs:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads
+spec:
+  storageClassName: fast
+  accessModes:
+    - ReadWriteOncePod
+  resources:
+    requests:
+      storage: 20Gi
+```
+
+One class in a cluster may carry the annotation
+`storageclass.kubernetes.io/is-default-class: "true"`, and a claim that omits
+`storageClassName` gets it. A claim that sets `storageClassName: ""` is saying
+something different and deliberate: no dynamic provisioning at all, bind only to
+a pre-created volume that also has no class. Omitting the field and setting it to
+the empty string are opposite instructions.
+
+```bash
+kubectl get storageclass
+kubectl get csidrivers
+kubectl describe pvc uploads
+```
+
+**Binding mode is about placement.** `Immediate` provisions the volume as soon as
+the claim exists. In a cluster spread over three availability zones that means
+the storage system picks a zone before anything knows where the Pod will run —
+and since a zonal disk can only be attached in its own zone, the Pod is then
+pinned there. If that zone is out of capacity, the Pod stays `Pending` and no
+amount of spare room elsewhere helps. `WaitForFirstConsumer` inverts the order:
+the claim waits, the scheduler places the Pod using every other constraint it
+has, and only then is the volume created where the Pod already is.
+
+**Growing a volume** means editing the claim, not the class:
+
+```bash
+kubectl patch pvc uploads --type=merge \
+  -p '{"spec":{"resources":{"requests":{"storage":"40Gi"}}}}'
+```
+
+That requires `allowVolumeExpansion: true` on the class. The driver expands the
+device and then the filesystem, and some drivers complete the filesystem step
+only when the Pod next starts. Shrinking is not supported by any of this —
+plan the size you can afford to be wrong about upwards.
+
+A StorageClass is also largely immutable: the provisioner and its parameters
+cannot be edited after creation. Changing what "fast" means is a new class plus a
+migration of the data that is already on the old one.
+
+### CSI, in one paragraph
+
+The **Container Storage Interface** is a specification for plugging a storage
+system into an orchestrator without its code living inside that orchestrator. A
+CSI driver ships as Pods in your own cluster: a controller that creates, deletes,
+snapshots and attaches volumes by calling the vendor's API, and a DaemonSet on
+every node that mounts them into Pods. It registers itself as a `CSIDriver`
+object, and the driver's name is exactly the string you put in a StorageClass's
+`provisioner`. This is why storage support ships on its own schedule rather than
+with Kubernetes releases, why the old built-in cloud volume plugins were moved
+out to CSI drivers, and why `kubectl get csidrivers` is a good first question on
+a cluster whose storage you do not know.
+
+### Access modes are a property of the volume, not a wish
+
+A claim's `accessModes` is a filter, not a request the system tries to honour.
+There are four:
+
+| Mode               | Short | What it promises                              |
+| ------------------ | ----- | --------------------------------------------- |
+| `ReadWriteOnce`    | RWO   | Mounted read-write by one **node** at a time  |
+| `ReadOnlyMany`     | ROX   | Mounted read-only by many nodes at once       |
+| `ReadWriteMany`    | RWX   | Mounted read-write by many nodes at once      |
+| `ReadWriteOncePod` | RWOP  | Mounted by exactly **one Pod** in the cluster |
+
+The one that is routinely misread is the first. `ReadWriteOnce` is per _node_.
+Two Pods scheduled onto the same node can both mount the same RWO volume
+read-write, and they will happily write over each other — the mode never promised
+otherwise. It is a statement about how many machines can attach the device, not a
+lock on the data. `ReadWriteOncePod` is the mode that means one writer, and it is
+the only one Kubernetes itself enforces by refusing to start a second Pod.
+
+`ReadWriteMany` is the one that needs a backing store that can actually do it. A
+block device — a cloud disk, an iSCSI LUN, an NVMe drive — attaches to one
+machine, and no field in a manifest changes that. RWX comes from file-based or
+distributed systems: NFS, CephFS, a managed cloud file service. Ask a block CSI
+driver for RWX and the claim is accepted by the API server and then sits
+`Pending` forever, with the driver's refusal recorded in its events. There is no
+retry that turns a block device into a shared one.
+
+<Callout variant="warning">
+  You cannot test this locally. kind and k3s both default to Rancher's
+  local-path-provisioner — an add-on, not part of Kubernetes — which hands out a
+  directory on one node. It supports `ReadWriteOnce` and `ReadWriteOncePod`, and
+  **refuses `ReadWriteMany` and `ReadOnlyMany`** — `NodePath only supports
+  ReadWriteOnce and ReadWriteOncePod (1.22+) access modes` — because a
+  node-local path cannot be shared, so it does not pretend. Exclusivity you can
+  test locally; sharing you cannot. A design that depends on `ReadWriteMany` has
+  to be validated on a cluster with real shared storage.
+</Callout>
+
+And RWX is not the end of the problem even where it works. A shared filesystem
+lets several Pods open the same files; it does not make your application safe to
+run in several copies. Two processes appending to one SQLite file over NFS is a
+corruption, not a scale-out.
+
+## Trade-offs
+
+**`WaitForFirstConsumer` against `Immediate`.** Waiting gets placement right in
+any cluster with zones or node-local storage, and it costs you a claim that sits
+`Pending` until a Pod consumes it — which reads as a failure to anyone who does
+not know why. `Immediate` binds early and quietly narrows every future scheduling
+decision for that workload.
+
+**How many classes to offer.** One class is straightforward to reason about and puts every
+workload on the same disk. Several let a database ask for fast storage and a log
+archive ask for cheap, at the cost of names people have to learn. Name them for
+what they promise — `fast`, `standard`, `archive` — not for the driver behind
+them, because the driver is the part you may want to replace.
+
+## Common pitfalls
+
+- **Reading `ReadWriteOnce` as "one Pod".** Two Pods on one node share it
+  read-write. If exclusivity is a correctness requirement, say `ReadWriteOncePod`.
+- **Asking for `ReadWriteMany` on block storage.** The claim is accepted and
+  never binds. The error is on the claim's events, not in the apply output.
+- **No default StorageClass.** Every claim that omits the field waits forever,
+  and the workload's symptom is a `Pending` Pod several objects away from the
+  cause.
+- **Confusing an absent `storageClassName` with `""`.** Absent means "use the
+  default"; empty means "never provision anything for me".
+- **Editing a StorageClass and expecting existing volumes to change.** The
+  parameters were applied when each volume was created. Existing data has to be
+  migrated to a new class.
+- **Sizing optimistically because you can expand later.** Expansion needs the
+  class to allow it and the driver to support it, and it only goes up.
+
+## Key takeaways
+
+- A StorageClass names a **provisioner plus driver-specific parameters**; the
+  claim names the class, and the PersistentVolume is created for you.
+- `reclaimPolicy` on the class **defaults to `Delete`**, so the dynamic path is
+  the destructive one unless you say otherwise.
+- `WaitForFirstConsumer` provisions **after** scheduling, which is what keeps a
+  zonal volume in the same zone as its Pod.
+- **`ReadWriteOnce` is per node.** `ReadWriteOncePod` is the mode that means one
+  Pod, and the only one Kubernetes enforces.
+- **`ReadWriteMany` requires shared storage.** Most block storage cannot do it,
+  and the local-path provisioner on kind and k3s refuses it outright — though it
+  serves `ReadWriteOnce` and `ReadWriteOncePod` happily.
+- CSI is why your storage driver is a set of Pods in your cluster, versioned by
+  its vendor rather than by Kubernetes.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Two Pods of a Deployment mount the same `ReadWriteOnce` claim. One reports corrupted data; the other is fine. Both Pods are `Running`. How is that possible, and what would have prevented it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Both Pods must be on the same node. `ReadWriteOnce` restricts the volume to
+  one node at a time, not to one Pod, so once the device is attached to that
+  node every Pod there can mount it read-write — and two processes writing the
+  same files without coordinating is the corruption. Had they been scheduled
+  onto different nodes the second would have been stuck instead, unable to
+  attach. `ReadWriteOncePod` on the claim would have prevented both outcomes:
+  Kubernetes refuses to start a second Pod against an RWOP volume, so the
+  failure would have been a visibly `Pending` Pod rather than silently damaged
+  data. The deeper fix is that replicas sharing one disk usually means the
+  workload wanted per-replica storage, which is the StatefulSet pattern.
+</PracticeCheck>
+
+**2. A claim asking for `ReadWriteMany` is `Pending` on a cloud cluster with a working default StorageClass, and on a local kind cluster. Are these the same failure?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  They are the same cause with two presentations. In both cases the provisioner
+  backing the class cannot produce a volume that several nodes mount read-write:
+  the cloud class is backed by block storage that attaches to exactly one
+  machine, and local-path-provisioner is a directory on one node, which refuses
+  `ReadWriteMany` and `ReadOnlyMany` outright while serving `ReadWriteOnce` and
+  `ReadWriteOncePod`. Neither is a transient error and neither will resolve by
+  waiting, because access modes describe what the backing store can do rather
+  than what you would like it to do. The fix is a class backed by shared storage
+  — NFS, CephFS or a managed file service — and on the local cluster there is
+  none, so this design cannot be tested there at all.
+</PracticeCheck>
+
+**3. A cluster spans three zones. Its default StorageClass uses `volumeBindingMode: Immediate`, and a new Pod is stuck `Pending` with an insufficient-capacity message even though two zones are almost empty. Explain the sequence.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  With `Immediate`, the volume was provisioned the moment the claim was created
+  — before any Pod existed and with nothing to inform the choice, so the driver
+  picked a zone on its own. A zonal disk can only be attached by nodes in its
+  own zone, so that choice became a hard constraint on the Pod: the scheduler is
+  not free to use the two empty zones, because the volume is not there. The
+  message is about capacity in the one zone it is allowed to consider. Switching
+  the class to `WaitForFirstConsumer` reverses the order — the scheduler places
+  the Pod using CPU, memory, affinity and spread, and the volume is then created
+  in the zone the Pod actually landed in. Existing volumes keep the zone they
+  already have; only new ones benefit.
+</PracticeCheck>

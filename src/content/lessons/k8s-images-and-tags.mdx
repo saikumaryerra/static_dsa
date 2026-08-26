@@ -1,0 +1,225 @@
+---
+title: 'Immutable Images and Tagging'
+slug: 'k8s-images-and-tags'
+course: 'kubernetes'
+track: 'k8s-delivery'
+order: 48
+summary: 'A Deployment compares Pod templates, not registries, so a tag that can move turns a release into a change nothing recorded and a rollback into a no-op that reports success.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments', 'k8s-image-security']
+estimatedMinutes: 9
+tags: ['kubernetes', 'delivery', 'images', 'ci-cd']
+explainPrompt: 'Why can a rollback to an older manifest still start the newer code?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a tag guarantees, what it does not, and which failures follow from
+  the gap.
+- Choose a tagging scheme that makes every release visible and every rollback
+  exact.
+- Wire the last steps of a build pipeline so it fails when the release fails.
+
+## Intuition
+
+From the cluster's side, a release is a change to a Pod template. The Deployment
+controller compares the template it stores with the one you applied; if they
+differ it creates a new ReplicaSet and rolls, and if they do not, nothing
+happens at all. That comparison is a comparison of YAML. It knows nothing about
+registries, builds, or the bytes behind a reference.
+
+**A tag is a claim about identity; only immutability makes it a claim about
+content.** `web:1.4.2` names something. Whether it names the same thing tomorrow
+is a property of your registry and your habits, not of Kubernetes. When a tag
+can move, the manifest and the running code stop having a relationship, and the
+two questions a delivery system exists to answer both lose their answer: what is
+running, and what was running an hour ago?
+
+Rollback is where that stops being theoretical. A Deployment's history is a
+stack of Pod templates, so `kubectl rollout undo` restores a template and
+nothing else — [Rolling Updates and Rollback](/learn/k8s-rolling-updates/)
+covers the mechanism. If every template in the stack says `web:latest`, every
+entry in the history means the same thing, and undo restores a string that
+resolves to the build you are trying to escape. The rollout completes, the
+tooling reports success, and the behaviour does not change.
+
+## How it works
+
+A tagging scheme is a convention plus one enforcement point. The convention is
+that a build produces one reference that will never mean anything else; the
+enforcement point is the registry, because nothing in Kubernetes can stop a tag
+from moving.
+
+Give each build three tags pointing at the same content, and use them for
+different jobs:
+
+```text
+ghcr.io/shop/web:1.4.2        release tag  - immutable, the only one in a manifest
+ghcr.io/shop/web:git-9f3c2ab  commit tag   - traceability back to the source
+ghcr.io/shop/web:1.4          moving tag   - convenience for humans, never applied
+```
+
+The release tag is the one the Deployment carries. The commit tag is what turns
+"which change is this?" into a lookup rather than an investigation, and it is
+worth having even when the release tag is a version number. The moving tag is
+for a person running the image locally; the moment it appears in a manifest it
+has become the problem this lesson is about.
+
+**The pull policy follows the tag, which is a second reason `:latest` behaves
+unlike everything else.** When an image reference carries no tag, or carries
+`:latest`, `imagePullPolicy` defaults to `Always`; for any other tag it defaults
+to `IfNotPresent`. So a `:latest` Pod contacts the registry on every start —
+which means a node that cannot reach the registry cannot start a Pod whose image
+it already holds — while an immutably tagged Pod uses what the node has, which
+is correct precisely because the reference cannot have changed meaning.
+
+The last two steps of a build pipeline are where the convention becomes a
+release:
+
+```bash
+IMAGE=ghcr.io/shop/web
+TAG=1.4.2
+docker build -t "$IMAGE:$TAG" -t "$IMAGE:git-$(git rev-parse --short HEAD)" .
+docker push --all-tags "$IMAGE"
+kubectl set image deployment/web web="$IMAGE:$TAG" -n shop
+kubectl rollout status deployment/web -n shop --timeout=180s
+```
+
+Two things about the last two lines. `kubectl rollout status` is what makes the
+pipeline honest: it blocks until the rollout finishes and exits non-zero if it
+does not, so a build that ships a broken image fails the job instead of turning
+green while the cluster refuses the change. And `kubectl set image` edits the
+live object, which means the repository your manifests live in now disagrees
+with the cluster — the next apply from that repository puts the old tag back.
+Changing the tag _in the repository_ and letting something apply from there is
+the version of this that survives contact with a second engineer;
+[GitOps and Environment Management](/learn/k8s-gitops/) is that version.
+
+<Callout variant="warning">
+  Most registries can be configured to reject a push to a tag that already
+  exists. Turn it on. Until you do, "we never reuse tags" is a habit rather than
+  a guarantee, and it fails silently the first time someone re-runs a build to
+  fix a typo in the release notes.
+</Callout>
+
+The exact reference is the digest — `web@sha256:...` — which cannot move at all
+because the registry derives it from the content.
+[Image Security and the Supply Chain](/learn/k8s-image-security/) covers pinning
+by digest and how to read back what a node actually pulled. Immutable tags and
+digest pinning are not alternatives: the tag is the human-readable name of a
+release, and the digest is the proof that the name still points where it did.
+
+## Trade-offs
+
+**What immutable tags cost.** Every build becomes a distinct artifact, so the
+registry grows and needs a retention policy — one that never deletes an image a
+running or rollback-reachable Deployment still references, which is a real rule
+to get right rather than a scheduled cleanup. The manifest also changes on every
+release, so something has to edit it: a bot, a pipeline step, or a person. That
+moving part did not exist when the tag was `:latest`, and it is the price of
+having a record.
+
+**When a moving tag is the right answer.** As the _input_ to a build, it is
+correct: a Dockerfile that starts `FROM node:22` is asking to be rebuilt on the
+current patch release, and the build resolves it once and records what it got. A
+local cluster is another honest case — on kind or minikube you rebuild and
+reload constantly, history is worth nothing, and a fixed tag against a
+preloaded image is the normal setup, whether you rely on the `IfNotPresent`
+default an explicit tag already gets you or pin `imagePullPolicy: Never`
+outright ([Local Clusters](/learn/k8s-local-cluster/) walks through the load
+step). A development namespace nobody rolls back is the same argument.
+
+The line is not "tags are bad". It is that a Pod template is a record, and a
+record whose meaning can change later is not one.
+
+## Common pitfalls
+
+- **Re-pushing a release tag to fix a small mistake.** It is the most tempting
+  version of this error because the change is trivial and re-cutting a version
+  feels wasteful. Afterwards the tag means two different things, and which one a
+  node runs depends on whether it had already pulled.
+- **Deleting old tags to reclaim registry storage.** The images the rollback
+  stack points at are exactly the old ones. Retention has to exclude anything
+  still referenced.
+- **`kubectl set image` as the release step, with the repository never
+  updated.** The cluster is correct and the repository is not; the next apply
+  from the repository is an unannounced rollback.
+- **Tagging with a branch name.** `web:main` is `:latest` with a different
+  spelling — a stable string in front of moving content.
+- **A pipeline that ends at the apply.** The API accepting a manifest says
+  nothing about whether the Pods started. Without `rollout status`, a broken
+  image is a green build.
+
+## Key takeaways
+
+- **Kubernetes rolls on a template change, not a registry change.** Two applies
+  of the same tag string are the same desired state, whatever the registry now
+  holds.
+- **Rollback restores a reference, not bytes.** With a mutable tag, undo
+  completes successfully and changes nothing.
+- **The default `imagePullPolicy` is derived from the tag**: `Always` for
+  `:latest` or an untagged reference, `IfNotPresent` otherwise.
+- **Immutability is enforced by the registry**, not by Kubernetes — configure
+  the registry to refuse a push to an existing tag.
+- **A moving tag belongs on the input side of a build**, never inside a Pod
+  template you may need to read back later.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Two Pods of one Deployment, both showing `image: web:2.0`, behave differently: one serves the new feature and one does not. Your registry allows a tag to be overwritten. Explain how the cluster reached this state, and how you would confirm it.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the tag is not `:latest`, `imagePullPolicy` defaults to
+  `IfNotPresent`, so a node that already holds `web:2.0` never asks the registry
+  again. The first Pod was scheduled on a node that pulled before the tag was
+  overwritten and has kept that copy; the second landed on a node with no cached
+  copy and pulled after, getting different content under the same name. Nothing
+  in `kubectl get pods` shows the difference, because both Pod specs contain the
+  identical string. Confirm it by reading what each node actually resolved:
+  `kubectl get pods -l app=web -o jsonpath='{.items[*].status.containerStatuses[*].imageID}'`
+  prints one digest per container, and two distinct digests under one tag is the
+  whole diagnosis. The durable fix is a registry that refuses to overwrite a tag,
+  plus a new tag for every build.
+</PracticeCheck>
+
+**2. Your release process is: push new bytes to `web:latest`, then `kubectl rollout restart deployment/web`. A release is bad, so you run `kubectl rollout undo`. The rollout completes, the previous ReplicaSet scales back up, and users still see the bad behaviour. Trace what happened.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  `rollout restart` works by stamping a timestamp annotation into the Pod
+  template, so the only difference between the two revisions in the history is
+  that annotation — both say `image: web:latest`. Undo restores the earlier
+  template, and because a ReplicaSet for that template still exists scaled to
+  zero, the Deployment scales it back up rather than creating a new one. Either
+  way the Pods are new, and new Pods pull: with `:latest` the default
+  `imagePullPolicy` is `Always`, so they contact the registry and get the
+  current content, which is still the bad build. The cluster never stored
+  anything that identified the previous bytes, so there was nothing for undo to
+  go back to — a revision is a template, and both templates name the same
+  mutable string. Everything reported success because everything succeeded: the
+  system did exactly what the template told it to. The fix is a distinct tag per
+  build, which makes the two revisions genuinely different and makes undo mean
+  something.
+</PracticeCheck>
+
+**3. A colleague argues that moving tags are never acceptable. Where is the line, and what makes a moving tag safe on one side of it?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The line is whether the reference is an input to a build or the content of a
+  Pod template. On the input side, a moving tag is how you ask for something
+  current: `FROM node:22` means "the newest 22.x when this builds", the build
+  resolves it once, and the result is frozen into an image with its own
+  immutable tag. Nothing later has to re-resolve it, so nothing can change
+  underneath. On the template side the reference is a record that Kubernetes
+  keeps and compares, and a record whose meaning can change is worse than no
+  record: it makes rollout and rollback report on a string rather than on code.
+  The other safe case is a cluster where history has no value — a local kind
+  cluster or a scratch namespace you rebuild daily — where the cost of the
+  convention exceeds what it buys. Neither case is production, and both are
+  about what the reference is *for*, not about how careful the team is.
+</PracticeCheck>

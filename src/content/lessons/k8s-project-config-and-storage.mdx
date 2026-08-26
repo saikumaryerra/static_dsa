@@ -1,0 +1,346 @@
+---
+title: 'Project: Configuration, Secrets and Storage'
+slug: 'k8s-project-config-and-storage'
+course: 'kubernetes'
+track: 'k8s-projects'
+order: 65
+summary: 'Give the project settings, credentials and a disk — and meet the moment a volume stops three interchangeable replicas from being interchangeable.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-project-stateless-service', 'k8s-injecting-configuration']
+estimatedMinutes: 12
+tags: ['kubernetes', 'project', 'configmap', 'secret', 'storage']
+explainPrompt: 'Why is one PersistentVolumeClaim shared by three replicas already wrong on a cluster where all three Pods start and stay Running?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Move the project's settings into a ConfigMap and its credentials into a Secret, choosing environment variables or files per case.
+- Make a configuration change actually reach a running container.
+- Attach a PersistentVolumeClaim, and predict what it does to a three-replica Deployment.
+
+## Intuition
+
+The project from the previous lesson runs, and everything it knows is hard-coded
+in its Pod template. That is fine until the same image has to run in staging and
+production, at which point the manifest forks and the two copies drift.
+
+**Configuration is an input handed to a container, not a property of the image.**
+One image, several environments, and the difference between them arrives at
+start-up. Kubernetes splits that input into two objects for one reason: a
+ConfigMap is ordinary data, and a Secret is data the cluster treats as sensitive
+— different defaults, different RBAC, different handling.
+
+Storage is a different kind of change, and worth naming before you make it. Every
+mechanism in the previous lesson worked because replicas were interchangeable. A
+volume is the first thing that can make them stop being interchangeable, and it
+does so quietly: on the storage a local cluster ships with, three replicas
+sharing one claim all start and stay `Running`, and what breaks is the data
+rather than the Pods.
+
+## How it works
+
+### Settings: a ConfigMap
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+  namespace: shop
+data:
+  LOG_LEVEL: 'info'
+  API_URL: 'http://api.shop.svc.cluster.local:8080'
+  UPLOAD_DIR: '/srv/uploads'
+```
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+      annotations:
+        checksum/config: '7d2b41f0'
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: web-config
+          volumeMounts:
+            - name: api-token
+              mountPath: /etc/web/secrets
+              readOnly: true
+      volumes:
+        - name: api-token
+          secret:
+            secretName: api-credentials
+            defaultMode: 0400
+```
+
+`envFrom` turns every key in the ConfigMap into an environment variable of the
+same name, which is why the keys are named the way an environment variable is
+named. Keys reach the container verbatim, so a file-shaped key such as
+`app.properties` becomes a variable literally called `app.properties` rather than
+being dropped — convenient for files, surprising through `envFrom`. Keep
+file-shaped keys in a ConfigMap you mount and scalar settings in one you import.
+
+### Credentials: a Secret
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-credentials
+  namespace: shop
+type: Opaque
+stringData:
+  api-token: 'dev-only-not-a-real-token'
+```
+
+`stringData` takes plain text and the API server stores it base64-encoded, which
+saves you encoding it by hand. That encoding is **not** protection. Anyone who
+can `get secrets` in `shop` can read the value, and by default the object sits
+in etcd unencrypted unless the cluster has encryption at rest configured — a
+cluster-level setting, not something a manifest can ask for.
+
+The Secret is mounted as a file rather than imported as an environment variable,
+and the choice is deliberate. A variable is inherited by every child process, is
+visible in `/proc`, and tends to end up in crash reports and debug output. A
+mounted file has a mode you control — `0400` above — and the kubelet keeps it in
+step with the object, so a rotated credential reaches a running Pod. An
+environment variable is fixed for the container's life: edit the Secret and
+nothing arrives, ever.
+
+Read `0400` precisely: readable by the file's **owner** and nobody else, and the
+owner is root, because that is who the kubelet writes the projected file as. A
+container that sets `runAsUser: 1000` or `runAsNonRoot: true` therefore cannot
+read its own credential, which is the usual cause of a permission-denied on a
+mounted Secret. `fsGroup` in the Pod's `securityContext` is the fix: the kubelet
+puts the volume in that group and grants the group read.
+
+<Callout variant="warning">
+  A mounted Secret updating without a restart only helps if the process re-reads
+  the file. Most do not. And the update never happens at all for a volume
+  mounted with `subPath`, which is the usual way of placing one file into a
+  directory that already has others. Verify the behaviour of your own process
+  before designing a rotation around it.
+</Callout>
+
+### Making a change reach the container
+
+`checksum/config` in the template above is an annotation Kubernetes ignores and
+your pipeline computes: a hash of the ConfigMap and Secret contents. When the
+configuration changes, the hash changes, the Pod template changes, and the
+Deployment rolls — which is what you want for values delivered as environment
+variables, because nothing else would deliver them. By hand, the same effect:
+
+```bash
+kubectl apply -n shop -f web-config.yaml
+kubectl rollout restart deployment/web -n shop
+kubectl rollout status deployment/web -n shop --timeout=120s
+```
+
+Marking an object `immutable: true` is the other half of this. The API server
+then refuses every edit to its `data`, and refuses to take the flag back off;
+labels and annotations stay editable, but the contents are settled, so a change
+means a new object under a new name and a template pointed at it. In exchange
+the kubelet stops watching it, which removes both a source of API traffic and
+the possibility of a value changing under a running Pod. Use it for anything a
+release pins; do not use it for something you expect to rotate in place.
+
+### A disk: the PersistentVolumeClaim
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads
+  namespace: shop
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+```
+
+Mount it into `web` by adding these two entries to the Pod template — the first
+under the `web` container's existing `volumeMounts:` key, the second under the
+existing `volumes:` key beside `api-token` — and apply. Now count the replicas.
+
+```yaml
+volumeMounts:
+  - name: uploads
+    mountPath: /srv/uploads
+volumes:
+  - name: uploads
+    persistentVolumeClaim:
+      claimName: uploads
+```
+
+`ReadWriteOnce` means the volume may be mounted read-write by **one node** at a
+time — not one Pod, one node. What three replicas do with that depends on the
+driver underneath, and the difference is the whole exercise.
+
+The default class on kind and k3s is Rancher's local-path provisioner —
+ecosystem software, not core Kubernetes — which hands out a directory on one
+node. The PersistentVolume it creates carries a node affinity naming that node,
+so the scheduler is obliged to place every replica there and **all three run**,
+`1/1 Running`, on a three-node cluster exactly as on a one-node one. Nothing is
+`Pending`, no event mentions a volume, and three processes are writing the same
+files with nothing coordinating them. That is the false lesson this exercise
+exists to prevent: a local cluster running the design is not evidence that the
+design is sound.
+
+On a network-attached class — a cloud block device through its CSI driver — the
+constraint becomes visible, because the mode is enforced when the volume is
+attached rather than when the Pod is placed. The extra Pods are scheduled onto
+other nodes, and then sit in `ContainerCreating` with a `Multi-Attach error for
+volume` warning in their events for as long as the first Pod's node holds the
+device.
+
+`Pending` from a scheduling refusal is a different mode's signature.
+`ReadWriteOncePod` restricts the volume to exactly one Pod and the scheduler
+enforces that, so the extra Pods never get a node at all and `kubectl describe`
+reports `FailedScheduling` naming the access mode. `ReadWriteMany` allows many
+nodes and needs a storage backend that can genuinely do it; local-path refuses
+it outright.
+
+Three ways out, and the third is the one this project takes:
+
+1. **One replica, `strategy: Recreate`.** Honest for something genuinely
+   singular. `Recreate` matters because the default rolling update would start
+   the replacement Pod before the old one released the volume, and on a
+   network-attached class it would wait for an attachment the outgoing Pod still
+   holds. The cost is downtime on every deploy.
+2. **A StatefulSet with `volumeClaimTemplates`.** Each replica gets its own
+   claim, so nothing is shared. Right when replicas own separate data —
+   a database — and wrong here, because uploads are not per-replica.
+3. **Keep the tier stateless and put the data elsewhere.** Uploads go to object
+   storage behind an API, and `web` keeps three interchangeable replicas, free
+   scaling and a rolling update. The `UPLOAD_DIR` setting becomes a bucket name.
+
+Remove the volume from `web`'s template, delete the claim, and the project stays
+stateless for the lessons that follow. The mechanism is worth knowing precisely
+so that staying stateless is a decision rather than an omission.
+
+## Trade-offs
+
+| Delivery                  | Use it when                                                                       | Do not use it when                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Environment variable**  | A scalar the process reads once at start-up: log level, an endpoint, a port.      | The value rotates, or it is long, structured, or sensitive.                                   |
+| **Mounted file**          | Whole configuration files, certificates, credentials; anything that may change.   | The process reads it once at boot anyway — you have added a moving part for nothing.          |
+| **Baked into the image**  | Defaults that are part of the release and must never differ between environments. | Anything environment-specific. You now build one image per environment and test none of them. |
+| **PersistentVolumeClaim** | The workload genuinely owns data on a disk: a database, a queue, a cache tier.    | The data is shared between replicas, or a managed service already does it better.             |
+
+**ConfigMap or Secret** is a question about handling, not about secrecy alone.
+Putting a credential in a ConfigMap makes it visible to anyone with read access
+to ordinary configuration, and excludes it from whatever the cluster does about
+encryption at rest and audit. Putting non-sensitive data in a Secret is milder,
+and still wrong: it widens who needs `get secrets`, which is the permission worth
+being stingy with. For credentials with a real blast radius, an external secret
+store with a Kubernetes integration is the next step — ecosystem software, not
+core Kubernetes, and a component you then have to run.
+
+## Common pitfalls
+
+- **Expecting an environment variable to update.** It is resolved at container
+  creation and fixed for the container's life. This is tempting because the
+  mounted-file case does update, so the mechanism looks inconsistent.
+- **A reference that does not resolve.** A missing ConfigMap key or Secret is
+  accepted at apply time and fails when the kubelet starts the container:
+  `CreateContainerConfigError` for a variable, a mount failure for a volume. It
+  is late because nothing validates the relationship between a template and the
+  objects it names.
+- **Base64 read as encryption.** It is an encoding, reversible by anyone, and it
+  makes a Secret look protected in a way that survives code review.
+- **Testing a `ReadWriteOnce` claim against a node-local provisioner.** kind and
+  k3s pin every replica to the one node holding the directory, so a shared-claim
+  design passes at any node count and fails on the first cluster with
+  network-attached storage. What hides the constraint is the driver, not the
+  size of the cluster, which is why adding nodes locally does not reveal it.
+- **Deleting a Pod to "reset" a volume.** The PVC outlives the Pod on purpose,
+  and the data comes straight back. What deletes the data is deleting the claim,
+  under a `Delete` reclaim policy.
+
+## Key takeaways
+
+- Settings live in a ConfigMap and credentials in a Secret; `envFrom` imports
+  scalar keys verbatim, and file-shaped keys belong in a mounted object.
+- An environment variable is fixed for the container's life; a mounted file
+  tracks its object, except under `subPath` or immutability.
+- A configuration change reaches a container only through a new container: a
+  template checksum annotation or `kubectl rollout restart` is what makes that
+  happen.
+- `ReadWriteOnce` is one **node**, not one Pod, so it never made one claim across
+  three replicas safe: on a node-local class all three Pods run and write over
+  each other, and on a network-attached one the extra Pods stall in
+  `ContainerCreating` with a multi-attach error.
+- Adding a volume to a stateless tier is a trade of scaling and rolling updates
+  for durability. Object storage keeps both.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You edit `web-config` to set `LOG_LEVEL: 'debug'` and apply it. Ten minutes later the containers still log at info level. Explain, and give the fix.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  `LOG_LEVEL` reaches the container through `envFrom`, and environment variables
+  are resolved by the kubelet once, at container creation. The running
+  containers hold the value from the moment they started, and no amount of
+  waiting changes that — the sync that updates a mounted file has nothing to do
+  with a process's environment. The fix is a new container: `kubectl rollout
+  restart deployment/web -n shop`, or in a pipeline, a `checksum/config`
+  annotation over the ConfigMap contents so the template changes whenever the
+  configuration does and the rollout happens by itself. If you wanted the change
+  to arrive without a restart, `LOG_LEVEL` would have to be delivered as a
+  mounted file and the process would have to re-read it.
+</PracticeCheck>
+
+**2. On a managed cluster whose default StorageClass is a network-attached block device, the `uploads` claim is bound and one `web` Pod is `Running`; the other two sit in `ContainerCreating`. The cluster has three nodes. What happened, and which two facts would you check to confirm it?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The claim is `ReadWriteOnce`, so the device can be attached to one node at a
+  time. All three Pods were scheduled, because that mode is enforced when the
+  volume is attached rather than when the Pod is placed; the first Pod's node
+  took the device, and the other two are waiting on an attachment that cannot
+  happen while it is held. Confirm it two ways: `kubectl describe pod` on one of
+  the stuck Pods, where the events carry a `Multi-Attach error for volume`
+  warning rather than anything about CPU or memory; and `kubectl get pvc uploads
+  -n shop -o yaml` to read the access mode the claim actually asked for. Worth
+  noting for later: on a node-local class the same manifest produces three
+  `Running` Pods writing over each other instead, so the symptom is a fact about
+  the driver and the design is wrong either way.
+</PracticeCheck>
+
+**3. A colleague moves the API token from the Secret into `web-config` "so the whole configuration is in one place". What do you lose?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Reading it now needs only ordinary configuration access, which is far more
+  widely granted than `get secrets` — that is the main loss, and it is a
+  permissions change disguised as tidying. You also drop out of everything the
+  cluster does for Secrets specifically: encryption at rest if it is configured,
+  the audit and policy rules that key off the Secret kind, and the tooling
+  convention that stops a Secret being printed casually. The single place is a
+  real benefit, and it is bought with the one distinction the API makes between
+  data that matters and data that does not. Keep the token in the Secret and put
+  its non-sensitive companions — the endpoint, the timeout — in the ConfigMap.
+</PracticeCheck>

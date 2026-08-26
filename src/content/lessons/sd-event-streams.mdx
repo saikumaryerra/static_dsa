@@ -1,0 +1,248 @@
+---
+title: 'Event Streams'
+slug: 'sd-event-streams'
+course: 'system-design'
+track: 'sd-async'
+order: 20
+summary: 'A log retains records and hands every reader its own offset, so consumers are independent and the past can be replayed — the opposite of a queue in almost every property that matters.'
+difficulty: 'intermediate'
+prerequisites: ['sd-message-queues', 'sd-replication-and-sharding']
+estimatedMinutes: 9
+tags: ['system-design', 'event-streams', 'log', 'partitioning', 'asynchrony']
+explainPrompt: 'Why can a log serve a new consumer the last week of history when a queue cannot?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a log is as a data structure, and why replay follows from it.
+- Choose between a queue and a log from the consumers, not from the vendor.
+- Pick a partition key, and name what it makes ordered and what it makes hot.
+- Recognise consumer lag, head-of-line blocking and an expiring backlog.
+
+## Intuition
+
+**An event stream is an append-only file that nobody deletes on your behalf.**
+Producers append records to the end. Each record has a position — its **offset**
+— and readers hold their own cursor into the file. Reading does not consume
+anything. When a reader has finished with offset 4,812 it records that fact and
+asks for 4,813, and the record at 4,812 is still there for everybody else.
+
+Records leave by a **retention policy** — after seven days, or when the log
+exceeds a size — and not because anyone processed them. That is the single
+structural difference from a queue, and every other difference is a consequence
+of it. A queue is a work list, so its consumers compete. A log is a record of
+what happened, so its consumers are independent: adding an analytics reader to a
+stream that already feeds a search indexer changes nothing for the indexer, and
+a consumer that starts today can begin at the oldest retained offset and catch
+up on the week.
+
+That is what a log solves. Publishing an event once and letting an unknown
+number of unrelated systems each make their own use of it, at their own speed,
+with the ability to go back — none of which a queue can do, because a queue
+gives the message away.
+
+## How it works
+
+**Partitions are what make a log scale, and what make ordering local.** A stream
+is split into partitions; a record's key is hashed to choose one; each partition
+is an independent ordered log. Order is therefore **total within a partition and
+undefined across partitions** — the same bargain that
+[Replication, Partitioning and Sharding](/learn/sd-replication-and-sharding/)
+describes for storage, and the same decision. Key by user id and everything one
+user does stays in order. Key by event type and one type's partition takes all
+the traffic.
+
+**A consumer group divides the partitions among its members**, one member per
+partition at a time. Parallelism is therefore capped by the partition count: 12
+partitions can feed at most 12 consumers, and the thirteenth sits idle. When a
+member joins or dies the group rebalances and the partitions are handed out
+again.
+
+**Offsets are committed by the consumer**, and where the commit sits decides the
+delivery semantics exactly as the acknowledgement does in a
+[message queue](/learn/sd-message-queues/): commit before processing and a crash
+skips records, commit after and a crash reprocesses them. At-least-once is the
+default here too, so consumers are idempotent here too.
+
+The comparison, property by property:
+
+| Property          | Queue                           | Log                                     |
+| ----------------- | ------------------------------- | --------------------------------------- |
+| What is stored    | a message, until acknowledged   | a record at an offset, until it expires |
+| What removes it   | the consumer's acknowledgement  | a retention policy, in time or bytes    |
+| A second consumer | competes for the same work      | reads everything, independently         |
+| Reading twice     | not possible                    | re-read from any retained offset        |
+| Ordering          | per group key at best           | total within a partition                |
+| More parallelism  | add consumers                   | add partitions, then consumers          |
+| One bad record    | dead-letter it and move on      | it blocks its partition until handled   |
+| Backlog metric    | queue depth, oldest-message age | consumer lag, in records or in time     |
+
+Now the sizing, using the reference figures from
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/):
+
+```text
+Assumptions
+  1,000,000,000 playback and interaction events per day
+  one event ≈ 1 KB serialised
+  retention 7 days, replication factor 3
+
+Rate
+  1 billion/day               =  10,000 events/s average
+  peak ≈ 3 × average          =  30,000 events/s
+
+Storage on the brokers
+  1 billion × 1 KB            =  1 TB/day
+  × 7 days × 3 replicas       ≈  21 TB
+
+Partitions
+  planning figure: 10 MB/s per partition (a teaching assumption — measure yours)
+  30,000 × 1 KB               =  30 MB/s at peak
+  bytes need single figures of partitions;
+  consumer parallelism is what actually sets the number
+```
+
+Read the last two lines. Throughput rarely decides a partition count; the
+number of consumers you want to run in parallel does, and so does the fact that
+raising it later re-hashes the keys and breaks per-key ordering across the
+change. Choose it like a shard key — with room, and expecting to live with it.
+
+**Compaction** is the log's second retention mode. Instead of dropping old
+records by age, the broker keeps the most recent record per key and discards the
+earlier ones, which turns the log into a table you can rebuild state from. It
+suits configuration and current-value streams; it is wrong for anything where
+the history is the point, such as an audit trail.
+
+<Callout variant="warning">
+  **Replay is not free, and it is not private.** Reprocessing a week of records
+  re-executes every side effect the consumer has: re-sent emails, re-charged
+  cards, re-published webhooks. A consumer meant to be replayable either writes
+  only to stores keyed idempotently, or has an explicit mode that suppresses
+  external effects. Decide which before you need the replay.
+</Callout>
+
+## Trade-offs
+
+**Use a log** when several independent consumers want the same events, when you
+need to add a consumer later and give it history, when ordering per entity
+matters, or when reprocessing — a bug fix, a new feature over old data — is a
+real requirement.
+
+**Do not use one** for ordinary background work with a single consumer: a queue
+gives you per-message retry, a dead-letter queue and no partition maths, and
+those are the features that job processing actually wants. Do not use one where
+individual failures must be retried out of order, because a log has one cursor
+per partition and no concept of putting one record aside. And do not use one as
+a database — random access by key is a table's job; the log is ordered by time.
+
+The costs are real. Retention is a storage bill that grows with traffic and
+never levels off inside the window, as the estimate above shows. The partition
+count is close to permanent. The broker cluster is another distributed system to
+operate, with its own replication and quorum settings. And consumers now have a
+lag metric that somebody has to watch, because a slow consumer fails silently
+until the day its records expire.
+
+## Common pitfalls
+
+- **A key that concentrates.** Partitioning on country, tenant or event type is
+  tempting because it reads naturally, and it puts most traffic on one
+  partition — a hot partition whose consumer is the bottleneck no matter how
+  many others are idle.
+- **Consumer lag exceeding retention.** The consumer is behind by more than
+  seven days, so the records it has not read are deleted before it reaches them.
+  Nothing errors: the consumer skips forward, and the loss is silent.
+- **A poison record with no escape.** Because there is no acknowledgement, a
+  record that always throws stops its partition dead. Consumers need an explicit
+  rule — write the record to a side queue and advance, with a metric — or one
+  malformed event halts a stream for hours.
+- **Expecting global ordering.** Two events written a millisecond apart with
+  different keys can be read in either order, and code that assumes otherwise
+  fails once a month in a way nobody can reproduce.
+- **Committing offsets on a timer.** Convenient, and it silently converts
+  at-least-once into "sometimes at-most-once" when the commit races ahead of the
+  processing.
+
+## Interview notes
+
+The moment to reach for a stream is when a second consumer appears. "The order
+service emits an `order.placed` event; the invoicing, search and analytics
+consumers each read it at their own offset" explains why the log exists in one
+sentence, and it is a better answer than any list of features.
+
+Then volunteer the partition key and what it costs, because that is the decision
+the interviewer is listening for: "keyed by account id, so one account's events
+stay ordered, and a very large account is the hot-partition risk we would
+mitigate by splitting its key". Log-structured brokers such as Kafka and its
+managed equivalents implement this shape; it is generally accepted industry
+architecture rather than any one company's design.
+
+## Key takeaways
+
+- A log **retains records and is read by offset**; a queue **deletes on
+  acknowledgement**. Replay, independent consumers and per-partition ordering
+  all follow from that one difference.
+- **Ordering is per partition, and the key decides what stays ordered** — so the
+  partition key is the same class of decision as a shard key.
+- **Consumer parallelism is capped by the partition count**, not by the number
+  of consumer processes.
+- **Retention is a bill and a deadline**: a consumer lagging by more than the
+  retention window loses records silently.
+- A record that always fails **blocks its partition**; a log has no dead-letter
+  behaviour unless the consumer implements one.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team is choosing between a queue and a log for "send a welcome email when a user signs up". Which fits, and what would change the answer?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  A queue fits. There is one consumer, each signup is an independent unit of
+  work, order between signups does not matter, and the things that can go wrong
+  are per-message: a bad address, a mail provider returning an error. That is
+  exactly the set a queue handles — retry with backoff, a redelivery limit, a
+  dead-letter queue for the ones that never succeed. A log would give you a
+  partition cursor that stops on the first permanently failing address. What
+  would change the answer is a second consumer: once the signup also has to
+  update a search index, warm a cache and feed analytics, publishing one
+  `user.created` record that four consumers read at their own offsets is far
+  better than four queues the producer has to know about — and a fifth consumer
+  added later starts on everything still inside the retention window, which a
+  queue could not have handed it at all. For the whole history it needs a
+  compacted `user.created` stream keyed by user id, or an archive of the stream
+  in object storage.
+</PracticeCheck>
+
+**2. A stream is partitioned by `event_type` and has 24 partitions. Roughly 80% of events are of type `page_view`. What is the effect, and what should the key have been?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  All 80% of `page_view` events hash to one partition, so one consumer receives
+  four times the traffic of the other 23 combined while most of them are close
+  to idle. Because parallelism is capped at one consumer per partition, no
+  amount of scaling out helps: the fix is not more consumers. Lag grows on that
+  one partition, and if it grows past the retention window those records expire
+  unread. The key should be something with many roughly even values that also
+  matches what needs to stay ordered — a user id or a session id, so one user's
+  events remain in sequence and the volume spreads across all 24 partitions.
+  Event type is a filter, and filtering is the consumer's job.
+</PracticeCheck>
+
+**3. A consumer has been down for nine days. Retention is seven days. It restarts and reports no errors. What happened, and what do you do about it?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Its committed offset points at records the broker has already deleted, so it
+  cannot resume where it stopped. What happens next is set by the consumer's
+  out-of-range reset policy: reset to the oldest retained offset and roughly two
+  days of events went unprocessed; reset to the newest and all nine did. Either
+  way nothing errors — the consumer is healthy, current and wrong. Recovery is
+  only partly on the stream: the seven days still retained can be re-read by
+  seeking back to the oldest offset, but the two days that expired are gone from
+  the broker, so that state has to be rebuilt from the source of truth that
+  produced them, or from a copy of the stream archived to object storage.
+  Prevention is a lag alarm expressed in time rather than records — "the oldest
+  unread record is more than one day old" — because that is the metric that
+  reaches somebody while there is still a week of margin.
+</PracticeCheck>

@@ -1,0 +1,336 @@
+---
+title: 'Project: A Stateless Web Service'
+slug: 'k8s-project-stateless-service'
+course: 'kubernetes'
+track: 'k8s-projects'
+order: 64
+summary: 'Build the running project the rest of this module extends: two Deployments in their own namespace, each behind a Service, with one calling the other by name.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments', 'k8s-services']
+estimatedMinutes: 12
+tags: ['kubernetes', 'project', 'deployment', 'service', 'dns']
+explainPrompt: 'Why does this project need a Service at all, when every Pod already has an IP address of its own?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Stand up a two-tier stateless application in its own namespace and prove it runs.
+- Give each tier a stable name, and have one tier reach the other by that name.
+- Say which workload object each tier deserves, and which ones would be the wrong choice here.
+
+## Intuition
+
+The four lessons in this module build one application and keep extending it. This
+one gets it running and addressable; the next gives it settings, credentials and
+a disk; the third makes it survive a bad release and a traffic spike; the last
+breaks it on purpose and finds the break.
+
+The application is two tiers: a `web` front end that receives requests, and an
+`api` behind it that `web` calls. Throughout the module `nginx:1.29` stands in
+for both, because it is a real image that any cluster can pull and it responds to
+an HTTP request. Nothing in the module depends on what the container does — every
+mechanism is about the objects around it.
+
+**A workload and its address are two separate objects, and the separation is the
+point.** The Deployment answers "which image, how many copies, and replaced how".
+The Service answers "what do I call it". Keeping those apart is what lets replica
+count, image version and Pod addresses all change underneath a name that never
+does.
+
+"Stateless" is the property that makes this shape work. A tier is stateless when
+any replica can serve any request, because nothing the request needs is stored on
+the Pod that serves it. That is a claim about the application, not about
+Kubernetes — and it is what lets you run three copies, kill one, and lose
+nothing.
+
+## How it works
+
+### A namespace of its own
+
+Everything the project owns lives in one namespace, so a mistake is contained and
+`kubectl delete namespace shop` is a complete cleanup.
+
+```bash
+kubectl create namespace shop
+kubectl config set-context --current --namespace=shop
+```
+
+The second command saves typing `-n shop` on every command that follows. It also
+means a terminal you left open yesterday is now pointed somewhere unexpected, so
+the commands below keep the flag where being wrong would be expensive.
+
+### The two Deployments
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: shop
+  labels:
+    app: api
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        tier: backend
+    spec:
+      containers:
+        - name: api
+          image: nginx:1.29
+          ports:
+            - containerPort: 80
+```
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: shop
+  labels:
+    app: web
+    tier: frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+        tier: frontend
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          ports:
+            - containerPort: 80
+          env:
+            - name: API_URL
+              value: 'http://api.shop.svc.cluster.local:8080'
+```
+
+Two details in there decide whether this works. `spec.selector.matchLabels` is
+how the Deployment recognises its own Pods, and it must match
+`spec.template.metadata.labels`; the API rejects a Deployment whose selector
+matches nothing in its own template. And the selector is **immutable** after
+creation, which is why `app` — the one label that identifies the tier — is kept
+separate from descriptive labels like `tier` that you may want to change later.
+
+`API_URL` is the front end's only knowledge of the back end: a name and a port,
+resolved at request time. It holds no address, which is what stops a Pod
+replacement from breaking it.
+
+### Names for both tiers
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: shop
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 80
+```
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: shop
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+```
+
+The `api` Service takes traffic on 8080 and forwards to port 80 in the container.
+Callers use the Service's port; the container's port is an implementation detail
+the Service translates away. Note also that the Service selector is `app: api`
+only — it deliberately does not repeat `tier`, so the Service keeps working if
+the tier label is ever re-cut.
+
+```bash
+kubectl apply -n shop -f api-deployment.yaml -f api-service.yaml
+kubectl apply -n shop -f web-deployment.yaml -f web-service.yaml
+kubectl get deploy,svc -n shop
+kubectl get pods -n shop -o wide
+```
+
+### Proving that discovery works
+
+A resolving name and a reachable endpoint are two different claims, so test both
+from inside the cluster. The nginx image has no shell tooling worth relying on,
+so run a throwaway client instead:
+
+```bash
+kubectl run client -n shop --rm -it --restart=Never --image=busybox:1.37 -- sh
+```
+
+Inside that shell:
+
+```bash
+nslookup api
+wget -qO- http://api:8080
+wget -qO- http://api.shop.svc.cluster.local:8080
+```
+
+`nslookup api` returns the `api` Service's ClusterIP, because the client Pod's
+resolver appends `shop.svc.cluster.local` to a bare name in its own namespace.
+Both `wget` calls return nginx's welcome page. The short name and the fully
+qualified one reach the same place; the long form is what a caller in another
+namespace would need.
+
+`--rm` deletes the client Pod when you exit the shell, and `--restart=Never`
+makes it a bare Pod rather than something a controller will recreate.
+
+<Callout variant="note">
+  A name that resolves proves only that a Service object exists with that name
+  in that namespace. It says nothing about whether any Pod is behind it. When a
+  request fails after a successful lookup, the next command is `kubectl get
+  endpointslices -n shop -l kubernetes.io/service-name=api` — no addresses at
+  all means the selector matched nothing.
+</Callout>
+
+### What being stateless bought you
+
+```bash
+kubectl scale deployment/web -n shop --replicas=5
+kubectl delete pod -n shop -l app=web
+kubectl get pods -n shop -l app=web -w
+```
+
+Scale up and new Pods answer immediately, with no data to copy and no membership
+to join. Delete them all and the ReplicaSet controller creates replacements with
+new names and new addresses, and the Service picks them up as they become ready.
+No client had to learn anything. That is the entire dividend of statelessness,
+and every later lesson in this module either builds on it or pays to give it up.
+
+## Trade-offs
+
+**Which workload object each tier deserves.** A Deployment is the right answer
+for both tiers here, and it is the wrong answer more often than people expect.
+
+| Object          | Use it when                                                                         | Do not use it when                                                                                     |
+| --------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Deployment**  | Replicas are interchangeable and disposable — this project's `web` and `api`.       | Each replica needs a stable identity or its own disk. Use a StatefulSet.                               |
+| **StatefulSet** | Replicas need stable names, ordered start-up, or a volume each: databases, brokers. | The workload is interchangeable. You are paying for ordering and identity you will never read.         |
+| **DaemonSet**   | One copy per node, because the work is about the node: log shipping, node metrics.  | You want a fixed number of copies. A DaemonSet's count is however many nodes exist today.              |
+| **Job**         | The work finishes: a migration, a batch import.                                     | The work is a server. A Job's success condition never arrives and it will look permanently unfinished. |
+| **Bare Pod**    | A throwaway diagnostic, like the `client` above.                                    | Anything that must survive. Nothing recreates a bare Pod when its node goes away.                      |
+
+**ClusterIP for both, deliberately.** `web` is the tier a real user reaches, and
+it still gets a ClusterIP here, because exposing it externally is a separate
+decision with its own lesson: NodePort when there is no cloud balancer to ask,
+LoadBalancer when one workload needs its own external address, an Ingress or
+Gateway when a dozen HTTP services should share one front door. Reach the project
+through `kubectl port-forward svc/web -n shop 8080:80` while building it — and
+remember that a working port-forward proves nothing about the path a real client
+would take, because it bypasses the ClusterIP and kube-proxy entirely.
+
+## Common pitfalls
+
+- **Making the Service selector match the Deployment's labels instead of the
+  Pods'.** A Service selects Pods, and Deployment-level labels are not copied on
+  to them. The symptom is a Service with no endpoints and an application that
+  looks fine in `kubectl get deploy`.
+- **`targetPort` pointing at a port nothing listens on.** The Service is still a
+  valid object, the endpoints are still listed, and every connection is refused.
+  It is tempting because the Service's own `port` is the number you were thinking
+  about.
+- **Passing a Pod IP where a Service name belongs.** It works when you test it,
+  and it breaks at the first Pod replacement — which is the one event Kubernetes
+  guarantees will happen.
+- **Calling one replica highly available.** `replicas: 1` behind a Service is a
+  single point of failure with a stable name in front of it. The name survives
+  the node draining; the service does not.
+
+## Key takeaways
+
+- The project is two stateless tiers in the `shop` namespace: `web` and `api`,
+  each a Deployment, each behind a ClusterIP Service.
+- A Deployment's `selector` is immutable and must match its own Pod template's
+  labels, so identity labels and descriptive labels are worth keeping separate.
+- `web` reaches `api` at `api.shop.svc.cluster.local:8080` — a name and a Service
+  port, never a Pod address — and the Service translates the port to the
+  container's 80.
+- Statelessness is a property of the application, and it is what makes scaling,
+  deleting and replacing replicas free of consequence.
+- A resolving name and a live endpoint are separate facts; `nslookup` tests the
+  first and an EndpointSlice listing tests the second.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You change the `tier` label on the `web` Pod template from `frontend` to `edge`. Nothing else changes. What happens to the Deployment, and what happens to the `web` Service?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Changing a label in the Pod template is a template change, so the Deployment
+  starts a rolling update and replaces its Pods with ones carrying `tier: edge`.
+  Both objects keep working, because neither selector mentions `tier`: the
+  Deployment selects on `app: web` and so does the Service, and the new Pods
+  still carry `app: web`. That is exactly why the identity label was kept
+  separate from the descriptive one. Had the Deployment's selector included
+  `tier: frontend`, the edit would have been rejected — a Pod template whose
+  labels no longer match the selector is invalid, and the selector itself cannot
+  be changed to follow — and had only the Service's selector included it, the
+  Service would have emptied out one Pod at a time as the rollout progressed.
+</PracticeCheck>
+
+**2. `nslookup api` from the client Pod returns a ClusterIP, but `wget -qO- http://api:8080` is refused immediately. Name two causes that both fit, and the command that tells them apart.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  A resolving name only proves the Service object exists. One cause is that the
+  selector matches no Pods — a typo in `app: api`, or the Pods carrying a
+  different label — so there is nothing to forward to. The other is that the
+  Pods are there but not ready, so their addresses are listed with a
+  per-endpoint `conditions.ready` of false and receive no traffic. Both look the
+  same from the client, and the refusal is itself the evidence: when a Service
+  has no ready endpoint, kube-proxy programs a rule that rejects the connection
+  rather than leaving it to time out, so an immediate refusal says the packet
+  reached kube-proxy and nothing silently swallowed it. `kubectl get
+  endpointslices -n shop -l kubernetes.io/service-name=api` separates the two
+  causes: no addresses at all means the selector is wrong, while addresses that
+  are present need their per-endpoint `conditions.ready` read to see whether
+  readiness is the problem. A third candidate worth ruling out afterwards is a
+  `targetPort` pointing at a port nothing is listening on, which is refused by
+  the container rather than by kube-proxy.
+</PracticeCheck>
+
+**3. Someone proposes making `api` a StatefulSet "so the Pods get predictable names, which will help with debugging". Argue the case.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The premise is true — a StatefulSet does give `api-0`, `api-1` and stable
+  names — and the conclusion still does not follow, because those names cost
+  something. A StatefulSet creates its Pods one at a time in ordinal order and
+  updates them in reverse, highest ordinal first, waiting for each to be ready
+  before touching the next, so a rollout of ten replicas becomes ten sequential
+  steps; and a Pod that will not become ready halts the rollout there, leaving
+  every lower ordinal on the old version. That ordering exists to protect
+  replicas that are not interchangeable. `api` is interchangeable, so the
+  project would pay for ordering it never reads. Predictable names for debugging
+  are available for free through labels: `kubectl logs -l app=api --prefix`
+  reads every replica at once, whatever they are called.
+</PracticeCheck>

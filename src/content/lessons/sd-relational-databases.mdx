@@ -1,0 +1,249 @@
+---
+title: 'Relational Databases'
+slug: 'sd-relational-databases'
+course: 'system-design'
+track: 'sd-data'
+order: 14
+summary: 'What a transaction and an isolation level actually promise, what a composite index costs on every write, and the specific places a single relational primary bends — which is not the same as "SQL does not scale".'
+difficulty: 'intermediate'
+prerequisites: ['sd-capacity-estimation', 'sd-consistency-models']
+estimatedMinutes: 9
+tags: ['system-design', 'databases', 'sql', 'transactions', 'indexes']
+explainPrompt: 'Why is an index a write cost you accept in exchange for a read benefit rather than a free speed-up?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a transaction and an isolation level promise, and which anomaly each level still permits.
+- Read a composite index's column order and predict which queries it serves.
+- Argue for or against a relational primary from the read/write ratio and the query shapes rather than from the label.
+
+## Intuition
+
+**A relational database is an agreement about what the data means, enforced by
+the database instead of by every writer.** Types, `NOT NULL`, uniqueness, foreign
+keys and check constraints are all the same move: state the rule once, in the
+place every application must go through, so that no future service can violate it
+by accident. That is the problem it solves, and it is why the technology has
+outlived every predicted replacement.
+
+Transactions are the second half of the agreement. A transaction groups changes
+so they take effect all together or not at all, even with hundreds of other
+writers running at the same time. ACID names the four promises: **atomicity**
+(all or nothing), **consistency** (your declared invariants hold at commit),
+**isolation** (concurrent transactions do not see each other's half-finished
+work) and **durability** (a commit survives a crash). The C here is about your
+invariants, not about copies agreeing — that one lives in
+[Consistency Models, CAP and PACELC](/learn/sd-consistency-models/).
+
+The third model is the one people skip. **A table is the data; an index is a
+second, sorted copy of part of it.** That copy makes a matching read fast because
+the engine can descend a B-tree instead of scanning, and it makes every write
+slower because the copy must be kept in step. An index is therefore never free:
+it is a write cost you accept in exchange for a read benefit, and one that no
+query matches is pure loss.
+
+## How it works
+
+Start from the schema. Everything else is a consequence of it.
+
+```sql
+CREATE TABLE orders (
+  id           BIGSERIAL   PRIMARY KEY,
+  customer_id  BIGINT      NOT NULL REFERENCES customers (id),
+  status       TEXT        NOT NULL,
+  total_cents  INTEGER     NOT NULL CHECK (total_cents >= 0),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX orders_customer_recent
+  ON orders (customer_id, created_at DESC);
+```
+
+That index holds entries sorted by `customer_id` first and, within one customer,
+by `created_at` descending. **Column order is the whole design.** A query that
+fixes the leading column lands on a contiguous run of entries already in the
+order it wanted:
+
+```sql
+-- Served by the index: fix customer_id, then read a sorted run and stop.
+SELECT id, status, total_cents
+  FROM orders
+ WHERE customer_id = 4711
+ ORDER BY created_at DESC
+ LIMIT 20;
+
+-- Not served by it: nothing fixes customer_id, so the sorted order is by
+-- the wrong column and the planner falls back to scanning.
+SELECT id FROM orders WHERE created_at > now() - INTERVAL '1 day';
+```
+
+This is the leftmost-prefix rule: `(customer_id, created_at)` serves queries on
+`customer_id` alone and on both columns together, and does nothing for
+`created_at` alone. Swapping the columns swaps which of those two is free. So the
+column order is chosen from the queries you actually run, and a second index is
+warranted only when a second query shape earns its write cost.
+
+Here is that cost, in the units it is paid in:
+
+```text
+Assumptions
+  one INSERT into orders
+  the table carries 5 secondary indexes
+  a B-tree of this size is 3 to 4 levels deep
+
+Structural work per logical write
+  1 row appended to the table
+  5 index leaf updates, each after a descent of 3 to 4 pages
+  ≈ 6 structural writes for 1 logical write
+
+At a peak of 2,000 inserts/s
+  2,000 × 6 ≈ 12,000 page updates/s on the primary
+  and every replica applies the same work again
+```
+
+**Isolation** is the other mechanism worth knowing by name. Under _read
+committed_ you never see uncommitted data, but two reads inside one transaction
+can return different values. _Repeatable read_ pins the transaction to a single
+snapshot. _Serialisable_ promises the outcome is one that some serial order of
+the transactions would have produced. Each step removes an anomaly —
+non-repeatable reads, then phantoms and write skew — and each step costs more
+conflict. Engines differ in which rung they start you on, so read your own
+engine's documented default rather than assuming it.
+
+Two clients booking the last seat make it concrete. Both read "one seat left",
+both write, and under read committed both succeed: the invariant was checked in
+application memory, where the database could not enforce it. Serialisable
+isolation makes one of them abort, so the fix costs you a retry path in code.
+A `UNIQUE` constraint or an atomic conditional update fixes it more cheaply,
+which is the general lesson: push the invariant into the database.
+
+<Callout variant="warning">
+  **"NoSQL scales and SQL does not" is false, and it is worth killing.** The
+  reference figures say one well-indexed relational primary sustains a few
+  thousand writes per second and serves terabytes, and read replicas plus a
+  cache multiply the read side well beyond that. Most products never reach the
+  ceiling. The honest question is never the label but the access patterns: what
+  is the read-to-write ratio, what query shapes must be served, and do the
+  entities have relationships worth joining? Answer those and the store follows.
+</Callout>
+
+Where a relational primary genuinely bends is specific, and each has a name. All
+writes go to one node, so the write path has one ceiling that replicas do not
+raise. The working set has to fit in memory, or every read becomes a disk seek.
+And a join that was free across ten thousand rows is a different operation across
+a billion — especially once the data no longer lives on one machine.
+
+## Trade-offs
+
+**Use one when** invariants matter, when the queries are not all known in
+advance, when entities have relationships worth joining, and when the write
+volume is within one primary's reach. That covers more systems than its
+reputation suggests.
+
+**Do not use one when** the item is a large blob, which belongs in
+[object storage](/learn/sd-object-storage/) with only its key in a row; when
+access is a single high-rate key lookup with no relationships; when the question
+is full-text relevance ranking, which is a
+[search index](/learn/sd-search-indexes/); or when the write rate is past a
+primary and the data has a natural partition key.
+
+**What it costs.** A schema migration on a large table is an operational event,
+not a deploy step. A single primary is a single write ceiling and a failover to
+rehearse. And the flexibility that lets anyone write any query also lets anyone
+write a query that scans the table.
+
+## Common pitfalls
+
+- **Indexing every column in case.** Tempting because from the read side each
+  index looks like a free improvement. From the write side they add up, and they
+  compete with the table for memory.
+- **The N+1 query.** One query for a list, then one per row. Tempting because
+  each individual query is fast and the loop is invisible in the code — it is a
+  join written by hand, a hundred round trips at a time.
+- **Long transactions.** Tempting because wrapping more work in a transaction
+  feels safer. It holds locks and retains old row versions, so one slow external
+  call inside a transaction becomes a database-wide stall.
+- **Deep `OFFSET` pagination.** Page 5,000 makes the engine produce and discard
+  50,000 rows. Keyset pagination — "after this id and timestamp" — reads only
+  what it returns.
+- **Treating the read replica as spare write capacity.** It applies every write
+  the primary took; it adds read throughput and a failover target, nothing more.
+
+## Interview notes
+
+Make a relational primary your stated default and then argue it, because a
+default you can defend reads better than a preference. "Seventy writes per second
+and a handful of query shapes with real relationships — one primary, two read
+replicas, and I would revisit at roughly ten times this" is a decision. Naming a
+distributed store for a system that does hundreds of writes per second invites
+the question you cannot answer: what does it buy here?
+
+The second thing worth saying out loud is the index list, with the query each
+index exists for. It shows you know indexes are a write cost, and it is the
+fastest way to demonstrate you have thought about the read path at all.
+
+## Key takeaways
+
+- A relational database enforces **your invariants once, centrally** — types,
+  constraints and foreign keys are cheaper than trusting every writer.
+- **An index is a write cost paid for a read benefit.** One that no query matches
+  costs writes and memory and returns nothing.
+- **A composite index's column order decides which queries it serves**: it covers
+  its leftmost prefix, and nothing that skips the leading column.
+- **Isolation levels are a ladder of removed anomalies**, each rung paid for in
+  conflicts and retries; a database-enforced constraint is usually cheaper than
+  the top rung.
+- The scale limits are specific — **one write ceiling, a working set that must
+  fit in memory, joins across too much data** — and they are not the same claim
+  as "SQL does not scale".
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A table has an index on `(customer_id, created_at DESC)`. Which of these three queries can use it: filter by `customer_id`; filter by `created_at`; filter by `customer_id` and sort by `created_at`?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The first and the third. The index is sorted by `customer_id` first, so fixing
+  that column lands on one contiguous run of entries — and within that run the
+  rows are already in `created_at DESC` order, which is why the third query gets
+  its sort for free as well. The second cannot use it: with `customer_id`
+  unconstrained, the matching `created_at` values are scattered across every
+  customer's run, so there is no run to read and the planner scans instead.
+  Serving that second query needs a different index whose leading column is
+  `created_at` — and that index has to earn its own write cost.
+</PracticeCheck>
+
+**2. A service takes 300 writes and 30,000 reads per second, all by primary key or by a customer's recent rows. A colleague proposes moving off the relational database because "it will not scale". What is the argument to make instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Argue from the two numbers the premise gives you. Three hundred writes per
+  second is well inside one indexed primary's few-thousand-per-second range, so
+  the write path — the part replication cannot help — is not the problem being
+  described. Thirty thousand reads per second is a read-path question, and the
+  read-to-write ratio of 100 to 1 is exactly the shape a cache and read replicas
+  answer. Both stated access patterns, key lookup and a customer's recent rows,
+  are single-index reads rather than wide joins, so nothing about the query
+  shapes is fighting the engine either. The migration would move the same read
+  problem to a different store while giving up the constraints and transactions,
+  and it would leave a ceiling nobody had measured.
+</PracticeCheck>
+
+**3. An audit finds an index on `orders(status)` that no query in the codebase matches. Why is leaving it in place not harmless?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because an index is only ever half a bargain, and this one has given up its
+  other half. Every insert, and every update that touches `status`, still
+  maintains it — a B-tree descent and a leaf write per row — and every replica
+  repeats that work, so it is a permanent tax on the write path. It also
+  occupies buffer memory that the table and the indexes people do query were
+  competing for, which makes the reads that matter more likely to hit disk.
+  Backups and restores carry it too. An index nobody reads is cost with the
+  benefit removed, which is the one case where the answer is unambiguous: drop
+  it.
+</PracticeCheck>

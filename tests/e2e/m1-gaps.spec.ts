@@ -47,15 +47,34 @@ test.describe('no-JS degradation (spec §4)', () => {
     // All prose content must be fully readable without JS.
     await expect(page.locator('h1')).toBeVisible();
     await expect(
-      page.getByText('teach the core of computer science'),
+      page.getByText('The algorithms run in your browser', { exact: false }),
     ).toBeVisible();
     // The curriculum is the home page's other server-rendered block (redesign
-    // amendment H-1: the two `.track-card` summaries were replaced by the two
-    // tracks with every lesson named). It is the stricter check of the same
-    // thing — a scriptless reader must be able to SEE and reach the whole
-    // fifteen-lesson curriculum, not just read a paragraph about it.
-    await expect(page.locator('.curriculum .track')).toHaveCount(2);
-    await expect(page.locator('.curriculum .track__lesson')).toHaveCount(15);
+    // amendment H-1: the two `.track-card` summaries were replaced by the real
+    // contents; course expansion decision D-05 made those contents the COURSES
+    // and their modules). It is the stricter check of the same thing — a
+    // scriptless reader must be able to SEE and reach the whole catalogue, not
+    // just read a paragraph about it.
+    //
+    // Counted as floors and cross-checked against the links themselves, so a
+    // course or a module added tomorrow does not fail a test that has no opinion
+    // about how many there should be. `m5-glossary-about-seo.spec.ts` checks the
+    // exact set against the published collection.
+    const courses = page.locator('.curriculum .course-block');
+    expect(await courses.count()).toBeGreaterThanOrEqual(3);
+    const modules = page.locator('.curriculum .course-block__item');
+    expect(await modules.count()).toBeGreaterThanOrEqual(3);
+    // Every module row is a real link into a course page's anchor — with no
+    // script, that is the whole navigation.
+    const targets = await modules.evaluateAll((links) =>
+      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+    );
+    expect(
+      targets.every((href) =>
+        /learn\/[a-z0-9-]+\/#track-[a-z0-9-]+$/.test(href),
+      ),
+      'every module row must link into a course page anchor',
+    ).toBe(true);
 
     // The inline pre-paint script never ran: no data-theme attribute, so the
     // CSS `:root:not([data-theme])` fallback is in charge…
@@ -226,7 +245,10 @@ test('keyboard tab path: skip link → logo → nav links → toggle → hero ac
     banner.getByRole('link', { name: 'About', exact: true }),
     page.locator('[data-theme-toggle]'),
     page.getByRole('link', { name: 'Start with lesson 01', exact: true }),
-    page.getByRole('link', { name: 'See all 15 lessons', exact: true }),
+    // The count is derived from the published collection, so it is matched
+    // rather than spelled: a lesson added tomorrow must not fail a test about
+    // TAB ORDER.
+    page.getByRole('link', { name: /^Browse all \d+ courses$/ }),
   ];
 
   for (const stop of stops) {

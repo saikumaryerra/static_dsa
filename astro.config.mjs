@@ -69,6 +69,75 @@ if (site === SENTINEL && publisher) {
   );
 }
 
+/**
+ * Two things markdown emits that this site had no styling for, fixed at the tree
+ * rather than with CSS (course expansion, decision D-09).
+ *
+ * `<table>` — markdown emits a bare `<table>` with no wrapper, and Tailwind's
+ * preflight zeroes its padding and borders. Styling it needs a wrapper it can
+ * overflow inside, and the CSS-only shortcut (`display: block; overflow-x: auto`
+ * on the table itself) strips the table's semantics from the accessibility tree
+ * in Chrome and Firefox — a real regression traded for a scrollbar. So the table
+ * is wrapped here instead. `tabindex="0"` makes the scroll region reachable from
+ * the keyboard, which WCAG 2.1.1 requires of anything that scrolls and which is
+ * also what axe's `scrollable-region-focusable` rule checks.
+ *
+ * `<pre>` — a fenced code block had no padding, border, radius or `overflow-x`;
+ * only `<CodeTabs>`' own `<pre>` was ever styled, because the DSA lessons put
+ * every sample through it. A Kubernetes lesson is mostly single-language YAML,
+ * where the tab strip would be a control with one tab. The `md-code` class is
+ * what lets the stylesheet tell the two apart: component output never passes
+ * through rehype, so only a real markdown fence can carry it.
+ *
+ * Written as a local walker rather than with `unist-util-visit` because that
+ * would be a dependency, and spec §4 does not permit one for fifteen lines.
+ *
+ * @returns A rehype transformer.
+ */
+function rehypeLessonProse() {
+  /**
+   * @param {{ children?: unknown[] }} node - Any hast node.
+   * @returns {void}
+   */
+  function walk(node) {
+    const children = node.children;
+    if (!Array.isArray(children)) return;
+    for (let i = 0; i < children.length; i++) {
+      const child = /** @type {any} */ (children[i]);
+      if (!child || child.type !== 'element') {
+        walk(/** @type {any} */ (child ?? {}));
+        continue;
+      }
+      if (child.tagName === 'table') {
+        children[i] = {
+          type: 'element',
+          tagName: 'div',
+          properties: { className: ['table-scroll'], tabIndex: 0 },
+          children: [child],
+        };
+        walk(child);
+        continue;
+      }
+      if (child.tagName === 'pre') {
+        const properties = child.properties ?? (child.properties = {});
+        const existing = properties.className;
+        const className = Array.isArray(existing)
+          ? existing
+          : existing
+            ? [existing]
+            : [];
+        if (!className.includes('md-code')) className.push('md-code');
+        properties.className = className;
+        properties.tabIndex = 0;
+        // Do not descend: everything below is Shiki's highlight spans.
+        continue;
+      }
+      walk(child);
+    }
+  }
+  return (/** @type {any} */ tree) => walk(tree);
+}
+
 // https://astro.build/config
 export default defineConfig({
   site,
@@ -104,6 +173,10 @@ export default defineConfig({
     shikiConfig: {
       themes: { light: 'github-light', dark: 'github-dark-default' },
     },
+    // Runs after the tree is hast, so it sees Shiki's `<pre class="astro-code">`
+    // as well as an unhighlighted one; it appends `md-code` either way rather
+    // than depending on which. See `rehypeLessonProse` above.
+    rehypePlugins: [rehypeLessonProse],
   },
   vite: {
     // D2 (plan §4.2, requirement R3). MEASURED, and it corrects the plan: §3

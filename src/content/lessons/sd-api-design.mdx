@@ -1,0 +1,260 @@
+---
+title: 'API Design and Data Modelling'
+slug: 'sd-api-design'
+course: 'system-design'
+track: 'sd-edge'
+order: 13
+summary: 'The contract outlives the implementation, which is why the API comes before the schema. Entities, idempotent writes, pagination that survives inserts, and versioning you can afford.'
+difficulty: 'intermediate'
+prerequisites: ['sd-design-workflow', 'sd-idempotency-and-backpressure']
+estimatedMinutes: 9
+tags:
+  ['system-design', 'api-design', 'data-modeling', 'pagination', 'versioning']
+explainPrompt: 'Why does designing the API before the schema produce a different data model than designing the schema first?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Argue why the API is designed before the schema, not after.
+- Pick entities that survive a redesign, and spot the ones that will not.
+- Make an unsafe operation safe to retry, and a list endpoint safe to paginate.
+- Choose a versioning strategy you can afford to keep running.
+
+## Intuition
+
+**The contract outlives the implementation.** You can replace a database this
+quarter and nobody outside your team notices; a field you shipped in a response
+runs in somebody else's code for years. That asymmetry is the whole argument for
+the ordering [the design workflow](/learn/sd-design-workflow/) uses at steps 4 to
+6: entities, then API, then storage.
+
+Design the schema first and the API becomes a window onto the tables: endpoints
+mirror the join structure, a client makes four calls to render one screen, and a
+column rename is a breaking change because the API never had a boundary of its
+own. Design the API first and the pressure runs the other way — writing
+`GET /feed` forces you to say what ordering means, and _that_ tells you which
+index must exist. The API is a promise; the schema is a technique for keeping it.
+
+**Entities are the nouns with an identity somebody can refer to**, a lifecycle,
+and a reason to be linked to. The common mistakes are modelling a screen (a
+`Dashboard`) or a verb (a `Refresh`), both of which evaporate the first time the
+product changes.
+
+## How it works
+
+Take a Spotify-like service, as a teaching assumption to keep this concrete.
+Start with the nouns: `User`, `Artist`, `Album`, `Track`, `Playlist`,
+`PlaylistItem`, `Follow`. The interesting one is `PlaylistItem`: it looks like a
+relationship between a playlist and a track, but it carries data of its own —
+position, who added it, when — and anything that carries data is an entity, not a
+join. Missing that is the most common modelling error in this kind of product.
+
+Then write the endpoints a client actually needs, before any table exists:
+
+```http
+GET    /v1/playlists/pl_8f21
+PATCH  /v1/playlists/pl_8f21
+POST   /v1/playlists
+GET    /v1/playlists/pl_8f21/items?limit=50&cursor=b3JkPTEyMA
+POST   /v1/playlists/pl_8f21/items
+DELETE /v1/playlists/pl_8f21/items/it_44c9
+```
+
+Nouns, not verbs; the HTTP method carries the action. Keep the hierarchy shallow,
+because every path segment promises a containment you may want to change —
+`/playlists/{id}/items` is fine, four levels of nesting is a migration waiting to
+happen. Return ids as opaque strings rather than database sequence numbers, which
+are enumerable and leak your row count. Timestamps in UTC, money as integer minor
+units, and an enum wherever a boolean would need a third value later.
+
+**Unsafe operations need an idempotency contract, in writing.**
+[Idempotency and retries](/learn/sd-idempotency-and-backpressure/) covers the
+mechanism; the API-design half is publishing the guarantee. Document that
+`POST /v1/payments` accepts an `Idempotency-Key`, that a repeat with the same key
+returns the original response rather than acting again, how long keys are
+retained, and what a mismatched body does. An undocumented idempotency key is one
+a client cannot rely on, which is the same as not having one.
+
+<Callout variant="warning">
+  **Offset pagination breaks whenever the list changes underneath it**, which for
+  most feeds is constantly.
+
+A client reads `LIMIT 20 OFFSET 0`, someone inserts a row at the top, and the
+client reads `LIMIT 20 OFFSET 20`. Every row has shifted down one, so the last
+row of page 1 is now the first row of page 2 and the reader sees it twice; a
+deletion loses a row the same way. Deep offsets are also slow — the database
+walks every skipped row before discarding it — so `OFFSET 100000` costs a
+hundred thousand rows of work to return twenty.
+
+</Callout>
+
+Cursor — or keyset — pagination fixes both by asking for rows _after a position_
+rather than _after a count_:
+
+```sql
+SELECT id, added_at
+FROM playlist_items
+WHERE playlist_id = $1
+  AND (added_at, id) < ($2, $3)
+ORDER BY added_at DESC, id DESC
+LIMIT 20;
+```
+
+The tuple comparison makes the ordering total: `added_at` alone has ties, and a
+tie at a page boundary is exactly where a row goes missing, so the id is the
+tie-breaker. The cursor handed to the client encodes that pair opaquely, so you
+can change its contents later. Note what has happened — the API decided the
+schema, because this query is only fast with an index on
+`(playlist_id, added_at DESC, id DESC)`. That is step 5 constraining step 6.
+
+The costs: there is no "jump to page 7", and the sort order is fixed by the
+index. Offset remains reasonable for small, stable, admin-facing lists. Either
+way, **cap `limit` server-side** — a client that asks for 100,000 rows should get
+the maximum, not the request.
+
+**Versioning is about what you can afford to keep running.** Additive changes — a
+new optional field, endpoint or enum value — break nobody, provided the contract
+says clients must ignore fields they do not recognise. Write that rule down
+before relying on it; it is not true by default. Removals, renames and changes of
+meaning are breaking, and need a version.
+
+Three strategies, in order of cost. **Additive evolution** costs nothing and
+handles most change. **A URL prefix** (`/v1/`) is explicit, cache-friendly and
+trivial to route. **A header** keeps URLs stable at the price of being invisible in
+a browser. Whichever you choose, version the whole API rather than per endpoint,
+and remember that every live version is an implementation you maintain.
+
+Finally, the shapes clients depend on. Errors carry a stable machine-readable
+code alongside the human message, so a client can branch on `rate_limited`
+without matching on prose:
+
+```json
+{
+  "error": "playlist_not_found",
+  "message": "No playlist with id pl_8f21.",
+  "request_id": "req_0d7a91"
+}
+```
+
+Only then does data modelling follow: an entity at a time, a store chosen for its
+access pattern, and the indexes the endpoints above already demanded. Which
+store, and when to denormalise, belongs to the databases module. On protocol,
+REST over HTTP is the default here; gRPC suits internal service-to-service calls,
+and GraphQL moves query shaping to the client in exchange for a much harder
+caching and cost story.
+
+## Trade-offs
+
+**Fine-grained against coarse resources.** Small resources are clean and make
+clients chatty — a mobile screen assembled from six calls pays six round trips.
+Embedding related data fixes that and couples the client to a shape you now
+cannot change. Field selection (`?fields=`) is the middle, and it fragments your
+[cache keys](/learn/sd-caching/), since every field set is a different key.
+
+**Every field is a permanent cost.** Adding one is cheap and removing one needs a
+version, so a response returning "everything that might be useful" has quietly
+committed you to all of it.
+
+**Versions multiply maintenance.** Two live versions means every bug fixed twice,
+for as long as one client remains.
+
+**When REST is the wrong shape.** Long-running work does not fit a request and a
+response: return `202` with a job resource the client polls, or push the result
+onto a queue. Bulk operations and high-frequency internal calls are better served
+by a batch endpoint or a streaming protocol than by a thousand polite requests.
+
+## Common pitfalls
+
+- **Endpoints that mirror tables.** Tempting because a framework generates them
+  in an afternoon; it makes every schema change a client release.
+- **Verbs in paths.** `/getUser`, `/updateUserV2` — a private convention a client
+  must learn, where the method was already standard.
+- **Uncapped list endpoints.** No maximum page size means one client can ask for
+  the whole table and take the service down politely.
+- **Offset pagination on a changing list.** Tempting because it is one line of
+  SQL, and it silently duplicates and drops rows.
+- **Booleans that want to be enums.** `is_public` costs the same as `visibility`
+  today and cannot express the third state tomorrow.
+- **Calling a rename "a small fix".** It is a breaking change wearing a patch
+  label, found later by someone else's users.
+
+## Interview notes
+
+Write four or five endpoints on the board before you draw any boxes. It takes two
+minutes and settles arguments that would otherwise surface an hour later — what a
+feed is ordered by, whether a follow is a resource, what a client sends to create
+something.
+
+Then say two things unprompted: how the list endpoints paginate, and how the
+unsafe ones behave when the client retries. Those are the two places production
+APIs actually break.
+
+## Key takeaways
+
+- **The contract outlives the implementation**, so the API is designed before the
+  schema — and its access patterns are what the schema must serve.
+- **An entity has an identity, a lifecycle and something worth linking to.** A
+  join that carries data is an entity too.
+- **Document the idempotency contract**, not only the header: what a repeat
+  returns, how long keys live, what a mismatched body does.
+- **Cursor pagination survives inserts and deep pages; offset does not.** The
+  cursor needs a total ordering — a tie-breaker column, and an index.
+- **Additive change plus "ignore unknown fields" avoids most versioning.** Every
+  live version is an implementation you maintain.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A team modelled the schema first and generated one CRUD endpoint set per table. The mobile app now makes five calls to render one screen, and last month's column rename required a client release. Name the two costs precisely, and say what designing the API first would have changed.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The first cost is chattiness: the endpoints are shaped like storage rather
+  than like use, so the client reassembles a screen from five round trips and
+  pays the slowest of them on every load. The second is the missing boundary —
+  with endpoints generated from tables, the table *is* the contract, so a rename
+  propagates straight through to every client, and the team has lost the freedom
+  to change storage that the API was supposed to protect. Designing the API
+  first would have started from "what does this screen need in one request",
+  producing a resource that serves that need and a stable field name over
+  whatever the column is called. The schema would then be judged on whether it
+  can answer that request efficiently, which is a question with an answer,
+  rather than the API being judged on whether it resembles the schema.
+</PracticeCheck>
+
+**2. A feed endpoint uses `LIMIT 20 OFFSET n`. Users report occasionally seeing the same post twice while scrolling, and the endpoint gets slower the further they scroll. Explain both symptoms and give a fix, including what it requires from the database.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Both come from paginating by *count* rather than by *position*. New posts
+  arrive between requests, so every existing row shifts down; the row that was
+  number 20 on page one becomes number 21 and reappears at the top of page two.
+  (A deletion has the mirror effect and drops a row.) The slowness is that the
+  database must produce and discard the first `n` rows before it can return the
+  twenty you asked for, so page 500 costs a hundred times page 5. The fix is
+  cursor pagination: the client sends the sort key of the last row it saw and
+  the query asks for rows strictly after that position. It requires a total
+  ordering — the sort column plus a unique tie-breaker such as the id, compared
+  as a tuple — and an index on exactly that ordering, or the database is back to
+  scanning.
+</PracticeCheck>
+
+**3. A resource returns `is_public: true`. Product now wants a third state, "unlisted": reachable by link, hidden from search. What is the additive path, what does it cost, and what would have avoided the situation?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The additive path is to add a new field, `visibility`, taking `public`,
+  `unlisted` or `private`, and to keep populating `is_public` for existing
+  clients by mapping both `unlisted` and `private` to `false`. Old clients keep
+  working with a slightly lossy view; new clients read the richer field. The
+  cost is that one truth now has two representations, which must stay
+  consistent, and the write path is genuinely ambiguous: a client that sets
+  `is_public: true` on a resource that is currently unlisted is expressing an
+  intent the old field cannot carry, so you must define that behaviour and
+  document it. `is_public` can then be deprecated with a date and removed only
+  in a new version. What would have avoided it is modelling the field as an enum
+  from the start — `visibility: "public" | "private"` costs the same to build as
+  a boolean and has room for a value nobody has thought of yet.
+</PracticeCheck>

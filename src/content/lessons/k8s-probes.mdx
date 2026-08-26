@@ -1,0 +1,247 @@
+---
+title: 'Liveness, Readiness and Startup Probes'
+slug: 'k8s-probes'
+course: 'kubernetes'
+track: 'k8s-reliability'
+order: 31
+summary: 'Three probes answer three different questions — send traffic here, restart this container, and has it finished booting — and the most damaging mistake in Kubernetes is answering the second one with a check on somebody else.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-pods', 'k8s-services']
+estimatedMinutes: 10
+tags: ['kubernetes', 'reliability', 'probes', 'health']
+explainPrompt: 'Why does a liveness probe that checks the database turn one slow query into a cluster-wide restart storm?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Match each of the three probes to the question it answers and the action it
+  triggers.
+- Configure a startup probe so a slow boot does not fight a tight liveness check.
+- Explain the restart storm a dependency-checking liveness probe causes.
+
+## Intuition
+
+"Is it healthy?" is not one question, and the single biggest source of
+self-inflicted outages in Kubernetes is treating it as one.
+
+**Three probes, three questions, three different actions.**
+
+- **Readiness** — _should traffic come here right now?_ A failure marks the
+  Pod's endpoint `ready: false`, so it stops receiving traffic. The container
+  keeps running, and the moment the probe passes again the Pod is back in the
+  rotation.
+- **Liveness** — _is this process wedged so badly that only a restart will help?_
+  A failure kills the container. There is no gentler outcome available.
+- **Startup** — _has it finished booting?_ While it is running, the other two are
+  suspended, and once it passes it does not run again for the life of that
+  container — a restart starts it over.
+
+Readiness is reversible and cheap. Liveness is destructive and irreversible: the
+process and everything in its memory are gone. That asymmetry should decide what
+you are willing to put in each one. A readiness probe may ask a question with a
+complicated answer. A liveness probe should ask the narrowest question that
+still distinguishes "wedged" from "busy", because a wrong answer costs you the
+container.
+
+## How it works
+
+All three probes share the same handlers and the same timing fields:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: api
+spec:
+  containers:
+    - name: api
+      image: ghcr.io/shop/api:2.3.0
+      ports:
+        - containerPort: 8080
+      startupProbe:
+        httpGet:
+          path: /healthz
+          port: 8080
+        periodSeconds: 5
+        failureThreshold: 30
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 8080
+        periodSeconds: 5
+        timeoutSeconds: 3
+        failureThreshold: 2
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: 8080
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+```
+
+The handler is `httpGet` (any 2xx or 3xx passes), `tcpSocket` (the connection
+opens), `exec` (the command exits zero) or `grpc`. The timing fields are
+`initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`, `successThreshold` and
+`failureThreshold` — and their defaults matter more than most documentation
+suggests. `periodSeconds` is 10, `failureThreshold` is 3, and `timeoutSeconds`
+is **1**. A probe endpoint that answers in 1.2 seconds under load is a failing
+probe, and the application looks fine to every other client.
+
+**The startup probe exists to end a specific argument.** Without it, a
+slow-booting service forces a choice: a long `initialDelaySeconds` on liveness,
+which means a wedged container is not noticed for two minutes for ever after, or
+a short one, which means the container is killed while it is still loading. The
+startup probe separates the two budgets. Above, boot has
+`failureThreshold: 30` × `periodSeconds: 5` = 150 seconds; the moment it
+succeeds, liveness takes over with its own tight 30-second budget, and the
+readiness probe begins deciding traffic.
+
+```bash
+kubectl describe pod api
+kubectl get pod api -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
+kubectl logs api --previous
+```
+
+`kubectl describe pod` is where a failure states itself, in the events:
+`Liveness probe failed: HTTP probe failed with statuscode: 500`, or
+`Readiness probe failed: Get "http://10.1.0.9:8080/ready": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`.
+The second of those is a timeout, which is a different bug from a 500.
+
+**Readiness is part of your routing, not only your rollout.** A Pod whose
+readiness probe fails has its `Ready` condition set false; its endpoint stays in
+the EndpointSlice with `conditions.ready: false`, and kube-proxy forwards only to
+ready endpoints. It is also what makes a rolling update meaningful — a new Pod
+counts as available only when it reports ready.
+
+<Callout variant="warning">
+  **Never let a liveness probe check a dependency.** Point `/healthz` at the
+  database and the failure mode is this: the database gets slow, every replica's
+  probe times out at the same moment, the kubelet kills every container in the
+  fleet, all of them restart at once, all of them reconnect at once, and the
+  database — already struggling — is now serving a connection storm from a
+  service with a cold cache. One degraded dependency has become a total outage
+  that continues after the dependency recovers. A liveness probe should be
+  answered by the process itself, from memory, with no network call in it.
+</Callout>
+
+A readiness probe that checks a dependency is a milder version of the same trap,
+and sometimes the right choice. If it fails everywhere at once, every endpoint
+flips to `ready: false` and the Service has no ready endpoints, so callers get
+refused connections rather than degraded answers. Nothing restarts, so it
+recovers on its own — but you have still turned "slow" into "down". The usual
+compromise is to check a dependency once during start-up, where being
+unavailable is honest, and afterwards serve what you can and return errors for
+what you cannot.
+
+**Probes and init containers.** A plain init container cannot carry probes at
+all; a native sidecar can, and its readiness contributes to the Pod's —
+[the sidecar lesson](/learn/k8s-init-and-sidecar-containers/) has the detail.
+
+## Trade-offs
+
+**A liveness probe is worth less than most teams assume.** A crashed process is
+already restarted by `restartPolicy`; liveness only adds value for a process
+that is _running and stuck_ — a deadlock, an exhausted thread pool, an event
+loop that stopped turning. If your application does not have that failure mode,
+a liveness probe is a mechanism that can only misfire. Plenty of production
+services run with readiness and startup probes and no liveness probe at all,
+deliberately.
+
+**A cheap probe endpoint can be too cheap.** `tcpSocket` on the serving port
+proves a socket is open, which a wedged process often still manages. An HTTP
+handler that returns 200 unconditionally proves the HTTP server is turning,
+which is usually the honest thing a liveness probe can prove — and that is the
+point, not a weakness.
+
+**Every probe costs a request per period per replica.** A probe endpoint that
+runs a real health check across five subsystems, at five-second periods across
+forty replicas, is meaningful background load — and it is load that spikes at
+exactly the moment the system is in trouble.
+
+## Common pitfalls
+
+- **One endpoint serving both liveness and readiness.** It is tempting because
+  the code is written once, and it silently gives your liveness probe whatever
+  dependency checks readiness needed.
+- **Leaving `timeoutSeconds` at its default of 1.** The value is invisible until
+  a p99 crosses it, and then a healthy service restarts itself under load.
+- **Tuning `initialDelaySeconds` upwards to survive a slow boot.** Every second
+  added is a second of delay before a genuinely wedged container is caught,
+  for the whole life of the workload. That is what the startup probe replaces.
+- **A `failureThreshold` of 1 on liveness.** A garbage-collection pause or one
+  dropped packet now restarts the container.
+- **No readiness probe on a rolling update.** "Ready" then means "the process
+  started", so a Deployment replaces every Pod with a version that has not
+  finished loading. The rollout completing in five seconds is the symptom.
+
+## Key takeaways
+
+- **Readiness controls traffic, liveness controls the container's life, startup
+  buys boot time** — and while a startup probe is running, the other two are
+  suspended.
+- A failing readiness probe marks the Pod's endpoint `ready: false` so it stops
+  receiving traffic, and is **fully reversible**; a failing liveness probe
+  **kills the container**.
+- **A liveness probe must not check a dependency.** It converts one slow
+  dependency into a synchronised, cluster-wide restart storm.
+- The defaults are `periodSeconds: 10`, `failureThreshold: 3` and
+  **`timeoutSeconds: 1`** — the last one is the trap.
+- A liveness probe is only useful for a process that is **running and stuck**;
+  crashes are already handled by `restartPolicy`.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A service uses the same `/healthz` handler for liveness and readiness, and that handler runs `SELECT 1` against the database. The database slows to 3-second queries. Trace what happens to a twenty-replica Deployment.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Both probes start failing on all twenty replicas at once, because they all
+  depend on the same slow thing. Readiness failing flips every Pod's endpoint to
+  `conditions.ready: false`, so the Service has no _ready_ endpoints and callers
+  get refused connections rather than slow responses. Liveness failing is the
+  expensive half: after its failure threshold the kubelet kills each container,
+  and since all twenty crossed the threshold together they restart together —
+  twenty cold processes, twenty connection pools re-established at the same
+  instant, against a database that was already the bottleneck. The outage now
+  outlives the original slowdown, and repeats as the restarted Pods fail their
+  probes again. The repair is to split the two: liveness answers from the
+  process with no network call, readiness may consider the database if you
+  accept losing every ready endpoint when it is down.
+</PracticeCheck>
+
+**2. A container takes about 90 seconds to load its model into memory. It is being restarted repeatedly and never serves a request. What is happening, and which fields do you change?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The liveness probe is winning the race against the boot. With the defaults it
+  begins probing almost immediately and gives up after three failures ten
+  seconds apart, so the container is killed around the 30-second mark, restarts,
+  and repeats — a loop where the work never gets far enough to answer. Raising
+  `initialDelaySeconds` on liveness would fix the boot and permanently blunt the
+  probe, since that delay then applies to every restart for the life of the
+  workload. The right change is a startup probe with a budget that covers the
+  boot, such as `periodSeconds: 10` and `failureThreshold: 15` for 150 seconds.
+  Liveness and readiness are suspended until it passes, and then run with their
+  own tight thresholds against a process that is genuinely up.
+</PracticeCheck>
+
+**3. A colleague proposes removing the liveness probe from a stateless HTTP service, keeping readiness and startup. Argue both sides.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  For: a crashed or exited process is already restarted by `restartPolicy`
+  without any probe, so liveness only adds value for a process that is running
+  but stuck — a deadlock, an exhausted connection pool, a loop that stopped
+  turning. If the service has no such failure mode, the probe can only misfire,
+  and every misfire is a container killed under exactly the load that caused the
+  timeout. Against: those wedged states do happen in real services, and without
+  liveness a stuck replica sits there indefinitely; readiness removes it from
+  traffic, so nobody is being served errors, but the replica is also never
+  recovered and your capacity quietly drops. A reasonable settlement is to keep
+  liveness, make its check purely local, and set generous thresholds so it fires
+  for a genuinely wedged process and not for a slow one.
+</PracticeCheck>

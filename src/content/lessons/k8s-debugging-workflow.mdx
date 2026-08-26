@@ -1,0 +1,317 @@
+---
+title: 'A Systematic Debugging Workflow'
+slug: 'k8s-debugging-workflow'
+course: 'kubernetes'
+track: 'k8s-troubleshooting'
+order: 59
+summary: 'One order of commands for every broken workload — get, describe, events, logs, exec — because a Pod is built in that order and the first handover that failed is the only one worth reading.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-logs-and-events', 'k8s-pods']
+estimatedMinutes: 11
+tags: ['kubernetes', 'troubleshooting', 'kubectl', 'debugging']
+explainPrompt: 'Why does one fixed order of commands work for every broken workload, whatever the failure turns out to be?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Run one fixed order of commands — get, describe, events, logs, exec — against any broken workload.
+- Say what question each command answers, and when reaching for it wastes your time.
+- Reach a container two other ways when `kubectl exec` cannot help: an ephemeral debug container and `port-forward`.
+- Capture the evidence before a fix destroys it.
+
+## Intuition
+
+Every failure arrives as the same sentence: it is not working. The tempting
+response is to open the application log, which is frequently empty, because the
+container it belongs to never started.
+
+**Getting a Pod running is a relay, and debugging is finding the runner who
+dropped the baton.** The API server accepts your object. A controller creates a
+Pod from the template. The scheduler picks a node. That node's kubelet pulls the
+image. The runtime starts a process. Probes decide the Pod is ready. The
+endpoints controller puts its address behind a Service. Seven handovers in that
+order, every time — and a failure at the third makes every one after it look
+broken too.
+
+That is why the order of commands is fixed rather than clever. Each rung reads a
+later part of the relay than the one before it, so you walk down until you find
+the first thing that did not happen. Everything below that point is a
+consequence rather than a cause, and reading it produces confident wrong
+conclusions.
+
+The workflow also replaces the habit that hides evidence. Deleting a Pod or
+restarting a Deployment sometimes clears the symptom, and it always destroys the
+restart count, the previous container's log and the last exit code — the three
+facts that would have told you what happened.
+
+<Callout variant="note">
+  Read before you change. Every command up to and including `kubectl logs` is
+  read-only, and a full pass takes under a minute. `exec` and the two `kubectl
+  debug` forms are not: `debug` either appends an ephemeral container to the
+  Pod, which nothing can remove, or creates a copy you have to delete. A fix
+  applied before the read is a guess whose result you cannot interpret: if the
+  symptom clears you do not know what cleared it, and if it does not, you have
+  added an unknown.
+</Callout>
+
+## How it works
+
+### 1. `kubectl get` — where has it stopped?
+
+```bash
+kubectl get pods -n shop -o wide
+kubectl get deploy,rs,svc -n shop
+```
+
+```text
+NAME       READY   STATUS             RESTARTS      AGE     IP           NODE     NOMINATED NODE   READINESS GATES
+badimage   0/1     ImagePullBackOff   0             21s     10.42.0.41   node-a   <none>           <none>
+bigpod     0/1     Pending            0             21s     <none>       <none>   <none>           <none>
+crashy     0/1     CrashLoopBackOff   4 (75s ago)   2m57s   10.42.0.42   node-a   <none>           <none>
+```
+
+Four columns carry most of the diagnosis. `STATUS` names the stage that is stuck.
+`READY` counts containers passing readiness, so `0/1 Running` is a live process
+that readiness is refusing — a different problem from `0/1 Pending`. `RESTARTS`
+with a recent timestamp says the container has been alive and has died since.
+And `-o wide` adds `NODE`: **an empty node column means the scheduler never
+placed the Pod**, so no kubelet has been asked to do anything and there is no
+image, volume, container or log yet. The two columns it adds after that,
+`NOMINATED NODE` and `READINESS GATES`, read `<none>` on almost every Pod you
+will ever look at; the first fills in only when preemption has picked a victim.
+
+Use `get` on the controller too — a Deployment's `READY`, `UP-TO-DATE` and
+`AVAILABLE` columns say whether you are looking at a workload that is down or one
+that is refusing to change. What `get` cannot do is explain: it gives you the
+stage, never the reason.
+
+### 2. `kubectl describe` — the object's own account
+
+```bash
+kubectl describe pod crashy -n shop
+```
+
+```text
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Wed, 26 Aug 2026 10:26:12 +0530
+      Finished:     Wed, 26 Aug 2026 10:26:14 +0530
+    Ready:          False
+    Restart Count:  4
+```
+
+`describe` renders the object's status as text: conditions, each container's
+current state, its **last** state with an exit code, the volumes it mounted, and
+that object's events at the bottom. The `Last State` block is the one people
+miss, and it is often the whole answer — exit code 1 with two seconds between
+`Started` and `Finished` is an application rejecting its own configuration, found
+without reading a log.
+
+Describe the object the message is about, which is not always the one you were
+watching: when a ReplicaSet is being refused, there is no Pod to describe and the
+explanation sits on the ReplicaSet.
+
+### 3. Events — the cluster's account
+
+`describe` shows the events for one object. The events API shows them for the
+whole namespace, which is what you want when you do not yet know which object is
+at fault:
+
+```bash
+kubectl events -n shop
+kubectl events --for pod/crashy -n shop
+kubectl get events -n shop --field-selector reason=FailedScheduling
+```
+
+```text
+LAST SEEN   TYPE      REASON             OBJECT         MESSAGE
+39s         Warning   FailedScheduling   pod/bigpod     0/1 nodes are available: 1 Insufficient cpu.
+25s         Warning   Failed             pod/badimage   Error: ErrImagePull
+12s         Warning   BackOff            pod/crashy     Back-off restarting failed container crashy in pod crashy_shop(0f3a1c7e-5b42-4d19-9a86-2c7d5e1b4f60)
+```
+
+Reach for `kubectl events` rather than `kubectl get events`, whose default
+listing is not chronological and whose usual repair is not either.
+`--sort-by=.lastTimestamp` misplaces exactly the events you most want in order:
+the scheduler writes through the `events.k8s.io` API, and those records carry no
+`lastTimestamp` at all, so they sort as though they had no time. `kubectl events`
+orders on a field that is always set. Keep `kubectl get events` for
+`--field-selector`, where `--sort-by=.metadata.creationTimestamp` is the ordering
+that works. And as
+[Logs and Events](/learn/k8s-logs-and-events/) established, events expire after
+roughly an hour, so this is the rung that goes missing overnight. When they are
+gone, the object's own status still holds the restart count and the last exit
+code, which is why rung 2 outlives rung 3.
+
+### 4. `kubectl logs` — the application's account
+
+```bash
+kubectl logs crashy -n shop --previous
+kubectl logs -l app=web -n shop --prefix --tail=50 --since=10m
+```
+
+Logs are worth reading only once a container has started at least once. On a
+`Pending` Pod there is nothing to return, and on a Pod that has restarted, the
+running container started _after_ the failure — `--previous` reads the instance
+that died. Skipping this rung because the earlier ones said no container ever
+ran is the workflow working, not laziness.
+
+### 5. `kubectl exec` — asking the running process
+
+```bash
+kubectl exec -it web-69b5f85bdf-fx4kh -n shop -- sh
+kubectl exec web-69b5f85bdf-fx4kh -n shop -- cat /etc/app/config.yaml
+```
+
+`exec` answers questions about the container's world: is the ConfigMap mounted
+where the application expects, does the environment variable hold what you think,
+can this Pod reach that host. It cannot help with a container that is not running,
+and it fails on an image with no shell, which is most distroless images.
+
+**`kubectl debug` covers both of those cases.** It attaches an _ephemeral
+container_ to a running Pod, sharing the Pod's network namespace, so the tools
+come from your image rather than the application's:
+
+```bash
+kubectl debug -it web-69b5f85bdf-fx4kh -n shop --image=busybox:1.37 --target=web
+kubectl debug crashy -n shop -it --copy-to=crashy-debug --container=crashy -- sh
+```
+
+The first form is for a Pod that is running but opaque: `127.0.0.1` inside the
+ephemeral container is the same loopback the application binds to, so `netstat`
+and a local request test the process directly, and `--target` shares the named
+container's process namespace so `ps` shows its processes. The second makes a
+**copy** of a crash-looping Pod with the entrypoint replaced by a shell, so you
+can run the real command by hand and watch it fail. By default the copy does not
+keep the original's labels, so it receives no Service traffic — and nothing
+deletes it for you.
+
+### Reaching a Pod without the Service path
+
+```bash
+kubectl port-forward pod/web-69b5f85bdf-fx4kh -n shop 8080:80
+kubectl port-forward svc/web -n shop 8080:80
+```
+
+`port-forward` tunnels a local port to a Pod through the API server. Pointed at a
+Pod it bypasses cluster DNS, the ClusterIP and kube-proxy, which makes it the
+sharpest way to separate "the application is broken" from "the path to it is
+broken". That is also its limit: a `port-forward` that works proves nothing about
+the Service path a real client takes, and it is a debugging tool rather than a
+way to expose anything.
+
+## Trade-offs
+
+**Five rungs cost about a minute, and a guess costs more.** The workflow is
+slower than opening the log you already suspect, and it is right more often,
+mostly because rungs 1 and 2 keep saying the failure is upstream of where you
+were about to look. On the familiar failure you have met twenty times that
+overhead is real — and the twenty-first is the one that is different.
+
+**Diagnosis versus mitigation.** This workflow assumes you can afford to look.
+When customers are affected, mitigating first — roll back, scale up, fail over —
+is the right call, and it costs evidence: rolling back deletes the Pods, and with
+them the restart counts, the last exit codes and the previous containers' logs.
+The compromise is thirty seconds of capture into files first:
+
+```bash
+kubectl describe pod crashy -n shop > /tmp/crashy-describe.txt
+kubectl logs crashy -n shop --previous > /tmp/crashy-previous.log
+kubectl events -n shop > /tmp/shop-events.txt
+```
+
+**Metrics are an add-on, not a rung.** `kubectl top pods` needs metrics-server,
+which is installed in the cluster rather than shipped with it, and reports current usage rather than history: it answers
+"is this container near its limit right now" and nothing about last night.
+
+## Common pitfalls
+
+- **Deleting the Pod to see if that fixes it.** It often does, briefly, and it
+  removes the only record of what happened — and restarting a Deployment does
+  that to every replica at once.
+- **Opening the log first.** Half the failures in this module never produce a
+  log, so an empty one tells you nothing except that you started on rung 4.
+- **Reading the current container's log after a crash.** `--previous` is the
+  flag; without it you are reading the instance that started after the failure.
+- **Fixing the first reason in a multi-reason message.** A `FailedScheduling`
+  event counts nodes per reason, and clearing one can leave the Pod exactly as
+  `Pending` as it was.
+- **Changing two things at once.** Whatever happens next, you will not know which
+  change caused it.
+
+## Interview notes
+
+"A Pod is not working — what do you check?" is asking for this order. The answer
+that lands is the first rung with its reason attached: whether it has a node,
+because everything after that depends on it. Naming the split between the
+cluster's record and the application's record beats reciting flags, and saying
+you would capture evidence before rolling back marks you as someone who has been
+on call.
+
+## Key takeaways
+
+- Debugging follows the **order the cluster builds a Pod in** — get, describe,
+  events, logs, exec — and the first step that did not happen is the cause.
+- `kubectl get -o wide` **splits the problem in half**: an empty `NODE` column
+  means no kubelet was involved, so image, volume and log questions do not apply.
+- `describe` carries the two facts that outlive an event: the container's
+  **last state with its exit code**, and the restart count.
+- **Logs are rung 4 for a reason** — they exist only after a container has run,
+  and after a restart the failed instance is behind `--previous`.
+- `kubectl debug` reaches a Pod that `exec` cannot, and `port-forward` proves the
+  process while proving nothing about the Service path.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Pod has been `Pending` for ten minutes and its `NODE` column is empty. Which rungs of the workflow can you skip, and what is the one command that will contain the answer?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  An empty `NODE` column means the scheduler has not bound the Pod to a node, so
+  no kubelet has been told about it. Everything a kubelet does is therefore off
+  the table: no image was pulled, no volume was mounted, no container was
+  created, and no log exists — which makes rungs 4 and 5 pointless, and `exec`
+  impossible because there is no process to enter. The answer is in the
+  scheduler's own report, a `FailedScheduling` event, reachable either at the
+  bottom of `kubectl describe pod` or through `kubectl events`. Read the whole
+  message rather than its first clause: it counts nodes per rejection reason,
+  and there is usually more than one.
+</PracticeCheck>
+
+**2. `kubectl get pods` shows a Pod as `0/1 Running` with `RESTARTS 0`. What has that ruled out, and where do you go next?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  `Running` with zero restarts rules out the whole first half of the relay: it
+  was scheduled, the image pulled, the container started, and it has not died
+  once. So `Pending`, `ImagePullBackOff` and `CrashLoopBackOff` are all
+  excluded, and `--previous` has nothing to read because there is no previous
+  instance. What `0/1` says is that the readiness probe is failing, which is the
+  one remaining handover — the Pod is alive and has been kept out of its
+  Service's endpoints. Rung 2 has the reason: `describe` shows the readiness
+  probe's configuration and an `Unhealthy` event carrying the exact error the
+  kubelet got. Rung 4 is useful here for the first time in this module, because
+  there is a running container writing a log.
+</PracticeCheck>
+
+**3. Checkout is down, a release went out ten minutes ago, and rolling back would probably fix it. Where does this workflow fit?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Mitigation comes first — the premise is that customers are affected and you
+  have a fix with a known effect, so restoring service beats understanding it.
+  The problem is that rolling back deletes the new Pods and takes their restart
+  counts, last exit codes and container logs with them, and events age out
+  within the hour, so the incident review afterwards would have nothing to
+  review. Thirty seconds of capture buys both: redirect `kubectl describe pod`,
+  `kubectl logs --previous` and the namespace's events into files, then roll
+  back. Afterwards you run the same five rungs against the captured text instead
+  of the cluster, which is what the workflow is for — the order of questions
+  does not change when the evidence is a file.
+</PracticeCheck>

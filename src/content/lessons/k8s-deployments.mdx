@@ -1,0 +1,239 @@
+---
+title: 'Deployments and ReplicaSets'
+slug: 'k8s-deployments'
+course: 'kubernetes'
+track: 'k8s-workloads'
+order: 8
+summary: 'A Deployment is version control for a Pod template: each distinct template gets a ReplicaSet, and a rollout is the Deployment moving replicas from one of them to another while you watch.'
+difficulty: 'beginner'
+prerequisites: ['k8s-pods', 'k8s-labels-and-selectors']
+estimatedMinutes: 9
+tags: ['kubernetes', 'deployments', 'replicasets', 'rollout']
+explainPrompt: 'Why does a Deployment create a second ReplicaSet during a rollout instead of editing the one it already has?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Describe the Deployment, ReplicaSet and Pod ownership chain, and what each
+  level is responsible for.
+- Control a rolling update with `maxSurge`, `maxUnavailable` and readiness.
+- Read a stuck rollout from `kubectl get rs` and the Deployment conditions.
+- Say when a Deployment is the wrong object for the job.
+
+## Intuition
+
+A ReplicaSet answers one question: are there n Pods matching this selector? If
+there are too few it creates some, if there are too many it deletes some, and
+that is the entire job. It has no idea which version of your application it is holding, and it cannot
+change one.
+
+That leaves a gap, because the thing you actually do most often is change the
+Pod template. **A Deployment is version control for a Pod template.** Every
+distinct template it has ever been given gets its own ReplicaSet, and a rollout
+is the Deployment shifting replicas from the old ReplicaSet to the new one, a few
+at a time, while both exist. Roll back and it shifts them the other way.
+
+That gives you a three-level chain, and each level owns exactly one idea:
+the **Deployment** owns which template and how to move between templates, the
+**ReplicaSet** owns a count of Pods for one fixed template, and the **Pod** owns
+a running container. Nothing skips a level: the Deployment controller never
+creates a Pod.
+
+<Callout variant="note">
+  The two ReplicaSets never fight over each other's Pods, because the Deployment
+  controller adds a `pod-template-hash` label to each ReplicaSet's selector and
+  to the Pods it creates. Two revisions therefore have two different selectors,
+  even though everything you wrote about them is identical.
+</Callout>
+
+## How it works
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 4
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.29
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 5
+```
+
+**`maxSurge` and `maxUnavailable` are the rollout budget.** With the values
+above, the Deployment may run one extra Pod (five in total) and may never have
+fewer than four available, so it adds a new Pod, waits for it to be ready, then
+removes an old one — the safe and slightly more expensive shape. Set
+`maxUnavailable: 1, maxSurge: 0` instead and it does the reverse: remove first,
+then replace, using no extra capacity and running with less. Both accept
+percentages.
+
+**Readiness is what makes a rolling update meaningful.** A new Pod counts towards
+the available total only once it reports ready, and `minReadySeconds` makes it
+wait that long after readiness before counting. Without a readiness probe, "ready"
+means "the container process started", so a Deployment will cheerfully replace
+every Pod with a new version that has not yet loaded its configuration. Probes get
+a lesson of their own later in this course; for now, know that a rollout is only
+as careful as the probe it waits on.
+
+**A rollout starts only when `spec.template` changes.** Scaling does not create a
+revision, because the template is the same — the existing ReplicaSet gets a
+new number. Changing the image, the environment, the resource requests or a label
+inside the template does start one.
+
+```bash
+kubectl set image deployment/web web=nginx:1.29.1
+kubectl rollout status deployment/web --timeout=120s
+kubectl get rs -l app=web
+kubectl rollout history deployment/web
+kubectl rollout undo deployment/web --to-revision=2
+```
+
+`kubectl get rs` is the most direct view of a rollout in progress: both
+ReplicaSets, with their desired, current and ready counts, which is the
+arithmetic of the rollout. The old ReplicaSets are kept afterwards, scaled
+to zero, up to `revisionHistoryLimit` — ten by default. Those scaled-to-zero
+objects _are_ your rollback history; `kubectl rollout undo` scales one of them
+back up.
+
+If the new Pods never become ready, the rollout neither fails loudly nor undoes
+itself. After `progressDeadlineSeconds` — 600 by default — the
+Deployment sets its `Progressing` condition to false with the reason
+`ProgressDeadlineExceeded`, and stops. The old Pods are still serving — the point of the budget — and it waits there
+until someone acts.
+
+**The other strategy is `Recreate`:** every old Pod is deleted before any new one
+is created. It means downtime, and it is the correct choice when two versions
+cannot run at once — a single-writer process, an exclusive lock, an incompatible
+on-disk format.
+
+**About ReplicaSets directly.** You can create one; you almost never should. It
+has no rollout, no revision history and no `undo`, so a template change means
+deleting Pods yourself. Its one useful property is worth knowing, though: a
+ReplicaSet adopts any Pod that matches its selector and has no controller owner,
+which is why a hand-made Pod with the wrong labels can quietly become part of a
+workload and be deleted by it.
+
+## Trade-offs
+
+**When a Deployment is right.** Interchangeable replicas of a stateless process.
+If the Pods do not need to be told apart, this is the object.
+
+**When it is not.** If a replica needs a stable name, a stable address or its own
+volume, you want a [StatefulSet](/learn/k8s-statefulsets/). If you need one Pod
+per node rather than a count you choose, you want a DaemonSet. If the work ends,
+you want a Job — both of those are in
+[DaemonSets, Jobs and CronJobs](/learn/k8s-daemonsets-jobs-cronjobs/).
+
+**What a rolling update costs you.** During every rollout, two versions of your
+code run at the same time, against the same database and the same queues.
+Backwards compatibility between adjacent versions is not a nicety in this model;
+it is a requirement you have accepted by choosing rolling updates. A schema
+change that only the new version understands will fail for the old Pods that are
+still serving.
+
+**What the history does not include.** A revision is a Pod template. If your
+change was in a ConfigMap the template mounts, or in a database migration, then
+`kubectl rollout undo` restores the old template and leaves the rest of your
+change in place.
+
+## Common pitfalls
+
+- **Rolling out without a readiness probe.** Tempting because everything appears
+  to work: the rollout completes in seconds. It completed because nothing was
+  waiting for the application to be usable, and the fast rollout is the symptom.
+- **Using a mutable tag such as `latest`.** Pushing a new image does not change
+  the template, so applying the same manifest starts no rollout at all. Worse,
+  two Pods from one Deployment can end up running different code, depending on
+  when each pulled.
+- **`replicas: 1` with `maxUnavailable: 1`.** The arithmetic is legal and means
+  zero capacity during every rollout. Anything with a single replica has no safe
+  rolling update; the honest fix is a second replica.
+- **Editing the ReplicaSet.** Scaling or patching it works for a few seconds
+  until the Deployment controller reconciles and puts its own numbers back.
+- **Treating a stuck rollout as an outage.** With `maxUnavailable: 0`, a rollout
+  that cannot progress is holding your old version up, on purpose. Read `kubectl describe deployment web` and `kubectl get rs` first.
+
+## Key takeaways
+
+- The chain is **Deployment owns ReplicaSets owns Pods**, and each level owns one
+  idea: which template, how many, and the running container.
+- **A new revision is a new ReplicaSet**, distinguished by a `pod-template-hash`
+  label so two revisions never claim each other's Pods.
+- `maxSurge` and `maxUnavailable` set the rollout budget, and **readiness decides
+  when a new Pod counts** — a rollout is exactly as safe as its readiness probe.
+- **Scaling is not a rollout.** Only a change to `spec.template` creates a
+  revision.
+- A rollout that cannot finish **stops and waits** after
+  `progressDeadlineSeconds`; it never rolls itself back, and rollback restores
+  the template and nothing else.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You run `kubectl scale deployment web --replicas=8`. Does `kubectl rollout history` gain a revision? Why or why not?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  No. A revision is a distinct Pod template, and scaling does not touch the
+  template — the existing ReplicaSet gets a larger desired count, and the Pods
+  it creates are identical to the ones already running. This is also why rolling
+  back does not restore a replica count: `kubectl rollout undo` swaps which
+  ReplicaSet is scaled up, and the number of replicas is a property of the
+  Deployment you have changed separately. The rule to carry away is that history
+  tracks `spec.template` alone.
+</PracticeCheck>
+
+**2. A rollout has sat at "2 out of 4 updated" for fifteen minutes. Your users report no errors. What is happening, what do you look at, and will Kubernetes fix it?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  With `maxUnavailable: 0`, the Deployment will not remove an old Pod until a
+  new one is ready, so the old version is still serving all the traffic — that
+  is why nobody is seeing errors, and it is the budget working as designed. Look
+  at `kubectl get rs -l app=web` to see the two ReplicaSets and their ready
+  counts, then `kubectl describe pod` on one of the new Pods for the reason it
+  is not ready: a failing readiness probe, an image that will not pull, or a Pod
+  that cannot be scheduled. Kubernetes will not fix it and will not roll back on
+  its own; after `progressDeadlineSeconds` it records `ProgressDeadlineExceeded`
+  and stops, leaving the decision to you.
+</PracticeCheck>
+
+**3. Your Deployment uses `image: web:latest`. You build and push a new image with that tag and re-apply the same manifest. Nothing happens. Explain, and give two fixes.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The Deployment compares the template it stores with the template you applied,
+  and they are byte-for-byte identical — the string `web:latest` has not
+  changed, and Kubernetes does not know or care that the registry now resolves
+  it to different bytes. With no template change there is no new ReplicaSet and
+  no rollout. The durable fix is immutable tags: push `web:1.4.2` and change the
+  manifest, which makes the rollout explicit and makes rollback meaningful. The
+  workaround when you cannot do that is to force a template change, for example
+  `kubectl rollout restart deployment/web`, which stamps an annotation into the
+  template and starts a normal rolling update.
+</PracticeCheck>

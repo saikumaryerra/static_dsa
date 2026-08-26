@@ -1,0 +1,208 @@
+---
+title: 'ConfigMaps'
+slug: 'k8s-configmaps'
+course: 'kubernetes'
+track: 'k8s-config'
+order: 17
+summary: 'A ConfigMap is a namespaced bag of string keys the cluster stores for you — enough to get settings out of the image, and deliberately far less than a configuration service.'
+difficulty: 'beginner'
+prerequisites: ['k8s-objects-and-manifests', 'k8s-pods']
+estimatedMinutes: 8
+tags: ['kubernetes', 'configmaps', 'configuration']
+explainPrompt: 'Why is a ConfigMap deliberately just a map of strings rather than a typed, versioned configuration store?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a ConfigMap holds, and which two fields hold it.
+- Create one from literals, from a file, and from a manifest.
+- Name the guarantees a ConfigMap does not give you, and what covers each gap.
+
+## Intuition
+
+You have one image and three environments. Staging talks to a staging database
+and logs at debug; production talks to production and logs at info. If those
+values live in the image, changing a log level means a rebuild, and the artifact
+running in production is no longer the artifact you tested in staging.
+
+So the values have to come from outside the image. The question is what
+"outside" means, and the tempting answer is a configuration service — something
+with a schema, versions, a client library and a rollout mechanism. Kubernetes
+declines to build one.
+
+**A ConfigMap is a shared environment file the cluster happens to store.** That
+is the whole of it: a namespaced API object whose `data` field is a map of
+string to string. No types, no schema, no defaults, no version history, no
+client library, no notion of "which config is live". A number is a string. A
+whole file is a string with a longer value.
+
+The smallness is the point. Because it is an ordinary object, everything you
+already know applies to it with no new machinery: `kubectl get` reads it, RBAC
+guards it, namespaces scope it, labels select it, and the same repository and
+review process that ships your Deployment ships it too. A purpose-built
+configuration service would have needed its own answer to every one of those.
+
+<Callout variant="note">
+  A ConfigMap holds the settings. It says nothing about how a container sees
+  them — as environment variables, as files on disk, or not at all. That choice
+  lives in the Pod template, not here, and it is the subject of [Injecting
+  Configuration](/learn/k8s-injecting-configuration/).
+</Callout>
+
+## How it works
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+data:
+  LOG_LEVEL: 'info'
+  MAX_CONNECTIONS: '200'
+  app.properties: |
+    cache.ttl=300
+    feature.checkout.v2=true
+```
+
+Two shapes of key are on show, and Kubernetes does not distinguish them. The
+first two look like environment variables. The third looks like a filename and
+its value is a small file. Both are string keys with string values; the
+difference only starts to matter when you decide how to inject them.
+
+Note the quotes around `200`. The `data` field is a map of string to string, so
+an unquoted number is a YAML integer and the API server rejects the object
+outright. This is the single most common way a first ConfigMap fails to apply.
+
+The imperative equivalents are worth knowing, because they are how you build one
+from files you already have:
+
+```bash
+kubectl create configmap web-config \
+  --from-literal=LOG_LEVEL=info \
+  --from-file=app.properties
+kubectl get configmap web-config -o yaml
+kubectl describe configmap web-config
+```
+
+`--from-file` pointed at a single file uses the filename as the key and the
+file's contents as the value; pointed at a directory it does that for every file
+inside. `kubectl describe` then prints every key **and every value in full** —
+useful now, and the reason the next lesson exists.
+
+For bytes that are not valid UTF-8 — a certificate bundle, a small binary
+fixture — there is a second field, `binaryData`, whose values are base64. It is
+the same object with the same rules.
+
+**A ConfigMap has a hard size limit of 1 MiB**, because it is stored in etcd
+like every other object. Treat that as a ceiling and not a target: every node
+running a Pod that consumes the object fetches and holds a copy of it, so a
+large ConfigMap is a cost paid on every node, repeatedly.
+
+**A ConfigMap is namespaced, and there is no cross-namespace reference.** A Pod
+can only name a ConfigMap in its own namespace, and there is no cluster-scoped
+variant. Configuration shared by several namespaces is therefore _copied_, and
+doing the copying is a job for whatever renders your manifests — Kustomize and
+Helm both do it, and neither is part of Kubernetes.
+
+Finally, a ConfigMap can be marked `immutable: true`. That is not a small
+detail — it changes what the kubelet does and how you roll changes out — so it
+gets its own treatment two lessons from here.
+
+## Trade-offs
+
+**What you get.** One image promoted unchanged from staging to production, with
+the difference between the two expressed as data you can read, diff and review.
+Configuration lands in version control next to the Deployment that consumes it,
+so "what changed?" has an answer.
+
+**What it costs.** You now have two objects that can disagree. The Deployment
+expects a key the ConfigMap no longer has; the ConfigMap gains a key nothing
+reads. Nothing in Kubernetes checks the relationship, because nothing in
+Kubernetes knows there is one — the API server sees a map of strings, and your
+application sees a missing setting at three in the morning.
+
+**Where it stops.** Not for credentials: those want a
+[Secret](/learn/k8s-secrets/), for reasons the next lesson is honest about. Not
+for anything large. And not for anything that needs validation — if a wrong
+value is dangerous, the check belongs in the application's startup path, where
+it can refuse to serve, rather than in a hope that nobody mistypes.
+
+## Common pitfalls
+
+- **Unquoted numbers and booleans.** `replicas: 3` is correct everywhere else in
+  a manifest, so `PORT: 8080` inside `data` looks right. It is a YAML integer in
+  a field that only accepts strings, and the object is rejected.
+- **Assuming a ConfigMap change does something.** Editing the object updates the
+  object. It does not restart a Pod, does not roll a Deployment, and may not
+  reach a running container at all. That is the whole subject of the injection
+  lesson, and the assumption is the most expensive one in this module.
+- **Getting the namespace wrong.** A Pod referring to a ConfigMap that exists
+  one namespace over does not fail at apply time — it fails when the kubelet
+  tries to start the container, and the reason is in the Pod's events rather
+  than anywhere you were looking.
+- **Growing it into a data store.** A ConfigMap is a convenient place to put a
+  lookup table, and then a bigger one. Every consuming node holds a copy, every change
+  is a full rewrite of the object, and at 1 MiB it stops working with no warning
+  before the wall.
+- **Forgetting that its contents are readable.** `kubectl describe configmap`
+  prints values in full, and anyone with read access to the namespace can run
+  it. An internal hostname is fine there; an API token is not.
+
+## Key takeaways
+
+- A ConfigMap is a **namespaced map of string keys to string values**, stored in
+  etcd like any other object, with `binaryData` for bytes that are not UTF-8.
+- `data` accepts **strings only** — quote your numbers and booleans, or the
+  object will not apply.
+- It is capped at **1 MiB**, and every node running a consumer holds a copy.
+- It has **no schema, no versioning and no validation**. The relationship
+  between a ConfigMap and the workload that reads it is checked by nobody.
+- Its contents are **readable by anyone who can read the namespace**, which is
+  why credentials belong in a different object.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You add `TIMEOUT_SECONDS: 30` to a ConfigMap's `data` and `kubectl apply` rejects it. What is wrong, and why is `replicas: 3` fine unquoted?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  `data` is typed as a map of string to string, and `30` unquoted is a YAML
+  integer, so the value does not match the field's type and the API server
+  refuses the object. Quoting it — `TIMEOUT_SECONDS: '30'` — fixes it.
+  `replicas` is different because that field really is numeric: it is declared
+  as an integer, so an integer is exactly what it wants. The rule to carry away
+  is that a ConfigMap has no types of its own; every value is text, and
+  interpreting that text is your application's job.
+</PracticeCheck>
+
+**2. Two namespaces, `staging` and `production`, need the same 40-line ConfigMap. What are your options, and what does each cost?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  There is no option that avoids two objects: a Pod can only reference a
+  ConfigMap in its own namespace, and Kubernetes has no cluster-scoped ConfigMap
+  and no cross-namespace reference. So you either write the object twice —
+  honest, greppable, and guaranteed to drift the first time somebody edits one —
+  or you keep one source and let a templating layer emit both, which is what
+  Kustomize and Helm are for. The second costs you a build step and a tool that
+  is not part of Kubernetes; the first costs you a diff nobody runs. Most teams
+  take the build step precisely because the drift is silent.
+</PracticeCheck>
+
+**3. A colleague proposes moving a 3 MB country-and-postcode lookup table into a ConfigMap so the application can reload it without a rebuild. Give two reasons this does not work as described.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  First, it does not fit: a ConfigMap is capped at 1 MiB because it is an etcd
+  object, so 3 MB cannot be stored at all — and a table that grew to 900 KiB
+  would be worse, because it would work until it did not. Second, the reload is
+  not free even below the cap: every node running a consuming Pod holds its own
+  copy of the object, so the data is replicated across the cluster and every
+  edit rewrites the whole thing. The premise is reasonable — this data really
+  should not be baked into the image — but the answer is storage the application
+  reads at runtime, with the ConfigMap holding the address of that storage
+  rather than its contents.
+</PracticeCheck>
