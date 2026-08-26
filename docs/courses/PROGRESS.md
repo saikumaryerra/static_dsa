@@ -12,51 +12,50 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 | Phase | State |
 |---|---|
 | 0 — Recon and baseline | **done** (`b1c347c`) |
-| 1 — Vertical slice | **done** |
-| 2 — Curriculum, style guide, exemplars | **done** |
-| 3 — Content production | **in progress** — 66 of 112 written, 59 reviewed |
-| 4 — Diagrams | not started |
-| 5 — Integration polish | not started |
-| 6 — Verification gate | not started |
+| 1 — Vertical slice | **done** (`ae15428`) |
+| 2 — Curriculum, style guide, exemplars | **done** (`ae15428`) |
+| 3 — Content production | **done** — 112 of 112 written, reviewed and corrected (`d7e7438`..`0fca9f6`) |
+| 4 — Diagrams | **done** — 11 of 11 (`e134327`) |
+| 5 — Integration polish | **in progress** — glossary and the home CTA done; site-spec amendments running |
+| 6 — Verification gate | **in progress** |
 | 7 — Final report | not started |
 
-## Modules
+## Catalogue as built
 
-Full plan in `CURRICULUM.md` (23 modules, 112 new lessons).
+| | Courses | Modules | Lessons | Pages in `dist/` |
+|---|---|---|---|---|
+| Before | 1 | 6 | 15 | 26 |
+| Now | 3 | 29 | 127 | 135 |
 
-| State | Modules | Lessons |
-|---|---|---|
-| Reviewed, corrected, committed | 9 | 59 |
-| Committed, **review pending** | 5 | 22 |
-| Being authored now | 9 | 46 |
-
-The 22 review-pending lessons are `k8s-scheduling`, `k8s-reliability`,
-`k8s-security`, `k8s-observability` and `sd-async`. They validate and build, but no
-content-reviewer has been over them — treat every factual claim as unconfirmed until
-the review commit lands. Given that four wrong facts in this run came from
-`DECISIONS.md` and from briefs rather than from authors, that caveat is not a
-formality.
+The 112 new lessons are 67 Kubernetes (14 modules) and 45 System Design
+(9 modules). Full plan in `CURRICULUM.md`; every Appendix A/B topic maps to a
+lesson in `coverage.json`, which `validate:content --strict` enforces on CI.
 
 ## In progress
 
-A workflow (`course-content-completion`) is running all 14 outstanding modules
-through author → review → fix. The three case studies additionally get a second
-reviewer briefed **only** on the three-level labelling, per SPEC §10.
+Phase 6 is running in this order, because each step feeds the next:
 
-**Workflow state does not survive a restart.** If this session ends mid-run, re-derive
-the work list from `CURRICULUM.md` versus the files on disk — the same way
-`scripts` did — and re-dispatch. Nothing is lost but the run.
+1. Pre-flight greps — done. The two home-CTA regexes follow the new string; the
+   `home` **aria** baseline does not, and still asserts a link matching
+   `See all N lessons`, so it is a known red until re-seeded.
+2. `tests/e2e/courses.spec.ts` — the gate's own SPEC-8 requirements (three widths,
+   horizontal overflow, console errors, catalogue -> course -> module -> lesson,
+   diagrams present, axe) written **before** the full run, so one run validates it.
+3. Baselines. Pixel: re-seed all 14 in `playwright:v1.61.1-noble`; exactly six
+   PNGs should change (home x4 for the CTA, glossary x2 for the 35 new terms) and
+   any other change gets read before it is committed. Aria: `home` must be
+   re-seeded; `glossary` is stale-but-passing, because `toMatchAriaSnapshot`
+   matches a **subset** and 35 new terms are invisible to it.
+4. The full e2e suite, machine quiet, single stream. It has not run since the 112
+   lessons landed; the wall-clock is also the datum for the deferred CI
+   30-minute-ceiling question.
+5. The manual half: browser walk at 375/768/1280 with the console open, a
+   keyboard-only walk, and the rendered read of all 112 lessons.
 
-## Next actions
-
-1. **Phase 3 pilot.** Author `k8s-foundations` lessons 2–5 with one `lesson-author`
-   worker, review with `content-reviewer`, validate, commit. This is the one-module
-   pilot SPEC §10 rule 5 requires before any fan-out.
-2. **Phase 3 batch 1.** Fan out to at most 8 modules per batch (one worker per
-   module), drawing from both courses. Validate → review → update CURRICULUM.md,
-   coverage stays as-is (it already names every planned lesson) → commit per batch.
-3. **Phase 4.** The remaining 10 Appendix C diagrams, one subagent per diagram,
-   once their lessons exist. `K8sArchitecture` is the exemplar.
+Four background lanes precede step 4 and must all be finished before it starts —
+the rendered read (12 agents), the site-spec amendments, and the external link
+check. **Never run the e2e suite while subagents are running**; the run-1/run-2
+ledger below is what that rule was learnt from.
 
 ## Verification
 
@@ -102,11 +101,17 @@ on 4 cores turns any of these into a false red.
 
 ## Deferred to Phase 5 (integration polish)
 
-- Home's "See all N lessons →" now lands on a catalogue of courses — reword it,
-  and update the two test regexes that match the string.
-- Glossary terms for the new courses, pointing *at* lessons (decision D-12).
-- Watch CI's 30-minute ceiling as the per-lesson walks iterate 127 lessons.
-- `docs/site-spec.md` needs the amendments this expansion made to §5, §6, §7 and §8.
+- [x] Home's "See all N lessons" now reads "Browse all 3 courses" (`faa6b1b`); both
+      test regexes follow it. The `home` **aria baseline still does not** — that is
+      Phase 6 step 3, not this line.
+- [x] Glossary terms for the new courses, pointing *at* lessons (decision D-12) —
+      35 added in `3ec3702`, the existing 46 untouched.
+- [ ] `docs/site-spec.md` amendments to sections 5, 6, 7 and 8 — running.
+- [ ] Watch CI's 30-minute ceiling as the per-lesson walks iterate 127 lessons.
+      The Phase 6 e2e wall-clock is the datum.
+- [ ] Three validator warnings to settle before the report: `k8s-networking-model`
+      uses a ban-list word, and `sd-consistency-models` (1581) and
+      `sd-idempotency-and-backpressure` (1505) are over the 1500-word prose ceiling.
 
 ---
 
