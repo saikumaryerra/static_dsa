@@ -59,18 +59,45 @@ ledger below is what that rule was learnt from.
 
 ## Verification
 
-At commit `6a50deb`, on a quiet machine:
+### Manual gate (SPEC §8), verified by execution
+
+Headless Chromium against `astro preview` on the built `dist/`, machine quiet.
+
+| Check | Method | Result |
+|---|---|---|
+| Screenshot walk | 8 pages × 375/768/1280 light, 4 pages dark — 36 captures | ✅ no horizontal document overflow, no console or pageerror anywhere |
+| Screenshots read | catalogue, k8s course page, an sd lesson at 375 dark, the upload-pipeline figure at ×3 | ✅ one defect found and fixed (`f04504f`) |
+| Figure frames | `sd-youtube-upload-pipeline` at 375 / 1280 | ✅ 672 vs 341 → scrolls inside its own frame; 1150 vs 1150 at desktop; the page never scrolls |
+| Keyboard-only walk | Tab/Enter only, catalogue → card → course → lesson → breadcrumb → module anchor | ✅ every stop had a visible focus ring and non-zero size; skip link is the first stop; the figure frame takes focus |
+| External links | every external URL in `dist/`, fetched | ✅ 18 distinct, **0 broken**, and **0 of them navigable** — the artifact ships no outbound hyperlinks, which is what CONTENT_STYLE's "author and year, no URL" rule produces |
+| Rendered read | 12 agents, all 112 lessons as built HTML, in module order | ✅ 112/112 read, 0 incomplete; 60 findings — 0 blockers, 9 major, 51 minor |
+
+The rendered read is the one that paid. All nine majors were re-verified against
+source before being acted on and all nine were real, including a wrong claim
+about a security control (`k8s-network-policies` said a bare `podSelector`
+matches Pods "anywhere"; it is namespace-local, as the same page says twice
+elsewhere), a key takeaway re-teaching the misconception its own body had just
+killed, and a worked example whose step 4 read the exact bug the Callout above
+it had just named as healthy.
+
+It also exposed a hole in the validator: `## Interview notes` is optional per
+lesson, so nothing could see that System Design had adopted it in 39 of 45
+lessons while one whole module sat at 1 of 6. `conventionGaps()` now reports
+that cohort, and is the source of the remaining warnings.
+
+### Automated gate
 
 | Check | Command | Result |
 |---|---|---|
-| Build | `npm run build` | ✅ 26 pages, portablize clean |
+| Build | `npm run build` | ✅ 136 pages, 0 errors, portablize clean |
 | Lint | `npm run lint` | ✅ |
 | Format | `npm run format:check` | ✅ |
-| Unit | `npm run test` | ✅ 65 files / 1117 tests |
-| Validator | `npm run validate:content` | ✅ 17 lessons clean, 3 warnings, 187 coverage topics pending |
-| Fonts | `npm run fonts` | ✅ regenerates identically — 352 chars, 77,704 bytes, no new glyph from the two exemplars |
-| Visual baselines | re-seeded in `playwright:v1.61.1-noble`, then compared | ✅ 15 passed, 0 flaky |
-| E2E | `npm run test:e2e` | ⏳ run 3 pending; run 2 was 449 passed / 9 failed, all nine since fixed or classified |
+| Unit | `npm run test` | ✅ 65 files / 1119 tests (pre-cohort-rule count) |
+| Validator | `npm run validate:content` | ⏳ driving the cohort warnings to the accepted set |
+| Fonts | `npm run fonts` | ✅ regenerates identically |
+| Visual baselines | re-seed pending — **expect 10 of 14 to move**: home ×4 (CTA), glossary ×2 (35 terms), lesson-binary-search ×4 (the meta row lost "7 min read"). `learn-index` ×2 and `not-found` ×2 should not move; read either if it does. |
+| Aria baselines | re-seed pending — `home` and `lesson-binary-search` now FAIL (both pin strings this branch changed); `glossary` is stale-but-**passing**, because `toMatchAriaSnapshot` matches a subset and 35 new terms are invisible to it |
+| E2E | `npm run test:e2e` | ⏳ run 3 pending, after every agent has finished |
 
 ### The e2e failure ledger (runs 1 and 2)
 
