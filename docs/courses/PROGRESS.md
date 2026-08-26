@@ -14,7 +14,7 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 | 0 — Recon and baseline | **done** (`b1c347c`) |
 | 1 — Vertical slice | **done** |
 | 2 — Curriculum, style guide, exemplars | **done** |
-| 3 — Content production | **next** — 2 of 112 lessons written |
+| 3 — Content production | **in progress** — 66 of 112 written, 59 reviewed |
 | 4 — Diagrams | not started |
 | 5 — Integration polish | not started |
 | 6 — Verification gate | not started |
@@ -22,20 +22,30 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 
 ## Modules
 
-Full plan in `CURRICULUM.md` (23 modules, 112 lessons). `ok` = written, validated,
-reviewed and committed.
+Full plan in `CURRICULUM.md` (23 modules, 112 new lessons).
 
-| Course | Module | Lessons | Written | State |
-|---|---|---|---|---|
-| Kubernetes | 01 `k8s-foundations` | 5 | 1 | `k8s-what-kubernetes-is` is `ok` (exemplar) |
-| Kubernetes | 02–14 | 62 | 0 | — |
-| System Design | 01 `sd-foundations` | 4 | 1 | `sd-design-workflow` is `ok` (exemplar) |
-| System Design | 02–09 | 41 | 0 | — |
+| State | Modules | Lessons |
+|---|---|---|
+| Reviewed, corrected, committed | 9 | 59 |
+| Committed, **review pending** | 5 | 22 |
+| Being authored now | 9 | 46 |
+
+The 22 review-pending lessons are `k8s-scheduling`, `k8s-reliability`,
+`k8s-security`, `k8s-observability` and `sd-async`. They validate and build, but no
+content-reviewer has been over them — treat every factual claim as unconfirmed until
+the review commit lands. Given that four wrong facts in this run came from
+`DECISIONS.md` and from briefs rather than from authors, that caveat is not a
+formality.
 
 ## In progress
 
-Nothing half-written. Every file on the branch is finished and committed or is
-listed under "Next actions" as not started.
+A workflow (`course-content-completion`) is running all 14 outstanding modules
+through author → review → fix. The three case studies additionally get a second
+reviewer briefed **only** on the three-level labelling, per SPEC §10.
+
+**Workflow state does not survive a restart.** If this session ends mid-run, re-derive
+the work list from `CURRICULUM.md` versus the files on disk — the same way
+`scripts` did — and re-dispatch. Nothing is lost but the run.
 
 ## Next actions
 
