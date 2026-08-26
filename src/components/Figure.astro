@@ -157,10 +157,20 @@ const cap = Number.isFinite(naturalWidth) ? `${naturalWidth}px` : 'none';
     stroke-width: 2.5;
   }
 
-  /* A dashed container drawn AROUND a group of boxes (a node, a region, a VPC). */
+  /* A dashed container drawn AROUND a group of boxes (a node, a region, a VPC).
+
+     `--border-strong`, not `--border`. tokens.css annotates the two: `--border`
+     is "decorative separators only" at 1.36:1 on `--surface`, `--border-strong`
+     is "input borders, meaningful icons (>=3:1)" at 4.05:1. A group boundary is
+     the opposite of decorative — in the upload pipeline it is the line between
+     a video that is watchable and one that is not — so WCAG 1.4.11's 3:1 floor
+     for meaning-carrying non-text applies to it. axe cannot see this: it does
+     not evaluate SVG stroke contrast, so a green scan says nothing about it.
+     What keeps a group distinguishable from a connector is the DASH, not the
+     colour. */
   .figure :global(.dg-group) {
     fill: none;
-    stroke: var(--border);
+    stroke: var(--border-strong);
     stroke-width: 1.5;
     stroke-dasharray: 5 4;
     rx: 8;
@@ -183,7 +193,10 @@ const cap = Number.isFinite(naturalWidth) ? `${naturalWidth}px` : 'none';
      any geometric check, because nothing overlapped. A border encloses and a
      connector travels; they should not look the same. */
   .figure :global(.dg-line--soft) {
-    stroke: var(--border);
+    /* Weaker than the main flow, and said with the dash rather than with the
+       contrast — a read-through the reader cannot see is not a weaker
+       relationship, it is a missing one. Same 1.4.11 reasoning as `.dg-group`. */
+    stroke: var(--border-strong);
     stroke-dasharray: 2 3;
   }
 
@@ -193,7 +206,9 @@ const cap = Number.isFinite(naturalWidth) ? `${naturalWidth}px` : 'none';
   }
 
   .figure :global(.dg-head--soft) {
-    fill: var(--border);
+    /* The arrowhead of a soft connector. It carries the connector's DIRECTION,
+       which is the one thing a dash cannot say. */
+    fill: var(--border-strong);
   }
 
   /* Text. Sizes are viewBox units, so keep boxes small (see the `viewBox` prop). */

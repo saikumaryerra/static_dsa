@@ -126,11 +126,19 @@ const prerequisites = entry.data.prerequisites
 // completion count is computed from THIS list, never by enumerating
 // localStorage keys, so a renamed lesson's stale key can't inflate it.
 //
+// `ordered`, NOT `lessons` — this course's lessons, not the catalogue's. What
+// reads the list is `MarkComplete`, whose milestone sentence is "Course
+// complete — all N lessons done and practiced", and the course expansion briefly
+// made N the whole catalogue: a reader finishing all fifteen algorithm lessons
+// would have been told they had 112 to go, and every lesson page carried 27 KB
+// of a list it never used. The catalogue-wide list belongs on `/learn/`, which
+// injects it there for the cross-course resume CTA.
+//
 // `track` is load-bearing here, not decoration: M8.1's Quiet Milestone filters
 // this same list down to the lesson's own track inside `MarkComplete` (one
 // build-time `filter`, which is why no `trackSlugs` prop is threaded through the
 // layout). Dropping the field would silently retire the milestone.
-const lessonRefs: LessonRef[] = lessons.map((l) => ({
+const lessonRefs: LessonRef[] = ordered.map((l) => ({
   slug: l.data.slug,
   title: l.data.title,
   order: l.data.order,

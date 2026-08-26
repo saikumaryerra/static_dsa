@@ -14,7 +14,7 @@ How to build and deploy LearnDSA to production. The site is a **fully static, pr
 >
 > **Add `SITE_URL` as a build variable on the Worker — dashboard → your Worker → _Settings_ → _Build_ → _Build variables and secrets_ — set to the full deployment URL including any sub-path** (e.g. `https://learndsa.dev`). It is not optional and it is not a nicety:
 >
-> - **Without it the Workers Builds build FAILS.** `astro.config.mjs` throws when any of `CF_PAGES`, `WORKERS_CI`, `NETLIFY` or `VERCEL` is set and `SITE_URL` is not — by design, because the alternative is publishing 21 canonicals, 19 sitemap `<loc>`s and an OG card that all name a domain that cannot exist (§2.1). Workers Builds injects `WORKERS_CI`.
+> - **Without it the Workers Builds build FAILS.** `astro.config.mjs` throws when any of `CF_PAGES`, `WORKERS_CI`, `NETLIFY` or `VERCEL` is set and `SITE_URL` is not — by design, because the alternative is publishing 135 canonicals, 134 sitemap `<loc>`s and an OG card that all name a domain that cannot exist (§2.1). Workers Builds injects `WORKERS_CI`.
 > - **Build variables and runtime variables are different lists on Workers.** *Settings → Variables and Secrets* is the **runtime** list, and this site reads no variable at runtime — putting `SITE_URL` there leaves the build failing exactly as before. Unlike Pages, Workers does not share one set between build and runtime.
 > - **One value covers previews too.** `WORKERS_CI` is injected on non-production branch builds as well (they are off unless enabled in *Settings → Build → Branch control*), so the same build variable makes a preview canonicalize to production instead of competing with it in search.
 > - **Moving to a custom domain is now this one dashboard edit plus a redeploy** — there is no origin in the repo to update, and nothing to rebuild by hand.
@@ -119,7 +119,7 @@ npm run rehost https://sample.com/learndsa     # metadata + the 404's base path
 rehost — dist/ now names https://sample.com/learndsa (Plan D §4.3)
   135 metadata values stamped across 23 files (pages, sitemap.xml, robots.txt)
   404.html: 15 root-absolute links prefixed with /learndsa/ (§4.4)
-  clean: 0 https://learndsa.invalid left anywhere in dist/; 135 declared URLs across 21 pages + sitemap + robots, all under https://sample.com/learndsa/, 1 origin
+  clean: 0 https://learndsa.invalid left anywhere in dist/; declared URLs across 135 pages + sitemap + robots, all under https://sample.com/learndsa/, 1 origin
 ```
 
 Four things to know about it:
@@ -293,9 +293,10 @@ dist/
 │                               because a 404 is not a page with an address. The one
 │                               document whose links stay root-absolute (§2.2)
 ├─ about/index.html  glossary/index.html  learn/index.html
-├─ learn/<slug>/index.html      × 15 lessons
+├─ learn/<course>/index.html    × 3 courses
+├─ learn/<slug>/index.html      × 127 lessons
 ├─ dev/renderers/index.html     dev-only gallery — prod-gated, noindex, no renderer JS
-├─ sitemap.xml  robots.txt      19 <loc> entries: 4 static routes + 15 lessons, every one slashed
+├─ sitemap.xml  robots.txt      134 <loc>: 4 static + 3 courses + 127 lessons, every one slashed
 ├─ favicon.svg  favicon-32.png  apple-touch-icon.png
 ├─ og-default.png  og-source.svg
 ├─ fonts/                       the two committed IBM Plex subsets, preloaded by BaseLayout
@@ -323,8 +324,8 @@ grep -o '<meta name="robots"[^>]*>' dist/404.html dist/dev/renderers/index.html
 # No runtime network calls anywhere in the shipped JS (spec §4). Expect no output.
 grep -rlE '\bfetch\(|XMLHttpRequest|navigator\.sendBeacon' dist/_astro/
 
-# Sitemap: 19 URLs, all on your origin, and NO /dev/renderers entry.
-grep -c '<loc>' dist/sitemap.xml && grep -c 'dev/renderers' dist/sitemap.xml   # → 19, then 0
+# Sitemap: 134 URLs, all on your origin, and NO /dev/renderers entry.
+grep -c '<loc>' dist/sitemap.xml && grep -c 'dev/renderers' dist/sitemap.xml   # → 134, then 0
 ```
 
 > **The URL shape needs no grep here** — `tests/e2e/url-shape.spec.ts` (part of `npm run test:e2e`, §3.1) asserts it against the running preview: every page's canonical and `og:url` match the URL it is served at, every `<loc>` returns 200 with no redirect hop, and no built page links to a slashless page URL. A missing trailing slash is a red suite, not a manual check.
@@ -640,7 +641,7 @@ The e2e suite already proves the behavior against a local build; this list is fo
 
 - [ ] **No sentinel survived.** `curl -s https://your-domain/ | grep -c learndsa.invalid` → **0**, and the same for `/sitemap.xml`. One `curl` is the whole check, and it is the first thing to run: a page full of `https://learndsa.invalid` looks perfect to a reader and tells every crawler the site lives at a domain that cannot exist (§2.1).
 - [ ] **Canonical/OG name the deployment — sub-path included:** view-source on the home + a lesson → `<link rel="canonical">`, `og:url` and `og:image` all carry your domain **and, if you deployed under a sub-path, the sub-path**. "Right origin, missing sub-path" is the failure worth looking for; it is the one an origin-only glance cannot see. (The *path* half — canonical == the URL it was served at — is already covered by `url-shape.spec.ts`; only the deployment URL is deploy-specific.)
-- [ ] **Sitemap:** `https://your-domain/sitemap.xml` lists **19 URLs** — 4 static routes + 15 lessons — every `<loc>` under your deployment URL, **trailing-slashed** (`/learn/binary-search/`), and **no `/dev/renderers`**. Click one: it must return 200 directly, not a redirect.
+- [ ] **Sitemap:** `https://your-domain/sitemap.xml` lists **134 URLs** — 4 static routes, 3 course pages and 127 lessons — every `<loc>` under your deployment URL, **trailing-slashed** (`/learn/binary-search/`), and **no `/dev/renderers`**. Click one: it must return 200 directly, not a redirect.
 - [ ] **Robots:** `https://your-domain/robots.txt` → `Allow: /` plus a `Sitemap:` line on your domain. **On a sub-path deployment, skip this and submit the sitemap by hand** — the file is only read at the origin root, so yours is never fetched (§2.4).
 - [ ] **404:** a bad URL serves the friendly page and it carries `<meta name="robots" content="noindex">`. `/dev/renderers` does too. **On a sub-path deployment, click the 404's links** — its stylesheet, its fonts and its way back into the site are root-absolute by design and must all carry the base path (§2.2). An unstyled 404 whose links leave the deployment means the artifact was never stamped with the sub-path.
 - [ ] **A sub-path deployment actually navigates.** Load the home page, click through to `/learn/`, open a lesson, use the visualizer. Then check DevTools → Network for 404s: a stylesheet, font or lazily imported chunk requested at the wrong path does not throw — it fails quietly and the page merely looks wrong. (This is the one class of defect the build cannot see, which is why `tests/e2e/portable.spec.ts` watches the network rather than the DOM.)
@@ -701,7 +702,7 @@ Every deploy is an immutable static bundle, so rollback is instant and total —
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| A build **fails** with `SITE_URL is not set on a … build` (the platform is named: Cloudflare Workers Builds, Cloudflare Pages, Netlify or Vercel) | Working as designed (§2.1). The alternative is publishing 21 canonicals and 19 `<loc>`s naming a domain that cannot exist | Add `SITE_URL` = the full deployment URL as a **build** variable and retry. On Workers Builds that is *your Worker → Settings → Build → Build variables and secrets* — **not** *Settings → Variables and Secrets*, which is the runtime list and does not reach the build. On Pages, both the Production and Preview environments. This is the mandatory dashboard setting in the callout at the top of this document. |
+| A build **fails** with `SITE_URL is not set on a … build` (the platform is named: Cloudflare Workers Builds, Cloudflare Pages, Netlify or Vercel) | Working as designed (§2.1). The alternative is publishing 135 canonicals and 134 `<loc>`s naming a domain that cannot exist | Add `SITE_URL` = the full deployment URL as a **build** variable and retry. On Workers Builds that is *your Worker → Settings → Build → Build variables and secrets* — **not** *Settings → Variables and Secrets*, which is the runtime list and does not reach the build. On Pages, both the Production and Preview environments. This is the mandatory dashboard setting in the callout at the top of this document. |
 | A Cloudflare build fails with `client/404.html is not a directory-format page` | `wrangler deploy` **auto-configured the project**: with no Wrangler config in the repo it detects Astro, installs the `@astrojs/cloudflare` adapter and rewrites `astro.config.mjs`, and the adapter moves the static output to `dist/client/`. The thrown message says so — it appends "The `client/` prefix means an Astro adapter has moved the build into `dist/client/` — see wrangler.jsonc, and do not add an adapter (spec §4)." | Restore `wrangler.jsonc` (§4.3) — its presence is what suppresses auto-configuration — and revert whatever the run added: the `@astrojs/cloudflare` dependency, the `adapter`/`output` edits to `astro.config.mjs`, the generated package scripts and `.gitignore` lines. This site has no server; the adapter is forbidden by spec §4. |
 | A deployed Cloudflare Worker answers a bad URL with a bare 404 instead of the site's 404 page | `assets.not_found_handling` is missing from `wrangler.jsonc`. Workers does **not** infer it the way Pages did — the default is `none` | Restore `"not_found_handling": "404-page"` (§4.3). `dist/404.html` is built on every run; without that line nothing ever serves it. |
 | Canonical/OG/sitemap show `https://learndsa.invalid` in production | The sentinel shipped: `SITE_URL` was unset on a host **outside** the guard's list of four — GitHub Actions above all, or a plain host that was never stamped (§2.1) | Set `SITE_URL` for that host (§4.4/§5.3) and redeploy. For an artifact you cannot rebuild, `npm run rehost <url>` stamps it in place (§2.1 B). |
@@ -739,7 +740,7 @@ Every deploy is an immutable static bundle, so rollback is instant and total —
 - **Single build-time input:** **`SITE_URL`** — the full deployment URL, sub-path included — read in `astro.config.mjs` with no fallback chain. Unset, the build carries the sentinel `https://learndsa.invalid` (RFC 2606, can never resolve); unset on a **publishing builder** (`CF_PAGES`, `WORKERS_CI`, `NETLIFY` or `VERCEL` present) the build **throws**, naming the platform. `npm run rehost <url>` stamps a built `dist/` for hosts with no build step. Every declared URL is joined by `src/lib/deployment-url.ts` — never `new URL()`, which discards a sub-path (§2.1).
 - **`base` is never set** — sub-path hosting comes from the post-build relative pass, and `base` would not deliver it (§2.2). `dist/404.html` is the one document that keeps root-absolute links, prefixed with the deployment's base path by whichever stamping path knows it.
 - **Three limitations that ship with portability** (§2.4): a sub-path deployment's `robots.txt` is never read; `localStorage` is origin-scoped, so two deployments on one origin share progress; every deployment self-canonicalizes, so public mirrors compete in search.
-- **Pages built:** 21 — home, `/learn/`, `/glossary/`, `/about/`, 404, 15 lessons, and the prod-gated `/dev/renderers/`. **Sitemap:** 19 `<loc>` entries, all slashed (the 404 and the dev gallery are excluded and both carry `noindex`).
+- **Pages built:** 135 — home, `/learn/`, three course pages, `/glossary/`, `/about/`, 404, 127 lessons, and the prod-gated `/dev/renderers/`. **Sitemap:** 134 `<loc>` entries, all slashed (the 404 and the dev gallery are excluded and both carry `noindex`).
 - **SEO artifacts (auto-generated):** `dist/sitemap.xml`, `dist/robots.txt`, per-page canonical/OG/Twitter, `Course`/`WebSite` JSON-LD. **OG card:** `public/og-source.svg` + `public/og-default.png`, both regenerated by `npm run og` from `scripts/build-og.mjs` — never hand-edited (§2.3).
 - **Headers/caching:** `public/_headers` — security headers on `/*`, `immutable` on `/_astro/*`, 1-hour revalidating cache on the four unhashed root assets, host default on HTML. No CSP, for the reason in §6.
 - **JS budget:** ≤ 60 KB gz per page, **enforced** by `tests/e2e/js-budget.spec.ts`, which prints the per-page figure on every e2e run. Renderer/algorithm chunks are lazy-loaded per lesson. **No runtime network calls.**

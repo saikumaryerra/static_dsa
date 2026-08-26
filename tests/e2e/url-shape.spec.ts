@@ -33,6 +33,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { curriculum } from './utils/mastery';
 
 /** The built site. `import.meta.url` is `<repo>/tests/e2e/url-shape.spec.ts`. */
 const DIST = fileURLToPath(new URL('../../dist', import.meta.url));
@@ -152,6 +153,7 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
    * `astro preview`.
    */
   test('every sitemap <loc> is a URL the site actually serves', async ({
+    page,
     request,
   }) => {
     const sitemap = await request.get('/sitemap.xml');
@@ -160,10 +162,9 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
       .map((m) => m[1]!)
       .map((loc) => new URL(loc).pathname);
     // A sitemap that emitted nothing would otherwise satisfy every `for` below
-    // by never entering it, so the floor is what makes the loop meaningful. A
-    // hard count lived here and became a chore the moment a course was added;
-    // the ROUTES below are the claim worth pinning, and they are checked exactly.
-    expect(locs.length, 'sitemap entries').toBeGreaterThanOrEqual(20);
+    // by never entering it, so a non-empty sitemap is what makes the loop
+    // meaningful at all.
+    expect(locs.length, 'sitemap entries').toBeGreaterThan(0);
     // The non-lesson routes, exactly — a missing course page is a silent SEO
     // hole no floor would catch. Course pages share the `/learn/{segment}/`
     // shape with lessons, so they are named rather than pattern-matched.
@@ -177,6 +178,24 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
     );
     expect(new Set(staticLocs), 'static routes in the sitemap').toEqual(
       new Set(['/', '/learn/', '/glossary/', '/about/', ...COURSE_PATHS]),
+    );
+
+    // And the lessons, EXACTLY — the direction a count cannot assert.
+    //
+    // A hard `toBe(19)` used to live above ("4 static + 15 lessons"), and it
+    // did guarantee lesson completeness, by accident of arithmetic. It became a
+    // chore the moment a course was added, and relaxing it to a floor traded a
+    // real guarantee for convenience: with a floor, a lesson that never reached
+    // the sitemap is a silent SEO hole no assertion in this file would catch.
+    // Derived from the build-injected curriculum instead, so it is exact AND
+    // needs no maintenance — and `toEqual` on two Sets names the missing slug
+    // rather than an off-by-N.
+    const published = new Set(
+      (await curriculum(page)).map((lesson) => `/learn/${lesson.slug}/`),
+    );
+    const lessonLocs = new Set(locs.filter((p) => !staticLocs.includes(p)));
+    expect(lessonLocs, 'every published lesson is in the sitemap').toEqual(
+      published,
     );
 
     for (const path of locs) {
