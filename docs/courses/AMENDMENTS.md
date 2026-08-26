@@ -138,6 +138,47 @@ being reworded to cover courses it is not true of.
 
 ---
 
+## C-8 · The lesson header shows one time estimate when the second says nothing
+
+**Was** always two, side by side: `estimatedMinutes` from frontmatter as "N min
+lesson", and `readingTimeMinutes(entry.body)` as "M min read". The pair means "the
+whole lesson takes N, of which M is reading", which held for every lesson the site
+had — each one mounted a visualization, so the doing time was real and the numbers
+always differed. Binary Search still reads `10 min lesson · 6 min read`.
+
+**Now** the reading estimate renders only when it is *smaller* than the lesson
+estimate, and the estimator no longer counts MDX scaffolding.
+
+**Why.** A prose lesson mounts nothing, so the two computations converge and the
+header stops making sense. Measured across the 127 built pages: **46 rendered the
+same number twice**, and **19 rendered a reading time LONGER than the lesson time
+that is supposed to contain it**.
+
+Two changes, in that order:
+
+1. `src/lib/reading-time.ts` now strips `import`/`export` lines, component and HTML
+   tags, and `{expression}` braces before counting. The input is a raw MDX body, so
+   it arrived carrying markup nobody reads; on a lesson with three
+   `<PracticeCheck slug={frontmatter.slug} index={1} total={3}>` disclosures that was
+   worth a whole minute. This is an accuracy fix that stands on its own — it moved
+   Binary Search from 7 to 6 — and it took the contradictions from 19 to 14.
+2. `LessonLayout.astro` suppresses the reading item when it is not smaller. Sixty of
+   127 lessons now show one estimate; sixty-seven still show both, and in every one
+   of those the reading number is genuinely the lower.
+
+**The rejected alternative, and why it was rejected.** Redefine `estimatedMinutes` as
+`readingMinutes + 2..5` and re-derive it everywhere, so the containment holds by
+construction. It was measured before being rejected: **93 of 112 new lessons would
+have been restated 2–3 minutes longer**, inflating every lesson card and every course
+total, to satisfy a formula rather than a judgement about how long a lesson takes.
+A 1,800-word lesson does not become a twelve-minute lesson because an estimator says
+so. Suppressing a duplicate is the smaller and the truer change.
+
+**What it moves.** The `lesson-binary-search` aria baseline pins `7 min read` and must
+be re-seeded; the visual baseline for that page moves by a glyph.
+
+---
+
 ## Not reopened, and why
 
 - **Trace-then-render (§11).** The new courses mount no visualizer; the pipeline is

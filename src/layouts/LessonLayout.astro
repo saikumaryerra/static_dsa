@@ -148,24 +148,54 @@ const explainPrompt = entry.data.explainPrompt;
               </svg>
               {estimatedMinutes} min lesson
             </span>
-            <span aria-hidden="true" class="lesson__dot">·</span>
-            <span class="lesson__meta-item">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-              </svg>
-              {readingMinutes} min read
-            </span>
+            {
+              /* The reading estimate, shown ONLY when it is smaller than the
+                 lesson estimate — because the pair means "the whole lesson
+                 takes N, of which M is reading", and that sentence is only
+                 informative when M < N.
+
+                 The course expansion is what made the guard necessary. Every
+                 lesson used to carry a visualization, so the doing time was
+                 always real and the two numbers always differed (binary search
+                 still reads "10 min lesson · 7 min read"). A prose lesson has
+                 no visualization, so the two computations converge: 46 of 127
+                 lessons rendered the same number twice, and 14 rendered a
+                 READING time longer than the lesson time that is supposed to
+                 contain it — a header contradicting itself.
+
+                 The rejected alternative was to redefine `estimatedMinutes` as
+                 `readingMinutes + 2..5` and re-derive it for every lesson. It
+                 was measured: 93 of 112 lessons would have been restated 2-3
+                 minutes longer, inflating every course total, to satisfy a
+                 formula rather than a judgement about how long a lesson takes.
+                 Suppressing a duplicate is the smaller and truer change. */
+            }
+            {
+              readingMinutes < estimatedMinutes && (
+                <>
+                  <span aria-hidden="true" class="lesson__dot">
+                    ·
+                  </span>
+                  <span class="lesson__meta-item">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                    </svg>
+                    {readingMinutes} min read
+                  </span>
+                </>
+              )
+            }
 
             {
               /* Where this lesson stands, in the one progress currency (M8.1).
