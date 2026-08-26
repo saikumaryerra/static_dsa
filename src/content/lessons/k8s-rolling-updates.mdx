@@ -15,6 +15,7 @@ published: true
 
 import Callout from '../../components/Callout.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import K8sRolloutLifecycle from '../../components/diagrams/K8sRolloutLifecycle.astro';
 
 ## What you'll learn
 
@@ -94,6 +95,8 @@ Pod template, which is the closest thing to a diff you get.
 Old ReplicaSets are kept scaled to zero, up to `revisionHistoryLimit`, and those
 scaled-to-zero objects _are_ the history — set the limit to 0 and `undo` has
 nothing to go back to.
+
+<K8sRolloutLifecycle />
 
 **`kubectl rollout restart deployment/web`** stamps a timestamp annotation into
 the Pod template, which makes it a template change like any other and starts a

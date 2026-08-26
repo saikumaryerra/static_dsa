@@ -14,6 +14,7 @@ published: true
 ---
 
 import Callout from '../../components/Callout.astro';
+import MediaDeliveryComparison from '../../components/diagrams/MediaDeliveryComparison.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
 
 ## What you'll learn
@@ -86,6 +87,8 @@ both sides are large and, more importantly, _unbounded_. Uploads arrive at about
 thirty a second and never stop, so the catalogue grows daily, popularity is
 heavy-tailed, and moderation sits inside the publish path. Publish latency
 competes with encode quality here, the reverse of the streaming trade.
+
+<MediaDeliveryComparison />
 
 **Now read across the rows**, and notice they are not peers. Six are **given** —
 the product decides them and engineering inherits them: primary media, catalogue

@@ -1,0 +1,141 @@
+---
+/**
+ * The video delivery path: mezzanine master to screen, and the one decision
+ * left at play time (Appendix C, diagram 5).
+ *
+ * Supplies only the shapes; `Figure` owns the `<svg>`, the accessible name and
+ * description, the scroll frame and the caption. Every class comes from
+ * Figure's drawing kit, so nothing here states a colour and both themes and
+ * forced-colors mode come free.
+ *
+ * The claim the picture makes: the whole left half runs once, offline, and is
+ * finished before anyone presses play. That is why the CDN edge is the accent
+ * box — it is the boundary where a batch pipeline stops and per-viewer work
+ * starts, and everything to its right is the only part that runs 7.2 million
+ * times.
+ *
+ * LINE GRAMMAR: solid is bytes moving (each stage to the next, the edge to the
+ * player); soft dashed is the player's own adaptive-bitrate decision, which
+ * moves no bytes and reaches nothing but its own choice of rung. Dashed rather
+ * than merely paler so the distinction survives forced colours (spec §12).
+ *
+ * LAYOUT NOTE: six stages do not fit across 720 units, so the player drops
+ * below the edge rather than shrinking every box to fit — and that is what
+ * frees the empty band along the bottom for the feedback line, which runs left
+ * under everything and turns up into the ladder without crossing a box. The
+ * two solid drops off the edge are separated the same way: the manifest chain
+ * runs down at x=626 and the segment path bypasses it at x=698, clearing the
+ * manifest box's right edge by 14 units.
+ *
+ * TYPE TIERS: the five pipeline stages and the player are `.dg-label`; rungs
+ * and the manifest are `.dg-mono`, because a rung is a bitrate identifier and
+ * a manifest is a file; qualifying phrases and connector labels are `.dg-sub`.
+ */
+import Figure from '../Figure.astro';
+---
+
+<Figure
+  viewBox="0 0 720 376"
+  title="Video delivery path"
+  description="A left-to-right pipeline in five stages, with a sixth element below the right-hand end. On the far left a Mezzanine box, the studio master, sends an arrow rightward into a dashed group named Encode ladder holding four stacked rendition boxes: 1080p at 5800 kbps, 720p at 3000 kbps, 480p at 1200 kbps and 360p at 600 kbps. An arrow continues rightward from that group into a second dashed group named Package, drawn as a row of four identical small chunks and annotated 6 s segments, encrypted once. From there an arrow leads rightward to Origin, object storage, and a further arrow leads rightward to the highlighted CDN edge box, near the viewer. Three solid arrows follow. The first drops from the CDN edge into a small manifest box that lists the rungs, and is labelled fetched first. The second continues from that manifest box downward into the Player, on the client device. The third drops from the CDN edge straight down the right-hand side into the same Player, bypassing the manifest, and is labelled segments. Finally a dashed line leaves the left edge of the Player, runs leftward across the bottom of the drawing labelled buffer level and throughput, then turns upward and ends with an arrowhead pointing at the bottom of the Encode ladder, labelled chooses the next rung. That dashed line is the only connector that runs right to left, and it carries no bytes: nothing the player does reaches encoding, packaging or storage."
+  caption="Encoding and packaging happen once per title, long before anyone presses play; only the caches and the player run per viewer. That is why the one decision left at play time, which rung to fetch next, belongs to the client: it is the only party that can see its own buffer."
+  minWidth={640}
+>
+  <!-- The master: delivered by the studio, never delivered to anyone -->
+  <rect class="dg-box" x="8" y="94" width="108" height="68"></rect>
+  <text class="dg-label" x="62" y="122" text-anchor="middle">Mezzanine</text>
+  <text class="dg-sub" x="62" y="142" text-anchor="middle">studio master</text>
+
+  <line class="dg-line" x1="116" y1="128" x2="140" y2="128"></line>
+  <polygon class="dg-head" points="148,128 138,123 138,133"></polygon>
+
+  <!-- Encode: one master in, a ladder of rungs out -->
+  <rect class="dg-group" x="148" y="28" width="122" height="188"></rect>
+  <text class="dg-legend" x="156" y="48">Encode ladder</text>
+
+  <rect class="dg-box" x="160" y="56" width="98" height="30"></rect>
+  <text class="dg-mono" x="209" y="76" text-anchor="middle">1080p 5800k</text>
+
+  <rect class="dg-box" x="160" y="94" width="98" height="30"></rect>
+  <text class="dg-mono" x="209" y="114" text-anchor="middle">720p 3000k</text>
+
+  <rect class="dg-box" x="160" y="132" width="98" height="30"></rect>
+  <text class="dg-mono" x="209" y="152" text-anchor="middle">480p 1200k</text>
+
+  <rect class="dg-box" x="160" y="170" width="98" height="30"></rect>
+  <text class="dg-mono" x="209" y="190" text-anchor="middle">360p 600k</text>
+
+  <line class="dg-line" x1="270" y1="128" x2="294" y2="128"></line>
+  <polygon class="dg-head" points="302,128 292,123 292,133"></polygon>
+
+  <!-- Package: every rung cut to the same fixed duration -->
+  <rect class="dg-group" x="302" y="68" width="134" height="120"></rect>
+  <text class="dg-legend" x="310" y="88">Package</text>
+
+  <rect class="dg-box" x="315" y="102" width="22" height="22"></rect>
+  <rect class="dg-box" x="344" y="102" width="22" height="22"></rect>
+  <rect class="dg-box" x="373" y="102" width="22" height="22"></rect>
+  <rect class="dg-box" x="402" y="102" width="22" height="22"></rect>
+
+  <text class="dg-sub" x="369" y="146" text-anchor="middle">6 s segments</text>
+  <text class="dg-sub" x="369" y="166" text-anchor="middle">encrypted once</text
+  >
+
+  <line class="dg-line" x1="436" y1="128" x2="460" y2="128"></line>
+  <polygon class="dg-head" points="468,128 458,123 458,133"></polygon>
+
+  <!-- Origin -->
+  <rect class="dg-box" x="468" y="94" width="104" height="68"></rect>
+  <text class="dg-label" x="520" y="122" text-anchor="middle">Origin</text>
+  <text class="dg-sub" x="520" y="142" text-anchor="middle">object storage</text
+  >
+
+  <line class="dg-line" x1="572" y1="128" x2="596" y2="128"></line>
+  <polygon class="dg-head" points="604,128 594,123 594,133"></polygon>
+
+  <!-- The boundary: batch work stops here, per-viewer work starts -->
+  <rect class="dg-box dg-box--accent" x="604" y="94" width="108" height="68"
+  ></rect>
+  <text class="dg-label" x="658" y="122" text-anchor="middle">CDN edge</text>
+  <text class="dg-sub" x="658" y="142" text-anchor="middle"
+    >near the viewer</text
+  >
+
+  <!-- The manifest, and the segments that bypass it -->
+  <text class="dg-sub" x="614" y="190" text-anchor="end">fetched first</text>
+  <text class="dg-sub" x="688" y="190" text-anchor="end">segments</text>
+
+  <line class="dg-line" x1="626" y1="162" x2="626" y2="192"></line>
+  <polygon class="dg-head" points="626,200 621,190 631,190"></polygon>
+
+  <rect class="dg-box" x="568" y="200" width="116" height="44"></rect>
+  <text class="dg-mono" x="626" y="220" text-anchor="middle">manifest</text>
+  <text class="dg-sub" x="626" y="237" text-anchor="middle"
+    >lists the rungs</text
+  >
+
+  <line class="dg-line" x1="626" y1="244" x2="626" y2="290"></line>
+  <polygon class="dg-head" points="626,298 621,288 631,288"></polygon>
+
+  <line class="dg-line" x1="698" y1="162" x2="698" y2="290"></line>
+  <polygon class="dg-head" points="698,298 693,288 703,288"></polygon>
+
+  <!-- The player -->
+  <rect class="dg-box" x="528" y="298" width="184" height="68"></rect>
+  <text class="dg-label" x="620" y="326" text-anchor="middle">Player</text>
+  <text class="dg-sub" x="620" y="346" text-anchor="middle">
+    on the client device
+  </text>
+
+  <!-- Adaptive bitrate: no bytes, and it reaches only the ladder -->
+  <line class="dg-line dg-line--soft" x1="528" y1="332" x2="209" y2="332"
+  ></line>
+  <line class="dg-line dg-line--soft" x1="209" y1="332" x2="209" y2="224"
+  ></line>
+  <polygon class="dg-head dg-head--soft" points="209,216 204,226 214,226"
+  ></polygon>
+  <text class="dg-sub" x="368" y="324" text-anchor="middle">
+    buffer level and throughput
+  </text>
+  <text class="dg-sub" x="219" y="270">chooses the next rung</text>
+</Figure>

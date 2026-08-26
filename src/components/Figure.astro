@@ -176,9 +176,15 @@ const cap = Number.isFinite(naturalWidth) ? `${naturalWidth}px` : 'none';
     stroke-linecap: round;
   }
 
+  /* A FINER dash than `.dg-group`'s 5 4, deliberately. The two shared a stroke
+     colour and a dash pattern, so a soft connector running parallel to a region
+     border twenty units away was drawn with an identical signature and read as a
+     second, mis-drawn group rectangle — found by looking at a 6x zoom, not by
+     any geometric check, because nothing overlapped. A border encloses and a
+     connector travels; they should not look the same. */
   .figure :global(.dg-line--soft) {
     stroke: var(--border);
-    stroke-dasharray: 5 4;
+    stroke-dasharray: 2 3;
   }
 
   .figure :global(.dg-head) {

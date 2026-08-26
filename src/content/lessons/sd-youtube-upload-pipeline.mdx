@@ -15,6 +15,7 @@ published: true
 
 import Callout from '../../components/Callout.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import YouTubeUploadPipeline from '../../components/diagrams/YouTubeUploadPipeline.astro';
 
 ## What you'll learn
 
@@ -99,6 +100,8 @@ lets the fleet scale on queue depth rather than guesswork. Delivery is
 at-least-once, so every worker must be idempotent — keyed on
 `(video id, rendition)`, a redelivered message rewrites an identical object
 rather than creating a second.
+
+<YouTubeUploadPipeline />
 
 **4. Transcoding.** A source is split at keyframe boundaries into chunks of a few
 seconds, transcoded in parallel across many workers, and stitched into each

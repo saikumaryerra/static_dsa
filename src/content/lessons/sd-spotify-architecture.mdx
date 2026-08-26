@@ -15,6 +15,7 @@ published: true
 
 import Callout from '../../components/Callout.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import SpotifyArchitecture from '../../components/diagrams/SpotifyArchitecture.astro';
 
 ## What you'll learn
 
@@ -82,6 +83,8 @@ client -> CDN -> (on miss) object storage origin -> audio bytes
 client -> event ingestion -> partitioned log -> consumers (royalties,
           personalisation, analytics)
 ```
+
+<SpotifyArchitecture />
 
 Audio never passes through an application server. The playback service returns a
 URL and steps out of the way, which is why 230 Gbps of egress costs this design

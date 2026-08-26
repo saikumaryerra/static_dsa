@@ -15,6 +15,7 @@ published: true
 
 import Callout from '../../components/Callout.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import NetflixArchitecture from '../../components/diagrams/NetflixArchitecture.astro';
 
 ## What you'll learn
 
@@ -66,6 +67,8 @@ control plane
 data plane
   client -> CDN edge cache -> regional cache -> origin (object storage)
 ```
+
+<NetflixArchitecture />
 
 **The edge** terminates TLS, validates the authentication token, applies per-account
 rate limits and routes to a healthy region. It is a reverse proxy with a routing

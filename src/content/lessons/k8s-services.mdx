@@ -15,6 +15,7 @@ published: true
 
 import Callout from '../../components/Callout.astro';
 import PracticeCheck from '../../components/PracticeCheck.astro';
+import K8sRequestFlow from '../../components/diagrams/K8sRequestFlow.astro';
 
 ## What you'll learn
 
@@ -85,6 +86,8 @@ CNI plugin takes the job over entirely and kube-proxy is not running at all.
   job, and it is a separate system that fails separately. That split is the
   whole of the next lesson.
 </Callout>
+
+<K8sRequestFlow />
 
 **NodePort** keeps everything above and additionally opens the same port on
 every node in the cluster, from the range 30000–32767 by default:
