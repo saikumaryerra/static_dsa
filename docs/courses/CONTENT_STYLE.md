@@ -302,8 +302,10 @@ Every architectural statement carries one of three labels, in the prose itself:
    **Named academic and industry literature counts too**, cited the same way —
    author and year, no URL: Dean and Barroso's *The Tail at Scale* (CACM, 2013),
    Abadi's PACELC paper (2012), Terry et al. on session guarantees (1994),
-   Brewer's CAP conjecture and the Gilbert–Lynch proof (2002). Add to this list
-   when you cite something new, so the next author can reuse it.
+   Brewer's CAP conjecture and the Gilbert–Lynch proof (2002), Ongaro and
+   Ousterhout on Raft (2014), Burrows on Chubby (2006), Gray and Cheriton on
+   leases (1989), and Kleppmann on fencing tokens (2017). Add to this list when
+   you cite something new, so the next author can reuse it.
 2. **Generally accepted industry architecture** — the shape any team would
    arrive at, not a claim about one company.
 3. **A teaching assumption** — something we are choosing to keep the example

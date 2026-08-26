@@ -95,6 +95,9 @@ Lessons may state these; anything else version-specific must be re-verified befo
   `-o jsonpath='{.items[*].endpoints[*].conditions.ready}'`. The controller is
   `endpointslice-controller.k8s.io`; the separate `endpoint-controller` maintains the legacy
   `Endpoints` object, which is where the `notReadyAddresses` mental model comes from.
+- **Pod Security Admission: an unset `warn` level defaults to the `enforce` level**, so a
+  namespace labelled only for enforcement still warns at that level. Labelling nothing
+  exempts nothing — an unlabelled namespace simply has no policy applied.
 - **Headless is not a Service type.** `service.spec.type` is
   `ClusterIP | NodePort | LoadBalancer | ExternalName`; headless is `type: ClusterIP` with
   `clusterIP: None`.

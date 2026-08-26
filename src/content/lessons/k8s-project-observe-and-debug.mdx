@@ -54,7 +54,7 @@ kubectl get deploy,svc -n shop
 kubectl get pods -n shop -o wide
 kubectl get hpa web -n shop
 kubectl top pods -n shop
-kubectl get events -n shop --sort-by=.lastTimestamp
+kubectl get events -n shop --sort-by=.metadata.creationTimestamp
 ```
 
 Healthy means: each Deployment's `READY`, `UP-TO-DATE` and `AVAILABLE` all equal
@@ -141,7 +141,7 @@ proceeds on the kubelet's next attempt, with nothing else to do.
   the symptom and destroys the restart count, the previous container's log and
   the last exit code at the same time. Thirty seconds of `kubectl describe pod
   ... > file`, `kubectl logs ... --previous > file` and
-  `kubectl get events -n shop --sort-by=.lastTimestamp > file` is the difference
+  `kubectl get events -n shop --sort-by=.metadata.creationTimestamp > file` is the difference
   between a review with evidence and one with recollections.
 </Callout>
 

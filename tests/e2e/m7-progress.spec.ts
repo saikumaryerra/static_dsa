@@ -723,7 +723,7 @@ test.describe('JavaScript disabled', () => {
     // …and the index is still one link away for a reader who wants to choose.
     await linkTarget(
       page,
-      page.getByRole('link', { name: /^See all \d+ lessons$/ }),
+      page.getByRole('link', { name: /^Browse all \d+ courses$/ }),
     ).toBe(LEARN);
   });
 

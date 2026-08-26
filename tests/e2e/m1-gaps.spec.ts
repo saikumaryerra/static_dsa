@@ -248,7 +248,7 @@ test('keyboard tab path: skip link → logo → nav links → toggle → hero ac
     // The count is derived from the published collection, so it is matched
     // rather than spelled: a lesson added tomorrow must not fail a test about
     // TAB ORDER.
-    page.getByRole('link', { name: /^See all \d+ lessons$/ }),
+    page.getByRole('link', { name: /^Browse all \d+ courses$/ }),
   ];
 
   for (const stop of stops) {
