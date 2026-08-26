@@ -14,8 +14,8 @@ learned something — that never leaves your device.
 Built with Astro + TypeScript, prerendered to plain HTML/CSS with small islands of JS. No server, no
 database, no accounts, no analytics, no tracking. **All planned milestones (M1–M8) have shipped**,
 and the catalogue now holds three courses: Data Structures & Algorithms (15 lessons, built around
-the visualizations), Kubernetes, and System Design — the latter two prose and diagrams rather than
-instruments. See `docs/courses/SPEC.md` for that expansion.
+the visualizations), Kubernetes (67 lessons, 14 modules) and System Design (45 lessons, 9 modules) —
+the latter two prose and diagrams rather than instruments. See `docs/courses/SPEC.md` for that expansion.
 
 ## Quick start
 
