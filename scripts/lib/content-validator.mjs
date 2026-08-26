@@ -304,7 +304,10 @@ function fontCharset(root) {
     .split('\n')
     .find((l) => l.startsWith('export const FONT_CHARSET'));
   if (!line) return new Set();
-  const literal = line.slice(line.indexOf('=') + 1).trim().replace(/;$/, '');
+  const literal = line
+    .slice(line.indexOf('=') + 1)
+    .trim()
+    .replace(/;$/, '');
   try {
     return new Set(JSON.parse(literal));
   } catch {
