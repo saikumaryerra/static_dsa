@@ -1,0 +1,272 @@
+---
+title: 'Helm'
+slug: 'k8s-helm'
+course: 'kubernetes'
+track: 'k8s-delivery'
+order: 50
+summary: 'Helm is a text templating engine with a release ledger: it renders manifests on your machine and remembers the exact set it sent, which is what makes an upgrade a diff and a rollback a restore.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-objects-and-manifests', 'k8s-deployments']
+estimatedMinutes: 10
+tags: ['kubernetes', 'delivery', 'helm', 'packaging']
+explainPrompt: 'Why does rendering a chart as text make quoting a correctness problem rather than a style one?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a chart, a release and a values file each are, and which one the
+  cluster stores.
+- Read a chart somebody else wrote before you install it.
+- Decide when a templating language earns its cost and when it does not.
+
+## Intuition
+
+Helm is not part of Kubernetes. It is the ecosystem's package manager, and the
+cluster has no idea it exists: Helm renders templates into ordinary manifests on
+your machine and sends those to the API server, which sees the same objects you
+would have written by hand.
+
+**Helm is a text templating engine with a release ledger.** Those are two
+separate ideas and both matter. The templating half takes a directory of Go
+templates and a values file and produces YAML — text in, text out, which is why
+indentation is your problem and why a chart can produce a document that parses
+but has the wrong shape. The ledger half records the exact set of objects each
+revision of a release contained.
+
+The ledger is the part `kubectl apply` has no equivalent of. `apply` says "this
+object should look like this", one object at a time, and it has no memory of an
+object you removed from your directory yesterday. Helm says "this release
+consists of these objects", so an upgrade can compare two complete sets and
+delete what left, and a rollback can restore a set you have already seen work.
+That difference is most of what you are buying.
+
+## How it works
+
+### A chart is a directory
+
+```text
+web/
+|- Chart.yaml       name, chart version, appVersion, dependencies
+|- values.yaml      the defaults, and the chart's documented parameters
+|- templates/       Go templates, rendered to manifests
+|  |- deployment.yaml
+|  '- service.yaml
+'- charts/          dependency charts, vendored here
+```
+
+```yaml
+apiVersion: v2
+name: web
+description: The shop web front end
+type: application
+version: 1.4.2
+appVersion: '1.4.2'
+```
+
+`version` is the chart's own version and `appVersion` is the version of the
+software it installs. They move on different schedules — a fix to a template
+bumps the first and not the second — and conflating them is the most common
+bug in a chart that anybody else uses.
+
+`values.yaml` is the parameter surface, and it is the chart's real API:
+
+```yaml
+image:
+  repository: ghcr.io/shop/web
+  tag: '1.4.2'
+logLevel: warn
+```
+
+A template reads those through `.Values`, along with `.Release` for the install's
+name and namespace and `.Chart` for the metadata above:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: '{{ .Release.Name }}-web'
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+    spec:
+      containers:
+        - name: web
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
+          env:
+            - name: LOG_LEVEL
+              value: '{{ .Values.logLevel }}'
+```
+
+<Callout variant="warning">
+  Because rendering is text substitution, YAML's type rules are yours to manage.
+  An unquoted `tag: 1.10` in a values file is the number 1.1, and the manifest
+  will pull `web:1.1`. Quote every version-shaped value, and remember the
+  reverse: quoting a numeric field renders `replicas: "3"`, which the API server
+  rejects outright.
+</Callout>
+
+### A release is what the cluster remembers
+
+Installing a chart creates a _release_ — a named instance in a namespace. Helm 3
+stores each revision of it, by default, as a Secret in that namespace, of type
+`helm.sh/release.v1`, holding the rendered manifest. That is the ledger, and it
+explains several behaviours at once: `helm history` works without contacting the
+chart source, `helm rollback` can restore a revision nobody has a copy of, and
+deleting the namespace destroys the release history along with the workload.
+
+```bash
+helm show values ./web
+helm template web-prod ./web -f values-production.yaml | kubectl diff -f -
+helm upgrade --install web-prod ./web -f values-production.yaml \
+  -n shop --create-namespace --atomic --timeout 5m
+helm history web-prod -n shop
+helm rollback web-prod 3 -n shop
+```
+
+`--atomic` is the flag that makes a pipeline honest: it waits for the resources
+to become ready and rolls the release back if they do not, so a failed rollout
+is a failed command rather than a green one. Without it, `helm upgrade` returns
+as soon as the objects are accepted — the same trap as a pipeline that ends at
+`kubectl apply`.
+
+### Reading a chart you did not write
+
+Four commands, in this order, before you install anything.
+
+`helm show chart ./web` prints the metadata and the dependency list, which tells
+you what else is about to be installed. `helm show values ./web` prints the
+defaults — every knob the author intended you to turn, and the only honest
+documentation of what the chart is configurable for. `helm template` renders it
+locally with no cluster involved, and reading that output is the review: what
+kinds are created, whether there is a ClusterRole or a ClusterRoleBinding,
+whether anything asks for a `hostPath` or extra capabilities, and what image
+references it will pull. For a chart already installed, `helm get manifest`
+prints the manifest Helm recorded for the current revision — which is what the
+release _should_ contain, not what is live.
+
+## Trade-offs
+
+**What it buys.** One versioned artifact with a documented parameter surface,
+dependencies resolved for you, an install that is one command on a cluster you
+have never seen, and a rollback that includes deletions. For distributing
+software to people you will never meet — an ingress controller, a database
+operator, a metrics stack — that is the right shape, and it is the case Helm
+was built for.
+
+**What it costs.** Templating YAML with a text templating language means
+indentation is a runtime concern: `nindent` exists because getting a nested
+block to line up is a recurring failure, and the failures are documents that
+parse into the wrong structure rather than errors. Reviewing a change means
+reading the template, the values, and your own overrides, then rendering to see
+what the three produce. And the parameter surface is a lid — a field the author
+never exposed cannot be set at all, so you fork the chart or add a post-renderer,
+both of which are worse positions than editing a manifest.
+
+**Where the state lives.** The ledger is in the cluster, not in your repository,
+so two engineers upgrading from different working copies race and the last one
+wins with no record of the other's inputs. Keeping every values file in version
+control and never passing `--set` by hand is what closes that gap.
+
+**When not to use it.** Your own application, in your own clusters, with three
+environments that differ by a replica count, an image tag and a couple of
+resource numbers. There are no strangers to serve, the variation is small and
+known, and a templating language is a large tool for it — that is exactly the
+shape [Kustomize](/learn/k8s-kustomize/) addresses. The two are not rivals in
+practice: installing third-party software with a chart and layering your own
+overlays over the rendered output is a common and coherent arrangement.
+
+## Common pitfalls
+
+- **`--set` on a key no template reads.** Helm writes it into the values tree
+  regardless, nothing errors, and the default ships. Typos and subchart keys
+  both fail this way, and rendering is the only check.
+- **Confusing `version` with `appVersion`**, so the chart never appears to
+  change while the application does.
+- **`helm upgrade` without `--atomic` or `--wait`** in a pipeline, which reports
+  success for a rollout that never became ready.
+- **Editing an object Helm manages.** The ledger still describes what Helm
+  rendered, so the release and reality disagree until the next upgrade decides
+  which wins.
+- **Assuming Helm upgrades CRDs.** Files under a chart's `crds/` directory are
+  installed once and are not upgraded or deleted with the release; changing them
+  is a manual step somebody has to own.
+- **Treating a chart as reviewable YAML.** A template diff is not a manifest
+  diff — render both sides and compare the output.
+
+## Key takeaways
+
+- **Helm is ecosystem tooling.** The cluster receives plain manifests and knows
+  nothing about charts, values or releases.
+- **A chart is a directory of templates plus `values.yaml`**, whose defaults are
+  the chart's real API.
+- **A release is a ledger of rendered manifests**, stored by default as one
+  Secret per revision in the release namespace.
+- **The ledger is what makes upgrade a set diff** — objects removed from the
+  chart are deleted, which a plain `apply` never does.
+- **Rendering is text substitution**, so YAML types, quoting and indentation are
+  the author's responsibility and the reviewer's job.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A colleague upgrades a third-party chart neither of you wrote: `helm upgrade telemetry ./vendor-chart --set image.tag=1.4.3`. The command succeeds, the release revision increments, and the Pods are still running 1.4.2. Nothing errored. What is going on, and how do you confirm it in one command?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  `--set` writes a value into the values tree whether or not any template reads
+  that path, so a key that no template consumes is silently inert — Helm has no
+  schema to check it against unless the chart ships one. The usual causes are a
+  different path than this chart uses (`image.version`, or a flat `imageTag`)
+  and a subchart, whose values must be nested under the subchart's name
+  (`<subchart>.image.tag`). The revision incremented because a new revision is
+  recorded for the upgrade regardless of whether the rendered output changed.
+  The one command that settles it renders rather than guesses: `helm template
+  telemetry ./vendor-chart --set image.tag=1.4.3 | grep image:` prints the
+  reference that would actually be applied, and if it still says 1.4.2 the path
+  is wrong. `helm show values ./vendor-chart` then shows the paths the author
+  did define.
+</PracticeCheck>
+
+**2. You delete a Service from a chart's `templates/` directory and upgrade. Helm removes the Service from the cluster. Doing the same thing with `kubectl apply -f manifests/` would leave it running. Explain the difference.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  `kubectl apply` operates on the objects you hand it, one at a time, and has no
+  record of what you handed it last time. A file you deleted is a file it never
+  sees, so the object it created stays in the cluster with nothing referring to
+  it — the classic orphan. Helm records the complete rendered manifest of every
+  revision in its release ledger, so an upgrade is a comparison of two sets:
+  objects in both are updated, objects only in the new set are created, and
+  objects only in the old set are deleted. That is why the Service goes. The
+  same property is what makes `helm rollback` restore a state rather than
+  re-apply files, and it is the strongest single argument for a tool that tracks
+  releases. The nearest equivalent for plain `apply` is pruning against a label
+  selector, which requires you to tell it what the set is — exactly the
+  information the ledger already holds.
+</PracticeCheck>
+
+**3. Your team runs one application across development, staging and production. The three differ by replica count, image tag and two resource numbers. Someone proposes writing a chart. What would you say?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  That the variation described is small, known and structural, which is the case
+  a templating language is largest for. A chart would introduce a Go template
+  layer between the manifests and the review, so every change is read twice —
+  once as a template and once as rendered output — to see what it does, and
+  every field anybody might ever want has to be threaded through `values.yaml`
+  in advance. An overlay tool expresses the same three differences as patches on
+  real manifests, where every input and every output is a document you can read.
+  The answer changes if the audience changes: the moment another team installs
+  this into a cluster you do not operate, they need a versioned artifact with a
+  documented parameter surface and an uninstall that removes what it created,
+  and that is a chart. It is worth saying that the two coexist — third-party
+  software arrives as charts, and rendering a chart and overlaying your own
+  patches on the output is a normal arrangement rather than a compromise.
+</PracticeCheck>

@@ -49,9 +49,10 @@ harm, and they keep working when the cause is something you never thought to
 monitor.
 
 The vocabulary for choosing them comes from the SRE literature: the four **golden
-signals** are latency, traffic, errors and saturation. Applied to a service they
-are often written as RED — rate, errors, duration — and applied to a resource as
-USE — utilization, saturation, errors. Two or three rules per user-facing service
+signals** are latency, traffic, errors and saturation. RED — rate, errors,
+duration — is a three-signal subset for request-driven services with no
+counterpart to saturation; USE — utilization, saturation, errors — is the
+resource-side view. Two or three rules per user-facing service
 covers most of what should ever page.
 
 ## How it works
@@ -95,7 +96,7 @@ spec:
           for: 10m
           labels:
             severity: page
-            team: payments
+            team: checkout
           annotations:
             summary: 'checkout is failing more than 2% of requests'
             runbook: 'runbooks/checkout-error-rate'
@@ -109,6 +110,10 @@ notifier routes on, `team` is who owns it, and the annotations are what the
 person reads at the moment they are least able to think — a sentence saying what
 is wrong, and a pointer to what to do about it. Most teams use a `runbook_url`
 annotation and let their notifier render it as a link.
+
+A ratio has one blind spot: when requests stop arriving there is nothing to
+divide, so the rule goes quiet exactly as the service becomes unreachable. Pair
+it with an alert on traffic going absent — the same reasoning as a heartbeat.
 
 <Callout variant="tip">
   The test for an alert is one question: what does the person woken up by it do

@@ -1,0 +1,259 @@
+---
+title: 'Pending Pods'
+slug: 'k8s-scheduling-failures'
+course: 'kubernetes'
+track: 'k8s-troubleshooting'
+order: 61
+summary: 'A Pending Pod is one nobody has been told to run — and one field, plus one event, separates insufficient capacity from a taint, a label, a volume and a quota that stopped the Pod ever being created.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-how-scheduling-works', 'k8s-debugging-workflow']
+estimatedMinutes: 11
+tags: ['kubernetes', 'troubleshooting', 'scheduling', 'resources', 'quota']
+explainPrompt: 'Why does a cluster whose dashboard shows 30% CPU in use refuse to schedule a Pod that asks for one core?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Split `Pending` into its two halves with one field, before reading anything else.
+- Turn a `FailedScheduling` message into the specific constraint that rejected each node.
+- Recognise the failure that produces no Pod at all, and find its message on the controller.
+
+## Intuition
+
+`Pending` is the phase a Pod is in before any container has been created. It
+means the same thing every time: **no kubelet has been asked to run this yet**.
+What differs is who has not finished their part, and there are two candidates.
+
+**Read `spec.nodeName` first, and the problem halves.** If it is empty, the
+scheduler has not placed the Pod, and the answer is a `FailedScheduling` event
+saying which constraint each node failed. If it holds a node name, scheduling
+already succeeded and the kubelet on that node is stuck getting the Pod to the
+starting line — pulling the image, mounting a volume, waiting for the network
+plugin. Those are different problems with different owners, and one `-o wide`
+tells you which one you have — read its `NODE` column rather than its `STATUS`,
+because once a node is assigned the status column stops saying `Pending` and
+starts carrying the kubelet's own reason, `ContainerCreating` most often. The
+phase underneath is still `Pending`, and the two columns are reporting different
+things.
+
+There is a third case that presents as a shortage and is not `Pending` at all: a
+Pod that was never created. Admission — a `ResourceQuota` most often — refuses
+the create request, so there is no Pod object to be `Pending`. You see fewer
+replicas than you asked for and nothing pending, and the message is on the
+controller that tried.
+
+## How it works
+
+### Step one: does it have a node?
+
+```bash
+kubectl get pods -n shop -o wide
+kubectl get pod bigpod -n shop -o jsonpath='{.spec.nodeName}{"\n"}'
+```
+
+```text
+NAME        READY   STATUS              RESTARTS   AGE   IP       NODE     NOMINATED NODE   READINESS GATES
+bigpod      0/1     Pending             0          21s   <none>   <none>   <none>           <none>
+mountfail   0/1     ContainerCreating   0          21s   <none>   node-b   <none>           <none>
+```
+
+An empty `NODE` column is the scheduler's problem, and there the phase and the
+status agree: `Pending` in both. A node name is the kubelet's problem, and there
+the two part company — the phase stays `Pending` while `STATUS` shows what the
+kubelet is stuck on, which is why `mountfail` above reads `ContainerCreating`
+rather than `Pending`. There is no display that pairs them, so the `-o wide`
+column to read is `NODE`. Then `kubectl describe pod` names the specific
+handover: a `FailedAttachVolume` or `FailedMount` event, or the image-pull events
+from [CrashLoopBackOff and ImagePullBackOff](/learn/k8s-pod-startup-failures/).
+
+### Step two: read the whole scheduling message
+
+```bash
+kubectl describe pod bigpod -n shop
+kubectl get events -n shop --field-selector reason=FailedScheduling
+```
+
+```text
+Warning  FailedScheduling  25s  default-scheduler  0/1 nodes are available: 1 Insufficient cpu.
+  no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not
+  helpful for scheduling.
+```
+
+The message is a census: every node the scheduler rejected, grouped by the reason
+it was rejected. On a real cluster it lists several groups at once, and **clearing
+one group does not schedule the Pod** — it moves the count into another group.
+Read the whole line before deciding what to change.
+
+| Message fragment                                     | What rejected the node                                                | What to check                                             |
+| ---------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------- |
+| `Insufficient cpu`, `Insufficient memory`            | Requests already booked on the node leave less than this Pod asks for | `kubectl describe node` — the `Allocated resources` block |
+| `node(s) had untolerated taint(s)`                   | The node carries a taint this Pod does not tolerate                   | `kubectl describe node` — the `Taints` line               |
+| `didn't match Pod's node affinity/selector`          | No node has the labels the Pod requires                               | `kubectl get nodes --show-labels`                         |
+| `pod has unbound immediate PersistentVolumeClaims`   | A PVC has not bound, so the Pod cannot be placed                      | `kubectl get pvc` and its `StorageClass`                  |
+| `didn't match pod topology spread constraints`       | Placing it here would break a spread rule set to `DoNotSchedule`      | The Pod's `topologySpreadConstraints`                     |
+| `didn't have free ports for the requested pod ports` | Another Pod holds that `hostPort` on every node                       | The Pod's `hostPort`, which is rarely worth keeping       |
+
+The trailing clauses are the scheduler reporting what else it tried before giving
+up — releasing resource claims, and evicting lower-priority Pods to make room —
+and finding that neither would help. When preemption _does_ help, the Pod gains a
+`status.nominatedNodeName` and waits for the victims to terminate.
+
+<Callout variant="note">
+  `Insufficient cpu` is arithmetic on **requests**, never a measurement of load,
+  which is why the number that decides it is in the `Allocated resources` block
+  below and never on a graph. Those percentages are the share of the node's
+  capacity already booked, so a node reading `3800m (95%)` refuses this Pod
+  while every process on it idles — and the distance between that 95% and
+  whatever a usage dashboard reports is the whole of the confusion. Correcting
+  requests nobody measured frees more room than adding a node.
+</Callout>
+
+```text
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests    Limits
+  --------           --------    ------
+  cpu                200m (5%)   0 (0%)
+  memory             140Mi (1%)  170Mi (2%)
+```
+
+Two of the rows in that table are worth extra care. A **taint** is often
+deliberate — on most clusters the control-plane node carries one, and
+`kubectl cordon` adds
+`node.kubernetes.io/unschedulable` — so "which nodes are tainted, and did someone
+mean it" is a better first question than "how do I tolerate this". And an
+**unbound PVC** is only a fault when the claim is stuck: a `StorageClass` using
+`WaitForFirstConsumer` deliberately leaves the claim unbound until a Pod needs it,
+so the pairing to look for is a `Pending` PVC whose class does not exist or whose
+provisioner is failing.
+
+### The failure with no Pod
+
+A `ResourceQuota` refuses the create request itself, so nothing reaches the
+scheduler. The Deployment reports it as a condition, and the ReplicaSet emits it
+as an event:
+
+```bash
+kubectl get deploy web -n shop -o jsonpath='{range .status.conditions[*]}{.type}{" | "}{.status}{" | "}{.reason}{" | "}{.message}{"\n"}{end}'
+kubectl get events -n shop --field-selector reason=FailedCreate
+```
+
+```text
+ReplicaFailure | True | FailedCreate | pods "web-69b5f85bdf-z7mxl" is forbidden:
+  exceeded quota: tiny, requested: pods=1, used: pods=9, limited: pods=9
+```
+
+The signature is a Deployment reading `4/12` with nothing pending, plus a
+`ReplicaFailure` condition. The same shape appears when a `LimitRange` bound
+rejects a container's requests, or when an admission webhook refuses the Pod. If
+you are hunting for a missing replica and `kubectl get pods` shows no candidate at
+all, stop looking at Pods.
+
+### When more nodes are the answer, and when they are not
+
+A cluster autoscaler — a component your platform runs, not part of the control
+plane — watches for `Pending` Pods and adds a node when a node group it manages
+would fit one. It cannot help when no available node shape could ever
+satisfy the Pod — a request larger than any node's capacity, or an affinity to a
+label no node group carries — and those Pods stay `Pending` indefinitely with the
+autoscaler quietly deciding it has nothing to offer.
+
+## Trade-offs
+
+**Lowering the request always works, and that is the danger.** Halving a Pod's
+CPU request will get it scheduled, because the request is only a booking. The
+node is then oversubscribed against real usage, and the cost lands later as
+throttling under load, or as an eviction when memory runs out. Lower a request
+because you measured the workload, not because you wanted the Pod to start.
+
+**Spread costs schedulability.** Anti-affinity, topology spread with
+`DoNotSchedule`, and dedicated taints all buy resilience by refusing placements.
+Every one of them turns a capacity problem into a `Pending` Pod on the day a zone
+is down — which is the constraint working, and worth deciding in advance whether
+you would rather have a degraded workload or none.
+
+## Common pitfalls
+
+- **Fixing the first reason in the census.** Three groups of nodes rejected the
+  Pod for three reasons; clearing the largest group leaves it as `Pending` as
+  ever.
+- **Reading cluster-wide free capacity.** Ten nodes with 400m free each cannot
+  take a Pod requesting one core. The scheduler places on one node, and the
+  dashboard's total is never the number it uses.
+- **Treating `kubectl cordon` as invisible.** A cordoned node is tainted, so a
+  half-finished maintenance window presents as a scheduling failure.
+- **Reading a new node as the repair.** It clears the `Pending` Pods that fit on
+  it and nothing else, because no running Pod is moved onto it — a cluster that
+  was booked solid before is still booked solid, one node wider.
+- **Expecting a quota failure to be `Pending`.** It never is: the Pod does not
+  exist, and the message lives on the ReplicaSet or Deployment.
+
+## Key takeaways
+
+- **`spec.nodeName` splits `Pending` in two**: empty means the scheduler could not
+  place it, set means the kubelet has not started it.
+- The `FailedScheduling` event is a **census of rejections by reason**, and every
+  group has to be cleared before the Pod can be placed.
+- `Insufficient cpu` is arithmetic on **requests**, not usage — an idle cluster
+  can be full.
+- **A quota failure produces no Pod at all.** Look for a `ReplicaFailure`
+  condition and a `FailedCreate` event on the controller.
+- A cluster autoscaler only helps when a node it can create **would fit the Pod**;
+  an impossible request stays `Pending` forever.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. You add a toleration, and the `FailedScheduling` message changes from `0/6 nodes are available: 4 Insufficient memory, 2 node(s) had untolerated taint(s)` to `0/6 nodes are available: 6 Insufficient memory`. The Pod is still `Pending`. What did the toleration do?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  It worked, and the census is how you can tell. The two tainted nodes stopped
+  rejecting the Pod over the taint, so the scheduler got far enough to weigh
+  their memory — and they turned out to be short as well, which is why the
+  remaining group grew by exactly the two that left it. Nothing was wasted and
+  nothing is fixed. That is the shape to expect from every repair in this
+  lesson: the census always accounts for all six nodes, so clearing a constraint
+  does not remove nodes from it, it moves them into whichever group rejects them
+  next. The message reports only the first reason each node failed, which is why
+  a hidden second constraint surfaces one fix at a time. What you have learned
+  is that the cluster's real problem is memory on six nodes out of six, and the
+  next question is whether the Pod's request was ever measured.
+</PracticeCheck>
+
+**2. `kubectl get pod -o wide` shows `node-3` in the NODE column and `ContainerCreating` in STATUS, while `.status.phase` still reads `Pending`. What have you learned, and where do you look next?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Scheduling is finished and succeeded: the scheduler evaluated the constraints,
+  chose `node-3`, and wrote the name into the Pod. So capacity, taints, affinity
+  and topology spread are all settled questions, and re-reading them wastes
+  time. What remains is everything the kubelet on `node-3` does before a
+  container exists — pulling the image, attaching and mounting volumes, and
+  getting a network interface from the CNI plugin. `kubectl describe pod` names
+  which one: image-pull events, `FailedAttachVolume` or `FailedMount` for
+  storage, or an error from the network plugin. The disagreement in the premise
+  is the tell rather than a contradiction. `Pending` is the phase, and it means
+  no container exists yet; `ContainerCreating` is the status column carrying the
+  kubelet's own account of which part of making one it is working on. No display
+  pairs the two, so `-o wide`'s NODE column is what carries the split.
+</PracticeCheck>
+
+**3. A Deployment set to 12 replicas reports `4/12` and `kubectl get pods` lists exactly four Pods, none of them `Pending`. Where is the failure?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The missing eight Pods were never created, which is why none of them can be
+  `Pending` — a `Pending` Pod is an object that exists and has not been placed.
+  Something refused the create request at admission, and the ReplicaSet is the
+  object that made it, so that is where the record is: a `FailedCreate` event on
+  the ReplicaSet, surfaced on the Deployment as a `ReplicaFailure` condition
+  whose message quotes the refusal verbatim. The usual author is a
+  `ResourceQuota` in the namespace — on Pod count, or on total requested CPU or
+  memory — and the other candidates are a `LimitRange` bound that the Pod
+  template violates, or an admission webhook rejecting it. All of them are
+  namespace policy rather than cluster capacity, so adding nodes changes
+  nothing.
+</PracticeCheck>

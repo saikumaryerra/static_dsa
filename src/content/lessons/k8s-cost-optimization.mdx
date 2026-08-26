@@ -1,0 +1,223 @@
+---
+title: 'Cost Optimization'
+slug: 'k8s-cost-optimization'
+course: 'kubernetes'
+track: 'k8s-production'
+order: 57
+summary: 'A cluster bill is the capacity you reserved, not the capacity you used — so the money hides in the gap between requests and real usage, in node shapes that cannot be packed, and in the objects nothing ever deletes.'
+difficulty: 'intermediate'
+prerequisites:
+  ['k8s-requests-and-limits', 'k8s-vertical-and-cluster-autoscaling']
+estimatedMinutes: 10
+tags: ['kubernetes', 'production', 'cost', 'requests', 'efficiency']
+explainPrompt: 'Why does lowering a container’s memory limit save no money at all?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Explain why requests, and not usage, decide what a cluster costs.
+- Find the three places money hides: idle requests, node shape, and forgotten objects.
+- Pick a lever and say what it costs you in reliability.
+
+## Intuition
+
+Your provider bills you for machines. The scheduler decides how many machines
+you need, and it decides that from
+[requests](/learn/k8s-requests-and-limits/) — the amount each Pod asks to have
+set aside. Once a Pod is placed, its request is unavailable to anyone else
+whether the container uses it or not.
+
+**You pay for reservations, not for meals.** A restaurant that holds a table for
+four all evening has the same room to sell whether one person or four turns up.
+The gap between what your workloads reserved and what they actually ran is not
+waste in a metaphorical sense — it is a specific number of machines, and you can
+count them.
+
+Two consequences fall straight out. Limits are not reservations, so changing
+a limit cannot change the bill: it changes what happens to your own container
+when it exceeds one. And every conversation about Kubernetes cost that is not
+about requests, node shapes or things nobody deleted is a conversation about
+something else.
+
+## How it works
+
+### Measure the gap first
+
+```text
+Cluster:           20 nodes, 8 vCPU / 32 GiB each
+Allocatable:       20 x 7.4 vCPU = 148 vCPU   (capacity minus kubelet and
+                   20 x 29 GiB   = 580 GiB     system reserves)
+
+Sum of requests:   118 vCPU   = 80% of allocatable
+Peak actual use:    34 vCPU   = 23% of allocatable
+
+Reserved and unused: 118 - 34 = 84 vCPU, roughly 11 nodes of a 20-node bill
+```
+
+Note the first line of arithmetic people forget: **allocatable is smaller than
+capacity**. The kubelet, the system reserves and the eviction threshold take a
+slice of every node before any Pod is placed, so a fleet of small nodes pays
+that overhead more times than a fleet of large ones.
+
+The two commands that produce those numbers:
+
+```bash
+kubectl describe node node-7
+kubectl top pods --all-namespaces --sort-by=cpu
+```
+
+`describe node` reports allocated requests as a percentage of allocatable —
+that is the reservation side. `kubectl top` reports real usage and needs
+metrics-server, an ecosystem addon rather than part of Kubernetes. The gap
+between the two is the subject of this lesson.
+
+### Where the money is
+
+**Idle requests** are usually the largest share. Most requests were set once
+from a guess and never revisited, and guesses are generous because nobody wants
+to be paged. A VerticalPodAutoscaler in recommendation mode watches real usage
+and reports a suggested request without changing anything, which makes it a
+measuring tool before it is an automation one; VPA is an addon, not core
+Kubernetes.
+
+**Node shape** strands capacity that no workload can claim. If your Pods request
+1 vCPU and 8 GiB, an 8 vCPU / 32 GiB node — 7.4 vCPU and 29 GiB of it
+allocatable — holds three of them rather than four, and 4.4 vCPU sit unusable
+because memory ran out first. The largest single Pod also sets the
+smallest node you may buy. Matching the node's CPU-to-memory ratio to your
+workloads' ratio is often worth more than any autoscaler.
+
+**Forgotten objects** cost quietly and forever: PersistentVolumes left
+`Released` by a `Retain` reclaim policy, PersistentVolumeClaims that outlived
+the StatefulSet that made them, snapshots that accumulate on a schedule with no
+expiry, LoadBalancer Services from a demo, node pools with a minimum size
+somebody set during an incident, and non-production clusters running through
+every night and weekend.
+
+### The levers, and when not to pull them
+
+| Lever                                    | What it recovers                                                                      | When not to                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Right-size requests toward observed peak | the idle-request gap, usually the biggest                                             | when the peak is periodic (a nightly batch) or memory is a cliff rather than a curve            |
+| Lower the HPA floor off-peak             | replicas nobody was served by                                                         | when a cold start is slower than the traffic ramps                                              |
+| Cluster autoscaler, scale-to-zero pools  | whole machines                                                                        | when scale-up latency sits on a user's request path                                             |
+| Spot or preemptible nodes                | a large share of node price, varying by provider                                      | for stateful workloads, long jobs, or anything without a disruption budget and topology spread  |
+| Change the node shape                    | stranded CPU or memory                                                                | when the largest Pod stops fitting, or one node's failure becomes a big fraction of the cluster |
+| Switch non-production off out of hours   | roughly two-thirds of that bill — a working week is about a third of the week's hours | when colleagues in another time zone rely on it                                                 |
+
+### Give the number an owner
+
+Nobody optimizes what nobody owns. Attribute node cost to namespaces by their
+share of requests, and a ResourceQuota stops being an abstract cap and becomes a
+budget with a currency figure attached. Ecosystem tools such as OpenCost do that
+attribution; nothing in Kubernetes does it for you, and a single cluster-wide
+figure in a finance report is a number no engineer can act on.
+
+<Callout variant="note">
+  Right-sizing changes a Pod's QoS class. QoS is a property of the Pod: it is
+  Guaranteed only when every container in it sets CPU and memory requests equal
+  to its limits, and dropping any one request below its limit makes the whole
+  Pod Burstable — which puts it earlier in the eviction order when a node runs
+  short of memory. That is a fair trade for a stateless service with several
+  replicas and a poor one for the workload that pages you.
+</Callout>
+
+## Trade-offs
+
+**Packing against headroom.** A cluster with requests equal to allocatable has
+nowhere to put the Pods from a node that fails, and no room for a rollout that
+briefly runs both versions. Every percentage point of extra packing is a
+percentage point of the buffer that absorbs failure —
+[Bottlenecks and Capacity Planning](/learn/k8s-capacity-planning/) is the
+lesson on choosing that buffer deliberately.
+
+**Automation against predictability.** An autoscaler that removes nodes at
+03:00 saves money and means the cluster you debug at 09:00 is not the cluster
+you left. Scale-to-zero is the strongest version of this: the cheapest possible
+environment, and a first request that waits for a machine to boot.
+
+**Speed against price.** Spot capacity is the clearest example — a real discount
+in exchange for a node that can be reclaimed at short notice. It is close to
+free money for stateless replicas spread across zones with a disruption budget,
+and it is an outage generator for a database.
+
+## Common pitfalls
+
+- **Cutting limits instead of requests.** It looks like restraint and saves
+  nothing: limits are not reserved and not billed, so the only effect is
+  throttling or an OOM kill in your own container.
+- **Right-sizing from averages.** The mean is the one number the workload is
+  never at during an incident. Size on a high percentile of peak, then subtract
+  confidence rather than capacity.
+- **Reading low usage as no usage.** A namespace at 2% CPU may hold the thing
+  that runs once a quarter. Ask before deleting; the saving is small and the
+  apology is not.
+- **Optimizing the cluster and forgetting the storage.** Compute is elastic and
+  visible, and volumes and snapshots keep billing at the same rate whether or
+  not anything mounts them.
+
+## Key takeaways
+
+- The bill follows **requests**, because requests are what the scheduler
+  reserves and what decides the node count. Limits change behaviour, never cost.
+- **Allocatable is less than capacity**, and stranded capacity from a mismatched
+  node shape is invisible in every per-Pod view.
+- The three sources are **idle requests, unpackable node shapes and objects
+  nothing deletes** — in that order, most of the time.
+- Every lever trades money for a reliability property: headroom, start-up
+  latency, eviction order, or the right to be reclaimed at short notice.
+- Cost is only acted on when it is **attributed to a namespace with an owner**,
+  and Kubernetes does none of that attribution itself.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A colleague proposes halving every container's memory limit across the cluster to reduce the bill. What will that actually achieve?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  No saving at all, and a new class of incident. The scheduler places Pods using
+  *requests*, and the number of nodes you rent follows from the sum of requests
+  — limits are never reserved on a node, so halving them frees nothing for
+  anyone and changes no node count. What does change is what happens when a
+  container bursts: memory above the limit is an OOM kill, so every workload
+  whose peak sat between the old and new limit starts dying under exactly the
+  load it used to survive. The proposal is right about wanting a smaller number
+  and wrong about which number: the same effort spent lowering over-generous
+  requests would move the bill.
+</PracticeCheck>
+
+**2. Using the worked example above — 20 nodes, 118 vCPU requested, 34 vCPU used at peak — a colleague concludes the cluster could be five nodes. What is correct in that, and what is missing?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Correct: real peak usage is about 34 vCPU, which does fit inside five of these
+  nodes, so the workloads themselves are nowhere near needing twenty machines.
+  Missing, in order of importance: nothing shrinks until the *requests* shrink,
+  because the scheduler still needs somewhere to place 118 vCPU of reservations;
+  memory may bind before CPU, so the same arithmetic has to be repeated on the
+  memory column; five nodes leaves no headroom, so one node failure has nowhere
+  to put the evicted Pods; and the largest single Pod still sets the smallest
+  node you can buy. The realistic move is to right-size requests toward observed
+  peak, keep at least a node's worth of spare capacity, and let the cluster
+  autoscaler settle the count.
+</PracticeCheck>
+
+**3. You delete a StatefulSet with three replicas to save money, and the bill barely moves. Why?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Deleting a StatefulSet deletes its Pods, so you stopped paying for compute —
+  which on most bills is not where a database-shaped workload's cost was. Its
+  PersistentVolumeClaims are deliberately **not** deleted, so that recreating
+  the StatefulSet reattaches the same data, and the three volumes carry on
+  existing and being charged for. If the StorageClass reclaim policy is
+  `Retain`, even deleting those claims leaves the PersistentVolumes and their
+  backing disks behind in a `Released` state. The fix is to decide about the
+  data explicitly: delete the claims once you are sure, check for released
+  volumes afterwards, and set the StatefulSet's
+  `persistentVolumeClaimRetentionPolicy` in advance when the data is genuinely
+  disposable.
+</PracticeCheck>

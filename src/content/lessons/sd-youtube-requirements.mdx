@@ -1,0 +1,270 @@
+---
+title: 'Requirements and Scale'
+slug: 'sd-youtube-requirements'
+course: 'system-design'
+track: 'sd-youtube'
+order: 36
+summary: 'What a YouTube-like platform has to do when anyone may upload — and the estimate that turns a billion videos and a long tail into terabits per second of egress, petabytes a day of new storage, and a transcoding fleet.'
+difficulty: 'intermediate'
+prerequisites: ['sd-requirements', 'sd-capacity-estimation']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'video', 'requirements', 'capacity']
+explainPrompt: 'Why does an unbounded catalogue change the architecture more than an unbounded audience does?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what changes when the catalogue is uploaded by users rather than licensed.
+- Estimate egress, ingest, storage growth, transcoding compute and view rate from stated assumptions.
+- Name the two numbers that decide this architecture, and what each one decides.
+- Scope the design out loud, including what this module refuses to build.
+
+## Intuition
+
+**A video-sharing platform is a streaming platform that has lost control of its
+catalogue.** Almost everything the next six lessons do follows from that one
+difference, so it is worth naming before a box is drawn.
+
+The [Netflix-like design](/learn/sd-netflix-requirements/) starts from tens of
+thousands of licensed titles. Popularity is predictable a week ahead, every title
+is worth encoding slowly and carefully, and the whole catalogue fits in a rack.
+Here anyone uploads, nobody approves in advance, the catalogue is of the order of
+a billion videos, and it grows by millions every day. The audience is larger too,
+but that is a quantitative change. **An unbounded catalogue is a qualitative
+one**: it removes the ability to know in advance what to cache, what to encode
+well, and what is safe to publish.
+
+The second model carries through the module. **The head and the tail are two
+different systems sharing a name.** Take as a teaching assumption that
+the most-watched 0.1% of videos collect around 90% of the views. Both halves of
+that sentence are load-bearing. The head is a delivery problem: hot, spiky,
+intensely cacheable, and capable of a hundredfold surge in an hour. The tail is a
+storage problem: cold, enormous, watched a handful of times ever, and stored
+regardless. A design that optimises for one and forgets the other either stalls
+on a video that goes viral or goes broke keeping videos nobody watches.
+
+The third: **trust work sits in the publish path**. Because uploads are not
+curated, moderation, copyright matching and abuse handling are not features
+bolted on later — they are steps between "the bytes arrived" and "anyone can
+watch this".
+
+## How it works
+
+**Functional requirements**, stated as capabilities rather than screens:
+
+| Capability                 | What it has to mean                                                          |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| Upload                     | Any signed-in user sends a file of any size over any network, and loses none |
+| Processing                 | Transcode to a ladder, make thumbnails, check for abuse and copyright        |
+| Playback                   | Start any video on any device, seek, adapt to the network                    |
+| Channels and subscriptions | Every uploader is a channel; a viewer subscribes and receives its new videos |
+| Search                     | Find a video by title, description, transcript or channel, plus autocomplete |
+| Recommendations            | A home feed and a next-video panel drawn from the whole catalogue            |
+| Engagement                 | Comments, likes and view counts, all moderated                               |
+| Notifications              | Tell subscribers, and only interested ones, that a channel published         |
+| Creator analytics          | Per-video views, watch time and audience breakdown, for the uploader         |
+
+**Non-functional requirements** are where the architecture comes from, and the
+strictest one here is not availability.
+
+**Durability of an accepted upload comes first.** Once the platform has said
+"received", that file is often the only copy in the world — the phone that
+recorded it may be full, wiped or lost tomorrow. Playback start success is next,
+at four nines, with time to first frame at a p99 of about one second, because
+sessions here are minutes rather than hours and a slow start is a larger fraction
+of the experience. Publish latency is a stated target of minutes, and it competes
+directly with encoding quality. Counters — views and likes — are eventually
+consistent and may lag by seconds; comment ordering inside one thread must be
+stable. Search must find a new upload within minutes. Upload availability is
+allowed a nine less than playback: a failed upload is retried by the client, a
+failed playback is a viewer who left.
+
+**Out of scope**, said out loud: advertising and monetisation, creator payouts,
+rights negotiation, and the client applications themselves. Live streaming is
+deferred to the [playback lesson](/learn/sd-youtube-playback/) and treated at
+concept level there, because it breaks assumptions the rest of the module relies
+on.
+
+**The estimate.** Assumptions first, arithmetic visible, results to one
+significant figure.
+
+```text
+Assumptions (teaching assumptions, all challengeable)
+  2,000,000,000 registered viewers, 500,000,000 watching on a given day
+  40 minutes of viewing per watching viewer, 8 videos started each
+  a rendition ladder of six rungs, ≈ 12 Mbps stored per video-second
+  3 Mbps average delivered bitrate across that ladder
+  500,000 hours of new video per day, averaging 10 minutes per upload
+  a catalogue of 1,000,000,000 videos
+  a day rounds to 100,000 s
+
+Egress
+  500,000,000 × 2,400 s        =  1,200,000,000,000 watch-seconds/day
+  1,200,000,000,000 ÷ 100,000  =         12,000,000 average concurrent streams
+  12,000,000 × 3 Mbps          =         36,000,000 Mbps  ≈   36 Tbps average
+  peak ≈ 3 × average                                      ≈  100 Tbps peak
+```
+
+```text
+Ingest and transcoding
+  500,000 h × 3,600 s          =  1,800,000,000 s of source video/day
+  1,800,000,000 ÷ 600 s        =      3,000,000 uploads/day
+  3,000,000 ÷ 100,000          =             30 uploads/s average, ≈ 90/s peak
+  1,800,000,000 ÷ 100,000      =         18,000 s of video arriving every second
+  a ladder costs ≈ 10 core-s per source-second
+  18,000 × 10                  =        180,000 cores, continuously
+
+Stored bytes
+  the six-rung ladder ≈ 12 Mbps stored, so a 10-minute video ≈ 1 GB
+  1,800,000,000 × 12 Mbit      = 21,600,000,000 Mbit  ≈  3 PB/day
+  × 365                                              ≈  1 EB/year
+  1,000,000,000 videos × 1 GB                        ≈  1 EB of catalogue
+
+Control plane
+  500,000,000 × 8 videos       =  4,000,000,000 video starts/day
+  ÷ 100,000                    =         40,000 starts/s average, ≈ 120,000/s peak
+```
+
+Now read them, because an estimate that ends in a figure has not finished.
+
+**A hundred terabits per second at peak** says what it says for any video
+platform: no origin fleet serves that, and the bytes must sit near viewers. What
+differs is that popularity is unknown, so caches cannot be filled in advance —
+what the [playback lesson](/learn/sd-youtube-playback/) is built around.
+
+**Three petabytes a day is the number with no counterpart** in a curated
+catalogue. Egress is a rate that plateaus when the audience does; storage is the
+running total of every upload ever accepted, and it climbs on flat traffic
+forever. Notice that a billion videos is about a year of uploads at three million
+a day: these round assumptions describe a platform whose upload rate has grown,
+so recent years dominate the catalogue. An exabyte of catalogue against a hot
+working set of roughly a petabyte — the top million videos at about a gigabyte
+each — is one part in a thousand doing 90% of the work.
+
+**Eighteen thousand seconds of video arriving every second** costs 180,000 cores
+on the stated assumption. That is a fleet, and it is why transcoding is queued
+work rather than part of the request.
+
+<Callout variant="note">
+  **Compare the two case studies on one axis.** A Netflix-like platform stores
+  about 2 PB and it stays there; this one adds about 3 PB every day. Same
+  business — video to a screen — and the ingest model alone moves storage by
+  three orders of magnitude, from a fixed cost to an integral.
+</Callout>
+
+## Trade-offs
+
+**Publish latency against encode quality.** Encoding carefully takes longer, and
+a creator watching a progress bar counts minutes. The generally accepted
+resolution is to publish something watchable quickly and improve it later for the
+videos that earn the attention.
+
+**Unbounded catalogue against predictable cost.** Accepting every upload is the
+product, and the cost is that storage is decided by users rather than by a budget
+— which forces tiering, retention and lazy encoding as design work rather than
+housekeeping. The [scale lesson](/learn/sd-youtube-scale/) takes the three cost
+centres apart.
+
+**Counters that are cheap against counters that are exact.** Making the view
+count strongly consistent at 120,000 increments per second at peak would dominate
+the design. Allowing it to be seconds behind costs a number that is briefly wrong
+and buys a write path that fits.
+
+## Common pitfalls
+
+- **Sizing the catalogue from today's uploads.** Three million uploads a day is a
+  rate; the bill is its integral over the platform's life, and the tempting error
+  is to quote the daily figure as the total.
+- **Treating this as a Netflix-like design with more titles.** The distinguishing
+  facts are unpredictable popularity and unbounded storage, neither of which is a
+  matter of scale.
+- **Leaving moderation until after the architecture is drawn.** It is a step in
+  the publish path with a latency budget, so adding it late means re-cutting the
+  pipeline.
+- **Quoting one bitrate.** Three megabits per second delivered and twelve
+  megabits per second stored are both correct here and differ by a factor of
+  four.
+- **Forgetting the creator.** Analytics, upload status and takedown appeals are a
+  second product with its own read patterns, invisible if you design only the
+  viewer's screen.
+
+## Interview notes
+
+Open by contrasting the ingest model, not the size. "The audience is bigger than
+a subscription streamer's, but the thing that changes the architecture is that
+the catalogue is user-generated: popularity is unpredictable, so nothing can be
+prepositioned, and storage grows without bound" is a sentence that reframes the
+question in fifteen seconds.
+
+Then give two numbers rather than five. Peak egress decides delivery; daily
+storage growth decides tiering and encoding strategy. The rest is supporting
+arithmetic, and reciting it costs the time you need for the pipeline.
+
+## Key takeaways
+
+- The defining difference from a curated streaming platform is **an unbounded,
+  unpredictable catalogue**, not a bigger audience.
+- On the stated assumptions: **36 Tbps average and about 100 Tbps peak** of
+  egress, **3 PB per day** of new storage, **180,000 cores** of transcoding, and
+  **40,000 video starts per second**.
+- **Egress plateaus; storage accumulates.** The daily growth figure, not the
+  total, decides tiering and retention.
+- The head and the tail are different systems: roughly **a petabyte of hot
+  content inside an exabyte of catalogue** serves most views.
+- **Durability of an accepted upload is the strictest promise** here, because the
+  platform often holds the only copy.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. The audience is five times a subscription streamer's and the catalogue is roughly twenty thousand times larger. Which of those two changes the architecture more, and why?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The catalogue, and it is not close. A five-times-larger audience multiplies
+  numbers that already had a known shape: more edge capacity, more application
+  servers, more cache. Nothing about the design has to be rethought. A catalogue
+  that is twenty thousand times larger and produced by users removes three
+  properties the streaming design depended on. Popularity is no longer
+  predictable, so content cannot be pushed to caches before it is requested.
+  Storage is no longer fixed, so it becomes a running total that grows every day
+  and needs tiering and retention. And encoding can no longer be slow and
+  careful for everything, because the cost is paid per upload rather than per
+  licensed title. Scale multiplies a design; an unbounded catalogue replaces
+  parts of it.
+</PracticeCheck>
+
+**2. The estimate gives 100 Tbps at peak and 3 PB per day of new storage. Which of the two can be substantially reduced by policy alone — a rule about what the platform keeps, with no viewer noticing and nothing new to build?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Storage. Egress is set by what people watch and at what bitrate, so no rule
+  the platform writes down moves it: fewer views and a lower delivered quality
+  are both visible, and the one lever that is not — a newer codec carrying the
+  same picture in fewer bits — is engineering paid for in encode compute rather
+  than a policy anyone can adopt on Monday. Storage growth is set by what is
+  uploaded and by how many renditions are kept, and the second half is entirely
+  the platform's choice. Generating the full ladder only for videos that attract
+  views, and keeping only a low rendition for the rest, reduces the daily growth
+  substantially without any viewer noticing, because the videos affected are the
+  ones almost nobody opens. One number is a property of the audience; the other
+  is a rule someone chose.
+</PracticeCheck>
+
+**3. A reviewer says durability of uploads cannot be the strictest requirement, because playback is what viewers judge the product by. Answer them.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Both matter, but they fail differently and that is what ranks them. A playback
+  failure is a viewer who retries, reloads, or comes back later; the video is
+  still there and the loss is one session. A lost upload is unrecoverable — the
+  platform accepted the file and the creator's copy may be gone, so no retry
+  exists at any layer. Ranking durability first does not mean neglecting
+  playback; it means the two get different mechanisms. Durability is bought with
+  replication across failure domains and with acknowledging the upload only once
+  the bytes are committed to storage that survives losing a machine or a region.
+  Playback availability is bought with caches, replicas and degradation. The
+  requirement that is strictest is the one whose failure cannot be undone.
+</PracticeCheck>

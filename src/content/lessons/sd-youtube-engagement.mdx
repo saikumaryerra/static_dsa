@@ -1,0 +1,264 @@
+---
+title: 'Comments, Counters and Notifications'
+slug: 'sd-youtube-engagement'
+course: 'system-design'
+track: 'sd-youtube'
+order: 41
+summary: 'The real write firehose is views, not comments — counters as an aggregated stream, threads that paginate on a cursor and are moderated at write time, and notification fan-out that changes shape above a subscriber cutoff.'
+difficulty: 'intermediate'
+prerequisites: ['sd-youtube-requirements', 'sd-consistency-models']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'counters', 'fan-out', 'moderation']
+explainPrompt: 'Why is a view counter hard when the total increment rate is one a database could handle?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say why a view counter is a hot-key problem rather than a throughput problem.
+- Build counters as an aggregated event stream, and state the staleness that buys.
+- Paginate and moderate a thread with a million comments.
+- Choose a notification fan-out strategy from the size of the audience, not from preference.
+
+## Intuition
+
+**The write firehose is views, not comments.** On the module's estimate the
+platform takes about 40,000 video starts a second, 120,000 at peak. Take as a
+further teaching assumption roughly 800 likes and 200 comments a second — fifty
+and two hundred times below the start rate. Engagement features look write-heavy
+and mostly are not: counting passive viewing generates the volume, because
+playback produces it rather than anyone deciding to type.
+
+Comments are hard for a different reason: written rarely, read constantly, they
+must hold a stable order inside a thread, and every one is a moderation surface
+on a platform where anyone may post.
+
+The second model makes counters tractable. **A counter is a stream, not a
+number.** Incrementing a column forces every writer through one row; appending an
+event and deriving the total does not, and the derivation can deduplicate, apply
+an abuse policy and be recomputed from history.
+
+The third: **fan-out has two shapes, and the audience size chooses between
+them.** Pushing a row into every subscriber's inbox at publish time is right for
+ordinary channels and catastrophic for enormous ones; querying followed channels
+at read time is the reverse. Arithmetic, not taste.
+
+## How it works
+
+**1. Why the counter is hard.** The aggregate is unremarkable: 120,000 increments
+a second over a billion videos is a rate a partitioned store handles. The problem
+is distribution:
+
+```text
+Counter hot spot (teaching assumptions)
+  120,000 view starts/s at peak, across the catalogue
+  a video that is trending takes ~20% of starts for an hour
+  0.2 × 120,000        =  24,000 increments/s
+  all against ONE row for ONE video id
+  a single row supports order-of 1,000 conflicting writes/s
+```
+
+Every one contends on the same key, and partitioning by video id cannot help:
+they are all the same video id. Hot keys are the recurring shape of this lesson.
+
+**2. Counters as an aggregated stream.** A view start appends an event —
+`(video id, viewer, timestamp, event id)` — to an
+[event stream](/learn/sd-event-streams/). A streaming aggregation groups by video
+id over short windows and writes per-video totals to a store the read path uses,
+itself cached. A read is then a cache lookup on a value seconds behind —
+_generally accepted industry architecture_ for any counter with a hot key.
+
+Three properties come free, and they are why this beats sharded counters. The
+`event id` makes the pipeline idempotent, so an at-least-once redelivery does not
+double-count. The stream is replayable, so a counting bug is fixable afterwards.
+And **a view is a policy, not an event**: repeated plays, automated traffic and
+autoplay all have to be judged, and the judgement lives in the aggregation, where
+it can be changed and re-run.
+
+**Sharded counters** — N sub-rows per video, increment one at random, sum on
+read — are the simpler alternative and they work. **When not to use them:** below
+a few hundred writes a second on the hottest key they turn one cheap read into N,
+for no benefit, and they cannot deduplicate or restate history.
+
+**3. Read-your-writes for the person acting.** An eventually consistent like
+count is fine; a like button that springs back after you press it is not. The
+aggregate is stale by design, while the small per-user record — "has this viewer
+liked this video" — is strongly consistent and rendered optimistically by the
+client. That is the session guarantee described by Terry and colleagues in 1994,
+applied to the one value whose absence a user detects.
+
+**4. Comments.** Partition by video id so one thread lives together, and key rows
+by `(video id, parent id, sort key)`. Two orders behave differently: newest-first
+is a tail read on an append-only sequence; top-ranked is a score that changes as
+votes arrive, so it is precomputed periodically and cached per page.
+
+Paginate on a **cursor** — the sort key of the last row seen — never on an
+offset. An offset re-reads everything it skips, and it counts positions in a list
+that changes underneath the reader: a comment arriving mid-scroll pushes every
+entry down a place, so the next page repeats rows already seen; a comment deleted
+pulls them up, so the next page skips one nobody saw. Insertions duplicate;
+removals omit.
+
+Volume is modest: on a teaching assumption of 20 million comments a day at
+roughly 500 bytes, about 10 GB a day — trivial beside three petabytes of video.
+The expensive parts are the read path on million-entry threads, and moderation.
+
+<Callout variant="note">
+  **Moderation holds; it does not silently delete.** Classifiers run at write
+  time and, below a confidence threshold, place the comment in review rather
+  than removing it: a wrong removal is invisible to everyone including the
+  author, while a held comment is a queue somebody works. Around it sit the
+  mechanisms that make abuse expensive rather than impossible: per-account [rate
+  limits](/learn/sd-rate-limiting/), stricter limits for new accounts, and
+  creator-level block terms. Abuse prevention is an economics problem: raise the
+  cost per posted comment.
+</Callout>
+
+**5. Notification fan-out.** A publish event must reach subscribers.
+
+```text
+Fan-out arithmetic (teaching assumptions)
+  3,000,000 uploads/day × 1,000 subscribers on average
+    3,000,000,000 deliveries/day  =   30,000/s average, 90,000/s peak
+  one upload on a 50,000,000-subscriber channel
+    50,000,000 ÷ 30,000/s         ≈   1,700 s ≈ 28 min, nearly half an hour of
+                                      the whole platform's average delivery rate
+```
+
+Fan-out on write puts a row in each subscriber's inbox when the video publishes,
+so a read is one indexed range scan. It breaks on the second line of that fence,
+where one upload creates fifty million writes at once. Fan-out on read stores
+nothing and asks at read time what the followed channels have published: constant
+work at write, an expensive multi-channel query per reader.
+
+The resolution is **hybrid, with a subscriber-count cutoff** — _generally
+accepted industry architecture_ for any follow graph with a heavy tail, though
+the cutoff itself is a teaching assumption tuned against measured latency. Below
+it, fan out at write; above it, the channel keeps one timeline that subscribers
+merge at read. Two reductions matter too: the delivery set is smaller than the
+subscriber set, since most subscribers have not asked about every upload, and
+delivery is at-least-once, so a `(viewer, video)` dedupe key stops a retry
+ringing a phone twice.
+
+**Backpressure.** Notification delivery is the lowest-priority write path here.
+Falling behind, it must [shed and
+retry](/learn/sd-idempotency-and-backpressure/) rather than push back on
+publication: an upload that fails because a notification queue is full is a bug.
+
+## Trade-offs
+
+**Stale counters against cheap writes.** Seconds of lag on a view count is
+unnoticeable and removes the hot-key problem. Making the number exact
+puts a coordination cost on the busiest write path in the system, for a digit
+nobody verifies.
+
+**Fan-out on write against fan-out on read.** The first buys fast reads with a
+write burst proportional to the audience; the second, constant writes with an
+expensive read. The hybrid buys both and costs two code paths, two failure modes
+and a cutoff to maintain.
+
+**Holding comments against publishing them.** Holding delays legitimate
+participation and shrinks the exposure window for abuse; publishing at once does
+the reverse. The threshold is a product decision with a measurable false-positive
+rate.
+
+## Common pitfalls
+
+- **Incrementing a counter column.** The obvious implementation; it passes every
+  test at ordinary rates and fails on the video whose count people watch.
+- **Making the like count strongly consistent to fix the button.** The button
+  needs the viewer's own state, a tiny per-user value.
+- **Offset pagination.** Fine on the first page of a small thread; slow and
+  visibly wrong on a long, changing one.
+- **Fanning out to everyone at write.** Works throughout development, where no
+  test channel has millions of subscribers.
+- **Deleting on a low-confidence classifier.** Silent false positives generate no
+  signal, so the error rate is invisible until someone complains publicly.
+
+## Interview notes
+
+The sentence that reframes this question is "the counter is a hot-key problem,
+not a throughput problem". Most candidates reach for sharding by video id, which
+does nothing: the load is concentrated on one key, not spread badly across many.
+
+The second is the fan-out cutoff. "Push for ordinary channels, pull for the very
+large ones, with a cutoff tuned on measured read latency" shows you know both
+strategies and that the choice is arithmetic. Give the fifty-million-subscriber
+number and the design argues itself.
+
+## Key takeaways
+
+- The dominant engagement write is **views, not comments** — two orders of
+  magnitude apart.
+- A view counter is a **hot-key problem**; append events and aggregate, which
+  also buys idempotency, replay and a changeable definition of a view.
+- The user's own action needs **read-your-writes**; the public aggregate does
+  not.
+- Threads paginate on a **cursor**, never an offset, and are moderated by
+  **holding for review** rather than silent deletion.
+- Notification fan-out is **push below a subscriber cutoff and pull above it**,
+  with a dedupe key because delivery is at-least-once.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A trending video is taking about 24,000 view increments a second. The database is partitioned by video id across a hundred shards. Why does that not help, and what does?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Partitioning by video id spreads different videos across shards, and every one
+  of those 24,000 increments carries the same video id — so they all land on the
+  same shard, the same row and the same lock. The load is concentrated on one
+  key, and partitioning only ever fixes load spread badly across many keys. Two
+  things do work. Sharded counters split the single row into N sub-rows for that
+  video, so writers contend on N locks instead of one, and a read sums them; it
+  is the smaller change and it makes every read N times more expensive.
+  Aggregating a stream is the stronger answer: each view appends an event, a
+  streaming job groups by video id over short windows, and the total is written
+  out periodically for the read path to cache. There is then no contended row at
+  all, the count is seconds behind, and the pipeline can deduplicate repeated
+  plays and discard automated traffic before the number is published.
+</PracticeCheck>
+
+**2. Comments are listed newest-first with `LIMIT 50 OFFSET n`. On a busy thread — several arriving a second, the occasional one deleted — readers see the same comment twice, and sometimes miss one. Explain both symptoms, and give the fix.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  An offset counts positions in a result set that is being rewritten underneath
+  the reader. Page one is computed, and by the time page two is requested five
+  new comments have been inserted at the top; every existing entry has shifted
+  down five places, so the rows now at offsets 50 to 99 sat at 45 to 94 when
+  page one was computed — the five from 45 to 49 are repeats. Deletion produces
+  the mirror image: a comment removed above the boundary pulls everything below
+  it up a place, so a row that sat at offset 50 moves to 49 and the next page
+  never returns it. Insertions duplicate, removals omit, and a thread that is
+  both growing and being moderated does both. The second problem is cost:
+  `OFFSET 10000` makes the database walk and discard ten thousand rows before
+  returning anything, so deep pages get steadily slower. Cursor pagination fixes
+  both. Return the sort key of the last row on the page — a comment id or
+  timestamp that never changes — and let the next request ask for rows strictly
+  after it. The query becomes an indexed range scan of constant cost, and
+  neither an insertion nor a deletion can move the boundary, because the
+  boundary is a value rather than a position.
+</PracticeCheck>
+
+**3. A colleague proposes fan-out on write for every notification, arguing that read-time queries across a viewer's subscriptions are slower and reads outnumber writes.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The premise is correct and it is why fan-out on write is the right default:
+  most channels are small, and turning one publish into a few hundred inbox rows
+  buys every subscriber a single indexed range scan instead of a query across
+  every channel they follow. It breaks at the top of the subscriber
+  distribution. A channel with fifty million subscribers turns one upload into
+  fifty million writes arriving together, which on this platform's numbers is
+  nearly half an hour of its entire average notification throughput delivered as
+  one burst — and the same channel may publish several times a day. The queue
+  backs up, ordinary channels' notifications are stuck behind it, and the burst
+  cannot be smoothed without delaying exactly the notifications people care most
+  about. Keep the colleague's default and add a cutoff: above some subscriber
+  count the channel maintains one timeline and subscribers merge it at read,
+  which is a handful of extra reads for the few viewers who follow very large
+  channels and no write burst for anyone.
+</PracticeCheck>

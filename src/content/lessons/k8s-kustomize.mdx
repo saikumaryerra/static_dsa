@@ -1,0 +1,282 @@
+---
+title: 'Kustomize'
+slug: 'k8s-kustomize'
+course: 'kubernetes'
+track: 'k8s-delivery'
+order: 51
+summary: 'Kustomize expresses the difference between two environments as a patch on real manifests, so every input and every output is a document you can read — and there is deliberately no way to write a conditional.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-deployments', 'k8s-configmaps']
+estimatedMinutes: 10
+tags: ['kubernetes', 'delivery', 'kustomize', 'overlays']
+explainPrompt: 'Why does a generated ConfigMap with a content hash cause a rollout when editing the same ConfigMap in place does not?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Structure a base and per-environment overlays, and say what belongs in each.
+- Use the transformers that cover most real differences: images, replicas,
+  patches and generators.
+- Say what Kustomize deliberately cannot do, and when that makes it the wrong
+  tool.
+
+## Intuition
+
+**Kustomize is a patch, not a template.** Every input is a valid manifest and so
+is every output; nothing along the way is a string with holes in it. The tool
+reads documents, merges documents and prints documents, which means you can open
+any file in the tree and know what it says without rendering anything.
+
+It is ecosystem tooling rather than a cluster feature, with one convenience that
+blurs the line: `kubectl` bundles a copy, so `kubectl apply -k` works with
+nothing installed. What reaches the API server is still ordinary manifests.
+
+The mental model is two layers. A **base** is what is true everywhere — the
+Deployment, the Service, the labels, the shape of the thing. An **overlay** is
+the difference for one place: six replicas instead of two, this image tag, a
+larger memory request, a namespace. Because the difference is expressed as a
+document rather than as a parameter, a reviewer reads a diff of manifests rather
+than a diff of inputs to a renderer.
+
+The cost of that honesty is that there are no conditionals, no loops and no
+functions, on purpose. If a difference cannot be written as a patch, Kustomize
+will not help you fake it — you add the resource to the overlay that needs it,
+or you have found the boundary of the tool.
+
+## How it works
+
+```text
+base/
+|- kustomization.yaml
+|- deployment.yaml
+'- service.yaml
+overlays/
+|- staging/
+|  '- kustomization.yaml
+'- production/
+   |- kustomization.yaml
+   '- resources-patch.yaml
+```
+
+The base's `kustomization.yaml` lists what it contains, and little else:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+```
+
+The overlay names the base as a resource and then transforms it:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shop-production
+resources:
+  - ../../base
+replicas:
+  - name: web
+    count: 6
+images:
+  - name: ghcr.io/shop/web
+    newTag: '1.4.2'
+configMapGenerator:
+  - name: web-config
+    literals:
+      - LOG_LEVEL=warn
+patches:
+  - path: resources-patch.yaml
+```
+
+Four of those five entries are transformers that exist because the same
+differences come up in every repository. `namespace` rewrites the namespace of
+every resource. `replicas` sets a count without a patch file. `images` rewrites
+an image reference wherever it appears, which is the field your release pipeline
+edits. `namePrefix` and `nameSuffix`, not shown, rename resources and rewrite the
+references the tool understands.
+
+A patch is a partial manifest with enough identity to say what it applies to:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  template:
+    spec:
+      containers:
+        - name: web
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+```
+
+That is a strategic merge patch, and the interesting part is the container list.
+It is merged by the `name` key rather than by position, so this file changes the
+`web` container and leaves any others alone. For lists the tool has no merge key
+for — most fields of a custom resource — the list is replaced wholesale, which
+is a surprise worth knowing about before it happens.
+
+When position is what you mean, a JSON patch addresses it directly:
+
+```yaml
+patches:
+  - target:
+      kind: Deployment
+      name: web
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/args/1
+        value: --log-level=warn
+```
+
+That is exact and it is brittle in the obvious way: insert an argument in the
+base and index 1 now means something else, with no error anywhere.
+
+Three commands cover the workflow:
+
+```bash
+kubectl kustomize overlays/production
+kubectl diff -k overlays/production
+kubectl apply -k overlays/production
+```
+
+The first renders to stdout and never touches a cluster, which is the review
+artifact — a complete manifest set that a person can read. The second compares
+it against what is live.
+
+<Callout variant="note">
+  `configMapGenerator` appends a hash of the content to the object's name and
+  rewrites every reference to it. Change a literal and the generated name
+  changes, so the Deployment's Pod template now names a different ConfigMap — a
+  template change, and therefore a rollout. Editing a ConfigMap in place changes
+  no template and rolls nothing. The cost is that the old hashed objects stay
+  behind: nothing prunes them, and they accumulate until something does.
+</Callout>
+
+## Trade-offs
+
+**When it fits.** You own the manifests, you deploy them to clusters you
+operate, and the differences between environments are small and structural.
+Every artifact stays a manifest, so review, `kubectl diff` and a GitOps agent
+all work on the same readable documents, and there is no rendering language for
+a new team member to learn beyond merge semantics.
+
+**When it does not.** Publishing software for other people to install. An
+overlay has no parameter surface: its only interface is "read the base and write
+a patch", which puts the whole burden on the consumer and breaks whenever you
+restructure the base. That case wants a versioned package with documented
+values — [Helm](/learn/k8s-helm/). Kustomize is also the wrong tool when the
+per-environment difference is genuinely conditional logic; you can add resources
+to one overlay, but branching inside a single document is not expressible and
+is not meant to be.
+
+**Overlay sprawl is the failure mode at scale.** Five environments across three
+regions is fifteen overlays, and the parts they share drift apart one commit at
+a time. A `Component` — a reusable fragment an overlay can include — is the
+intended answer, and the honest one is that a second layer of indirection buys
+less than it costs below about a dozen overlays.
+
+**Version skew is real.** The Kustomize built into `kubectl` is not the same
+build as the standalone `kustomize` CLI and can lag it, so a field that renders
+with one may be unknown to the other. Pick one for automation and say which.
+
+## Common pitfalls
+
+- **Editing the base for one environment's need.** It is the shortest fix in
+  front of you and it silently changes every other environment.
+- **A label transformer configured to write into selectors.** A Deployment's
+  `spec.selector` is immutable after creation, so the overlay works on a fresh
+  cluster and is rejected on an existing one.
+- **Expecting a name transformer to rewrite arbitrary strings.** It rewrites
+  reference fields it knows; a Service name you typed inside a ConfigMap value
+  or a connection string is text, and stays.
+- **Assuming `apply -k` prunes.** Remove a resource from an overlay and the
+  object keeps running — there is no ledger of the previous set, which is the
+  clearest difference from a release-tracking tool.
+- **Letting generated ConfigMaps accumulate.** Every value change creates a new
+  hashed object and leaves the old one.
+- **Reviewing the patch instead of the output.** `kubectl kustomize` is cheap
+  and shows what the merge actually produced.
+
+## Key takeaways
+
+- **Every input and output is a manifest.** There is no templating language and
+  no intermediate form that is not valid YAML.
+- **Base plus overlay**: the base is what is true everywhere, the overlay is one
+  environment's difference, expressed as a patch.
+- **Strategic merge patches merge lists by key** where the tool knows one, and
+  replace them where it does not; JSON patches address by index and break when
+  the list moves.
+- **A generator's content hash turns a config change into a rollout**, because
+  the Pod template ends up naming a different object.
+- **There are no conditionals by design**, and `apply -k` does not prune — both
+  are boundaries to plan around rather than bugs.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. An overlay adds a common label to every resource. `kubectl apply -k` works on a fresh cluster and fails on the existing one with `field is immutable` on the Deployment. Explain the difference, and give two ways forward.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The label transformer has been configured to write the label into
+  `spec.selector.matchLabels` as well as into metadata — historically the
+  default behaviour, and still available. On a fresh cluster that is a create,
+  and any selector is acceptable at creation. On the existing cluster it is an
+  update, and a Deployment's `spec.selector` is immutable once set, so the API
+  server rejects the whole object. The two ways forward are: configure the
+  transformer not to include selectors, so the label lands on metadata and Pod
+  templates only, which is what you wanted; or accept the selector change and
+  recreate the Deployment, deleting and re-applying it with the downtime that
+  implies. The first is right in almost every case. It is worth noticing that
+  the same class of change is invisible in the patch and obvious in the rendered
+  output, which is the argument for reading `kubectl kustomize` before applying.
+</PracticeCheck>
+
+**2. Six months of `configMapGenerator` edits have left thirty hashed ConfigMaps in the namespace and only one of them is referenced by the current build. Which are safe to delete, and what breaks if you get it wrong?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Start by making the desired set explicit: `kubectl kustomize
+  overlays/production` names every generated object the current build actually
+  references, and everything else in the namespace is unreferenced by it. The
+  reassuring half is that deleting an old one does not cost you a rollback
+  through the repository, because the hash is a function of the content — check
+  out the earlier commit, build it again, and the same name is regenerated from
+  the same literals. The half that does break is `kubectl rollout undo`: the
+  previous ReplicaSet's Pod template names an old hashed ConfigMap literally, so
+  if that object is gone, the Pods it creates never start — a missing ConfigMap
+  in a volume or an `envFrom` blocks container creation rather than falling back
+  to a default. Running Pods are unaffected; the failure appears the next time
+  one is created, which is exactly the moment you were trying to recover. So the
+  workable rule is to keep the generations you might undo to, make re-applying
+  the previous commit your rollback path rather than `rollout undo`, and treat
+  the cleanup as a prune step that knows the whole desired set — which plain
+  `kubectl apply` cannot do on its own, and which a GitOps agent's prune or
+  Helm's release ledger gives you for free.
+</PracticeCheck>
+
+**3. Your team publishes an internal platform component that six other teams install into clusters you do not operate. They ask you to ship it as a base for them to overlay. What is the argument against, and when would you agree?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A base is not an interface. Its only contract is the literal structure of its
+  manifests, so every consumer's patches are coupled to field paths, resource
+  names and list positions you never promised to keep. Rename a container or
+  reorder a list and six repositories break at once, with the breakage appearing
+  as a patch that silently matches nothing rather than as an error. There is
+  also no version to pin and no documented set of knobs, so "what can I
+  configure?" has no answer except reading your YAML. A package with a version,
+  a values file and an uninstall path — a chart — is what that audience needs.
+  The case for agreeing is a team that already runs a GitOps repository and
+  wants to compose your component with their own patches anyway: then ship both,
+  publishing the base at a tagged reference so consumers pin a revision, and
+  treat its structure as an API you have now promised to keep stable.
+</PracticeCheck>

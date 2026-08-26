@@ -1,0 +1,241 @@
+---
+title: 'Bottlenecks and Capacity Planning'
+slug: 'k8s-capacity-planning'
+course: 'kubernetes'
+track: 'k8s-scaling'
+order: 47
+summary: 'A cluster has no single capacity — it has several ceilings, and only the one you reach first has any effect on you, which is why capacity planning starts by finding out which one that is.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-requests-and-limits', 'k8s-horizontal-pod-autoscaler']
+estimatedMinutes: 9
+tags: ['kubernetes', 'scaling', 'capacity', 'bottlenecks', 'performance']
+explainPrompt: 'Why does a cluster planned to run at 100% of its capacity fail long before it reaches it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name the several ceilings a cluster has, and find which one binds first.
+- Turn a measured throughput per Pod into a node count, with headroom.
+- Size headroom from rollouts, node loss and provisioning latency.
+- Recognise a bottleneck that adding replicas makes worse.
+
+## Intuition
+
+"How much traffic can this cluster take?" has no single answer, and the honest
+version of the question is harder and more useful.
+
+**A cluster has several ceilings, and only the lowest one is real.** CPU
+requests, memory requests, Pods per node, IP addresses, disk, and every
+downstream system your Pods talk to — each has a limit, they are unrelated to
+each other, and the one you meet first is the only one you will ever experience.
+A fleet blocked by database connections at 30% CPU is not a cluster with spare
+capacity; it is a cluster at 100% of the ceiling that matters.
+
+That reframing is the whole method. Capacity planning is not adding up
+gigabytes. It is: measure what one Pod can do, work out how many you need at
+peak, add what failures and rollouts require on top, then check every ceiling
+against that number and see which one gives way first.
+
+## How it works
+
+### Start with the node, not the cluster
+
+Every calculation lands on **allocatable** — the node's capacity minus what is
+reserved for the kubelet, the container runtime and the operating system.
+
+```bash
+kubectl get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory,PODS:.status.allocatable.pods
+```
+
+```text
+NAME    CPU   MEMORY      PODS
+sky-d   4     7498232Ki   110
+```
+
+Two things are worth reading off that. This is a single-node development cluster
+with no kubelet or system reservation, so allocatable equals capacity for CPU,
+memory and Pods here — on a managed node it will not, and the difference is real
+capacity you cannot use. And the
+third column is a ceiling in its own right: the kubelet's default cap is 110
+Pods per node regardless of how much CPU and memory are free.
+
+### A worked estimate
+
+Start from a measurement, not from a guess about what a Pod should be able to do.
+
+```text
+measured: one Pod serving 150 requests/s at 60% of its 500m CPU request,
+          holding 512Mi resident against a 512Mi memory request
+peak demand:                                        1,200 requests/s
+
+Pods needed at peak:      1,200 / 150             = 8
+plus one spare replica:                           = 9
+plus 25% surge during a rolling update:           = 12 at the worst moment
+
+reserved by those Pods:   12 x 500m               = 6 CPU
+                          12 x 512Mi              = 6 Gi
+
+node allocatable (managed, 4 vCPU / 16 Gi):         3,700m CPU, 14.5 Gi
+nodes for the requests:   6 / 3.7                 = 2 nodes, CPU-bound
+plus one node for the failure you intend to survive = 3 nodes
+```
+
+Two lines carry the argument. `CPU-bound` names the ceiling that decided the
+answer — on these numbers CPU runs out before memory does, so memory is not what
+to buy; rerun the same arithmetic with a 2 Gi footprint per Pod and memory binds
+instead, and the right node shape changes with it. The line under it is a
+separate decision from the load: surviving the loss of one node means paying for
+one node nobody is using.
+
+Notice also that the peak figure did the work. An average across the day would
+have produced four Pods and an outage every lunchtime, because capacity is sized
+by the worst moment you intend to survive, not the typical one.
+
+### Which ceiling binds
+
+Walk the list in order and stop at the first one that is close:
+
+| Ceiling             | Where it appears                                     |
+| ------------------- | ---------------------------------------------------- |
+| CPU requests        | `Pending` Pods, `Insufficient cpu` on the event      |
+| Memory requests     | `Pending` Pods, and evictions once nodes are full    |
+| Pods per node       | nodes with free CPU that still refuse a Pod          |
+| IP addresses        | Pods stuck in `ContainerCreating` with a CNI error   |
+| Ephemeral storage   | evictions under disk pressure                        |
+| A downstream system | latency and errors, with the cluster looking healthy |
+
+The last row is the one that catches teams out, because every Kubernetes-shaped
+number looks fine. Replicas multiply their dependencies: forty Pods each holding
+ten database connections is four hundred connections, and the database's limit
+is a ceiling your cluster's metrics do not show.
+
+### Finding the number instead of assuming it
+
+The measurement that starts the estimate — requests per second per Pod — comes
+from a load test, and the shape to look for is the **knee**: throughput climbs
+with offered load, then latency starts rising faster than throughput does. The
+number you want is the throughput immediately below that point, at a latency you
+would be willing to serve, not the maximum the Pod can be pushed to.
+
+One relationship is worth carrying around: concurrency is throughput multiplied
+by latency. A service handling 1,200 requests a second at 80 ms has about 96
+requests in flight at any instant, which is the number that has to fit in the
+thread pools, the connection pools and every queue on the path.
+
+<Callout variant="warning">
+  **Headroom is not waste.** Queueing gets worse in a curve, not a line: as
+  utilization approaches 100%, waiting time rises steeply, so a fleet planned to
+  sit at 95% of its ceiling is one that already has bad latency. On top of that,
+  a rolling update adds Pods before it removes any, and a fleet with no spare
+  replica is one lost Pod from being short: those two are the 50% the estimate
+  above added, eight Pods to twelve. The extra node under them is a separate
+  purchase, for the node failure you intend to survive — and because a cluster
+  autoscaler needs minutes to produce a machine, that headroom has to be
+  standing before the failure rather than bought during it.
+</Callout>
+
+## Trade-offs
+
+**Headroom against cost.** Every percentage point of unused capacity is money,
+and every point you remove is latency and risk during the next node failure.
+State the target out loud — the peak you intend to survive, and the failure you
+intend to survive during it — so that the number is a decision rather than an
+accident.
+
+**Reserving against bursting.** Requests equal to limits give you predictable
+behaviour and reserve capacity you often will not use. Requests below limits pack
+the cluster densely and let containers borrow, at the cost of contention exactly
+when everyone is busy.
+
+**Planning against autoscaling.** An autoscaler is not a capacity plan; it is
+the mechanism that executes one. It still needs a maximum somebody chose, nodes
+to place Pods on, and a downstream that can take the load — and the maximum is a
+capacity decision even when nothing ever reaches it.
+
+**Quotas as planning.** A [ResourceQuota](/learn/k8s-quotas-and-priority/) turns
+a plan into something the API enforces, which is how a shared cluster stops one
+team's autoscaler from consuming the headroom everyone else was counting on.
+
+## Common pitfalls
+
+- **Planning with limits instead of requests.** Limits are what a container may
+  reach; requests are what the scheduler books. Adding up limits produces a
+  number far larger than the cluster needs and hides how full it already is.
+- **Sizing on the average.** The average is comfortable and never happens. Peak
+  traffic, peak batch overlap and a deploy can land in the same ten minutes.
+- **Forgetting the per-node tax.** DaemonSets run on every node — log shippers,
+  metrics agents, CNI — so their requests come off every node's allocatable
+  before any of your workload fits.
+- **Load-testing an empty cluster.** A test on nodes with nothing else running
+  measures a machine you will never have. Noisy neighbours, DaemonSets and the
+  control plane's own traffic are part of the result.
+- **Reading a healthy cluster as spare capacity.** When the bottleneck is
+  downstream, CPU graphs stay flat while users see timeouts, and the instinct to
+  add replicas makes the pressure on the real limit worse.
+
+## Key takeaways
+
+- **The lowest ceiling is the only one that matters.** CPU, memory, Pods per
+  node, IPs, disk and every downstream dependency are separate limits.
+- Plan from a **measured throughput per Pod at an acceptable latency**, taken
+  from the knee of a load test — never from a guess about what a Pod should do.
+- **Size for the peak plus failure plus rollout**: one node's worth of loss and
+  the surge of a rolling update are ordinary, not exceptional.
+- **Replicas multiply their dependencies.** Connection counts, third-party rate
+  limits and queue partitions all scale with the fleet.
+- **Headroom buys latency.** Queueing degrades in a curve as utilization
+  approaches 100%, so a cluster planned to be full is already slow.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A service measures 200 requests/s per Pod at an acceptable latency, and peak demand is 3,000 requests/s. Nodes offer 3,700m of allocatable CPU and each Pod requests 400m. How many Pods and how many nodes would you plan for, and why is the first number not 15?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Fifteen Pods carry the peak exactly — `3,000 / 200` — and exactly is the
+  problem, because that fleet has no answer to anything ordinary. A rolling
+  update adds Pods before it removes any, and a replica can be lost at any
+  moment, so the worst moment is larger than the peak. One spare replica and a
+  quarter for surge gives `16 x 1.25` = 20 Pods, which reserves `20 x 400m` = 8
+  CPU. Against 3,700m of allocatable that is `ceil(8 / 3.7)` = three nodes for
+  the requests, and one more so that losing a node still leaves the peak
+  covered: four. The idle fourth is not waste, it is the failure you decided to
+  survive. If the service is also memory-hungry, run the same division on memory
+  before buying — the binding ceiling decides the node shape.
+</PracticeCheck>
+
+**2. A cluster runs at 35% CPU and 40% memory. The application is timing out under load, and the team is preparing to add nodes. What would you check first?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Whether the ceiling being reached is one the cluster reports at all. The two
+  numbers quoted are Kubernetes' own, and a downstream limit — a database
+  connection pool, a third-party API rate limit, a lock on a shared table — is
+  invisible to both while producing exactly these symptoms: healthy nodes,
+  timing out requests. Errors and latency at the dependency, and connection
+  counts against its maximum, tell you in one look. It is worth checking the
+  ceilings the cluster does report but does not show in those two percentages,
+  too — Pods per node and free IP addresses can both bind while CPU sits low.
+  Adding nodes before knowing which ceiling binds spends money to no effect, and
+  if the answer is the database, the extra replicas it lets you run make the
+  timeouts worse.
+</PracticeCheck>
+
+**3. A team plans capacity so the fleet sits at 90% of its measured maximum throughput at peak, arguing that anything less is wasted money. What does that plan cost them?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Latency first. Waiting time rises in a curve as utilization approaches the
+  limit, so a fleet at 90% is already serving noticeably slower than the same
+  fleet at 60% — the capacity is technically there and the experience is not.
+  Then resilience: the plan has about a tenth of its throughput spare, so losing
+  one node of several takes the fleet past its own maximum and into a queue that
+  grows faster than it drains. Rolling updates run in that same margin, and a
+  cluster autoscaler cannot help within it, because a new node takes minutes to
+  boot, join and start pulling images. The saving is also smaller than it looks:
+  the difference between 60% and 90% target utilization on a modest fleet is a
+  few machines, set against every incident that margin would have absorbed.
+</PracticeCheck>

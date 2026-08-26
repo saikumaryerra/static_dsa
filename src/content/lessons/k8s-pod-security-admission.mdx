@@ -7,9 +7,9 @@ order: 36
 summary: 'Three Pod Security Standards, three modes, and a pair of namespace labels — a built-in admission controller that rejects a Pod at creation and never touches the ones already running.'
 difficulty: 'intermediate'
 prerequisites: ['k8s-pods', 'k8s-namespaces-and-kubectl']
-estimatedMinutes: 8
+estimatedMinutes: 9
 tags: ['kubernetes', 'security', 'admission', 'pod-security', 'namespaces']
-explainPrompt: 'Why does a Deployment apply cleanly under an enforced Restricted namespace and then produce no Pods at all?'
+explainPrompt: 'Why does an enforced Restricted namespace store a Deployment it can never create a single Pod from?'
 published: true
 ---
 
@@ -100,11 +100,25 @@ forbidden: violates PodSecurity "baseline:v1.36": host namespaces (hostNetwork=t
 
 ### The surprise: it checks Pods, not Deployments
 
-Pod Security Admission enforces on the Pod. When you apply a Deployment, the
-object the API server admits is a Deployment, and it contains a Pod _template_,
-not a Pod. The Deployment is stored. Then the controllers run, the ReplicaSet
-controller tries to create a Pod, and _that_ request is refused — in a
-controller, minutes later, with nothing on your terminal.
+`enforce` acts on the Pod. When you apply a Deployment, the object the API
+server admits is a Deployment, and it contains a Pod _template_, not a Pod.
+Nothing in that request violates the standard, so the object is stored:
+
+```text
+Warning: would violate PodSecurity "restricted:v1.36": allowPrivilegeEscalation
+!= false (container "web" must set securityContext.allowPrivilegeEscalation=false), ...
+deployment.apps/web created
+```
+
+The warning arrives even in a namespace whose only label is `enforce`, because
+**an unset `warn` defaults to the enforce level** — and `warn` mode does inspect
+the Pod template inside a workload object, which is the check `enforce` cannot
+make. It is advisory in both senses: the apply succeeded anyway, and the message
+went to whoever sent the request, which in a pipeline is a log line nobody is
+reading.
+
+Then the controllers run, the ReplicaSet controller tries to create a Pod, and
+_that_ request is refused — in a controller, on an object you did not name:
 
 ```bash
 kubectl get deployment web -n shop
@@ -112,12 +126,15 @@ kubectl get replicaset -n shop
 kubectl describe replicaset web-6d9f8c74b6 -n shop
 ```
 
-The Deployment shows `0/3` ready, the ReplicaSet shows zero Pods, and the
-explanation is in the ReplicaSet's events as a `FailedCreate` warning quoting the
-same `violates PodSecurity` message. This is the single most common confusion
-with the feature, and the reason `warn` earns its place: the `warn` mode also
-inspects the Pod template inside a workload object, so the person applying the
-Deployment sees the problem while they are still looking at their terminal.
+The Deployment shows `0/3` ready, the ReplicaSet shows `DESIRED 3` against
+`CURRENT 0`, and the explanation is in the ReplicaSet's events as a
+`FailedCreate` warning quoting the same `violates PodSecurity` message. This is
+the single most common confusion with the feature.
+
+Setting `warn` explicitly earns its place when it names a level _above_
+`enforce`, as the manifest higher up does: left unset it repeats the rule you
+are already enforcing, while `warn: restricted` over `enforce: baseline` is the
+combination that tells you something the rejection would not.
 
 ### Rolling it out to a live namespace
 
@@ -145,8 +162,10 @@ it lists, then enforce.
 Exemptions exist for the workloads that genuinely need `privileged` — by
 username, by RuntimeClass, or by namespace — but they are configured in the API
 server's admission configuration file, not in an object you can apply, so they
-belong to whoever runs the control plane. On a managed cluster, `kube-system` is
-already exempt.
+belong to whoever runs the control plane. Whether `kube-system` is among them
+depends on the distribution, so read its admission configuration rather than
+assume. An unlabelled namespace is not an exempt one either: it is unchecked,
+which looks identical right up until somebody labels it.
 
 ## Trade-offs
 
@@ -173,9 +192,10 @@ and buys back the standard for everything else.
   hosting a privileged Pod admitted before the label existed.
 - **Omitting `-version`.** `latest` is tempting because it sounds current, and it
   hands your cluster upgrade the ability to reject workloads that were fine.
-- **Looking for the error on the wrong object.** `kubectl apply` succeeded, so
-  people re-read the Deployment. The message is in the ReplicaSet's events, or
-  the Job's, or the StatefulSet's.
+- **Looking for the error on the wrong object.** `kubectl apply` succeeded — the
+  warning it printed is one line above a success message, and in CI it is one
+  line in a log nobody opens. The durable record is in the ReplicaSet's events,
+  or the Job's, or the StatefulSet's.
 - **Enforcing `restricted` on a namespace containing a DaemonSet agent.** The
   agent needs host access by design, the standard refuses it, and the fix is a
   separate namespace rather than a weaker standard for everyone.
@@ -197,19 +217,21 @@ and buys back the standard for everything else.
 
 Work each one out before opening the answer.
 
-**1. You add `pod-security.kubernetes.io/enforce: restricted` to a namespace. `kubectl apply -f deployment.yaml` reports the Deployment configured, and no Pods appear. Where is the error, and why is it not on your terminal?**
+**1. A namespace carries `pod-security.kubernetes.io/enforce: restricted` and nothing else. CI applies `deployment.yaml`, the job goes green, and no Pods appear; the log holds one `Warning: would violate PodSecurity` line above `deployment.apps/web created`. Why did the apply succeed, and where is the rejection recorded?**
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
-  Pod Security Admission evaluates Pods. The request you sent created a
-  Deployment, whose Pod template is not itself a Pod, so nothing in that request
-  violated anything and the API server stored it. The Deployment controller then
-  made a ReplicaSet, and the ReplicaSet controller tried to create Pods — those
-  requests were rejected. Because the rejected requests came from a controller,
-  the failure is recorded where that controller reports, so `kubectl describe
+  `enforce` evaluates Pods. The request CI sent created a Deployment, whose Pod
+  template is not itself a Pod, so nothing in that request was refused and the
+  API server stored it. The warning came from `warn` mode, which does read the
+  template inside a workload object and which defaults to the enforce level when
+  a namespace sets no `warn` label of its own — warning is the whole of what it
+  does. The rejection happens afterwards and on another object: the ReplicaSet
+  controller creates the Pods, those requests are refused, and `kubectl describe
   replicaset` shows a `FailedCreate` warning event carrying the `violates
-  PodSecurity` message and the fields at fault. Setting the `warn` mode as well
-  is what puts that message on your terminal at apply time, because `warn` does
-  inspect the template inside the workload object.
+  PodSecurity` message and the fields at fault. Adding an explicit `warn:
+  restricted` here would change nothing, because that is the level already being
+  enforced; an explicit `warn` is worth setting when it names a level above
+  `enforce`.
 </PracticeCheck>
 
 **2. A namespace has carried `enforce: baseline` for six months. An audit finds a running Pod with `hostPath` mounted from the node. How can both be true?**

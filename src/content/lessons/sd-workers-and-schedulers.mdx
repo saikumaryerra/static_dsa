@@ -46,8 +46,9 @@ notice failing unless you arrange for it.
 ## How it works
 
 **A worker pool is sized from the rate and the duration.** Concurrency equals
-throughput multiplied by latency, so the arithmetic is short and the honesty is
-in the assumptions:
+throughput multiplied by latency — Little's Law, from
+[Latency and Throughput](/learn/sd-latency-and-throughput/) — so the arithmetic
+is short and the honesty is in the assumptions:
 
 ```text
 Assumptions
@@ -89,8 +90,8 @@ The user needs to see the work, so give the job an identity and a state:
 }
 ```
 
-That row is what a status endpoint reads, what an operator queries, and what
-makes "did my upload work?" answerable without a log search.
+That row is what a status endpoint reads, and what makes "did my upload work?"
+answerable without a log search.
 
 **Now the scheduler, and start with what everybody builds first.** Cron on one
 box is a single point of failure with no retry: if the box is down at 02:00 the
@@ -108,8 +109,10 @@ duration    6 minutes on a busy day
 12:05  run B starts — A is still going
 12:06  A finishes; B is one minute in
 12:10  run C starts — B still running
-12:15  run D starts — B and C both running
-       each cycle adds a copy, all reading and writing the same rows
+12:15  run D starts — C still running
+       every cycle overlaps the next by one minute, permanently, two
+       copies reading and writing the same rows — and if contention
+       pushes the run past 10 minutes, three copies overlap
 ```
 
 Three fixes, in order of preference: make the job hold a lease for its expected
@@ -123,9 +126,11 @@ every run** keyed by the logical fire time, a **claim** on that record so only
 one worker executes it, and an **election** so only one node is doing the firing
 — which is
 [Service Discovery and Coordination](/learn/sd-service-discovery/). Keying the
-run record by logical time is what makes the whole thing safe: `digest-2026-08-26`
-inserts once, and a scheduler that crashed after firing but before recording it
-fires again, finds the row already present, and does nothing.
+run record by logical time is what makes the whole thing safe:
+`digest-2026-08-26` inserts once, and a second scheduler firing the same logical
+time hits the unique key, finds the row already present, and does nothing —
+which is why the insert happens before the work is dispatched, not after it
+completes.
 
 <Callout variant="note">
   **A scheduled trigger is at-least-once, like every other trigger.** A
@@ -170,9 +175,8 @@ something an event already tells you. Polling every minute for new rows costs a
 query every minute and adds up to a minute of latency, where a queue message
 costs one write and arrives in milliseconds. The scheduler's real trade-off is
 that time-triggered work is invisible: it has no user waiting, so a job that has
-silently failed for three weeks is a normal discovery, which is why every
-scheduled job needs an alarm on its **last successful completion** rather than
-on its errors.
+silently failed for three weeks is a normal discovery, so every scheduled job
+needs an alarm on its **last successful completion** rather than on its errors.
 
 ## Common pitfalls
 
@@ -238,19 +242,21 @@ Work each one out before opening the answer.
 **2. A job is scheduled every 5 minutes. Under load it takes 6 minutes. Describe what happens over the next half hour, and give two fixes with their costs.**
 
 <PracticeCheck slug={frontmatter.slug} index={2} total={3}>
-  Copies accumulate. At 12:05 a second run starts while the first is still
-  going; at 12:10 a third; by 12:30 there are several copies reading and writing
-  the same rows at once, each one slower than the last because they are
-  competing for the same database and the same downstream calls. The duration
-  grows under the contention, so the overlap grows too — a loop that ends in
-  lock waits or duplicated writes rather than in recovery. One fix is a lease
-  held for the run's duration: a second start finds it taken, skips, and
-  increments a "skipped because still running" metric; the cost is that under
-  sustained load the job effectively runs every 6 minutes instead of every 5,
-  and you must alarm on repeated skips or the lag hides. The other is to make
-  the job idempotent and partition its work by key so overlapping copies touch
-  different rows; the cost is a more complex job, and it does not bound how far
-  behind the work drifts.
+  Runs overlap at once, and then accumulate. At 12:05 a second run starts while
+  the first is still going; at 12:10 a third _start_, overlapping the second. At
+  a steady 6 minutes that is two copies for one minute out of every five — never
+  more, and permanently — reading and writing the same rows at once. It does not
+  stay steady, because each copy is slower than the last while they compete for
+  the same database and the same downstream calls. The duration grows under the
+  contention, so the overlap grows too: past 10 minutes a third copy joins, and
+  by 12:30 it is a loop that ends in lock waits or duplicated writes rather than
+  in recovery. One fix is a lease held for the run's duration: a second start
+  finds it taken, skips, and increments a "skipped because still running"
+  metric; the cost is that under sustained load the job effectively runs every 6
+  minutes instead of every 5, and you must alarm on repeated skips or the lag
+  hides. The other is to make the job idempotent and partition its work by key
+  so overlapping copies touch different rows; the cost is a more complex job,
+  and it does not bound how far behind the work drifts.
 </PracticeCheck>
 
 **3. A team wants a report generated for each of 500,000 accounts at 00:00 daily. Their worker fleet sustains 2,000 jobs per second. Is that a problem?**

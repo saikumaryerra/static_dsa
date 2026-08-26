@@ -1,0 +1,230 @@
+---
+title: 'Scale, Events and Reliability'
+slug: 'sd-spotify-reliability'
+course: 'system-design'
+track: 'sd-spotify'
+order: 35
+summary: 'Fifty thousand listening events a second with three consumers that need different guarantees, the bursts that arrive on a schedule, and a degradation ladder written before the outage.'
+difficulty: 'intermediate'
+prerequisites: ['sd-spotify-architecture', 'sd-idempotency-and-backpressure']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'reliability', 'events', 'degradation']
+explainPrompt: 'Why does one event log serve a royalty ledger and a dashboard better than two purpose-built pipelines?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Design a listening-event pipeline for three consumers with three different guarantees.
+- Absorb a scheduled burst without scaling the whole platform for it.
+- Write the degradation ladder for a regional outage, in the order features are given up.
+
+## Intuition
+
+**One log, three durability requirements.** That is what is new here. Royalty
+accounting must not lose or double-count an event, because it turns into money.
+Personalisation can lose a fraction of a percent and nobody will ever detect it.
+Analytics can be hours behind. Three pipelines for three guarantees is the
+obvious mistake: it triples the client work, and the three then disagree about
+what happened. One durable log that every consumer reads at its own pace, with
+the strict guarantee in the strict consumer, is **generally accepted industry
+architecture** for exactly this mismatch, and every figure below is **a teaching
+assumption** carried from
+[Requirements and Scale](/learn/sd-spotify-requirements/).
+
+The second model is a callback.
+[Scale, Reliability and Degradation](/learn/sd-netflix-reliability/) already
+argued that degradation is designed rather than discovered; **the ranking is a
+feature list written before the outage, not a decision taken during one.** Here
+one thing dominates — audio that is already playing should keep playing — and
+everything else, a shelf, a search result, a saved edit, can wait, be stale, or
+be queued. What the log adds is a bottom rung that ladder did not need.
+
+## How it works
+
+**Events from the client.** A client buffers events and flushes at a track
+change, so a play's five events travel in one request: 50,000 events per second
+becomes about 10,000 requests per second. A timer alone would not do it — five
+events across a three-minute play are already forty seconds apart, so a
+thirty-second window flushes one event at a time. The buffer doubles as the
+outbox that survives a tunnel. Delivery is at-least-once with jittered backoff,
+so duplicates are expected rather than exceptional, and every event carries a
+client-generated id that lets each consumer deduplicate;
+[Idempotency, Retries and Backpressure](/learn/sd-idempotency-and-backpressure/)
+is the mechanism that lets the pipeline be at-least-once and the royalty ledger
+still correct.
+
+**The log.** Events append to a partitioned log keyed by listener id.
+Partitioning by listener gives ordering where ordering means something — one
+listener's start, heartbeats and end stay in sequence — and parallelism
+everywhere else — a shard key taken from the access pattern, as
+[Replication, Partitioning and Sharding](/learn/sd-replication-and-sharding/)
+advises. Consumers hold their own offsets, so a slow one falls behind without
+slowing anybody else, and a fixed one can rewind and reprocess a week.
+
+| Consumer            | Guarantee it needs       | How it gets it                    | Acceptable lag |
+| ------------------- | ------------------------ | --------------------------------- | -------------- |
+| Royalty ledger      | No loss, no double count | Dedupe on event id, replay on fix | Hours          |
+| Personalisation     | Approximately complete   | Best effort, skip on error        | Minutes        |
+| Analytics           | Complete eventually      | Batch load, reprocess nightly     | Hours          |
+| Operational metrics | Fresh, not complete      | Sampled, aggregated in flight     | Seconds        |
+
+**Retention is a reliability feature.** A log that keeps seven days lets a
+consumer be broken for a day and catch up, and a bug fixed on Thursday be applied
+to Monday's events. It is the cheapest disaster recovery in the design, and
+[Event Streams](/learn/sd-event-streams/) explains why a queue, whose messages
+are gone once consumed, cannot offer it.
+
+**Bursts arrive on a schedule.** A major album releases at midnight local time; a
+playlist push reaches millions of devices at once; a live event ends and everyone
+opens the app. Assume a ten-fold spike lasting minutes, absorbed three ways. The
+log takes the write side, because appending is cheap and consumers may lag ten
+minutes without anybody noticing. The read side leans on caches, where the fully
+cached catalogue pays off — a new release is one hot key, and request coalescing
+keeps a million simultaneous misses from becoming a million origin reads. And the
+client jitters anything scheduled, because ten million devices refreshing at
+exactly midnight is a self-inflicted denial of service.
+
+<Callout variant="warning">
+  **Retry storms turn a blip into an outage.** A dependency slows, every client
+  retries, the load doubles, more requests time out, and the system cannot
+  recover even after the original cause is gone. Bounded retries, exponential
+  backoff with jitter, and a circuit breaker that fails fast are what stop that.
+</Callout>
+
+**Regional outage.** Split the platform by what the data is. Catalogue and audio
+are read-mostly and immutable, replicated everywhere and served locally, so a
+region loss costs nothing there. Personal state has a home region per listener,
+and losing it forces the choice
+[Consistency Models, CAP and PACELC](/learn/sd-consistency-models/) describes:
+read from a replica and refuse writes, or accept writes elsewhere and reconcile
+later. For playlists, refusing is the better trade — the client already holds an
+operation log and queues edits until its home region returns, which turns a
+failover into a delay rather than a conflict.
+
+**The ladder.** Written in advance, tested, and given to whoever is on call:
+
+```text
+1  keep audio playing            client cache, CDN, licences already issued
+2  serve the last home screen    stale precomputed shelves rather than none
+3  drop personalisation          editorial and popularity shelves per market
+4  queue playlist writes         client outbox, replay when the region returns
+5  search from a cached index    top queries answered, long tail degraded
+6  pause two log consumers       analytics and personalisation catch up later
+```
+
+Read it downward: every step gives up something a listener minds less than the
+step above it. Step 6 is where the one-log design shows: nothing can be shed at
+ingestion without shedding the royalty consumer's input too, so the analytics and
+personalisation consumers are paused instead and the seven-day retention replays
+their events when they restart. Operational metrics stay up — they are what tells
+you the outage is over.
+
+**Knowing it is broken.** Alert on symptoms rather than causes — play-start
+failure rate, time to first audio byte at p99, consumer lag on the log — because
+those are what a listener experiences and they stay meaningful when the cause is
+something nobody predicted; [Observability, Failure Handling and DR](/learn/sd-observability-and-recovery/)
+covers the practice. One number deserves attention: the home screen fans out to
+five services, so if each meets its p99 independently all five are fast on only
+0.99^5 = 0.95 of requests — about one home-screen request in twenty lands in a
+slow tail, not one in a hundred. That is the arithmetic
+[Latency and Throughput](/learn/sd-latency-and-throughput/) runs for twenty
+calls, and Dean and Barroso's _The Tail at Scale_ (CACM, 2013), publicly
+documented, takes it to a hundred-way fan-out that reaches most requests. It is
+why fan-out endpoints need deadlines and per-dependency fallbacks rather than
+only good averages.
+
+**Chaos engineering** — deliberately injecting failures into production — is a
+publicly documented practice from Netflix's own writing, and the previous case
+study works through it. One precondition bears repeating: without alerting that
+catches the injected failure and a rollback that ends the experiment, an injected
+failure is an outage you scheduled.
+
+## Common pitfalls
+
+- **A separate pipeline per consumer.** Three clients emitting three copies of
+  the truth, disagreeing about a day's plays, and needing three outages debugged.
+- **Exactly-once delivery as a requirement.** It is not available end to end
+  across a network; at-least-once delivery plus a deduplicating consumer is, and
+  it is what "exactly once" means everywhere it is claimed.
+- **Degrading by timeout.** With no ranked ladder, the feature that fails first is
+  the one whose dependency happened to be slowest, which is unlikely to be the
+  one listeners mind least.
+- **Retries with no ceiling.** Every client helping at once is what converts a
+  slow dependency into a dead one.
+- **Untested failover.** A standby region nobody has served traffic from is a
+  hypothesis, and an outage is the wrong moment to test it.
+
+## Interview notes
+
+Two moves carry most of the credit here. **Say what the system does when a
+dependency is slow rather than down**, because slow is the common case and where
+naive designs fail worst — a fast failure with a fallback beats a timeout holding
+a connection for thirty seconds. And **rank the degradation out loud**: naming
+the features you would give up, in order, shows you know what the product is for,
+which is the part of system design a diagram cannot teach.
+
+## Key takeaways
+
+- **One durable log, many consumers** with their own offsets: the strict
+  guarantee lives in the strict consumer, not in the transport.
+- At-least-once delivery plus **deduplication on a client-generated event id** is
+  how a royalty ledger stays correct without an impossible delivery promise.
+- Bursts are absorbed by the **log on the write side and caches on the read
+  side**, with client jitter to stop synchronised refreshes.
+- Regional failure is answered per data type: **immutable data everywhere,
+  personal state with a home region** and a client outbox for its writes.
+- The **degradation ladder is written before the outage**, and audio that is
+  already playing sits at the top of it.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A proposal replaces the shared log with three pipelines — one for royalties, one for personalisation, one for analytics — so each can be tuned to its own guarantee. Name what that costs.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Three times the client work and three chances to emit a different set of
+  events, so the pipelines drift and a discrepancy between the royalty total and
+  the analytics dashboard becomes a recurring investigation with no
+  authoritative answer. It also triples the operational surface — three
+  ingestion paths, three sets of alerts, three backfills — for a benefit the
+  single log already provides, since independent consumer offsets let each
+  consumer run at its own pace and with its own error handling. The strict
+  guarantee belongs in the strict consumer: dedupe and replay in the royalty
+  consumer, best effort in personalisation. One record of what happened, several
+  readings of it.
+</PracticeCheck>
+
+**2. A major album releases at midnight and traffic to its tracks rises roughly tenfold for a few minutes. Which parts of the platform have to be scaled for that, and which absorb it as designed?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Mostly it absorbs. The audio is immutable and the album is a small set of very
+  hot objects, so a delivery network serves nearly all of it from cache after
+  the first requests, and coalescing those first misses keeps the origin quiet.
+  Catalogue reads are cache hits for the same reason — one hot key, already
+  resident. The event log takes the extra appends without complaint, and its
+  consumers are allowed to lag by minutes, so nothing downstream needs headroom.
+  What does need it is the synchronous authorisation path, because every play is
+  a fresh signature and ten times the plays is ten times the requests: that
+  service is stateless, so it scales horizontally, which is the reason for
+  keeping it free of durable state in the first place.
+</PracticeCheck>
+
+**3. A region holding some listeners' personal state is lost. Audio and catalogue are replicated everywhere. What does a listener in that region experience, and what did the playlist design contribute?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Playback keeps working, because the parts it needs — catalogue metadata, audio
+  objects and the stateless authorisation service — are replicated or immutable
+  and are served from another region. What breaks is personal state: playlists
+  read from a replica and are stale by whatever the replication lag was, and
+  writes are refused rather than accepted somewhere that would later have to be
+  reconciled. The playlist design makes that refusal survivable: edits are
+  operations with client-generated ids held in a local outbox, so the client
+  queues them, keeps showing them locally through its own read-your-writes view,
+  and replays them when the home region returns. Idempotency means a replayed
+  operation that did land is not applied twice.
+</PracticeCheck>

@@ -1,0 +1,254 @@
+---
+title: 'Vertical and Cluster Autoscaling'
+slug: 'k8s-vertical-and-cluster-autoscaling'
+course: 'kubernetes'
+track: 'k8s-scaling'
+order: 45
+summary: 'A VerticalPodAutoscaler changes how big a Pod asks to be, and a cluster autoscaler changes how many machines there are to put it on — both of them reading requests rather than usage.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-horizontal-pod-autoscaler', 'k8s-requests-and-limits']
+estimatedMinutes: 10
+tags: ['kubernetes', 'scaling', 'autoscaling', 'vpa', 'cluster-autoscaler']
+explainPrompt: 'Why does a cluster autoscaler add a node for Pods that are asking for capacity nobody is using?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a VerticalPodAutoscaler changes, and why most teams run it in
+  recommendation mode.
+- Resize a running container's requests in place, without replacing the Pod.
+- Describe what makes a cluster autoscaler add a node, and what stops it removing
+  one.
+- Choose between more replicas, a bigger Pod and a bigger cluster.
+
+## Intuition
+
+Three autoscalers exist and people talk about them as three sizes of the same
+idea. They are not. Each moves a different number, and the numbers are wired
+together in one direction.
+
+**The request is the currency all three of them trade in.** A
+HorizontalPodAutoscaler changes the replica count, reading usage as a percentage
+of the request. A VerticalPodAutoscaler changes the request itself. A cluster
+autoscaler changes the node count, and it reads requests — not usage — because
+requests are what the scheduler does arithmetic with.
+
+Follow that through and the failure modes stop being surprising. A request set
+twice as high as reality makes the HPA scale late, makes every node look full at
+half load, and makes the cluster autoscaler buy machines to hold air — one wrong
+number, three systems misled, no error message anywhere. That is why the vertical
+autoscaler is worth understanding even if you never let it write anything.
+
+The dividing line between the two mechanisms in this lesson follows from that.
+Vertical scaling is for a workload that cannot be split; cluster autoscaling is
+for the moment when the Pods are right and there is nowhere to put them.
+
+## How it works
+
+### Vertical: making the request match reality
+
+A **VerticalPodAutoscaler** is a custom resource from the Kubernetes autoscaler
+project — ecosystem software, installed separately, and not something a freshly
+built cluster has. It targets a controller the way an HPA does, and runs as three
+pieces:
+
+- The **recommender** watches historical CPU and memory usage for the target's
+  Pods and computes a recommendation: a target request, plus a lower and upper
+  bound it considers acceptable.
+- The **updater** acts on that recommendation for Pods whose requests have
+  drifted far from it.
+- The **admission controller** rewrites `resources` on new Pods as they are
+  created, which is how a recommendation actually reaches a container.
+
+It runs in one of a few modes, and the choice matters more than the tuning. In
+`Off` mode it only publishes recommendations — nothing in the cluster changes,
+and a human copies the numbers into the manifest in the repository. In `Initial`
+it sets requests when a Pod is created and never touches it again. In its
+automatic mode it acts on running workloads.
+
+Most teams that run it in production run it in `Off` mode. Not out of timidity:
+the recommendation is the valuable part, it lands in Git where the rest of the
+configuration lives, and a request that changes underneath you is a request you
+cannot reason about during an incident.
+
+### Resizing without replacing
+
+The automatic mode's blunt instrument was eviction — the Pod comes back with new
+requests — which is why "vertical autoscaling restarts your workload" was the
+standing objection to it. On 1.36 that is no longer the only path: a running
+container's `resources` can be changed through the `pods/resize` subresource.
+
+```bash
+kubectl patch pod web-d77fbc4f7-94q4s -n shop --subresource resize \
+  --patch '{"spec":{"containers":[{"name":"web","resources":{"requests":{"cpu":"150m","memory":"16Mi"},"limits":{"cpu":"300m","memory":"32Mi"}}}]}}'
+```
+
+```text
+pod/web-d77fbc4f7-94q4s patched
+```
+
+The container keeps running — its restart count stays where it was — and the
+kubelet actuates the change, after which `status.containerStatuses[].resources`
+reports the new values. Read the two fields as a request and an acknowledgement:
+`spec` is what was asked for, `status` is what the node has actually applied.
+
+<Callout variant="note">
+  A resize is a change to **one Pod**, not to the workload. The Deployment's
+  template still carries the old numbers, so the next rollout — a new image, an
+  edited environment variable, anything that replaces the Pod — brings them
+  back. Use it to prove a number under real load; put the number that worked in
+  the manifest.
+</Callout>
+
+### Cluster: adding machines
+
+A cluster autoscaler watches for one thing: a Pod the scheduler could not place.
+
+```bash
+kubectl describe pod toobig -n shop
+```
+
+```text
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  12s   default-scheduler  0/1 nodes are available: 1 Insufficient cpu. no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.
+```
+
+That event is the trigger — `0/1` because this is a one-node local cluster — and
+it has already ruled out rearranging the cluster: preemption would not help
+either. The autoscaler simulates whether adding a node from a node group it
+manages would let the Pod schedule, and if so it asks
+the cloud provider for the machine. Like the vertical autoscaler it is ecosystem
+software — the same autoscaler project, with a per-provider integration, and a
+managed service usually runs it for you.
+
+Two properties of that loop decide almost everything about living with it:
+
+- **It reads requests.** The simulation is the scheduler's own arithmetic, so a
+  cluster of nodes booked solid by requests and idle by measurement will keep
+  buying machines. Nothing in the loop looks at `kubectl top`.
+- **It cannot make a node appear quickly.** Boot, join the cluster, pull the
+  image, pass the readiness probe: minutes. Autoscaling the cluster is a way to
+  avoid paying for peak capacity all month, not a way to answer a spike that
+  arrives in ten seconds.
+
+Scale-down is the harder half. A node becomes a candidate for removal when the
+requests of the Pods on it drop under a threshold and every one of those Pods
+could run somewhere else. Plenty of ordinary things veto that: a Pod with no
+controller to recreate it, a Pod using local storage on that node, a
+[PodDisruptionBudget](/learn/k8s-disruption-budgets/) that would be violated by
+the eviction, or a node selector that pins a Pod where it is. A cluster that
+scales up and never back down usually has one of those on every node.
+
+The standard way to buy back the provisioning latency is **headroom Pods**: a
+small Deployment of containers that do nothing, with real requests and a
+negative-priority [PriorityClass](/learn/k8s-quotas-and-priority/). They hold
+empty space a real Pod can take instantly by preempting them, and their eviction
+is what asks the autoscaler for a replacement.
+
+## Trade-offs
+
+**Vertical, when it fits.** A workload you cannot scale out — a single-writer
+database, a leader-elected controller, a legacy process — and fleet-wide
+right-sizing, where the recommendations across a hundred Deployments are worth
+more money than any single one of them.
+
+**Vertical, when not.** Anything that a replica count already answers, because
+adding a copy is cheaper and safer than growing one. Anything with genuinely
+spiky memory, where a recommendation derived from history is a bad prediction of
+the next hour.
+
+**Cluster, when it fits.** Any cloud cluster whose load shape varies, and
+especially batch or CI work, where the alternative is a fleet sized for the
+busiest hour of the week.
+
+**Cluster, when not.** A fixed pool of machines you already own, where the answer
+to a `Pending` Pod is a queue or a smaller request. And it is no help when the
+Pod is unschedulable for a reason a new node would not fix — a taint nothing
+tolerates, an exhausted quota. The autoscaler simulates first, so it correctly
+does nothing, and the Pod stays `Pending` while everyone waits for a machine that
+is never coming.
+
+## Common pitfalls
+
+- **Running a VPA and an HPA on CPU at once.** It reads as belt and braces. It is
+  a feedback loop: the VPA raises the request, measured utilization falls, the
+  HPA removes replicas, load per Pod rises, the VPA raises the request again.
+- **Reading a resize as a permanent fix.** The Pod is patched and the template is
+  not, so the change survives exactly until the next rollout and then vanishes,
+  usually weeks later when nobody connects the two events.
+- **Expecting the cluster autoscaler to fix an over-requested cluster.** It buys
+  nodes for requests, so a fleet asking for four times what it uses gets four
+  times the machines and a bill that looks like a scaling problem rather than a
+  configuration one.
+- **Sizing a node group so a Pod fits exactly.** Every node also runs DaemonSets
+  and reserves capacity for the kubelet and the operating system, so a Pod
+  requesting a whole machine's worth of CPU never schedules on that machine.
+
+## Key takeaways
+
+- **Three autoscalers, three numbers**: replicas, requests, nodes. All three are
+  downstream of a request that reflects reality.
+- A VerticalPodAutoscaler is **ecosystem software**, and its most common
+  production use is `Off` mode — recommendations a human puts in the repository.
+- **In-place resize changes one Pod, not the workload.** The container keeps
+  running; the next rollout restores the template's numbers.
+- A cluster autoscaler is triggered by an **unschedulable Pod** and simulates the
+  scheduler's arithmetic on **requests**. It never looks at measured usage.
+- **Scale-down is the part that breaks.** Local storage, budget-blocked
+  evictions, unmanaged Pods and pinned placement each keep a nearly empty node
+  alive indefinitely.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A cluster runs at 30% measured CPU across every node, and the cluster autoscaler keeps adding machines. Nothing is broken. Explain why, and name the change that shrinks the bill.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The autoscaler is not looking at the 30%. It runs the scheduler's own
+  simulation, and the scheduler places Pods by summing *requests* against a
+  node's allocatable capacity — so a fleet whose Pods each request three times
+  what they use fills every node's books at a third of its real load. New Pods
+  cannot be placed, they go `Pending`, and the autoscaler does exactly what it
+  was asked: buys a machine so they can be placed. The fix is not in the
+  autoscaler's configuration; it is in the requests. Lower them towards observed
+  usage — which is precisely the number a VerticalPodAutoscaler in `Off` mode
+  exists to produce — and the same Pods pack onto fewer nodes, at which point
+  scale-down has candidates to work with.
+</PracticeCheck>
+
+**2. A team resizes a Pod's memory request in place during an incident, load drops, and the service is fine. Three weeks later the same alert fires. What happened?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The resize wrote to that one Pod's `spec`, and the kubelet actuated it without
+  restarting the container — which is why it worked and why it looked complete.
+  The Deployment's Pod template was never touched, so it still carries the
+  original request. Any event that replaces the Pod restores it: a new image, an
+  edited ConfigMap reference, a node drain, an HPA scale-up creating fresh
+  replicas at the old size. Three weeks later something shipped, the Pods came
+  back the way the template describes them, and the incident repeated with no
+  apparent cause. The resize was the right diagnostic move; the missing step was
+  putting the number that worked into the manifest.
+</PracticeCheck>
+
+**3. A single-replica service is being terminated for exceeding its memory limit under load. A colleague proposes an HPA. Why does that not fix it, and what would?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  An HPA changes the replica count, and the failure is inside one container: it
+  wants more memory than its limit allows, so the kernel terminates it. Adding
+  replicas does not give any individual container a single extra byte. It might
+  reduce the work each one does, if the service is one the load can be spread
+  across — but the premise says it runs as a single replica, which usually means
+  it cannot be, and an HPA on a leader-elected or single-writer workload is a
+  correctness problem rather than a scaling one. The fix is vertical: raise the
+  memory request and limit to the real footprint, using measured usage or a VPA
+  recommendation rather than a guess. If the new size does not fit any node,
+  that is a cluster-shape question — a bigger node group — not something either
+  autoscaler can solve.
+</PracticeCheck>

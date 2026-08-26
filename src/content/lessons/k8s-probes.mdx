@@ -30,13 +30,15 @@ self-inflicted outages in Kubernetes is treating it as one.
 
 **Three probes, three questions, three different actions.**
 
-- **Readiness** — _should traffic come here right now?_ A failure removes the
-  Pod from its Service's endpoints. The container keeps running, and the moment
-  the probe passes again the Pod is back in the rotation.
+- **Readiness** — _should traffic come here right now?_ A failure marks the
+  Pod's endpoint `ready: false`, so it stops receiving traffic. The container
+  keeps running, and the moment the probe passes again the Pod is back in the
+  rotation.
 - **Liveness** — _is this process wedged so badly that only a restart will help?_
   A failure kills the container. There is no gentler outcome available.
 - **Startup** — _has it finished booting?_ While it is running, the other two are
-  suspended, and once it passes it never runs again.
+  suspended, and once it passes it does not run again for the life of that
+  container — a restart starts it over.
 
 Readiness is reversible and cheap. Liveness is destructive and irreversible: the
 process and everything in its memory are gone. That asymmetry should decide what
@@ -107,13 +109,13 @@ kubectl logs api --previous
 
 `kubectl describe pod` is where a failure states itself, in the events:
 `Liveness probe failed: HTTP probe failed with statuscode: 500`, or
-`Readiness probe failed: Get "http://10.1.0.9:8080/ready": context deadline exceeded`.
+`Readiness probe failed: Get "http://10.1.0.9:8080/ready": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`.
 The second of those is a timeout, which is a different bug from a 500.
 
 **Readiness is part of your routing, not only your rollout.** A Pod whose
-readiness probe fails has its `Ready` condition set false, and the endpoints
-controller removes it from the Service's EndpointSlice, so only ready Pods
-receive traffic. It is also what makes a rolling update meaningful — a new Pod
+readiness probe fails has its `Ready` condition set false; its endpoint stays in
+the EndpointSlice with `conditions.ready: false`, and kube-proxy forwards only to
+ready endpoints. It is also what makes a rolling update meaningful — a new Pod
 counts as available only when it reports ready.
 
 <Callout variant="warning">
@@ -127,9 +129,9 @@ counts as available only when it reports ready.
   answered by the process itself, from memory, with no network call in it.
 </Callout>
 
-A readiness probe that checks a dependency is a milder version of the same
-trap, and sometimes the right choice. If it fails everywhere at once, every Pod
-leaves the endpoint list and the Service has no endpoints, so callers get
+A readiness probe that checks a dependency is a milder version of the same trap,
+and sometimes the right choice. If it fails everywhere at once, every endpoint
+flips to `ready: false` and the Service has no ready endpoints, so callers get
 refused connections rather than degraded answers. Nothing restarts, so it
 recovers on its own — but you have still turned "slow" into "down". The usual
 compromise is to check a dependency once during start-up, where being
@@ -182,8 +184,9 @@ exactly the moment the system is in trouble.
 - **Readiness controls traffic, liveness controls the container's life, startup
   buys boot time** — and while a startup probe is running, the other two are
   suspended.
-- A failing readiness probe removes the Pod from its Service's endpoints and is
-  **fully reversible**; a failing liveness probe **kills the container**.
+- A failing readiness probe marks the Pod's endpoint `ready: false` so it stops
+  receiving traffic, and is **fully reversible**; a failing liveness probe
+  **kills the container**.
 - **A liveness probe must not check a dependency.** It converts one slow
   dependency into a synchronised, cluster-wide restart storm.
 - The defaults are `periodSeconds: 10`, `failureThreshold: 3` and
@@ -199,17 +202,17 @@ Work each one out before opening the answer.
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Both probes start failing on all twenty replicas at once, because they all
-  depend on the same slow thing. Readiness failing pulls every Pod out of the
-  EndpointSlice, so the Service now has no endpoints and callers get refused
-  connections rather than slow responses. Liveness failing is the expensive
-  half: after its failure threshold the kubelet kills each container, and since
-  all twenty crossed the threshold together they restart together — twenty cold
-  processes, twenty connection pools re-established at the same instant, against
-  a database that was already the bottleneck. The outage now outlives the
-  original slowdown, and repeats as the restarted Pods fail their probes again.
-  The repair is to split the two: liveness answers from the process with no
-  network call, readiness may consider the database if you accept losing all
-  endpoints when it is down.
+  depend on the same slow thing. Readiness failing flips every Pod's endpoint to
+  `conditions.ready: false`, so the Service has no _ready_ endpoints and callers
+  get refused connections rather than slow responses. Liveness failing is the
+  expensive half: after its failure threshold the kubelet kills each container,
+  and since all twenty crossed the threshold together they restart together —
+  twenty cold processes, twenty connection pools re-established at the same
+  instant, against a database that was already the bottleneck. The outage now
+  outlives the original slowdown, and repeats as the restarted Pods fail their
+  probes again. The repair is to split the two: liveness answers from the
+  process with no network call, readiness may consider the database if you
+  accept losing every ready endpoint when it is down.
 </PracticeCheck>
 
 **2. A container takes about 90 seconds to load its model into memory. It is being restarted repeatedly and never serves a request. What is happening, and which fields do you change?**

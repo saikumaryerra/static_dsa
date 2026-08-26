@@ -209,9 +209,11 @@ Work each one out before opening the answer.
   would change the answer is a second consumer: once the signup also has to
   update a search index, warm a cache and feed analytics, publishing one
   `user.created` record that four consumers read at their own offsets is far
-  better than four queues the producer has to know about — and only the log lets
-  the fifth consumer, added next year, see the users who signed up before it
-  existed.
+  better than four queues the producer has to know about — and a fifth consumer
+  added later starts on everything still inside the retention window, which a
+  queue could not have handed it at all. For the whole history it needs a
+  compacted `user.created` stream keyed by user id, or an archive of the stream
+  in object storage.
 </PracticeCheck>
 
 **2. A stream is partitioned by `event_type` and has 24 partitions. Roughly 80% of events are of type `page_view`. What is the effect, and what should the key have been?**
@@ -232,11 +234,13 @@ Work each one out before opening the answer.
 
 <PracticeCheck slug={frontmatter.slug} index={3} total={3}>
   Its committed offset points at records the broker has already deleted, so it
-  cannot resume where it stopped. The usual behaviour is to reset to the oldest
-  retained offset and carry on, which means roughly two days of events were
-  never processed and nothing failed while that happened — the consumer is
-  healthy, current and wrong. Recovery is not on the stream: those events are
-  gone from it, so the state has to be rebuilt from the source of truth that
+  cannot resume where it stopped. What happens next is set by the consumer's
+  out-of-range reset policy: reset to the oldest retained offset and roughly two
+  days of events went unprocessed; reset to the newest and all nine did. Either
+  way nothing errors — the consumer is healthy, current and wrong. Recovery is
+  only partly on the stream: the seven days still retained can be re-read by
+  seeking back to the oldest offset, but the two days that expired are gone from
+  the broker, so that state has to be rebuilt from the source of truth that
   produced them, or from a copy of the stream archived to object storage.
   Prevention is a lag alarm expressed in time rather than records — "the oldest
   unread record is more than one day old" — because that is the metric that

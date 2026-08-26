@@ -4,7 +4,7 @@ slug: 'k8s-graceful-shutdown'
 course: 'kubernetes'
 track: 'k8s-reliability'
 order: 34
-summary: 'Deleting a Pod starts two clocks that nobody synchronises — endpoint removal spreading across the cluster, and the kubelet counting down to SIGKILL — and the gap between them is where dropped requests come from.'
+summary: 'Deleting a Pod starts two clocks that nobody synchronises — the routing update spreading across the cluster, and the kubelet counting down to SIGKILL — and the gap between them is where dropped requests come from.'
 difficulty: 'intermediate'
 prerequisites: ['k8s-services', 'k8s-probes']
 estimatedMinutes: 10
@@ -32,21 +32,21 @@ is where they are dropped.
 
 **Two clocks start at the same moment, and nothing synchronises them.**
 
-The first is _routing_. The Pod is marked as terminating, the endpoints
-controller removes it from its Service's EndpointSlice, and every node's
-kube-proxy then reprograms its own dataplane. That is a distributed update: it
-propagates node by node, and an Ingress controller or cloud load balancer with
-its own target list may be slower still.
+The first is _routing_. The Pod is marked as terminating, its endpoint is marked
+`ready: false`, `terminating: true` (but still `serving: true`), and every node's
+kube-proxy then stops routing new connections to it. That is a distributed
+update: it propagates node by node, and an Ingress controller or cloud load
+balancer with its own target list may be slower still.
 
 The second is _termination_. The kubelet on that node runs the `preStop` hook if
 there is one, sends SIGTERM to each container, and starts counting down the
 grace period.
 
-Neither waits for the other. The kubelet does not know how far the endpoint
-removal has travelled, and the endpoints controller does not know the container
-has been signalled. So a client that resolved the endpoint list a moment ago
-happily opens a connection to a container that has already been told to stop —
-and that request is the one your users see fail.
+Neither waits for the other. The kubelet does not know how far the routing
+update has travelled, and the EndpointSlice controller does not know the
+container has been signalled. So a client that resolved the endpoint list a
+moment ago happily opens a connection to a container that has already been told
+to stop — and that request is the one your users see fail.
 
 ## How it works
 
@@ -54,9 +54,9 @@ The sequence, in order:
 
 1. Something deletes the Pod. The API server records a `deletionTimestamp` and
    the grace-period countdown begins.
-2. **Concurrently**: the Pod's `Ready` condition goes false, the endpoints
-   controller removes it from every EndpointSlice, and kube-proxy on each node
-   catches up.
+2. **Concurrently**: the Pod's endpoint is marked `ready: false`,
+   `terminating: true` (but still `serving: true`) in every EndpointSlice, and
+   kube-proxy on each node stops sending it new connections.
 3. **Concurrently**: the kubelet runs `preStop`, then sends SIGTERM to PID 1 of
    each container.
 4. When the grace period expires, anything still running is sent SIGKILL.
@@ -96,10 +96,10 @@ spec:
 **That `sleep` is the fix for step 2, and it is not a hack.** There is nowhere
 else to put the wait. The container keeps serving normally during the sleep —
 `preStop` runs _before_ SIGTERM — so those fifteen seconds are spent handling
-requests from clients that have not yet heard the news, while the endpoint
-removal propagates. Then SIGTERM arrives and the process drains what is left.
-The command needs a `sleep` binary in the image; a `sleep` action is also
-available in the lifecycle hook for images that have no shell.
+requests from clients that have not yet heard the news, while the routing update
+propagates. Then SIGTERM arrives and the process drains what is left. The
+command needs a `sleep` binary in the image; a `sleep` action is also available
+in the lifecycle hook for images that have no shell.
 
 <Callout variant="warning">
   The grace-period countdown starts at step 1, **before** `preStop` runs, not
@@ -129,10 +129,10 @@ kubectl get pod web-abc -o jsonpath='{.metadata.deletionTimestamp}{"\n"}'
 kubectl describe pod web-abc
 ```
 
-**Long-lived connections need explicit attention.** Removing a Pod from the
-endpoint list stops _new_ connections being routed to it, and does nothing to
-the HTTP keep-alive connections already open, which clients will happily reuse
-for minutes. A draining server has to close them itself — a `Connection: close`
+**Long-lived connections need explicit attention.** Marking a Pod's endpoint
+unready stops _new_ connections being routed to it, and does nothing to the HTTP
+keep-alive connections already open, which clients will happily reuse for
+minutes. A draining server has to close them itself — a `Connection: close`
 on the way out, or a GOAWAY frame — or those clients keep sending until SIGKILL
 answers for you.
 
@@ -170,8 +170,8 @@ caught up — is not information the Pod has.
   grace period, and the container is eventually SIGKILLed with work in flight.
 - **A `preStop` longer than the grace period.** The application then gets no
   time at all, because the countdown covers both.
-- **Relying on readiness to drain.** Failing the readiness probe removes the Pod
-  from the endpoint list, which is step 2 all over again — it does not close
+- **Relying on readiness to drain.** Failing the readiness probe marks the
+  endpoint unready, which is step 2 all over again — it does not close
   existing connections and it does not tell the process to finish.
 - **`terminationGracePeriodSeconds: 0`.** It is equivalent to an immediate kill,
   and it is occasionally set to make tests run faster before quietly reaching
@@ -179,15 +179,15 @@ caught up — is not information the Pod has.
 
 ## Key takeaways
 
-- Deleting a Pod starts **endpoint removal and container termination at the same
-  time**, and neither waits for the other.
+- Deleting a Pod starts **the routing update and container termination at the
+  same time**, and neither waits for the other.
 - **`preStop` runs before SIGTERM** and is where the wait for endpoint
   propagation belongs — the container is still serving during it.
 - The grace-period countdown **includes `preStop`**, and ends in SIGKILL.
 - **A shell as PID 1 swallows SIGTERM**; the tell is a termination that always
   takes exactly the grace period.
-- Removing a Pod from the endpoint list does nothing to **connections that are
-  already open** — the server has to close them.
+- Taking a Pod out of rotation does nothing to **connections that are already
+  open** — the server has to close them.
 
 ## Practice
 
@@ -197,9 +197,9 @@ Work each one out before opening the answer.
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   From requests that arrived after the Pod stopped serving but before every
-  router had heard about it. Endpoint removal and termination start together and
-  proceed independently: the kubelet signalled the container promptly and the
-  container did everything right, while the removal was still propagating
+  router had heard about it. The routing update and termination start together
+  and proceed independently: the kubelet signalled the container promptly and
+  the container did everything right, while that update was still propagating
   through each node's kube-proxy and through whatever load balancer sits in
   front. Connections opened in that window reach a process that is closing down,
   and the front end reports 502. Nothing in the Pod's own logs can show this,

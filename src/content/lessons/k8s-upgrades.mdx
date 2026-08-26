@@ -1,0 +1,231 @@
+---
+title: 'Cluster Upgrades and Version Skew'
+slug: 'k8s-upgrades'
+course: 'kubernetes'
+track: 'k8s-production'
+order: 54
+summary: 'Kubernetes supports a documented window in which its components may disagree about their version, and an upgrade is the exercise of moving through that window in the right order — control plane first, one minor at a time, one node at a time.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-what-kubernetes-is', 'k8s-disruption-budgets']
+estimatedMinutes: 10
+tags: ['kubernetes', 'production', 'upgrades', 'version-skew', 'kubeadm']
+explainPrompt: 'Why must the control plane be upgraded before the kubelets, and never the other way round?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- State the supported version skew between kube-apiserver, the controllers, the kubelet and `kubectl`.
+- Upgrade a cluster in the supported order, one minor version at a time.
+- Name the checks that belong before an upgrade, and the two failures that happen during one.
+
+## Intuition
+
+A cluster upgrade sounds like a category of its own, and it is the shape you
+already know. You take one machine out of service, replace what runs on it, put
+it back, and move to the next — keeping enough capacity in service throughout,
+honouring a budget that says how much may be missing at once, and stopping when
+something looks wrong.
+
+**An upgrade is a rolling update whose Pods are your machines.** Everything from
+[Rolling Updates](/learn/k8s-rolling-updates/) transfers: batch size, readiness
+before proceeding, and a way to halt. The Pods being replaced are nodes, and the
+thing that makes replacing them one at a time possible is that Kubernetes
+supports its components disagreeing about their version for a while.
+
+That window is called **version skew**, and it has one governing rule that falls
+out of the architecture: every component is a client of the API server, so
+**nothing may be newer than the API server**. A newer client can send a field an
+older server has never heard of. An older client, inside the window the
+deprecation policy guarantees, only asks for fields and APIs the newer server
+still understands — which is why the supported direction is always "older
+than", and why the control plane goes first.
+
+## How it works
+
+### The supported window
+
+With `kube-apiserver` at 1.36, the supported versions are:
+
+| Component                                                               | Supported              | The rule                                                                                 |
+| ----------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| Other `kube-apiserver` instances                                        | 1.36, 1.35             | newest and oldest within one minor of each other                                         |
+| `kube-controller-manager`, `kube-scheduler`, `cloud-controller-manager` | 1.36, 1.35             | up to one minor older, never newer                                                       |
+| `kubelet`                                                               | 1.36, 1.35, 1.34, 1.33 | up to three minors older, never newer                                                    |
+| `kube-proxy`                                                            | 1.36, 1.35, 1.34, 1.33 | up to three minors older, never newer; also within three minors of the kubelet beside it |
+| `kubectl`                                                               | 1.37, 1.36, 1.35       | within one minor, older **or** newer                                                     |
+
+Two things follow. The **order** is fixed: `kube-apiserver` first, then the
+controller manager, scheduler and cloud controller manager, then the kubelets and
+kube-proxy. And the **cadence** is looser than it feels: a kubelet may be three
+minors behind, so nodes do not have to move on the day the control plane does.
+`kubectl` is the one component allowed to be ahead, which is why your laptop can
+talk to a cluster you have not upgraded yet.
+
+### One minor at a time
+
+`kube-apiserver` must not skip minor versions, even in a single-instance
+cluster. Going from 1.34 to 1.36 is two upgrades, not one. The guarantees about
+stored objects, defaulting and conversion are made one minor apart; a jump
+crosses a step nothing was written to handle. Nodes are the exception in
+practice — a 1.33 kubelet can meet a 1.36 API server — but the control plane
+walks.
+
+### The commands
+
+On the first control-plane node, `kubeadm` checks the cluster and then moves it:
+
+```bash
+kubeadm upgrade plan
+kubeadm upgrade apply v1.36.2
+```
+
+Every other node — control plane or worker — runs `kubeadm upgrade node`
+instead. A worker's cycle is drain, upgrade, return:
+
+```bash
+kubectl drain node-7 --ignore-daemonsets
+kubeadm upgrade node
+kubectl uncordon node-7
+```
+
+The node's `kubeadm` package is upgraded before that middle command, and its
+`kubelet` package is upgraded and the kubelet restarted after it. `drain` marks
+the node unschedulable and evicts what is on it; `--ignore-daemonsets` is
+required because DaemonSet Pods are not evicted — they belong to the node and
+are replaced with it. A Pod using `emptyDir` needs `--delete-emptydir-data`, and
+that flag is a decision about data, not a formality.
+
+On a managed cluster the provider upgrades the control plane for you and nodes
+move by replacement: a new node joins at the new version, an old one is drained
+and deleted. The mechanism differs; the risky step is identical, because in both
+models the interesting failures happen during the drain.
+
+### Before you start
+
+Four checks, in the order they save you time:
+
+1. **Removed and deprecated APIs.** The API server returns a `Warning` header for
+   a request to a deprecated API and `kubectl` prints it, so
+   `kubectl apply --dry-run=server` over your manifests surfaces most of the
+   problem before the upgrade does. The API server has also counted those
+   requests in its `apiserver_requested_deprecated_apis` metric since 1.19,
+   which is the administrator-side version of the same check.
+2. **Addons.** The CNI plugin, CSI drivers, the ingress controller,
+   metrics-server and every operator each declare their own supported Kubernetes
+   range. A control plane can be inside the skew window while an addon is not.
+   Ingress-NGINX is being retired by its project, and Gateway API is the
+   recommended long-term replacement, so an upgrade is a reasonable moment to
+   stop adding to an Ingress-NGINX deployment.
+3. **Replica counts and disruption budgets.** Any workload at one replica is an
+   outage once per node drain, and a
+   [PodDisruptionBudget](/learn/k8s-disruption-budgets/) that can never be
+   satisfied is an upgrade that never finishes.
+4. **A restore path.** Take the etcd snapshot before the upgrade, not after —
+   see [etcd, HA and Disaster Recovery](/learn/k8s-etcd-and-disaster-recovery/).
+
+<Callout variant="warning">
+  The deadlock worth knowing about: an admission webhook with `failurePolicy:
+  Fail` whose backing Pods all sit on the node being drained. Evicting them
+  makes the webhook unavailable, the API server refuses the writes that would
+  reschedule them elsewhere, and the cluster cannot make progress in either
+  direction. Spread webhook backends across nodes and give them a disruption
+  budget, or the first drain of the upgrade is the last one.
+</Callout>
+
+## Trade-offs
+
+**In-place upgrade or replace the node?** Upgrading in place needs no spare
+machines and keeps the node's image cache, so Pods restart quickly. It also
+leaves a node whose state is the sum of every upgrade it has survived, which is
+where "works on every node but that one" comes from. Replacing nodes builds each
+one from the current image, so configuration drift dies on a schedule — at the
+price of spare capacity during the roll and a cold image cache afterwards.
+
+**How current to stay.** Three minor versions are maintained at any time — 1.34,
+1.35 and 1.36 today — which is a support window of a little over a year.
+Upgrading days after a release means meeting the bugs first. Waiting until the
+window closes means running unpatched and then doing two upgrades under time
+pressure, which is the same work with none of the calm. One minor behind the
+latest, on a schedule someone owns, costs the least over a year.
+
+## Common pitfalls
+
+- **Skipping a minor because the cluster is small.** Size has nothing to do with
+  it; the guarantee is about the API server's own conversion path, and it is the
+  same guarantee on a three-node cluster.
+- **Upgrading nodes first.** It feels safer to test on a worker, and a kubelet
+  newer than the API server is the one direction with no support at all.
+- **A budget that forbids all disruption.** `maxUnavailable: 0` reads as
+  "protect this workload", and what it means is that `drain` retries until
+  somebody notices. A budget is only meaningful when the workload has a spare
+  replica to give.
+- **Deprecated APIs inside somebody else's chart.** Your manifests can be clean
+  while a Helm chart you installed a year ago still creates an object the target
+  version has removed. The failure appears at install time on the new version,
+  long after the change that caused it.
+
+## Key takeaways
+
+- **Nothing may be newer than `kube-apiserver`** — that single rule produces the
+  upgrade order and the whole skew table.
+- The kubelet and kube-proxy may be **up to three minors older** than the API
+  server, so node upgrades can lag; `kube-apiserver` itself **must not skip a
+  minor**.
+- `kubectl` is supported **within one minor either way**, older or newer.
+- A node upgrade is **drain, upgrade, uncordon**, and drain is where upgrades
+  actually fail: disruption budgets, single-replica workloads and webhooks that
+  cannot survive their own eviction.
+- Three minors are maintained at a time, so a cluster that upgrades on a cadence
+  never has to do two upgrades at once.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your `kube-apiserver` is at 1.36. One node's kubelet is 1.33, another is 1.32, and your laptop's `kubectl` is 1.37. Which of the three are supported?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The 1.33 kubelet is supported: it is three minors older than the API server,
+  which is exactly the edge of the window, and it is older rather than newer.
+  The 1.32 kubelet is four minors older and outside the window — it may keep
+  working, but nothing is promised and nobody will treat a bug on it as a bug.
+  The 1.37 `kubectl` is supported, because `kubectl` is the one component
+  allowed to be one minor *newer* than the API server as well as one minor
+  older. Note what that costs: a 1.37 `kubectl` knows fields the 1.36 server
+  does not, and a manifest carrying one is refused rather than ignored —
+  `kubectl apply` validates against the server by default, so the answer is
+  `strict decoding error: unknown field ...`. The field is dropped instead of
+  refused only when you turn that validation off with `--validate=false`.
+</PracticeCheck>
+
+**2. `kubectl drain` has been running for twenty minutes. The only Pod left on the node belongs to a Deployment with two replicas that has a PodDisruptionBudget of `minAvailable: 2`. What is happening, and what are your options?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Drain evicts through the eviction API, which refuses any eviction that would
+  take the workload below its budget. With two replicas and `minAvailable: 2`,
+  evicting either one leaves one available, so every request is refused and
+  drain keeps retrying — indefinitely, because nothing about the situation
+  changes on its own. Three ways out, in descending order of safety: scale the
+  Deployment to three replicas, so one may be evicted while two remain; relax
+  the budget for the duration of the upgrade; or delete the Pod directly, which
+  bypasses the eviction API and the budget with it, and accepts the disruption
+  the budget existed to prevent. The lasting fix is a budget that leaves room —
+  a workload that may never lose a replica cannot be drained.
+</PracticeCheck>
+
+**3. You are on 1.34 and want 1.36. A colleague proposes one maintenance window: take the control plane straight to 1.36, then upgrade the nodes over the following week. What is wrong with each half of that plan?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The first half is not supported: `kube-apiserver` must not skip a minor
+  version, so 1.34 to 1.36 has to be 1.34 to 1.35 and then 1.35 to 1.36 — two
+  `kubeadm upgrade apply` runs, with the controller manager and scheduler
+  following the API server each time. The second half is fine, and is worth
+  saying out loud: once the control plane is at 1.36, kubelets still at 1.34 are
+  two minors older, inside the three-minor window, so the nodes really can be
+  upgraded over the following week rather than that night. The plan is not too
+  ambitious about nodes; it is too ambitious about the API server.
+</PracticeCheck>

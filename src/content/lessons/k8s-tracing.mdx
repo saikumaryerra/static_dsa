@@ -71,7 +71,7 @@ standalone process called the Collector.
 
 - A **span** is one named, timed operation: a handler, an outbound call, a query.
   It carries a start and end time, a status, and **attributes** — typed key-value
-  pairs such as `http.route` or `db.system`.
+  pairs such as `http.route` or `db.system.name`.
 - A **trace** is the set of spans sharing a trace id, arranged into a tree by
   each span recording its **parent span id**. The one with no parent is the root.
 - A **span context** is the identity a span travels with: trace id, span id, and
@@ -122,11 +122,18 @@ spec:
               value: checkout
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector.observability:4317
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
             - name: OTEL_TRACES_SAMPLER
               value: parentbased_traceidratio
             - name: OTEL_TRACES_SAMPLER_ARG
               value: '0.1'
 ```
+
+The protocol has to match the port: a Collector serves OTLP over gRPC on 4317 and
+over HTTP on 4318, and an SDK left at its default protocol will not necessarily
+pick the one your endpoint is speaking. Set both, or the exporter fails against a
+port that is listening.
 
 The application sends OTLP to a **Collector**, which receives, batches, enriches
 and exports to a backend. Running one is what keeps backend credentials and

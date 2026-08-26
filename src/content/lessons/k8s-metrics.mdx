@@ -58,6 +58,14 @@ nothing to disk, because it exists to answer "right now" for two consumers:
 
 ```bash
 kubectl top nodes
+```
+
+```text
+NAME     CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)
+node-2   239m         5%       2847Mi          38%
+```
+
+```bash
 kubectl top pods -n shop
 ```
 
@@ -137,7 +145,11 @@ spec:
       path: /metrics
 ```
 
-The object selects a Service by label and names the port to scrape. Its value is
+The object selects a Service by label and names the port to scrape. The
+`release: monitoring` label on the ServiceMonitor itself is the other half of
+the match: an operator only picks up ServiceMonitors matching its own
+`serviceMonitorSelector`, so a valid object carrying the wrong label there is
+the ordinary reason a target never appears. Its value is
 that a team ships monitoring configuration beside their Deployment, instead of
 sending a pull request against a central server configuration file.
 
@@ -250,8 +262,12 @@ Work each one out before opening the answer.
   climbs as each new series is tracked, queries that touch the metric get slower
   because they now scan an enormous number of series, and storage grows
   accordingly. The usual ending is the server being terminated for exceeding
-  memory, taking every dashboard and alert with it — and since the series
-  persist in the stored data, the problem does not resolve when the label is
-  removed. The requirement itself was valid; the mechanism was wrong, because
-  per-customer lookup is what logs and traces do.
+  memory, taking every dashboard and alert with it. Removing the label does fix
+  the memory: the churned series stop being written and fall out of the
+  in-memory head block within a few hours, and resident memory drops with them.
+  What it does not undo is what has already been written to disk — the series
+  sit in the stored blocks until retention rolls them off, so queries over that
+  window stay slow and the storage stays spent. The requirement itself was
+  valid; the mechanism was wrong, because per-customer lookup is what logs and
+  traces do.
 </PracticeCheck>

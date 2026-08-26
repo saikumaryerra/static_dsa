@@ -26,11 +26,13 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 
 ## Intuition
 
-Every request the API server accepts is answered in two stages. Authentication
-decides _who is asking_. Authorization decides _whether that requester may do
-this verb, to this resource, in this namespace_. Role-Based Access Control —
-RBAC — is the authorizer nearly every cluster runs, and it is a small idea with
-sharp edges.
+Every request the API server accepts is answered in stages. The first is
+authentication, which decides _who is asking_; the second is authorization,
+which decides _whether that requester may do this verb, to this resource, in
+this namespace_. Later stages — admission, where the cluster applies rules of
+its own — belong to [Admission Control](/learn/k8s-admission-control/).
+Role-Based Access Control — RBAC — is the authorizer nearly every cluster runs,
+and it is a small idea with sharp edges.
 
 **RBAC is a permit book, not a set of locks.** A rule is one sentence: these
 verbs, on these resources, in this API group. A request is allowed when some
@@ -123,7 +125,6 @@ evaluate in your head. Ask the server that will actually decide:
 ```bash
 kubectl auth can-i get pods -n shop
 kubectl auth can-i delete secrets -n shop
-kubectl auth can-i --list -n shop --as alice@example.com
 ```
 
 ```text
@@ -131,11 +132,18 @@ yes
 no
 ```
 
-The first two answer for you. `--as` asks on somebody else's behalf, including a
-ServiceAccount written as `system:serviceaccount:shop:log-reader`, and needs
-impersonation permission of your own. `--list` prints every rule that applies to
-a subject, which is the fastest way to find the binding you forgot about. When a
-teammate says a permission is not working, this command settles it in one line.
+Those answer for you, one line each, and when a teammate says a permission is
+not working they settle it on the spot. Asking on somebody else's behalf takes
+`--as`, which needs impersonation permission of your own and names a
+ServiceAccount as `system:serviceaccount:shop:log-reader`:
+
+```bash
+kubectl auth can-i --list -n shop --as alice@example.com
+```
+
+That prints a table of every rule applying to the subject, a column each for
+resources, non-resource URLs, resource names and verbs. It is the fastest way to
+find the binding you forgot about.
 
 ### The token a Pod gets
 
@@ -193,10 +201,14 @@ shortcut — bind `cluster-admin` now and narrow it later — never gets narrowe
 because nothing fails once it is broad.
 
 **Wildcards and aggregation trade review for reach.** `verbs: ['*']` on
-`resources: ['*']` is one line and unreviewable. Enumerating verbs is longer and
-tells the next reader what the workload does. The same applies to
-ClusterRoleBindings: they are cluster-wide and namespace-less, so a mistake in
-one has no blast-radius limit.
+`resources: ['*']` is one line and unreviewable; enumerating verbs is longer and
+tells the next reader what the workload does. Aggregation is the same trade
+made slowly: an aggregated ClusterRole holds no rules of its own and collects
+them from every ClusterRole carrying a matching label, so what it grants widens
+when somebody creates an unrelated object — which is how the built-in `view` and
+`edit` come to cover a CRD an add-on installed last week. ClusterRoleBindings
+have the same shape of problem: they are cluster-wide and namespace-less, so a
+mistake in one has no blast-radius limit.
 
 **Some verbs are worth more than they look.** `escalate` and `bind` let a
 subject grant permissions they do not hold. `impersonate` lets them become

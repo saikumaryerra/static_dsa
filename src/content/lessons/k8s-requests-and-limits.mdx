@@ -100,11 +100,14 @@ computes it from the numbers above and writes it into `status.qosClass`:
 | `BestEffort` | **No** container sets any request or any limit at all.                                |
 
 That class is the answer to a question you will eventually be asked at three in
-the morning: when a node runs out of memory, whose Pods go first? The kubelet
-evicts BestEffort Pods first, then Burstable Pods that are using more than they
-requested, and a Guaranteed Pod sitting inside its request last. Declaring
-nothing does not keep you out of the argument — it puts you at the front of the
-queue.
+the morning: when a node runs out of memory, whose Pods go first? The kubelet ranks
+its candidates by whether a Pod is using more than it requested, then by the
+Pod's [priority](/learn/k8s-quotas-and-priority/), then by how far over the
+request it is. A BestEffort Pod requested nothing, so every byte it uses is over
+its request and it sorts to the front; a Guaranteed Pod sitting inside its
+request goes last. QoS class is the shape that ranking produces rather than the
+key it sorts on. Declaring nothing does not keep you out of the argument — it
+puts you at the front of the queue.
 
 <Callout variant="warning">
   An OOM kill and an eviction are two different events with two different
@@ -120,13 +123,18 @@ with a block that catches people out:
 ```text
 Allocated resources:
   (Total limits may be over 100 percent, i.e., overcommitted.)
-  Resource   Requests      Limits
-  --------   --------      ------
-  cpu        1750m (87%)   3 (150%)
-  memory     3006Mi (79%)  4Gi (107%)
+  Resource           Requests      Limits
+  --------           --------      ------
+  cpu                1750m (87%)   3 (150%)
+  memory             3006Mi (79%)  4Gi (107%)
+  ephemeral-storage  0 (0%)        0 (0%)
+  hugepages-1Gi      0 (0%)        0 (0%)
+  hugepages-2Mi      0 (0%)        0 (0%)
 ```
 
-Those percentages are of **allocatable** — the node's capacity minus what is
+Every node prints the storage and hugepages rows too, usually as zeroes; the two
+that decide whether your Pod fits are `cpu` and `memory`. Those percentages are
+of **allocatable** — the node's capacity minus what is
 reserved for the kubelet, the container runtime and the operating system — and
 they are sums of _requests_, not measurements of use. A node at 87% requested
 CPU may be idle. It will still refuse a Pod asking for more than the remaining
@@ -192,8 +200,9 @@ nothing wrong.
 - **QoS class is derived from the manifest, never declared** — Guaranteed needs
   requests equal to limits on every container, Burstable is anything else with a
   request or limit, BestEffort is nothing at all.
-- Under node pressure the kubelet **evicts BestEffort first**, then Burstable
-  Pods over their requests, then Guaranteed.
+- Under node pressure the kubelet ranks victims by **over-request first, then
+  Pod priority**, which puts BestEffort at the front and a Guaranteed Pod inside
+  its request last.
 - `kubectl describe node` reports **sums of requests as a share of allocatable**.
   A node can be fully booked and idle at the same time.
 

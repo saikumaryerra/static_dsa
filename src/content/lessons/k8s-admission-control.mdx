@@ -48,7 +48,8 @@ The path a write takes, in order:
 | Validating admission | Does anything want to refuse it?            |
 | Persist              | Write to etcd.                              |
 
-**Mutation runs before validation, and everything.** A sidecar injector adds a
+**Mutation runs before validation, and every check after it sees the mutated
+object.** A sidecar injector adds a
 container; the result is then schema-checked and offered to every validating
 plugin, so a mutation cannot smuggle an object past a rule. Ordering among the
 mutating plugins themselves is not guaranteed, which is the reason two webhooks
@@ -182,7 +183,6 @@ kind: ClusterPolicy
 metadata:
   name: require-team-label
 spec:
-  validationFailureAction: Enforce
   rules:
     - name: check-team-label
       match:
@@ -190,6 +190,7 @@ spec:
           - resources:
               kinds: ['Deployment']
       validate:
+        failureAction: Enforce
         message: 'every Deployment must carry a team label'
         pattern:
           metadata:
@@ -203,12 +204,16 @@ policy exceptions with an owner, and a test framework. What it costs is the
 webhook it installs, which is now in the path of your writes.
 
 ```bash
-kubectl get validatingwebhookconfigurations
-kubectl get validatingadmissionpolicy
+kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations
+kubectl get validatingadmissionpolicies,mutatingadmissionpolicies
+kubectl get validatingadmissionpolicybindings,mutatingadmissionpolicybindings
 ```
 
-Those two commands list everything with an opinion about your writes. Run them
-on a cluster whose behaviour surprises you.
+The first two lines list everything you have added with an opinion about your
+writes — refusing
+and rewriting, out of process and in. The third answers whether a policy applies
+to anything at all, because an unbound policy is inert however strict it reads.
+Run all three on a cluster whose behaviour surprises you.
 
 ## Trade-offs
 

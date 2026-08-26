@@ -1,0 +1,228 @@
+---
+title: 'The Recommendation Pipeline'
+slug: 'sd-spotify-recommendations'
+course: 'system-design'
+track: 'sd-spotify'
+order: 33
+summary: 'Events to features to candidates to ranking to feedback: the two-stage funnel that turns a hundred million tracks into thirty, and which half of it runs offline.'
+difficulty: 'intermediate'
+prerequisites: ['sd-spotify-architecture', 'sd-event-streams']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'recommendations', 'pipelines', 'ranking']
+explainPrompt: 'Why is recommendation split into a cheap candidate stage and an expensive ranking stage rather than one scoring pass?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Trace a recommendation from a listening event through features, candidates and ranking.
+- Split the pipeline into the part that runs hourly and the part that runs in 50 ms.
+- Name the feedback loops the design creates, and what limits them.
+
+## Intuition
+
+**A recommender is a funnel with two very different cost budgets.** A hundred
+million tracks cannot all be scored for one listener opening one screen: at even
+a microsecond each that is a hundred seconds of work for a page that has about
+fifty milliseconds. So the work is split. A **candidate generation** stage
+narrows a hundred million to a few thousand using cheap lookups that were mostly
+precomputed. A **ranking** stage scores those few thousand with an expensive
+model that can afford many features per item, and returns the thirty a listener
+sees.
+
+That two-stage split is **publicly documented**: Covington, Adams and Sargin
+describe exactly this architecture — candidate generation followed by ranking —
+for YouTube's own production recommender in _Deep Neural Networks for YouTube
+Recommendations_ (RecSys, 2016), including the observation that the ranking stage
+was trained to predict expected watch time rather than clicks. The same funnel is
+generally accepted industry architecture for any recommender over a large
+catalogue, and the Spotify-like pipeline below differs from it only in the
+signals it consumes.
+
+The second model: **the pipeline is one loop, not one direction.** Recommendations
+produce plays, plays produce events, events produce the features that produce the
+next recommendations. Every property of the system, good and bad, comes from that
+loop closing.
+
+## How it works
+
+Five stages. The first three run offline on the asynchronous path; the last two
+run inside a request.
+
+**1. Event collection.** The listening events from the previous lessons — 50,000
+per second — are the raw material. Two kinds matter. _Explicit_ signals are rare
+and unambiguous: a like, a save to a playlist, a follow. _Implicit_ signals are
+plentiful and noisy: a full play, a skip in the first thirty seconds, a repeat,
+the hour of day. **The skip is the cheapest strong negative signal in music**,
+and few products have an equivalent: it is a negative judgement, it arrives
+within seconds, and listeners produce them constantly without being asked.
+
+**2. Feature generation.** Batch jobs read the log and build three groups of
+features: per listener (recent artists, genre mix, time-of-day profile), per
+track (play counts, skip rate, co-occurrence with other tracks in playlists and
+sessions, and audio-derived attributes such as tempo and energy), and per
+context (device, hour, what is playing now). Most of this is hourly or daily
+work. A thin streaming path keeps a short window of very recent behaviour fresh,
+because "you played this five minutes ago" is a feature a daily batch cannot
+provide.
+
+**3. Candidate generation.** Several cheap sources run in parallel and their
+results are unioned:
+
+| Source                   | How it works                               | Answers                         |
+| ------------------------ | ------------------------------------------ | ------------------------------- |
+| Collaborative            | Listeners who played this also played that | Popular pairings                |
+| Playlist co-occurrence   | Tracks that sit together in many playlists | Human curation at scale         |
+| Content similarity       | Nearest neighbours in audio-feature space  | Cold-start tracks with no plays |
+| Editorial and popularity | Curated lists, charts per market           | New listeners, new releases     |
+| Session continuation     | More of what is playing right now          | The next track in a radio queue |
+
+Each source returns a few hundred items from a precomputed index, so the stage
+costs a handful of key lookups rather than a model evaluation. The union is a few
+thousand candidates, deliberately over-inclusive — anything not in it can never
+be recommended, so recall matters here and precision does not.
+
+**4. Ranking.** One model scores the candidate set with far more features per
+item than candidate generation could afford, and sorts it. Then the rules that
+are not the model's business are applied: filter anything not licensed in this
+territory, drop what the listener already heard today, and enforce diversity so
+five tracks by one artist do not fill a shelf. Keeping those as explicit
+post-filters rather than model features is what makes them auditable when
+somebody asks why a track appeared.
+
+**5. Feedback.** The listener plays, skips or saves, and those events re-enter
+stage 1. Closing the loop is what makes the system improve and also what makes it
+drift, which the trade-offs below take seriously.
+
+**Offline against online** is the axis that decides where each stage lives:
+
+```text
+Offline (hourly to daily)     Online (inside 50 ms)
+  feature aggregation           read precomputed candidates
+  co-occurrence indexes         apply recent-session features
+  embedding training            score with the ranking model
+  precomputed home shelves      filter rights, dedupe, diversify
+  model training and eval       log what was shown, for training
+```
+
+The rule of thumb: **anything that depends on all listeners is offline; anything
+that depends on this listener in this moment is online.** Precomputing a whole
+home screen per listener is a third option worth knowing — it makes the request
+almost free and costs a job that runs for fifty million listeners whether they
+open the app or not, so it suits shelves that change daily and not a radio queue
+that reacts to a skip.
+
+<Callout variant="note">
+  **Log what was shown, not only what was played.** A model trained only on
+  plays learns from a sample the previous model chose, and can never learn that
+  something it never showed would have worked. Recording impressions alongside
+  outcomes is what makes the training data honest, and it is far cheaper to add
+  now than to backfill later.
+</Callout>
+
+## Trade-offs
+
+**When not to build this at all.** A new product with no listening history has
+nothing to learn from, and editorial lists plus per-market popularity beat a
+model trained on a thousand events. Personalisation earns its complexity once
+there is enough behaviour per listener to distinguish them; before that it is a
+pipeline with an opinion about noise.
+
+**Precomputed against live.** Precomputing is cheap to serve, survives a partial
+outage — a stale shelf is still a shelf — and cannot react to what happened a
+minute ago. Live ranking reacts and puts a model on the critical path of a screen
+that has a latency budget. Most platforms run both: precomputed shelves for
+browse, live ranking for the queue.
+
+**The feedback loop is also a failure mode.** Recommending popular tracks
+produces plays for popular tracks, which raises their popularity features.
+Without deliberate exploration — reserving a small share of slots for items the
+model is unsure about — the catalogue collapses toward a head that gets narrower
+every week, and a hundred million tracks becomes a very expensive way to serve
+ten thousand.
+
+**Offline metrics do not settle anything.** A model that scores better on
+held-out data can still perform worse with listeners, because the held-out data
+was collected under the old model. The decision comes from a controlled
+experiment on live traffic, which means recommendation work is also
+experimentation infrastructure work.
+
+## Common pitfalls
+
+- **Optimising the wrong objective.** Clicks or starts are trivially maximised by
+  attractive titles; a play-to-completion or a save is a much harder thing to
+  fake, which is exactly why it is a better target.
+- **Cold start treated as an edge case.** Every new release and every new listener
+  passes through it daily, and the answers — content features for tracks,
+  onboarding picks and popularity for listeners — are architecture, not patches.
+- **Filtering rights in the model.** A licensing rule expressed as a feature is a
+  suggestion. Expressed as a post-filter it is a guarantee.
+- **One giant model in the request path.** It scores fewer items per millisecond
+  than the funnel does, so it either times out or forces a candidate set so small
+  that the interesting recommendations were discarded before ranking.
+- **Training on your own output without recording impressions.** The model then
+  learns which of its own suggestions worked and nothing about what it missed.
+
+## Key takeaways
+
+- Recommendation is a **two-stage funnel**: cheap candidate generation over the
+  whole catalogue, expensive ranking over a few thousand items.
+- **Candidate generation optimises recall**; anything it omits is unreachable no
+  matter how good the ranker is.
+- Features that depend on **all listeners are computed offline**; features that
+  depend on **this listener now** are applied online.
+- **Skips are the cheapest strong negative signal** in music, and cold start is a
+  daily event rather than an exception.
+- The loop from recommendation to play to feature **improves and narrows** the
+  system at the same time; exploration and live experiments are how the narrowing
+  is kept in check.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Why not skip candidate generation and let one strong model score the whole catalogue, given enough serving hardware?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the arithmetic does not survive the latency budget. A hundred million
+  items at even a microsecond of model evaluation each is a hundred seconds of
+  CPU for one screen that has around fifty milliseconds, so reaching the answer
+  in time would need thousands of cores per request — and that is per listener,
+  at thousands of requests per second. The funnel spends its budget where it
+  changes the outcome: cheap precomputed lookups to reach a few thousand
+  plausible items, then the expensive model only on those. The trade is real —
+  anything candidate generation misses can never be ranked — which is why that
+  stage is tuned for recall and uses several independent sources rather than
+  one.
+</PracticeCheck>
+
+**2. A new track by an unknown artist is released today. It has no plays, no playlist co-occurrence and no likes. How can it be recommended at all, and why is that not a special case?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Through the candidate sources that do not need behavioural history: content
+  similarity puts it near tracks with comparable audio attributes, and editorial
+  or new-release shelves place it in front of listeners deliberately. Both
+  produce the first plays, and those plays generate the collaborative signals
+  everything else needs — so cold start is the on-ramp to the rest of the
+  pipeline rather than a gap in it. It is not a special case because it happens
+  continuously: every release and every new listener starts here, so a design
+  that handles cold start only as a fallback is failing at its most common
+  input.
+</PracticeCheck>
+
+**3. A ranking model is retrained on last month's plays and scores clearly better offline than the model in production. Why is that not enough to ship it?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Because last month's plays are not a neutral sample of listener preference —
+  they are what the *current* model chose to show, and what listeners then did
+  with it. A new model that agrees with the old one's choices scores well on
+  that data by construction, and a model that would have surfaced something
+  better is penalised for disagreeing with a history where that item was never
+  shown. Offline evaluation can therefore rank the safer model higher while the
+  bolder one performs better with real listeners. The decision needs a
+  controlled experiment on live traffic, with impressions logged so the next
+  round of training sees what was shown and not only what was played.
+</PracticeCheck>

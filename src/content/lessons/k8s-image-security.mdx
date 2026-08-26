@@ -64,14 +64,16 @@ spec:
     - name: registry-creds
   containers:
     - name: web
-      image: ghcr.io/shop/web@sha256:c1a4b0c9e8ee1d0b3d7ba21b0a2f4c8f9e6d5b4a3c2109f8e7d6c5b4a39281706
+      image: ghcr.io/shop/web@sha256:c1a4b0c9e8ee1d0b3d7ba21b0a2f4c8f9e6d5b4a3c2109f8e7d6c5b4a3928170
       imagePullPolicy: IfNotPresent
 ```
 
 With a digest, `IfNotPresent` is the correct pull policy: the reference cannot
 change meaning, so re-pulling proves nothing. With a mutable tag you need
 `Always`, and even that leaves a window — two Pods of one Deployment can be
-running different content if the tag moved between their pulls.
+running different content if the tag moved between their pulls. What a moving
+tag then does to a release and to a rollback is the subject of
+[Immutable Images and Tagging](/learn/k8s-images-and-tags/).
 
 `imagePullSecrets` names a Secret of type `kubernetes.io/dockerconfigjson`
 holding registry credentials. The Pod's ServiceAccount can carry the same field,
@@ -214,18 +216,20 @@ Work each one out before opening the answer.
   known provenance and a known-vulnerability status with a timestamp on it.
 </PracticeCheck>
 
-**2. Two Pods of the same Deployment, created four hours apart, behave differently. The manifest names `ghcr.io/shop/web:1.4.2` in both. How can that happen, and how would you confirm it?**
+**2. Your pipeline signed a digest. The manifest in Git names `ghcr.io/shop/web:1.4.2`, and a Pod from it is running now. How do you establish whether that Pod is running the bytes you signed, and why does the answer cover only that one Pod?**
 
 <PracticeCheck slug={frontmatter.slug} index={2} total={3}>
-  A tag is a mutable pointer, so somebody pushing to the registry between the
-  two pulls repoints `1.4.2` at different content, and the second Pod pulls the
-  new bytes while the first keeps running the old ones. Nothing in Kubernetes
-  notices, because the Pod spec is unchanged and the Deployment has no reason to
-  roll. Confirm it by reading `.status.containerStatuses[].imageID` on both Pods
-  and comparing the digests — they will differ, which is proof rather than
-  inference. The fix is to reference the image by digest so the same manifest
-  can only ever mean one set of bytes, with a pull policy of `IfNotPresent`
-  since the content can no longer change.
+  Read `.status.containerStatuses[0].imageID` on the Pod and compare it with the
+  digest your pipeline signed. That field is the digest the node resolved when
+  it pulled, so an exact match is proof rather than inference, and a mismatch
+  says the tag moved. It covers one Pod because the tag is a mutable pointer and
+  the pull is per node: `1.4.2` is not `:latest`, so the default
+  `imagePullPolicy` is `IfNotPresent` and a node that already holds the tag
+  never asks the registry again — a Pod scheduled later, on a node with no
+  cached copy, pulls whatever `1.4.2` points at by then. Two Pods of one
+  Deployment can therefore carry different digests under one unchanged manifest,
+  so the honest audit reads every Pod. Naming the digest in the manifest is what
+  retires the question.
 </PracticeCheck>
 
 **3. A new vulnerability lands in a compression library used across your estate. Which artifact answers "are we affected", and why do the other two not?**

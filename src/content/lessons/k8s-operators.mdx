@@ -1,0 +1,275 @@
+---
+title: 'CRDs and Operators'
+slug: 'k8s-operators'
+course: 'kubernetes'
+track: 'k8s-production'
+order: 58
+summary: 'A CustomResourceDefinition adds a noun to the Kubernetes API and a controller adds the verb, which together turn a runbook into a control loop — at the cost of one more controller that you now own and upgrade.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-desired-state', 'k8s-objects-and-manifests']
+estimatedMinutes: 10
+tags: ['kubernetes', 'production', 'crd', 'operators', 'controllers']
+explainPrompt: 'Why must a controller reconcile from the object it reads rather than from the event that woke it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Add a kind to the Kubernetes API with a CustomResourceDefinition, and say what that gives you before you write any code.
+- Describe the reconcile loop a controller runs, and the fields that keep it safe: status, owner references and finalizers.
+- Decide when an operator earns its place and when a chart was the right answer.
+
+## Intuition
+
+Everything Kubernetes does for a Deployment comes down to two things: it stores
+an object, and it runs a loop that makes reality match it. Nothing in
+[Desired State and Reconciliation](/learn/k8s-desired-state/) is specific to
+Deployments — the API server does not know what a Deployment means, and the
+controller that does know is an ordinary program watching ordinary objects.
+
+**A CustomResourceDefinition adds a noun; a controller adds the verb.** Declare
+a kind called `BackupSchedule` and the API server will store it, validate it,
+version it, authorize access to it with the same RBAC you already use, serve it
+to `kubectl get`, and let anything watch it — before you have written a line of
+code. What it will not do is act on one. That part is yours.
+
+**An operator is a controller that encodes what an experienced operator would
+do.** Take the backup, promote the replica, resize the volume, run the version
+upgrade in the order that does not lose data. Knowledge that lived in a runbook
+becomes a loop that runs whether or not the person who wrote it is awake — which
+is the whole claim, and also the whole cost, because that loop is now software
+you maintain.
+
+## How it works
+
+### The noun
+
+```yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: backupschedules.ops.example.com
+spec:
+  group: ops.example.com
+  scope: Namespaced
+  names:
+    plural: backupschedules
+    singular: backupschedule
+    kind: BackupSchedule
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Schedule
+          type: string
+          jsonPath: .spec.schedule
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: ['schedule']
+              properties:
+                schedule:
+                  type: string
+            status:
+              type: object
+              properties:
+                lastBackupTime:
+                  type: string
+```
+
+The CRD's `metadata.name` must be `plural.group`, and the schema is not
+optional decoration: fields it does not describe are pruned on write, so an
+incomplete schema silently deletes data. Applying it makes the kind real
+immediately:
+
+```bash
+kubectl api-resources --api-group=ops.example.com
+kubectl explain backupschedule.spec
+kubectl get backupschedules
+```
+
+What you got without writing code: storage, schema validation, `kubectl` and
+`kubectl explain` support, RBAC verbs, a watch endpoint, the extra column in
+`kubectl get` output, and a **status subresource** — a second endpoint for
+`status` so a controller can report progress without touching `spec`, and so
+RBAC can let it. For rules a schema cannot express, `x-kubernetes-validations`
+takes CEL expressions that the API server evaluates on write.
+
+### The verb
+
+A controller is a loop with a work queue. It watches its kind, puts the name of
+each changed object on the queue, and for each name: read the object, read the
+part of the world it describes, compute one step towards agreement, act, and
+record what happened in `status`. Then requeue, with backoff on failure.
+
+Four properties make that loop safe, and all four are conventions the ecosystem
+converged on rather than syntax:
+
+- **Level-triggered, never edge-triggered.** Reconcile reads the object fresh
+  and must not depend on which event woke it. Caches resync, controllers
+  restart, and rapid changes get coalesced into one notification — so a
+  reconcile that acts on "what changed" is a reconcile that will eventually act
+  on the wrong thing.
+- **`spec` belongs to the user, `status` to the controller.** Users never write
+  status; the controller never writes spec. The subresource enforces the split
+  at the API rather than by agreement.
+- **Owner references** on everything the controller creates, so garbage
+  collection removes the Deployment, Service and Secret when the custom
+  resource goes away, with no cleanup code at all.
+- **Finalizers** for the cleanup Kubernetes cannot do: a cloud bucket, a DNS
+  record, an external database. A finalizer turns a delete into a
+  `deletionTimestamp` and a wait; the controller does the external work and then
+  removes its own finalizer, which lets the object go.
+
+You have almost certainly used one already. The Prometheus operator — an
+ecosystem project, not part of Kubernetes — adds kinds like `ServiceMonitor`,
+and its controller turns each one into scrape configuration:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: web
+  namespace: shop-production
+spec:
+  selector:
+    matchLabels:
+      app: web
+  endpoints:
+    - port: metrics
+      interval: 30s
+```
+
+Nobody edits Prometheus' configuration file in that model. They write an object,
+and a loop keeps the file in agreement with every such object in the cluster.
+
+### The other extension point
+
+An `APIService` registers an API group served by **your** server rather than
+stored by the API server — the aggregation layer, which is how metrics-server
+serves `metrics.k8s.io`. Use it when the data is computed or lives elsewhere;
+avoid it for configuration, because a CRD's objects survive their controller
+being down while an aggregated API returns errors the moment its backend does.
+
+Kubebuilder, the Operator SDK and controller-runtime in Go, and kopf in Python,
+are the ecosystem's frameworks. They generate the CRD from typed structs and
+hand you the queue, the caches and leader election — which is most of the code
+a first attempt gets subtly wrong.
+
+## Trade-offs
+
+**When an operator earns it.** The knowledge you want to automate is a _loop_:
+something that must be decided again as the world changes. Failover, scheduled
+backups with retention, ordered upgrades of a stateful system, certificate
+rotation, resharding. In every case a human would otherwise be watching and
+deciding, repeatedly.
+
+**When a chart was the answer.** If the knowledge is a one-time templating
+problem — render this YAML with these values — then
+[Helm](/learn/k8s-helm/) or [Kustomize](/learn/k8s-kustomize/) already does it
+with no controller, no RBAC grant and nothing to keep running. A CRD that
+nothing reconciles is a configuration file with an installation step.
+
+**What it costs.** Another controller to run, monitor and upgrade; usually a
+broad RBAC grant, because a controller that manages workloads needs permission
+to manage workloads. The CRD is cluster-scoped, so every namespace shares one
+schema version and upgrading it is a cluster-wide event. And a wedged operator
+fails quietly: the objects still apply, `kubectl` reports success, and nothing
+happens.
+
+<Callout variant="warning">
+  Installing a third-party operator is a real decision, not a package install.
+  You are adopting its release cadence, its CRD versioning, its RBAC footprint
+  and its bugs — and for a database you could rent as a managed service, that is
+  a trade of one operational burden for a less familiar one.
+</Callout>
+
+## Common pitfalls
+
+- **Reconciling from the event.** It reads as efficient and it is the source of
+  the bugs that only appear after a restart or under load, when the event
+  stream is not the tidy sequence the code assumed.
+- **Mixing spec and status.** Letting users set status, or the controller set
+  spec, makes every reconcile a write race with the user, and the loser is
+  whoever wrote last.
+- **No finalizer for external resources.** Deleting the custom resource appears
+  to work, which is exactly why nobody notices the buckets accumulating.
+- **A finalizer that can fail to be removed.** Now the object never deletes, and
+  a namespace containing it sits in `Terminating` indefinitely — the most common
+  way an operator ruins somebody's afternoon.
+- **`cluster-admin` for the operator's ServiceAccount.** It makes the install
+  work on the first try and makes one compromised controller a compromised
+  cluster.
+
+## Key takeaways
+
+- A CRD gives you **storage, validation, RBAC, watch and `kubectl` support** for
+  a new kind; it gives you no behaviour whatsoever.
+- A controller's reconcile must be **level-triggered and idempotent**: read the
+  object, compute the gap, take one step, report in `status`.
+- **Owner references handle in-cluster cleanup; finalizers handle everything
+  outside the cluster** — and a broken finalizer blocks deletion forever.
+- An operator is worth writing when the operational knowledge is **a loop**, and
+  is the wrong tool when it is one-time templating.
+- CRDs are cluster-scoped and operators need broad permissions, so adopting one
+  is a decision about the whole cluster.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your controller reads the change carried in the event that woke it and acts on that difference. Why is that wrong, even though the event really does describe a change?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because the event stream is a hint, not a log. The informer's cache resyncs
+  and delivers whole objects with no change at all; rapid updates get coalesced,
+  so two changes can arrive as one and an intermediate state is never seen; and
+  a restarted controller replays from a fresh cache with no memory of what it
+  had processed. A loop built on differences is correct only if it sees every
+  difference exactly once, which nothing guarantees. Reading the object and the
+  world and computing one step from the current gap is correct under all of
+  those conditions — and it is the same property that makes `kubectl apply` safe
+  to run twice.
+</PracticeCheck>
+
+**2. Your operator creates a cloud storage bucket for each custom resource. A user deletes one of the resources and the bucket is still there a week later. What mechanism is missing, and what goes wrong if it is implemented carelessly?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  A finalizer. Owner references would have cleaned up anything *inside* the
+  cluster, but garbage collection cannot reach a bucket in a cloud account, so
+  deletion completed and the external resource was orphaned. With a finalizer on
+  the object, the delete request sets `deletionTimestamp` and the object
+  persists until the controller deletes the bucket and removes its finalizer.
+  The careless version is worse than the original bug: if the cleanup path can
+  fail permanently — credentials rotated, the bucket already gone and the code
+  treats that as an error — the finalizer is never removed and the object cannot
+  be deleted by any means short of editing it by hand. If it is namespaced, its
+  namespace stays in `Terminating` for as long as that lasts.
+</PracticeCheck>
+
+**3. A team proposes a CRD called `AppConfig` holding their application's settings, with no controller — the application reads it from the API at startup. Talk them through the decision.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Take the premise seriously first: with no controller, the CRD is a typed,
+  validated key-value store served by the API server, and that does work. What
+  they gain over a ConfigMap is real — a schema, so bad values are rejected at
+  admission rather than at startup, `kubectl explain` for their own fields, and
+  structured types instead of strings. What it costs is a cluster-scoped object
+  to install and version, RBAC to grant, and settings that no longer arrive as
+  files or environment variables, so the application must call the API and hold
+  a credential to do it. The deciding question is whether anything reconciles
+  it: reading at startup is a one-time read, so nothing happens when the object
+  changes, and a ConfigMap gives them that for free with less installed. If the
+  validation is genuinely the requirement, the CRD is a reasonable answer — and
+  it is worth saying out loud that they are choosing it for the schema, not for
+  the operator pattern.
+</PracticeCheck>

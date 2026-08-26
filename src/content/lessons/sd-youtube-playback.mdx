@@ -1,0 +1,248 @@
+---
+title: 'Playback and Delivery'
+slug: 'sd-youtube-playback'
+course: 'system-design'
+track: 'sd-youtube'
+order: 38
+summary: 'The same manifests and segments as any streaming platform, filled the opposite way: pull-through caching over an unpredictable catalogue, a tiered hierarchy that absorbs the tail, and what a video going viral does to a cold cache.'
+difficulty: 'intermediate'
+prerequisites: ['sd-youtube-upload-pipeline', 'sd-cdn']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'video', 'cdn', 'caching']
+explainPrompt: 'Why does an unpredictable catalogue force pull-through caching where a curated one can be pushed to the edge in advance?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what a user-upload catalogue changes about caching, and what it leaves unchanged.
+- Size a cache hierarchy from a hit ratio and an egress figure.
+- Handle a cold video that becomes hot in minutes without collapsing the origin.
+- Place live streaming beside video on demand, and say when live is the wrong tool.
+
+## Intuition
+
+The delivery mechanism itself is not new here. Manifests, fixed-length segments,
+adaptive bitrate and encrypted-once media are covered in
+[video delivery](/learn/sd-netflix-video-delivery/), and every word of it applies
+unchanged: a stream is a playlist of small immutable files that the client picks
+one at a time, and no application server is on the byte path.
+
+**What changes is how the caches get filled.** A curated platform knows next
+week's popular titles and pushes copies to caches during off-peak hours. Here
+nobody knows — a video uploaded four minutes ago may be about to take a
+measurable share of global egress, or be watched twice ever, and no signal
+available at publish time separates them reliably. So the fill is
+**pull-through**: the first viewer's request misses every cache, travels to
+origin, and populates the tiers on its way back.
+
+The second model follows from that. **A cache is a popularity filter, and the
+tail passes straight through it.** Evicting least-recently-used over a request
+stream where most videos are asked for once means tail videos never survive long
+enough to be hit again. That is the cache working correctly — you do not want a
+petabyte of once-watched video occupying edge disks — but it means the tail's
+requests are origin traffic by design, and origin has to be sized for that rather
+than treated as a rare fallback.
+
+The third: **hot is a rate of change, not a level.** The dangerous case is not the
+video with a billion lifetime views, which every cache holds. It is the one that
+goes from zero to millions in twenty minutes, because for the first few seconds
+every cache in the world misses the same key simultaneously.
+
+## How it works
+
+```text
+player
+  |
+  '-> metadata service: video record, manifest URL, playback token
+  |
+  '-> manifest: the rungs that exist right now (short TTL)
+  |
+  '-> segment GET
+        |
+        '-> edge cache -- miss -> regional cache -- miss -> origin storage
+```
+
+**1. Starting playback.** A view start is a metadata read plus a manifest fetch
+plus a counter increment, and at 40,000 starts per second average — 120,000 at
+peak — it is an ordinary high-volume web path. One detail differs from a curated
+platform: the manifest lists the renditions that exist **now**, which for a
+recently published video may be a single modest rung while the rest of the ladder
+is still encoding. The manifest therefore has a short time to live, or a version
+in its URL that changes when a rung is added, whereas the segments themselves are
+immutable and can be cached for as long as anyone likes.
+
+**2. The object count.** A ten-minute video at four-second segments across the
+module's six-rung ladder is roughly nine hundred objects, and there are a billion
+videos. That puts
+the catalogue at the order of a trillion cacheable objects — which matters
+because a cache node's index has to address them. Object count, and not only byte
+volume, is what sizes a cache tier.
+
+**3. The hierarchy.** Three tiers, filled on demand — the edge, shield and origin
+tiers of any [delivery network](/learn/sd-cdn/):
+
+```text
+Cache arithmetic (teaching assumptions)
+  top 1,000,000 videos take ~90% of views, ~1 GB of ladder each
+    hot working set                                =    1 PB
+    whole catalogue                                =    1 EB
+  edge tier sized to hold the hot set              -> ~90% hit ratio
+  misses at peak: 10% of 100 Tbps                  =   10 Tbps upstream
+  10 Tbps ÷ 100 Gbps per interface                 =  100 saturated links
+```
+
+Ten terabits per second is why there is a middle tier. A regional cache is
+large enough to hold the near-tail — content too cold for an edge and far too
+warm to fetch from storage every time — and catching most of that remainder
+leaves origin serving a few terabits per second, which object storage absorbs.
+The edge answers the head, the regional tier answers the shoulder, and origin
+answers the tail.
+
+**4. Caches inside networks.** Netflix's Open Connect programme is the
+_publicly documented_ example of placing caching appliances inside internet
+service providers' own networks, and doing so is _generally accepted industry
+architecture_ for any platform at this egress. The difference here is what fills
+them: Open Connect can preposition during off-peak because a curated catalogue's
+popularity is predictable, while an upload platform's embedded caches fill from
+live requests and earn their value on the head alone.
+
+**5. When a cold video becomes hot.** The first thousand players ask for the same
+segment inside a second, every cache misses, and each miss becomes an origin
+request — a stampede against a key that will be trivially cacheable ten seconds
+later. Request coalescing — the [delivery network](/learn/sd-cdn/) defence
+against a thundering herd — is the first answer: one fetch per key proceeds while
+the others wait on it. What differs here is that the key has never been requested
+at all, so the herd hits every tier cold at once rather than at a TTL expiry, and
+coalescing must work at the regional tier too. The second mechanism, **prewarming
+on a signal**, uses what the platform does know: an upload from a
+channel with millions of subscribers, or a video whose view rate crosses a
+threshold, is worth pushing to regional caches before demand arrives. Both are
+_generally accepted_ practice; neither removes the need for the other.
+
+<Callout variant="note">
+  **Live streaming, at concept level.** Live inverts three assumptions. The
+  encoder is the origin, so segments appear a few seconds before anyone can
+  request them and nothing can be prepositioned. The manifest is rewritten
+  continuously as a sliding window rather than fetched once. And segment length
+  becomes the dominant latency term: shorter segments cut glass-to-glass delay
+  and multiply request rate and manifest churn. Live is the wrong tool for
+  anything not actually happening now — a premiere of a finished video is
+  cheaper, more cacheable and more reliable as ordinary on-demand playback with
+  a scheduled publish.
+</Callout>
+
+## Trade-offs
+
+**Pull-through against prepositioning.** Pull-through needs no prediction and
+wastes nothing on videos nobody watches; it pays for that with a cold-start miss
+for every first viewer and with stampedes on sudden popularity. Prepositioning
+inverts both, and is only available where popularity can be predicted.
+
+**Ladder depth on the tail.** Cutting tail videos to two or three rungs saves
+storage and concentrates their cache footprint, at the price of a worse network
+match for the few viewers they get — a trade the [scale
+lesson](/learn/sd-youtube-scale/) takes further.
+
+**A regional tier against direct origin reads.** The middle tier is real hardware
+that exists to serve content nobody would call popular. Removing it saves that
+cost and moves the entire miss stream onto origin, whose latency and per-request
+cost are both far higher.
+
+## Common pitfalls
+
+- **Believing a delivery network fixes the hit ratio.** Hit ratio is a property
+  of the request distribution, not of the vendor: over a long-tail catalogue a
+  cache holds the head and no purchase changes that.
+- **A single flat cache tier.** It looks simpler and it forces every non-head
+  request onto origin, which is the ten-terabit number above.
+- **No request coalescing.** Invisible until the first viral video, then it
+  arrives as an origin outage that looks like a traffic spike.
+- **Caching the manifest as aggressively as the segments.** They look like the
+  same kind of object and are not — one changes when a rendition is added, the
+  other never changes at all.
+- **Reporting one hit ratio for the whole system.** A healthy overall number
+  hides the tier that is missing badly, and the tiers have completely different
+  jobs.
+
+## Interview notes
+
+The sentence that shows you have thought about this rather than read about CDNs
+is the contrast: "the delivery mechanism is the same as any streaming platform,
+but the cache-fill story is the opposite, because we cannot know what will be
+popular." Everything else in the lesson follows from it and can be derived on the
+spot.
+
+Then reach for the arithmetic rather than an adjective. "A ninety per cent edge
+hit ratio still leaves ten terabits per second going upstream at peak, so there
+has to be a middle tier" is an argument; "we'd add a CDN" is a preference.
+
+## Key takeaways
+
+- The delivery mechanism is unchanged from a curated platform; **the cache-fill
+  strategy is inverted** — pull-through, not prepositioned.
+- Caches hold the head by design, so **the tail's requests are origin traffic**
+  and origin must be sized for them.
+- A **tiered hierarchy** exists because the miss stream from the edge is itself
+  a very large egress figure.
+- Sudden popularity is handled by **request coalescing** at the caches and
+  **prewarming on a signal**, not by hoping the edge fills in time.
+- **Live streaming makes prepositioning impossible by definition** and makes
+  segment length the dominant latency term.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A colleague proposes copying the curated platform's approach: push every new video to edge caches during off-peak hours so the first viewer never misses. What is wrong with it here?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The arithmetic kills it before the design questions do. Three million uploads
+  a day at about a gigabyte of ladder each is roughly three petabytes of new
+  content daily, against an edge tier sized at around a petabyte in total — the
+  push would overwrite the entire hot set several times over every day and evict
+  precisely the content that was serving 90% of views. The deeper problem is
+  that the strategy assumes a signal that does not exist: prepositioning is
+  worthwhile when you can predict which titles will be watched, and here the
+  great majority of those three million videos will be watched a handful of
+  times ever. What survives from the idea is the narrow version — prewarming
+  regional caches for the few uploads that carry a real predictor, such as a
+  channel with millions of subscribers — which the design already uses.
+</PracticeCheck>
+
+**2. A video goes from unknown to a million concurrent viewers in twenty minutes. Trace what happens at each tier, and name the mechanism that keeps origin standing.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  At the first burst every edge cache misses the same segment key at the same
+  moment, because the object has never been requested. Each miss goes to the
+  regional tier, which also misses, and each of those becomes an origin read for
+  one object — so the request amplification is roughly the number of edge nodes
+  seeing traffic, all for a file that would be a hit ten seconds later. Request
+  coalescing is the mechanism that saves it: each cache node allows one fetch
+  per key to proceed and parks the rest of the requests on that single in-flight
+  fetch, so a thousand simultaneous misses become one upstream read and the
+  amplification collapses to one per tier per node. After the first few seconds
+  the situation reverses completely — the video is now the most popular object
+  in every cache, the hit ratio is near perfect, and the load returns to being
+  pure edge egress.
+</PracticeCheck>
+
+**3. To save money, someone proposes deleting the regional cache tier: tail videos are watched so rarely that their requests may as well go straight to origin storage.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The premise is right about the tail and wrong about what the tier is holding.
+  The regional cache is not there for the coldest content; it is there for the
+  shoulder — videos too cold to survive eviction at an edge and warm enough to
+  be requested repeatedly across a region. That band is where the edge's misses
+  actually come from, and it is a large fraction of them: on the numbers in this
+  lesson a 90% edge hit ratio leaves ten terabits per second at peak going
+  upstream, and sending all of it to object storage means both an enormous read
+  rate against a store priced per request and a much longer path for every one
+  of those viewers. The honest version of the proposal is to shrink the tier and
+  measure the resulting miss stream, not to remove it — and if it is removed,
+  the saving has to be weighed against origin capacity that now has to carry a
+  peak it was never sized for.
+</PracticeCheck>

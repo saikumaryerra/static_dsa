@@ -65,8 +65,9 @@ and prefixes each line with its source.
 
 Three properties follow from "it is a file on a node":
 
-- **The kubelet rotates it.** Past a size threshold the older lines are dropped,
-  so a chatty container overwrites its own history within minutes.
+- **The kubelet rotates it.** The defaults are 10Mi per file and five files
+  kept, so a container has to write about 50Mi before its oldest lines go —
+  minutes for a chatty service, and never for a quiet one.
 - **It dies with the Pod.** Delete the Pod object and the log is unreachable, no
   matter how carefully the node is still running.
 - **Nothing indexes it.** There is no search across Pods, no query, no retention
@@ -100,22 +101,26 @@ controller. They carry a type — `Normal` or `Warning` — a machine-readable
 timestamps, because repeats are aggregated rather than duplicated.
 
 ```bash
-kubectl get events -n shop --sort-by=.lastTimestamp
+kubectl events -n shop
 kubectl events --for pod/web-9f8c4d7b6-2xk5v -n shop
+kubectl get events -n shop --sort-by=.metadata.creationTimestamp
 kubectl describe pod web-9f8c4d7b6-2xk5v -n shop
 ```
 
 ```text
-LAST SEEN   TYPE      REASON      OBJECT                    MESSAGE
-2m14s       Normal    Scheduled   pod/web-9f8c4d7b6-2xk5v   Successfully assigned shop/web-9f8c4d7b6-2xk5v to node-2
-2m12s       Normal    Pulled      pod/web-9f8c4d7b6-2xk5v   Container image "ghcr.io/shop/web:1.4.2" already present on machine
-90s         Warning   BackOff     pod/web-9f8c4d7b6-2xk5v   Back-off restarting failed container web
+LAST SEEN            TYPE      REASON      OBJECT                    MESSAGE
+2m14s                Normal    Scheduled   pod/web-9f8c4d7b6-2xk5v   Successfully assigned shop/web-9f8c4d7b6-2xk5v to node-2
+2m12s                Normal    Pulled      pod/web-9f8c4d7b6-2xk5v   Container image "ghcr.io/shop/web:1.4.2" already present on machine and can be accessed by the pod
+90s (x6 over 2m10s)  Warning   BackOff     pod/web-9f8c4d7b6-2xk5v   Back-off restarting failed container web in pod web-9f8c4d7b6-2xk5v_shop(3f2a1c4e-6b90-4d1a-9c77-5e8f0a2b1d34)
 ```
 
-Sorting matters: the default listing is not chronological, which is why the
-`--sort-by` flag appears in every runbook that mentions this command. And
-`kubectl describe` on an object ends with the events for that object, which is
-usually the fastest route to them.
+Order matters, and `kubectl events` is the command that gets it right: oldest
+first, with the aggregation rendered in the first column. The older
+`--sort-by=.lastTimestamp` no longer sorts reliably — events written through the
+newer events API carry an `eventTime` and leave `lastTimestamp` empty, so they
+land at the top whatever their age — and `.metadata.creationTimestamp` is the
+fallback for `kubectl get`. `kubectl describe` on an object ends with the events
+for that object, usually the fastest route to them.
 
 **Events are retained for about an hour by default, then deleted.** They live in
 etcd like any other object and the API server expires them, because a cluster
@@ -133,10 +138,8 @@ shape used for logs, or a small controller that watches the events API and
 forwards. Doing this is cheap and it is the difference between a post-incident
 review with evidence and one with recollections.
 
-Turning these two records into a diagnosis — the order to check things in when a
-Pod will not start — is the Troubleshooting module's material, and it assumes
-what this lesson establishes: which record holds the answer, and how long you
-have to get it.
+Which record holds the answer, and how long you have to get it, is what the
+Troubleshooting module's diagnostic order is built on.
 
 ## Trade-offs
 
@@ -174,7 +177,7 @@ rather than progress.
   your object.** They answer different questions and neither substitutes.
 - `kubectl logs` reads a **file on the node**, rotated by the kubelet and deleted
   with the Pod — use `--previous` to read the instance that crashed.
-- **An events object is not a log**: it is an API object, aggregated by count,
+- **An Event object is not a log**: it is an API object, aggregated by count,
   rate-limited, and **retained for about an hour by default**.
 - Durability for either record means **shipping it off the cluster** as it is
   produced, which is ecosystem tooling rather than a Kubernetes feature.
@@ -191,13 +194,18 @@ Work each one out before opening the answer.
   The command is reading the container that is running now, which started after
   the most recent restart and therefore has no record of why the previous one
   ended. `kubectl logs --previous` reads the log of the immediately preceding
-  instance, which is where the failure is — but only the last one, since earlier
-  instances are not retained. The events would say why the kubelet restarted it,
-  with a `BackOff` warning and a count of eleven, except that events expire
-  after roughly an hour, so an overnight sequence has almost certainly aged out
-  and only the most recent remains. What survives is the restart count on the
-  Pod itself and whatever a log shipper forwarded. The lesson for next time is
-  that both records had to be exported while they existed.
+  instance, which is where the failure is — but only that one, since earlier
+  instances are not retained. The kubelet's side of the story is in the events,
+  and there is only ever one `BackOff` Event for the Pod: repeats are aggregated
+  into it, so it carries a count with a first and a last timestamp rather than
+  one object per restart. Whether it is still there depends on what the Pod is
+  doing now. If it is still crashing, each new backoff refreshes the last
+  timestamp and the Event survives with a high count — though that count is of
+  backoff decisions, not restarts, so expecting it to read eleven is a mistake.
+  If the Pod stabilised hours ago, nothing refreshed it and the whole Event has
+  expired. What survives either way is the restart count on the Pod itself and
+  whatever a log shipper forwarded, which is the lesson: both records had to be
+  exported while they existed.
 </PracticeCheck>
 
 **2. Why can `kubectl logs` return nothing for a Pod that has existed for ten minutes, without anything being broken about logging?**

@@ -1,0 +1,346 @@
+---
+title: 'Project: Health, Autoscaling and a Safe Rollout'
+slug: 'k8s-project-health-and-rollout'
+course: 'kubernetes'
+track: 'k8s-projects'
+order: 66
+summary: 'Teach the project to report its own health, size itself against load, and refuse to finish a rollout that would take the working version away.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-project-config-and-storage', 'k8s-probes']
+estimatedMinutes: 12
+tags: ['kubernetes', 'project', 'probes', 'autoscaling', 'rollout']
+explainPrompt: 'Why does a rolling update with maxUnavailable set to 0 stall instead of causing an outage when the new image is broken?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Add the three probes to the project and say what each one changes about traffic, restarts and rollouts.
+- Size the fleet with a HorizontalPodAutoscaler, and set a ceiling that means something.
+- Ship a deliberately broken release, watch the rollout refuse to complete, and undo it.
+
+## Intuition
+
+Two of the three things in this lesson turn out to be the same thing.
+
+**A safe rollout is readiness plus arithmetic.** Kubernetes has no way of knowing
+whether your new version works. The only opinion it can form comes from the
+readiness probe, and the only thing it does with that opinion is refuse to remove
+old Pods until enough new ones report ready. `maxUnavailable: 0` is that promise
+written down: never fewer than this many working Pods, whatever the new version
+turns out to be. A broken release then produces a stalled rollout instead of an
+outage — the old Pods are still serving every request while the new ones fail to
+arrive.
+
+Autoscaling is the same idea pointed the other way. The replica count stops being
+a number you set and becomes a number a controller recomputes from a signal,
+between a floor and a ceiling you own. And because the autoscaler writes that
+number into the Deployment and stops, it inherits the rollout rules above without
+knowing they exist.
+
+## How it works
+
+### Probes
+
+This module keeps editing one `web-deployment.yaml`, and this lesson is where
+that matters. Open the file from the previous lesson — it already carries
+`replicas: 3`, the `envFrom` import and the `api-token` Secret volume — and add
+these fields to the `web` container, beside `image` and `ports`.
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /
+    port: 80
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+livenessProbe:
+  httpGet:
+    path: /
+    port: 80
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+```
+
+```bash
+kubectl apply -n shop -f web-deployment.yaml
+kubectl rollout status deployment/web -n shop --timeout=120s
+```
+
+Edit that one file for every change below, and re-apply it. A second manifest
+naming the same Deployment with a subset of fields is not additive: `kubectl
+apply` removes fields the previous apply set and the new one omits, so a
+probes-only file would strip the ConfigMap import and the Secret volume, and a
+strategy-only file would strip the probes and the resource requests the
+autoscaler is about to depend on.
+
+The stand-in image serves one path, so both probes use `/`. A real service should
+answer them separately: `/healthz` from memory, with no network call in it, for
+liveness; `/ready`, which may check that start-up finished, for readiness. Point
+a liveness probe at a database and one slow dependency restarts every replica in
+the fleet at the same moment.
+
+Each probe changes exactly one thing. **Readiness** decides whether the Pod is in
+the Service's EndpointSlice, so it gates traffic — and because a rolling update
+counts a Pod as available only when it is ready, it also gates the rollout.
+**Liveness** restarts a container that is running but wedged; if a wedged process
+would exit on its own, you do not need one, and an unnecessary liveness probe is
+a way of turning slowness into restarts. **Startup** is worth adding only when
+boot is slow: it gives boot its own budget so liveness can keep a tight one
+afterwards, and here nginx starts in under a second, so there is nothing to
+separate.
+
+`timeoutSeconds` deserves the explicit value above. The default is **1 second** —
+a probe endpoint answering in 1.2 seconds under load is a failing probe while
+every other client sees a working application.
+
+### Requests, because the autoscaler measures against them
+
+`requests.cpu: 100m` is not only a scheduling hint here. The HorizontalPodAutoscaler
+expresses CPU as a percentage of the **request**, so the request is the
+denominator of every scaling decision: inflate it and the fleet scales late,
+shrink it and it scales at the first breath. The memory limit is set and the CPU
+limit deliberately is not, so a burst can use idle capacity rather than being
+throttled against a ceiling.
+
+### The autoscaler
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: shop
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+```
+
+```bash
+kubectl apply -n shop -f web-hpa.yaml
+kubectl get hpa web -n shop
+kubectl top pods -n shop
+```
+
+Both of those readings come from metrics-server through the `metrics.k8s.io` API.
+It is an add-on rather than part of a default install, and without it the HPA's
+`TARGETS` column reads `<unknown>` and nothing scales at all. Check that first
+when the autoscaler appears inert.
+
+Left alone the controller is asymmetric on purpose: scaling up happens
+immediately, while scaling down takes the highest recommendation from the last
+five minutes, so load has to stay low before capacity is removed. Adding capacity
+late costs an outage; removing it late costs a few minutes of a machine.
+
+<Callout variant="warning">
+  Now that the HPA owns the replica count, delete the `replicas: 3` line from
+  `web-deployment.yaml`. Leaving it in means every `kubectl apply` — and every
+  GitOps reconciliation, which is the same apply on a loop — resets the fleet to
+  the number in the file, undoing whatever the autoscaler decided. The two
+  controllers are not in conflict about anything except which one you told last.
+  Removing it costs one moment of strangeness: an apply that drops a field the
+  previous apply set removes it from the object too, so the Deployment falls to
+  the default of one replica until the HPA's next pass pulls it back to
+  `minReplicas`. Do it in the same change that creates the HPA, when there is
+  something to pull it back.
+</Callout>
+
+### The rollout budget
+
+Four more fields decide what a change is allowed to cost. They go on the
+Deployment's own `spec`, beside `selector` and `template` — in the same file,
+which by now has lost its `replicas` line and gained its probes.
+
+```yaml
+minReadySeconds: 10
+progressDeadlineSeconds: 120
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+```
+
+`maxUnavailable: 0` says the fleet never drops below its current size, so a new
+Pod must be ready before an old one goes. `maxSurge: 1` allows exactly one extra
+Pod during the change, which makes the update sequential and cheap in capacity.
+`minReadySeconds: 10` requires a new Pod to stay ready for ten seconds before it
+counts — the cure for a container that passes its first probe and falls over a
+moment later. `progressDeadlineSeconds: 120` is how long a stuck rollout waits
+before saying so out loud.
+
+```bash
+kubectl apply -n shop -f web-deployment.yaml
+kubectl get hpa web -n shop
+kubectl get pods -n shop -l app=web
+```
+
+This is the apply the Callout warned about, and it is worth watching. The
+`replicas` line is gone, so the Deployment drops to the default of one replica
+and the HPA's REPLICAS column reads 1 for a few seconds before its next pass
+takes the fleet back to `minReplicas: 3`. Wait for three `1/1 Running` Pods
+before the next section: a rollout budget is only legible against a settled
+fleet.
+
+### Ship a broken release
+
+```bash
+kubectl set image deployment/web -n shop web=nginx:1.29-typo
+kubectl annotate deployment/web -n shop kubernetes.io/change-cause='bad tag on purpose'
+kubectl rollout status deployment/web -n shop --timeout=150s
+kubectl get pods -n shop -l app=web
+kubectl describe deployment/web -n shop
+```
+
+The tag does not exist, so the one surging Pod cannot pull an image and sits in
+`ImagePullBackOff`. It never becomes ready, so under `maxUnavailable: 0` no old
+Pod is removed, and every request is still served by the previous version.
+`kubectl rollout status` blocks and then exits non-zero, which is what makes it
+the last step of a deployment pipeline rather than decoration. After the
+deadline, the Deployment records `ProgressDeadlineExceeded` and holds.
+
+**Kubernetes will not roll back on its own, ever.** The decision is yours:
+
+```bash
+kubectl rollout history deployment/web -n shop
+kubectl rollout undo deployment/web -n shop
+kubectl rollout status deployment/web -n shop --timeout=120s
+```
+
+An image that pulls but fails its readiness probe produces the same stall from a
+different cause — worth trying second, because the diagnosis differs entirely
+while the Deployment's behaviour does not.
+
+## Trade-offs
+
+**`maxUnavailable: 0` buys safety with capacity.** It needs room for the surge
+Pod, and it makes the rollout strictly sequential, so a large fleet takes longer.
+`maxUnavailable: 1, maxSurge: 1` finishes sooner and accepts running one replica
+short during the change. Choose by asking what the fleet can absorb: with three
+replicas at 60% CPU, losing one during a rollout is a real risk, and with thirty
+it is noise.
+
+**Pause is a canary you already own.** `kubectl rollout pause deployment/web`
+freezes the update wherever it is — with `maxSurge: 1` that is one new Pod
+serving alongside the old ones — and you watch its metrics before `resume` or
+`undo`. It costs a manual step and gives no traffic weighting; the blue/green and
+canary lesson covers what that buys.
+
+**When an HPA is the wrong instrument.** Use it when load is spread across
+interchangeable replicas and CPU tracks it. Do not use it when the bottleneck is
+downstream — adding replicas in front of a saturated database moves the queue,
+not the limit — nor for a workload whose real signal is queue depth, which needs
+an external metric or an event-driven autoscaler. And a singleton with a volume
+cannot be horizontally scaled at all; that workload needs a bigger Pod, not more
+of them.
+
+## Common pitfalls
+
+- **A liveness probe that checks a dependency.** It is tempting because it sounds
+  more thorough. It converts one slow dependency into a fleet-wide restart storm,
+  and the outage outlives the recovery.
+- **Believing a rollout that succeeded.** `rollout status` reports that Pods
+  became ready, and readiness is whatever your probe checks. A probe that returns
+  200 from a process with a broken database connection makes the whole gate
+  ceremonial.
+- **Leaving `replicas` in a manifest an HPA owns.** The next apply silently
+  resets the fleet, usually at the worst moment, because deployments happen under
+  load.
+- **A `maxReplicas` nobody revisits.** When the fleet pins at the ceiling, the
+  ceiling is deciding your capacity instead of the load. The HPA's
+  `ScalingLimited` condition says so, and it is the one to alert on.
+- **Deleting the failed Pods to "clear" a stalled rollout.** The ReplicaSet
+  recreates them and the evidence goes with the old ones.
+
+## Key takeaways
+
+- Readiness gates traffic **and** rollouts; liveness restarts a wedged container;
+  startup only earns its place when boot is slow.
+- `timeoutSeconds` defaults to 1 second, which is shorter than most probe
+  endpoints under load.
+- An HPA's CPU target is a percentage of the container's **request**, so the
+  request is part of the scaling policy — and the Deployment should stop
+  declaring `replicas` once the HPA owns them.
+- `maxUnavailable: 0` turns a bad release into a stalled rollout rather than an
+  outage, and `kubectl rollout status` is what turns that stall into a failed
+  pipeline step.
+- Nothing rolls back automatically. `kubectl rollout undo` is a decision a person
+  or a pipeline makes.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. The rollout above is stalled with one `ImagePullBackOff` Pod and three old Pods serving. A colleague says the site is down. What evidence settles it, and what is actually true?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The site is up. `maxUnavailable: 0` means no old Pod is removed until a new
+  one is ready, and none ever became ready, so all three original replicas are
+  still `Running` and still behind the Service. The evidence is `kubectl get
+  pods -n shop -l app=web`, showing three `1/1 Running` Pods and one that is
+  not, plus the EndpointSlice — read the right way. The slice lists every
+  matching Pod, ready or not, so the failing one is in it and the table's
+  address column is no help; `kubectl get endpointslices -n shop -l
+  kubernetes.io/service-name=web -o jsonpath='{.items[*].endpoints[*].conditions.ready}'`
+  is the reading that matters, and its one `false` is the Pod that never became
+  ready and so never received a request. What is broken is the *deploy*, not the
+  service — which is why the Deployment reports `ProgressDeadlineExceeded`
+  rather than anything about availability. With `maxUnavailable: 1` the same
+  release would have removed one working Pod first, and the colleague would have
+  been a third right.
+</PracticeCheck>
+
+**2. CPU on `web` sits at 95% of request, the HPA's REPLICAS column reads 12 against a MAXPODS of 12, and latency is climbing. Raising `maxReplicas` to 40 is proposed. When is that right, and when does it make things worse?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  It is right when the work is genuinely CPU-bound inside `web` and each replica
+  serves independently — then more replicas are more capacity, and the ceiling
+  was set too low for the traffic the service now has. It makes things worse
+  when the replicas are waiting on something shared: forty copies calling one
+  database open forty times the connections, and the queue that was inside `web`
+  moves into the dependency, where it is harder to see and affects every other
+  caller. Note what 95% does and does not tell you: it is a ratio against the
+  request, so with `requests.cpu: 100m` it is 95 millicores — a tenth of a core,
+  which a container can reach while spending most of its time waiting. `kubectl
+  top pods` gives the absolute figure, and the deciding evidence is where the
+  request time goes: computing inside `web` argues for the ceiling, and waiting
+  on a dependency whose own latency is climbing argues that raising it buys a
+  bigger crowd at the same door.
+</PracticeCheck>
+
+**3. A service takes 90 seconds to load a model at boot. The team sets `initialDelaySeconds: 120` on the liveness probe. What does that cost, and what should they do instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  It works at boot and charges for it forever afterwards: the delay applies only
+  to the first probe, but the team has had to size the whole liveness budget
+  around the slowest event in the container's life, so any *later* wedge is
+  either detected slowly or was avoided by making the probe less patient than
+  boot needs. A startup probe separates the two budgets — give it
+  `failureThreshold: 30` with `periodSeconds: 5` for a 150-second boot window,
+  and the moment it first succeeds, liveness takes over with a tight
+  steady-state budget of its own. Readiness runs alongside and keeps the Pod out
+  of the Service until the model is loaded, which is the part that stops traffic
+  reaching a process that is not ready for it.
+</PracticeCheck>

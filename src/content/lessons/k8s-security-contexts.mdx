@@ -172,10 +172,14 @@ repeated cost into a one-off one.
 
 ## Common pitfalls
 
-- **Setting the fields on the Pod and expecting containers to inherit
-  everything.** Only some fields exist at both levels, and a container-level
-  `securityContext` that sets one field does not inherit the others from the Pod
-  for that container's own list.
+- **Hardening every container from the Pod-level block.** Pod-level
+  `runAsNonRoot`, `runAsUser` and `seccompProfile` really do default every
+  container, which makes that block look like the one place to write the rules —
+  but `allowPrivilegeEscalation`, `readOnlyRootFilesystem`, `privileged` and
+  `capabilities` exist only on a container. Moved up a level they are rejected
+  as an unknown field under strict validation, and dropped where validation is
+  relaxed — which leaves a manifest that reads as hardened over a Pod that is
+  not.
 - **`readOnlyRootFilesystem` without writable mounts.** It is a single boolean,
   so it looks like a free win, and the process fails on its first log rotation or
   temporary file. Find the paths first, then set it.
@@ -195,8 +199,9 @@ repeated cost into a one-off one.
   not a safe default.
 - Pod-level settings are defaults and own volume ownership; **container-level
   settings win** where both apply.
-- The `restricted` set is five fields: **non-root, no privilege escalation, drop
-  all capabilities, `RuntimeDefault` seccomp, and a limited volume list.**
+- **`restricted` adds four fields to everything `baseline` already forbids** —
+  non-root, no privilege escalation, drop all capabilities, `RuntimeDefault`
+  seccomp — plus a limited volume list.
 - **Process hardening is not network isolation.** A locked-down Pod still reaches
   every address it could before; that is a NetworkPolicy's job.
 

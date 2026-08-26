@@ -1,0 +1,256 @@
+---
+title: 'Multi-Tenancy'
+slug: 'k8s-multi-tenancy'
+course: 'kubernetes'
+track: 'k8s-production'
+order: 56
+summary: 'A namespace gives a tenant names of its own; every other part of a boundary — permissions, budget, network, workload rules, nodes — is assembled on top of it, and a short list of things tenants share cannot be divided at any price.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-rbac', 'k8s-quotas-and-priority']
+estimatedMinutes: 10
+tags: ['kubernetes', 'production', 'multi-tenancy', 'isolation', 'security']
+explainPrompt: 'Why does creating a namespace for a tenant restrict nothing until you add objects to it?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Assemble the five layers that turn a namespace into a tenant boundary.
+- Name what tenants on one cluster share no matter how you configure it.
+- Decide when a cluster per tenant is the honest answer.
+
+## Intuition
+
+"Tenant" covers two very different situations. In one, tenants are teams inside
+your company: they will make mistakes, and nobody is trying to break out. In the
+other, tenants run code you did not write and cannot inspect, and somebody
+eventually is. The vocabulary calls these **soft** and **hard** multi-tenancy,
+and the variable is trust rather than scale.
+
+**A namespace is a scope for names; a boundary is something you assemble.**
+Creating a namespace restricts nothing — the point
+[Namespaces and kubectl Essentials](/learn/k8s-namespaces-and-kubectl/) makes
+early is that it is a naming scope, not a wall. Every restriction is a separate
+object you add on purpose.
+
+So the useful question is not "how do I isolate a tenant" but "which of the five
+layers am I isolating, and what is left over when I finish". Soft
+multi-tenancy is a Kubernetes configuration problem and Kubernetes solves it
+well. Hard multi-tenancy is mostly a kernel problem, and Kubernetes can only
+help you avoid sharing one.
+
+## How it works
+
+### The five layers
+
+1. **API access.** A Role or a namespaced RoleBinding per tenant, no
+   `ClusterRoleBinding` outside the platform's own. A ServiceAccount per
+   workload, and `automountServiceAccountToken: false` on the Pods that never
+   call the API — an unused token in a compromised container is a free
+   credential.
+2. **Resources.** A ResourceQuota caps what the namespace may request and how
+   many objects it may create; a LimitRange supplies the defaults its authors
+   omit; PriorityClass use is restricted, because a tenant able to name a
+   cluster-critical class can preempt everyone else's Pods.
+3. **Network.** A default-deny NetworkPolicy in every tenant namespace, then
+   explicit allows. Without one, every Pod in the cluster can reach every other.
+4. **Workload.** Pod Security Admission labels on the namespace enforcing
+   `baseline` or `restricted`, backed by security contexts that drop
+   capabilities and refuse privilege escalation.
+5. **Node.** Taints and tolerations to keep tenants on their own machines, user
+   namespaces (GA on 1.36) to map container root to an unprivileged host user,
+   and a sandboxed runtime through a RuntimeClass where the code is genuinely
+   untrusted.
+
+The first four are one bundle of objects created with the namespace:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-atlas
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: tenant-atlas
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+```
+
+Access is granted the same way, and the shape matters more than it looks:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: atlas-developers
+  namespace: tenant-atlas
+subjects:
+  - kind: Group
+    name: atlas-developers
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: edit
+  apiGroup: rbac.authorization.k8s.io
+```
+
+That references a _ClusterRole_ from a _RoleBinding_, which grants the built-in
+`edit` permissions inside `tenant-atlas` and nowhere else. Reusing the
+cluster-wide role definition is the intended pattern; binding it with a
+`ClusterRoleBinding` instead would grant it in every namespace, and the two
+manifests differ by one word.
+
+### What tenants share regardless
+
+<Callout variant="warning">
+  These six are not configuration gaps. They are properties of running on one
+  cluster, and no combination of namespaced objects removes them.
+</Callout>
+
+- **The kernel.** Pods on a node share it, so a container escape is a node
+  compromise. Separate nodes, user namespaces or a sandboxed runtime are the
+  only answers.
+- **CustomResourceDefinitions.** Cluster-scoped, one schema version for
+  everybody: upgrading one tenant's operator upgrades the API kind for all of
+  them.
+- **Admission webhooks and policies.** One chain in front of every write. A
+  webhook that fails closed stops every tenant at once.
+- **The API server's capacity.** A tenant with a hot reconcile loop degrades
+  everyone's request latency. API Priority and Fairness blunts this; it is not a
+  per-tenant guarantee you get by default.
+- **Cluster DNS.** One CoreDNS deployment serves the whole cluster, so one
+  tenant's query storm is everyone's resolution failure.
+- **Node-local resources requests do not cover.** CPU and memory are scheduled;
+  disk IO, PIDs and network bandwidth are shared, and a full node disk affects
+  every Pod on it.
+
+### When a separate cluster is the honest answer
+
+Untrusted code, a regulatory separation you have to demonstrate, a tenant who
+needs a different upgrade cadence or a different CRD version, or a tenant who
+needs cluster-scoped objects of their own. In all four the shared-cluster answer
+is a workaround with a list of exceptions attached.
+
+Two ecosystem middle grounds exist and neither is core Kubernetes: virtual
+clusters give a tenant an API server of their own running inside a namespace,
+and hierarchical namespaces propagate policy down a tree of namespaces. Both
+trade extra operational surface for isolation that stops short of a real
+cluster.
+
+### Posture is what is true by default
+
+A tenancy model is only as good as the defaults around it. The list worth
+enforcing at namespace creation rather than by review: Pod Security Admission
+labels present, a default-deny NetworkPolicy in place, no `cluster-admin` in any
+routine binding, service account tokens not mounted unless asked for, encryption
+at rest configured for Secrets, images admitted only from registries you
+control, and audit logging on. Posture is the set of things true without anyone
+remembering, and everything else is a wish.
+
+## Trade-offs
+
+**Sharing a cluster** buys one control plane to upgrade, one monitoring stack,
+one set of addons, and nodes packed well enough that small tenants cost almost
+nothing. It costs you the six shared properties above, and a platform team that
+now owns every tenant's blast radius.
+
+**A cluster per tenant** gives real separation of the kernel, the version, the
+CRDs and the failure domain, and multiplies every operational task by the number
+of tenants — upgrades, certificates, monitoring, cost, and the drift between
+clusters that makes the tenth one behave unlike the first.
+
+The dividing line is trust, not size. A hundred internal teams on one cluster
+with quotas and policy is a normal platform; three tenants running customer code
+on one cluster is a decision that needs the node layer, and possibly a cluster
+each.
+
+## Common pitfalls
+
+- **Reading a namespace as a boundary.** It is the object that makes tenancy
+  _look_ solved, because the tenants get separate names and separate `kubectl`
+  output while sharing everything underneath.
+- **A `ClusterRoleBinding` where a RoleBinding would do.** It is one word
+  shorter and grants the same role in every namespace in the cluster.
+- **Quota without a LimitRange.** A quota on `requests.cpu` makes a Pod that
+  declares no CPU request invalid, so the tenant's first deploy fails on a quota
+  error that has nothing to do with capacity.
+- **Trusting a default-deny policy the tenant can delete.** If tenants may
+  create and delete NetworkPolicies in their own namespace, the default-deny is
+  theirs to remove. Enforce it with admission policy, not with a manifest you
+  applied once.
+
+## Key takeaways
+
+- Multi-tenancy is **five layers assembled** — API access, resources, network,
+  workload rules and nodes — and a namespace on its own is none of them.
+- **Soft tenancy protects against mistakes; hard tenancy protects against
+  intent**, and the difference is almost entirely about sharing a kernel.
+- Tenants on one cluster **always share** the kernel, CRDs, the admission chain,
+  API server capacity, cluster DNS and node-local resources.
+- A `RoleBinding` to a ClusterRole grants **only inside its namespace** — the
+  same role bound cluster-wide is a different decision entirely.
+- Enforce the tenant bundle **at creation time**, because a posture that depends
+  on someone remembering is not a posture.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your platform gives every team a namespace, a RoleBinding to `edit`, and a quota. One team asks to install their own version of an operator's CustomResourceDefinition. Explain the constraint, and give them two real options.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Their `edit` binding is namespaced and a CustomResourceDefinition is
+  cluster-scoped, so it is not theirs to create. Granted the permission anyway,
+  the name would stop them: a CRD is named `plural.group`, that name is unique
+  cluster-wide, and installing theirs would replace the one every other team is
+  already using rather than sit beside it. The two honest options are: the
+  platform team owns a single version of that CRD and coordinates the upgrade
+  across every tenant that uses it, or this team gets their own cluster (or an
+  ecosystem virtual cluster, which gives them an API server of their own inside
+  a namespace). What is not an option is per-namespace CRD versions; that
+  request is really a request for a second control plane.
+</PracticeCheck>
+
+**2. A tenant runs customer-supplied containers in a namespace with `restricted` Pod Security Admission, a default-deny NetworkPolicy and a quota. What class of attack does that setup not address?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Anything that goes through the kernel. `restricted` genuinely narrows the
+  surface — no privilege escalation, capabilities dropped, non-root, a seccomp
+  profile — and the policy and quota bound what the Pod can reach and consume.
+  But the container still shares one kernel with every other Pod scheduled to
+  that node, so a kernel vulnerability reached from inside the container is a
+  node compromise and the namespace boundary contributes nothing. The layer that
+  answers it is the node layer: dedicate nodes to that tenant with taints, turn
+  on user namespaces so container root is not host root, or run the workload
+  under a sandboxed runtime. Worth noting alongside it: the quota bounds CPU and
+  memory, so disk IO and PID exhaustion on that node are still shared.
+</PracticeCheck>
+
+**3. A tenant stays inside its ResourceQuota all week, and the other tenants still report slow requests and failed name lookups. Name three things the quota never bounded, and say what limits each.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  A quota bounds what the namespace may request of CPU and memory and how many
+  objects it may create, and nothing else. Three that bite: the node-local
+  resources the scheduler never divided, so disk IO, PIDs and network bandwidth
+  on a shared machine go to whoever asks first; the API server's own capacity,
+  where a hot reconcile loop lengthens every other tenant's request latency; and
+  cluster DNS, where one CoreDNS deployment serves everybody and a query storm
+  is everyone's resolution failure. What limits each sits at a different layer.
+  The first is the node layer — dedicated machines with taints, and the sandbox
+  or user-namespace work if the tenant is untrusted as well as noisy. The second
+  is API Priority and Fairness, which blunts the queue without being a
+  per-tenant guarantee. The third has no per-tenant lever at all, which is the
+  point at which "a cluster of their own" stops being an expensive answer.
+</PracticeCheck>

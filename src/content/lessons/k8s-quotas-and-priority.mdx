@@ -147,11 +147,15 @@ from scratch.
 <Callout variant="note">
   Three different mechanisms delete a running Pod, and calling them all
   "eviction" is how teams end up debugging the wrong one. **Node-pressure
-  eviction** is the kubelet reclaiming memory or disk on its own node, ordered
-  by QoS class. **Preemption** is the scheduler making room for a specific
-  pending Pod, ordered by priority. **API-initiated eviction** is a client — a
-  drain, an autoscaler — asking politely, and it is the only one a
-  [PodDisruptionBudget](/learn/k8s-disruption-budgets/) can refuse.
+  eviction** is the kubelet reclaiming memory or disk on its own node, ranking
+  its victims by whether a Pod is over its requests, then by Pod priority, then
+  by how far over it is — so a PriorityClass decides who the kubelet kills as
+  well as who the scheduler displaces, and QoS class is the shape that ranking
+  produces rather than the key it sorts on. **Preemption** is the scheduler
+  making room for a specific pending Pod, ordered by priority. **API-initiated
+  eviction** is a client — a drain, an autoscaler — asking politely, and it is
+  the only one a [PodDisruptionBudget](/learn/k8s-disruption-budgets/) can
+  refuse.
 </Callout>
 
 Priority also reaches back into quota. A quota's `scopeSelector` can restrict it
@@ -203,8 +207,8 @@ the high-priority class is the honest choice when you cannot tell.
 - `PriorityClass` sets a number that both **orders the scheduling queue** and
   **enables preemption**, which `preemptionPolicy: Never` turns off.
 - **Preemption is not eviction.** The scheduler removes lower-priority Pods to
-  place one pending Pod; the kubelet evicts under node pressure by QoS; a drain
-  evicts through the API.
+  place one pending Pod; the kubelet evicts under node pressure by over-request
+  and then priority; a drain evicts through the API.
 - A preempted Pod gets its **normal graceful termination**, and the preemptor's
   `nominatedNodeName` is a hint rather than a reservation.
 

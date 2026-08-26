@@ -1,0 +1,286 @@
+---
+title: 'DNS and Service Connectivity'
+slug: 'k8s-network-failures'
+course: 'kubernetes'
+track: 'k8s-troubleshooting'
+order: 62
+summary: 'One request from a Pod to a Service crosses four systems that fail separately — the name, the address, the endpoint list and the listening process — and each hop has a command that proves it.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-dns-and-discovery', 'k8s-services']
+estimatedMinutes: 11
+tags: ['kubernetes', 'troubleshooting', 'dns', 'services', 'networking']
+explainPrompt: 'Why does a Service name that resolves and an EndpointSlice full of ready addresses still not prove a request will arrive?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Walk a request from a client Pod to a listening process in five checks, in order.
+- Say what each check proves and, more usefully, what it leaves unproven.
+- Tell a DNS failure, a selector mistake, a port mistake and a NetworkPolicy apart from inside the cluster.
+
+## Intuition
+
+"Service unavailable" reaches you as one error from one application, and it is
+produced by four systems that know nothing about each other. Cluster DNS turns a
+name into a ClusterIP. kube-proxy rewrites that address to a Pod address. The
+endpoints controller decides which Pods are eligible. And the container, at the
+end of it, either has a socket open on that port or does not.
+
+**Two of those systems only do bookkeeping, and two of them move packets.** A
+name that resolves proves the Service object exists. A populated EndpointSlice
+proves the selector matched some Pods. Neither one sends a byte, which is the
+split [DNS and Service Discovery](/learn/k8s-dns-and-discovery/) established and
+the reason this lesson is a walk rather than a guess: you check the hops in
+order, and the first one that fails is the one to repair.
+
+Every check runs **from inside a Pod in the cluster**, because that is where the
+client is. A `curl` from your laptop or from a node is answering a different
+question, on a different network, with a different resolver.
+
+## How it works
+
+### 1. Does the name resolve?
+
+```bash
+kubectl exec -it client -n shop -- nslookup web
+kubectl exec client -n shop -- cat /etc/resolv.conf
+```
+
+```text
+Server:         10.43.0.10
+Address:        10.43.0.10:53
+
+Name:   web.shop.svc.cluster.local
+Address: 10.43.173.160
+
+** server can't find web.svc.cluster.local: NXDOMAIN
+** server can't find web.cluster.local: NXDOMAIN
+```
+
+```text
+search shop.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.43.0.10
+options ndots:5
+```
+
+That is `busybox:1.37`'s `nslookup`, which is what a utility Pod usually carries.
+Read the `Name` and `Address` pair first: the failure lines under it are the
+resolver working through the rest of the `search` list after it already had an
+answer, and the command exits non-zero even when the lookup succeeded.
+
+A resolved name proves the Service object exists in the namespace you searched,
+and nothing more. `NXDOMAIN` splits **four** ways, and the first is not a fault
+at all — an answer arrived and those lines are the leftovers, exactly as above.
+The other three are real: the Service is in another namespace, so the short name
+never matched and `web.billing` is what you wanted; the Service does not exist
+under that name; or cluster DNS itself is unwell — check
+`kubectl -n kube-system get pods -l k8s-app=kube-dns`, which is the label CoreDNS
+carries on most clusters, and read its logs. Only the absence of an answer counts.
+
+The `search` list and `ndots:5` explain two behaviours that look like faults.
+A short name is tried against each search domain in turn, so a lookup of an
+_external_ host makes several failing queries before the correct one, which shows
+up as slow first requests rather than errors. And a Pod on `hostNetwork` or with a
+non-default `dnsPolicy` does not use this resolver at all.
+
+### 2. Does the ClusterIP accept a connection?
+
+```bash
+kubectl exec client -n shop -- wget -qO- --timeout=5 http://10.43.173.160:80/
+```
+
+Going straight to the address takes DNS out of the path. What comes back is the
+sharpest signal in this lesson:
+
+| Result                    | What it means                                                                |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| The response you expected | The whole path works; the fault is in the caller or its configuration        |
+| `Connection refused`      | Something answered: either no endpoints at all, or a port nothing listens on |
+| A hang until the timeout  | Nothing answered: a policy dropping the packet, or a route or CNI fault      |
+
+A refusal is answered, not delivered, and two different things answer it. With
+standard kube-proxy — the iptables or nftables backend — a Service whose endpoint
+list is empty gets a **reject** rule rather than no rule at all, so an
+endpointless Service refuses on the spot instead of hanging. A Service that does
+have endpoints refuses when the packet reached a Pod and nothing was listening on
+that port. Step 3 separates the two in one command, which is why it comes next.
+
+### 3. Is anything behind the Service?
+
+```bash
+kubectl get endpointslices -n shop -l kubernetes.io/service-name=web
+kubectl get endpointslices -n shop -l kubernetes.io/service-name=web \
+  -o jsonpath='{.items[*].endpoints[*].conditions.ready}{"\n"}'
+```
+
+```text
+NAME        ADDRESSTYPE   PORTS   ENDPOINTS                          AGE
+web-rrq66   IPv4          8080    10.42.0.44,10.42.0.45,10.42.0.46   4m11s
+```
+
+An empty `ENDPOINTS` column means the selector matched nothing, and it is the
+first of the two refusals from step 2 — compare the Service's `selector` with the
+Pods' labels, remembering that a Service selects on labels and never on a
+Deployment's name. Addresses that _are_ listed still do not
+prove readiness: an EndpointSlice contains every matching Pod, ready or not, and
+the table does not show the flag. The `jsonpath` above is how you read it, and a
+row of `false` means readiness is failing rather than networking.
+
+<Callout variant="warning">
+  The `PORTS` column above says `8080`, and it is the fastest way to catch the
+  most common Service bug. It shows the Service's `targetPort` after resolution
+  — the port traffic is sent **to on the Pod**. If the container listens on 80,
+  this Service delivers every request to a closed port, and the symptom is
+  exactly the `Connection refused` from step 2 with three healthy Pods behind
+  it.
+</Callout>
+
+### 4. Is the process listening, and where?
+
+```bash
+kubectl debug -it web-6f9c-2xk5v -n shop --image=busybox:1.37 --target=web
+```
+
+An ephemeral container joins the Pod's network namespace, so `127.0.0.1` inside
+it is the same loopback the application binds to:
+
+```text
+Proto Recv-Q Send-Q Local Address           Foreign Address         State
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN
+```
+
+`0.0.0.0:80` accepts connections from outside the Pod. A process bound to
+`127.0.0.1:80` accepts only from inside it, which passes every local test and
+refuses every real one — a configuration mistake that looks exactly like a
+networking failure. `kubectl port-forward pod/web-6f9c-2xk5v 8080:80` answers the
+same question from your terminal, and answers nothing about the Service path,
+because it does not use one.
+
+### 5. Is a policy dropping it?
+
+```bash
+kubectl get networkpolicies -n shop
+kubectl describe networkpolicy default-deny-ingress -n shop
+```
+
+Policies apply per direction. Once any policy selects a Pod for `Ingress`, every
+inbound connection not explicitly allowed is denied; the same happens outbound
+only when a policy selects it for `Egress`. So a call between two namespaces needs
+an egress rule on the caller **and** an ingress rule on the callee, and the rule
+most often forgotten is egress to the DNS Pods on port 53 — without it, every name
+lookup from that Pod fails while addresses still work.
+
+Do not infer the presence of a policy from the symptom. Some plugins drop a
+denied packet, which the client sees as a hang; others reject it, which the client
+sees as a connection refused. List the policies instead — it takes one command.
+
+## Trade-offs
+
+**The client Pod you test from should be boring and present.** Running
+`kubectl exec` in the failing application's own Pod is the most faithful test,
+because it shares that Pod's DNS configuration and policies — and many images
+carry no shell, no `nslookup` and no `wget`. An ephemeral debug container adds
+tools without changing the Pod; a separate utility Pod is convenient and proves
+things about _its_ policies rather than the caller's.
+
+**Policy is worth the debugging cost, and it is a cost.** Default-deny turns
+every new dependency into a change nobody remembers to make, and the failure it
+produces is silent. That is the same property that contains a compromised
+workload. Decide deliberately, and write the DNS egress rule into the template you
+copy from.
+
+**Stop before the packet capture.** The five checks above take two minutes and
+find the great majority of Service failures. Reaching for `tcpdump` or the CNI's
+own tooling first costs an hour and usually confirms something the EndpointSlice
+would have said in one line.
+
+## Common pitfalls
+
+- **Concluding "DNS is broken" from a failed request.** Resolve the name and
+  connect to the ClusterIP separately; they fail for unrelated reasons.
+- **Testing from a node or a laptop.** Neither uses the cluster's resolver, and
+  neither is subject to the caller's NetworkPolicies.
+- **Trusting a populated EndpointSlice.** It lists Pods that are not ready too,
+  and the readiness flag is only in the object, not in the table.
+- **Getting `port` and `targetPort` the wrong way round.** The Service's `port` is
+  what clients dial; `targetPort` is the container's. The `PORTS` column shows the
+  one that matters.
+- **Restarting CoreDNS as a first move.** It clears nothing that was actually
+  wrong in most of these cases, and it removes the evidence that it was healthy.
+- **Testing a headless Service by its ClusterIP.** There is not one — the name
+  resolves to Pod addresses, so step 2 does not apply and the client's own
+  selection is part of the path.
+
+## Key takeaways
+
+- A request crosses **four systems that fail separately**: the name, the
+  ClusterIP rule, the endpoint list, and the listening process.
+- **A name that resolves and a populated slice are bookkeeping.** Neither proves
+  a packet arrives; connecting to the ClusterIP is the first check that does.
+- `Connection refused` **narrows to two shapes, not one**: a Service with no
+  endpoints, which kube-proxy answers with a reject rule, or endpoints reached on
+  a port nothing listens on. Check the EndpointSlice before the port.
+- **EndpointSlices list unready Pods too**, so read `conditions.ready` rather than
+  the table when endpoints exist but requests fail.
+- A NetworkPolicy denial may present as a hang **or** as a refusal depending on
+  the plugin, so list the policies rather than inferring them.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. From a client Pod, `nslookup payments` returns a ClusterIP and a request to that address hangs until it times out. Which hops are proved, and what are the two most likely causes?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Discovery is proved: cluster DNS answered, so the Service exists in the
+  namespace the search path reached, and the client's resolver is working — DNS
+  can be crossed off. The hang is the informative half, because nothing answered
+  at all, and that also rules one thing out. An empty endpoint list would have
+  been refused immediately, since kube-proxy programs a reject rule for a
+  Service with nothing behind it rather than no rule; silence means the packet
+  left and never came back. Two causes fit. A NetworkPolicy is dropping it, as
+  egress from the caller or as ingress to the callee, which on many plugins
+  presents as exactly this silence. Or the packet is not reaching the target's
+  node — a route or a CNI fault. List the policies first: that is one command,
+  and the other is not.
+</PracticeCheck>
+
+**2. The EndpointSlice for `web` lists three addresses, all with `conditions.ready: true`, and requests to the Service are refused immediately. What does the refusal rule out, and what is the likely fault?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Less than it looks. A refusal rules out the shapes that produce _silence_ — a
+  policy dropping the packet, a broken route — and nothing else, because two
+  different things refuse. A Service with no endpoints at all is rejected by
+  kube-proxy on the spot, and a Service with endpoints refuses when the packet
+  reached a Pod and no process was listening on that port. What settles it here
+  is the premise rather than the refusal: three addresses with
+  `conditions.ready: true` means the slice is populated, which is why the slice
+  is the check to run before the port. That leaves the port. The Service's
+  `targetPort` resolves to a number the container is not listening on, so every
+  request lands on a closed port on a healthy Pod — the `PORTS` column of the
+  EndpointSlice shows which number is in use, and comparing it with the
+  container's `containerPort` settles it in seconds. The other candidate with
+  the same signature is a process bound to `127.0.0.1` instead of `0.0.0.0`,
+  which refuses every connection that did not come from inside its own Pod.
+</PracticeCheck>
+
+**3. A team adds their first NetworkPolicy: an empty `podSelector` with both `Ingress` and `Egress` in `policyTypes` and no rules. Afterwards their application logs are full of name-resolution errors. Explain the connection, and give the repair.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  An empty `podSelector` selects every Pod in the namespace, and listing
+  `Egress` means outbound traffic is now denied unless some policy allows it —
+  with no rules written, nothing is allowed. So **all** outbound traffic stops,
+  addresses included: a request to a Pod IP or to a host on the internet fails
+  the same way a name does. Name resolution is only what the application reports
+  _first_, because every dependency starts with a lookup and a lookup is itself
+  outbound traffic, a query to the cluster DNS Pods on port 53. From inside the
+  process a resolution failure is all there is to see, which is why the logs
+  blame DNS for a policy. The repair is an egress rule allowing port 53, UDP and
+  TCP, to the DNS Pods in `kube-system`, added alongside whatever the
+  application genuinely needs to reach — and that rule belongs in the template
+  the next namespace copies.
+</PracticeCheck>

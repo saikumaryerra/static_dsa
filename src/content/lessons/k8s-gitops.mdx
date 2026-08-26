@@ -1,0 +1,261 @@
+---
+title: 'GitOps and Environment Management'
+slug: 'k8s-gitops'
+course: 'kubernetes'
+track: 'k8s-delivery'
+order: 52
+summary: 'GitOps moves the reconciliation boundary one step out: the repository holds the desired state and an agent inside the cluster closes the gap, which turns a deploy into a merge and drift into something that corrects itself.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-desired-state', 'k8s-kustomize']
+estimatedMinutes: 10
+tags: ['kubernetes', 'delivery', 'gitops', 'argo-cd', 'environments']
+explainPrompt: 'Why does pull-based delivery remove a credential that push-based delivery cannot avoid?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Say what makes a pipeline GitOps rather than automated `kubectl apply`.
+- Lay out environments so a change is promoted rather than rewritten.
+- Name what the model does not reconcile, and plan a break-glass path.
+
+## Intuition
+
+Kubernetes already works this way internally. You store a desired state, a
+controller compares it with reality, and the gap gets closed repeatedly —
+[Desired State and Reconciliation](/learn/k8s-desired-state/) is the whole idea.
+But that loop starts at the API server, and something outside still has to put
+the desired state there. In most pipelines that something is a CI job running
+`kubectl apply`, which is an edge trigger: it fires once, and if reality drifts
+five minutes later, nothing notices.
+
+**GitOps moves the boundary one step out.** The repository becomes the stored
+desired state and an agent in the cluster becomes the controller, so the same
+level-triggered loop now covers delivery. Four properties usually get named:
+the desired state is declarative, it is versioned and immutable, the agent pulls
+it rather than being pushed to, and the comparison runs continuously.
+
+Two consequences follow directly. "What is running in production?" becomes "what
+is on this branch", answerable without a cluster or a credential. And a change
+made by hand to a live object is no longer a change — it is drift, and the agent
+undoes it. Whether that is the feature or the problem depends entirely on
+whether you wrote down a procedure for the day you need to act in thirty
+seconds.
+
+## How it works
+
+### Pull instead of push
+
+In a push pipeline, CI holds a kubeconfig with write access to production and
+needs a network path to the API server. Every runner is therefore a route into
+the cluster and every job is a privileged actor. In a pull pipeline the agent
+runs inside the cluster, authenticates as a ServiceAccount scoped by RBAC, and
+reaches out to the repository and the registry. CI never receives cluster
+credentials, and its most privileged act becomes opening a pull request.
+
+Argo CD models each deployment as an `Application` — an ecosystem custom
+resource, not a Kubernetes API kind:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web-production
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://git.example.com/shop/deploy.git
+    targetRevision: main
+    path: overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shop-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+`path` points at a Kustomize overlay, a Helm chart or a directory of plain
+manifests; the agent renders whichever it finds. `prune: true` deletes objects
+that have left the repository — the ledger that a bare `kubectl apply -k` does
+not keep. `selfHeal: true` reverts a live object that no longer matches. Flux
+expresses the same model with a different set of objects, one controller per
+concern, and both are CNCF projects rather than parts of Kubernetes.
+
+```bash
+kubectl -n argocd get applications
+argocd app diff web-production
+argocd app sync web-production
+```
+
+An `Application` reports two independent statuses, and reading them as one is a
+common mistake. **Synced** means the live objects match the manifests at the
+target revision. **Healthy** means those objects report ready. Neither is a
+statement about whether the software works.
+
+### Laying out environments
+
+```text
+deploy/
+|- base/
+'- overlays/
+   |- development/
+   |- staging/
+   '- production/
+```
+
+One repository, one directory per environment, one `Application` per directory.
+Promotion is a pull request that copies a value — usually an image tag — from
+the directory that has been running it into the next one. The change being
+promoted is visible as a diff, it is reviewable by someone who was not there
+when it was written, and the history of production is the history of one
+directory.
+
+The alternative is a branch per environment, where promotion is a merge. It
+reads well until the first change that belongs in production and not in
+staging: from then on the branches have diverged, every promotion carries
+unrelated commits, and cherry-picking becomes routine. Directory-per-environment
+is what most teams settle on for that reason.
+
+Two repositories is the other structural decision. Application source — code,
+tests, the image build — lives in one; the manifests live in a delivery
+repository the agent watches. CI's last step is to commit the new image tag
+there, or to open a pull request doing so. That is the clean division the
+delivery chapter has been building towards: continuous integration proves the
+artifact, continuous delivery reconciles the cluster, and the artifact's
+identity is the immutable tag from
+[Immutable Images and Tagging](/learn/k8s-images-and-tags/).
+
+<Callout variant="note">
+  An `ApplicationSet` generates one `Application` per entry in a list, per
+  directory, or per pull request. That is the answer to fifteen near-identical
+  environments and to per-branch preview environments — the generator holds the
+  pattern once instead of fifteen files holding it fifteen times.
+</Callout>
+
+## Trade-offs
+
+**What you get.** The audit trail and the deployment mechanism are the same
+artifact, so nobody has to keep them in agreement. Rollback is reverting a
+commit. No long-lived cluster credential lives in CI. Drift is visible and
+reversible instead of discovered during an incident. And a replacement cluster
+can be rebuilt from the repository, which turns disaster recovery from a
+document into a procedure.
+
+**What it costs.** Every change goes through a repository, including the one you
+want to make at three in the morning. That needs a written break-glass path —
+suspend the `Application` or disable auto-sync, act, then land the change in the
+repository and re-enable — and a team that treats "I turned self-heal off and
+forgot" as an incident of its own. It is another system to run, upgrade and
+secure, and one with broad permissions inside the cluster. Feedback is slower:
+a bad manifest is reported by an agent rather than by your terminal.
+
+**What it does not reconcile.** Plaintext secrets cannot live in the repository,
+so you need encrypted secrets committed alongside the manifests or an operator
+that pulls them from an external store. Database migrations are imperative work
+and stay outside the loop. Cluster bootstrapping is outside it too, by
+definition — something has to install the agent before the agent can install
+anything.
+
+**When not to use it.** A single cluster you rebuild daily, an exploratory
+workload where the repository round trip is most of the cost, or a small team
+with one environment where the ceremony exceeds the drift it prevents. Push
+delivery with a `rollout status` gate is a defensible answer below a certain
+size, and the honest reason to adopt GitOps is usually the second cluster or the
+second team rather than the first of either.
+
+## Common pitfalls
+
+- **Scaling up by hand during an incident with self-heal on.** It is the most
+  natural thing to do and the change is reverted within the sync interval.
+- **Reading `Synced` as "the release worked".** It means the cluster matches the
+  repository, including a repository that was never updated.
+- **Auto-sync with prune pointed at a branch nobody reviews.** Prune deletes;
+  the review is the safety mechanism.
+- **`targetRevision` on a moving branch of a third-party chart.** What is
+  deployed then changes when a stranger pushes. Pin a version or a commit.
+- **Committing plaintext secrets** because they are needed for the manifests to
+  work, which puts them in history permanently.
+- **Two repositories with no link between them**, so an image tag in the
+  delivery repository cannot be traced to the commit that built it. Carrying the
+  commit in the tag closes that gap.
+
+## Key takeaways
+
+- **GitOps is reconciliation applied to delivery**: the repository is desired
+  state, an in-cluster agent is the controller, and comparison is continuous.
+- **Pull removes the cluster credential from CI** and the inbound path from CI
+  to the API server, which is the strongest argument for the model.
+- **Drift is corrected, not reported** when self-heal is on, so break-glass has
+  to be a written procedure.
+- **Directory per environment beats branch per environment**, because promotion
+  stays a reviewable diff instead of a merge that drags history with it.
+- **`Synced` and `Healthy` are claims about objects**, never about whether the
+  software behaves.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. During an incident an engineer runs `kubectl scale deployment web --replicas=20` and the service recovers. Twenty minutes later it is back at six replicas and struggling again. Explain, and give the procedure they should have followed.**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The `Application` has `selfHeal: true`, so the agent compared the live
+  Deployment with the manifest at the target revision, found a replica count
+  that did not match, and corrected it. Nothing malfunctioned — the repository
+  says six, and the agent's entire job is to make the cluster say six. The
+  correct procedure has two acceptable shapes. The fast one is to change the
+  replica count in the repository and let the agent apply it; for a one-line
+  edit on a merge-enabled branch that is often quicker than it sounds, and it
+  leaves the system consistent. The other is to suspend reconciliation
+  explicitly — disable auto-sync on that `Application` — scale by hand, and then
+  land the change in the repository and re-enable it. What makes the second safe
+  is the re-enabling, which is why it belongs in a written runbook: a suspended
+  `Application` that nobody resumes is a cluster that has quietly stopped being
+  reconciled at all.
+</PracticeCheck>
+
+**2. You have moved to a pull model, and CI no longer holds a kubeconfig for production. A security reviewer asks what an attacker who fully compromises CI can still do to that cluster, and what stops them. Answer both.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  CI's remaining capability is writing to the delivery repository — and in a
+  pull model, writing to that repository _is_ deploying. An attacker who owns CI
+  can change an image reference or a manifest, and the agent will apply it at
+  the next sync with no cluster credential anywhere in their path. The
+  credential was not removed from the system so much as moved: what governs
+  production now is whatever governs a merge. So the answer to "what stops them"
+  is repository controls, not cluster controls — branch protection with required
+  review, a bot account that can open a pull request but neither approve nor
+  merge it, commit signature verification if the agent enforces it, and RBAC on
+  the agent narrow enough that a compromised manifest cannot claim namespaces or
+  cluster-scoped objects the application has no business touching. It is still
+  worth naming what pull genuinely removed: a long-lived write credential living
+  in a system that runs contributed code, and an inbound network path from that
+  system to the API server. The gain is real, but it is a change of shape — one
+  audited component inside the trust boundary plus a governed repository,
+  instead of a credential distributed across every runner.
+</PracticeCheck>
+
+**3. Argo CD reports the application `Synced` and `Healthy`. The feature your release added is not there. Where do you look, in order?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Take the two statuses literally: the live objects match the manifests at the
+  target revision, and those objects report ready. Both can be true of an
+  entirely stale release. First check whether the delivery repository was
+  actually updated — the usual failure is that CI built and pushed the image but
+  its commit or pull request into the delivery repository never landed, so the
+  manifests still name the previous tag. Second, check that the `Application`
+  points where you think: a `targetRevision` on a branch you did not merge to,
+  or a `path` for a different overlay, both produce a confidently synced
+  application of the wrong content. Third, read the image reference in the
+  rendered manifest and compare it with what the Pods actually resolved; if the
+  tag is mutable, the manifest can be correct while the running bytes are old.
+  Only after those three is it worth suspecting the code. The general lesson is
+  that `Synced` is a statement about agreement between two things you chose, so
+  the diagnosis always starts by checking which two.
+</PracticeCheck>

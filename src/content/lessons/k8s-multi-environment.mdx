@@ -1,0 +1,251 @@
+---
+title: 'Multi-Environment Strategy'
+slug: 'k8s-multi-environment'
+course: 'kubernetes'
+track: 'k8s-production'
+order: 53
+summary: 'A namespace divides one cluster into scopes for names, budgets and permissions; a separate cluster divides the control plane itself — so choosing between them is choosing a blast radius, and the safer answer is paid for at every upgrade.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-namespaces-and-kubectl', 'k8s-gitops']
+estimatedMinutes: 10
+tags: ['kubernetes', 'production', 'environments', 'namespaces', 'clusters']
+explainPrompt: 'Why does a namespace stop being enough as soon as two environments need different cluster-scoped objects?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Name what a namespace separates, and what only a separate cluster separates.
+- Choose between namespace-per-environment, cluster-per-environment and the mix, and say what each costs.
+- Lay out promotion so a change moves between environments instead of being rewritten for each one.
+
+## Intuition
+
+Every team ends up with more than one place to run things: somewhere to break
+freely, somewhere to find out before a customer does, and somewhere a customer
+notices. The names vary — dev, staging, pre-prod, production — but the ladder is
+always a ladder of consequences rather than of hardware.
+
+That makes the real question sharper than "where do these Pods live".
+
+**An environment is a blast radius, not a label.** The label is the free part:
+any object can carry `environment: staging`, and nothing about the cluster
+changes when it does. The blast radius is what you are actually buying, and
+Kubernetes offers two instruments for it. A
+[namespace](/learn/k8s-namespaces-and-kubectl/) divides one cluster into scopes
+for names, permissions and budgets. A separate cluster divides the control plane
+itself: its own API server, its own etcd, its own nodes, its own version.
+
+Those are not two points on one scale. A namespace is a partition inside a
+shared machine; a cluster is a second machine. Everything below follows from
+knowing which parts of Kubernetes sit on each side of that line.
+
+## How it works
+
+### What a namespace separates
+
+Namespaced objects are the ones you write most days, and a namespace genuinely
+separates them:
+
+- **Names.** Two Deployments called `web` can coexist, and so can the two
+  Services in front of them — and it is the Service, not the Deployment, that
+  carries the DNS name `web.shop-staging.svc.cluster.local`.
+- **Permissions.** A Role and RoleBinding grant inside one namespace only, so
+  the people who may deploy to staging need no access to production.
+- **Budgets.** A ResourceQuota caps what the namespace may request, and a
+  LimitRange fills in defaults for the Pods whose authors forgot them.
+- **Network rules.** A NetworkPolicy selects Pods in its own namespace, so one
+  environment can be default-deny while another is open.
+
+That is enough to keep two teams, or two environments, from stepping on each
+other by accident:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop-staging
+  labels:
+    environment: staging
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: staging-budget
+  namespace: shop-staging
+spec:
+  hard:
+    requests.cpu: '20'
+    requests.memory: 40Gi
+    limits.cpu: '40'
+    limits.memory: 80Gi
+```
+
+### What it does not separate
+
+Cluster-scoped objects exist once for the whole cluster, and every namespace in
+it shares them. The list is short and it is the entire decision:
+
+- **The Kubernetes version.** One control plane, one minor version, one upgrade
+  for everybody.
+- **CustomResourceDefinitions.** A CRD is cluster-scoped, so an operator's
+  custom resource has one schema version cluster-wide — two environments cannot
+  run two versions of it.
+- **Admission webhooks and policies.** One misconfigured or unavailable webhook
+  refuses writes in every namespace, production included.
+- **StorageClasses, PriorityClasses, IngressClasses and ClusterRoles.** Shared
+  names, shared behaviour.
+- **The nodes.** Pods from different namespaces land on the same machines and
+  share a kernel, a page cache and a network interface unless you deliberately
+  separate them with [taints](/learn/k8s-taints-and-spread/).
+
+If two environments must differ in any of those, a namespace cannot express the
+difference. That is the moment a second cluster stops being a luxury.
+
+### The three shapes
+
+| Shape                              | What it separates                               | What it costs                                                                                                                |
+| ---------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Namespaces in one cluster          | names, quota, RBAC, network rules               | one version and one set of CRDs, webhooks and nodes for everyone; an incident in the control plane is an incident everywhere |
+| One cluster per environment        | everything, the version and the addons included | several upgrades, several addon installs, several bills, and drift between clusters nobody notices until a release fails     |
+| Production alone, the rest sharing | production's blast radius, at one extra cluster | staging no longer proves anything about the production topology; two shapes to reason about instead of one                   |
+
+The third row is where most teams land, and it is a deliberate compromise rather
+than a free lunch: the environment you use to rehearse is the one you have made
+least like the thing you are rehearsing for.
+
+### Promotion, not re-authoring
+
+Whatever the shape, the environments should be one base plus a small overlay
+each — [Kustomize](/learn/k8s-kustomize/) overlays or one
+[Argo CD](/learn/k8s-gitops/) Application per environment. Both are ecosystem
+tooling rather than cluster features: `kubectl` bundles a copy of Kustomize, so
+`apply -k` works with nothing installed, and Argo CD is a project you install.
+Promotion is then a diff that copies an image digest from the directory that has
+been running it into the next one, which means the artifact you tested is
+byte-for-byte the artifact you ship.
+
+Locally, the discipline is context hygiene, because the same command means
+different things in different contexts:
+
+```bash
+kubectl config get-contexts
+kubectl config use-context shop-staging
+kubectl config set-context --current --namespace=shop-staging
+```
+
+<Callout variant="warning">
+  A staging environment only tells you about the dimension in which it matches
+  production. Different node sizes, a different StorageClass, a NetworkPolicy
+  controller that is absent, an admission policy left in audit mode, a tenth of
+  the data — each is a class of bug staging will pass. Write down which
+  dimensions yours matches, and treat the rest as untested.
+</Callout>
+
+### The part that is not topology
+
+Environments are the cheap half of running Kubernetes in production. The
+expensive half is the loop around them: every change arrives the same way,
+every environment is described in one repository, upgrades happen on a cadence
+instead of when support runs out, and restores are rehearsed before they are
+needed. A team with one cluster and that loop is in better shape than a team
+with five clusters and none of it.
+
+## Trade-offs
+
+**Use namespaces** when the environments differ only in scale, configuration and
+who may touch them, and when you can accept that a control-plane problem is
+everyone's problem. It is one upgrade, one set of addons and one bill, and for a
+small team that saving is real capacity rather than laziness.
+
+**Use separate clusters** when an environment needs a different Kubernetes
+version, a different CRD version, different admission behaviour, or a genuine
+guarantee that a mistake in it cannot reach production. Regulated workloads and
+untrusted code sit here too. The cost is repeated: every cluster needs its own
+upgrade, its own monitoring, its own certificates and its own attention, and the
+clusters drift apart in exactly the ways that make a release surprising.
+
+**Use both** when production's isolation is worth one cluster but three are not
+worth the operations. Keep dev and staging together, keep production alone, and
+be explicit that the upgrade rehearsal you get from staging is partial.
+
+## Common pitfalls
+
+- **Treating `default` as an environment.** It is the namespace every unqualified
+  command lands in, which makes it the one place where a wrong context does the
+  most damage. Give every environment a real name and leave `default` empty.
+- **Non-production without a quota.** It is tempting to skip, because non-prod is
+  where people experiment. It is also where a runaway Job requests forty cores
+  and the production Pods that needed them stay `Pending`.
+- **A staging cluster with the policy layer switched off.** Turning off Pod
+  Security Admission or the NetworkPolicy controller makes staging convenient,
+  and converts every policy bug into a production discovery.
+- **Baking the environment into the image.** Building `web:staging` and
+  `web:prod` from the same commit is quick, and it throws away the only
+  guarantee promotion had — that the tested artifact is the shipped one.
+
+## Key takeaways
+
+- A namespace separates **names, RBAC, quota and network rules**; it does not
+  separate the version, CRDs, admission webhooks, cluster-scoped names or the
+  nodes' kernels.
+- The choice between namespaces and clusters is a choice about **blast radius**,
+  and the honest comparison is isolation against the number of upgrades you
+  will run forever.
+- **A shared cluster is fine until two environments must differ in something
+  cluster-scoped** — that requirement, not team size, is the signal to split.
+- Environments should be **one base plus small overlays**, so promotion moves an
+  image digest rather than re-authoring configuration per environment.
+- Staging is only evidence about the dimensions in which it matches production.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Your pipeline builds `web:staging` from a commit, tests it in staging, then builds `web:prod` from the same commit and ships that to production. A colleague calls this promotion. What has it thrown away, and what does promotion look like instead?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  It threw away the one guarantee promotion exists to give: that the artifact
+  you tested is the artifact you ship. Two builds of one commit are two images —
+  a base layer that moved between them, a dependency resolved to a newer patch,
+  a build argument that differs per environment — so `web:prod` is an image
+  nothing has ever run, and everything staging proved, it proved about a
+  different binary. Promotion instead builds once and moves a reference: each
+  environment's overlay names an image digest, `web@sha256:...`, and promoting
+  is the diff that copies the digest staging has been running into production's
+  directory. A tag is not enough, because a tag can be repushed onto different
+  bytes; the digest is the part that has to travel.
+</PracticeCheck>
+
+**2. Your staging cluster runs the same manifests as production, but no NetworkPolicy controller is installed on it. A release passes staging and breaks in production. Explain the mechanism.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  NetworkPolicy objects are stored by the API server whether or not anything
+  enforces them, so on staging the policies applied cleanly and did nothing. A
+  new call from one Pod to a Service it has no policy for therefore worked in
+  staging. In production the controller is present, the same default-deny policy
+  is real, and the call is dropped — the symptom is usually a timeout rather
+  than a refusal, because the packets are discarded rather than rejected.
+  Nothing about the manifests differed; the cluster's ability to enforce them
+  did, which is why "staging runs the same YAML" is a weaker statement than it
+  sounds.
+</PracticeCheck>
+
+**3. You have one cluster with three environment namespaces, and you are asked to reduce the chance that a mistake in dev takes production down. A second cluster is not in this quarter's budget. Name two changes that buy real isolation, and one risk they cannot remove.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Two that work: a ResourceQuota and LimitRange on dev, so it cannot consume the
+  capacity production needs; and a taint on the production node pool with a
+  matching toleration only on production workloads, so dev Pods never share a
+  kernel or a disk with them. A default-deny NetworkPolicy in dev and RBAC that
+  keeps dev's credentials out of production are worth adding for the same
+  reason. What none of it removes is the shared control plane: one API server,
+  one etcd, one set of CRDs, one admission chain and one Kubernetes version. A
+  webhook installed for dev that starts refusing requests, or an upgrade that
+  goes wrong, still reaches production — which is the argument the second
+  cluster is really making.
+</PracticeCheck>

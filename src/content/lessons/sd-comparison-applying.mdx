@@ -1,0 +1,245 @@
+---
+title: 'Applying It to a New Problem'
+slug: 'sd-comparison-applying'
+course: 'system-design'
+track: 'sd-comparison'
+order: 45
+summary: 'Place, predict, price, check — a four-step method that turns an unfamiliar product into a set of dial positions and a predicted architecture, worked through a live game-streaming platform.'
+difficulty: 'intermediate'
+prerequisites: ['sd-comparison-why-different', 'sd-capacity-estimation']
+estimatedMinutes: 9
+tags: ['system-design', 'comparison', 'method', 'architecture', 'estimation']
+explainPrompt: 'Why does placing a product on the dials before drawing any boxes change which components you end up considering?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Place an unfamiliar product on the six workload dials, with a number where one exists.
+- Predict its derived architecture from those positions, and write down what would falsify the prediction.
+- Say when this method is the wrong tool.
+
+## Intuition
+
+The three case studies are worth very little as three case studies. Nobody will
+ask you to build one, and the next product you meet will differ from all of them.
+What transfers is the reasoning that produced them.
+
+**The dials are a questionnaire.** Answer six questions about a product and most
+of its architecture is already implied — not the machine counts, but which
+mechanisms belong in the drawing and which are borrowed from a different shape.
+
+The second idea is what makes the method teach you anything: **predict first,
+then check.** A prediction written down before you look at the real system is
+falsifiable, so being wrong is informative. A description assembled after reading
+how a system works cannot be wrong, and cannot be learned from.
+
+Four steps: **place** the product on the dials, **predict** the derived rows,
+**price** the one number that decides, and **check** the prediction against
+something real.
+
+## How it works
+
+Work it on something none of the three columns covers: a live game-streaming
+platform, Twitch-like, where creators broadcast continuously and viewers watch
+and talk. Every figure below is a teaching assumption, chosen to keep the example
+concrete.
+
+**Step 1 — place it.**
+
+```text
+Live game streaming, placed on the dials
+
+  Item shape       one continuous stream, hours long, ~3 Mbps
+                   1 to 2 session starts per viewer per day
+  Catalogue shape  ~30,000 channels live at once; an archive that grows daily
+  Popularity       extreme head: a small fraction of channels take most viewing
+  Write shape      chat, sustained per viewer, concentrated on the hottest rooms
+  Trust            user-produced and live; review cannot precede publication
+  Latency floor    a few seconds glass-to-glass, and chat must feel simultaneous
+```
+
+**Step 2 — predict the derived rows.** Each position forces something, and the
+forcing is the interesting part.
+
+Processing cannot be done in advance, because the content does not exist until it
+is broadcast, so transcoding into a rendition ladder happens live, per channel,
+under a deadline. That makes it a per-channel cost rather than a per-title one,
+which in turn makes it worth transcoding only the channels that have viewers —
+small channels pass through at source quality, and the trade is that a viewer on
+a weak network gets a worse experience on an unpopular stream than a popular one.
+
+Delivery keeps segmented HTTP and adaptive bitrate, but with short segments,
+because the latency floor is a few seconds rather than the thirty seconds an
+on-demand player is content to buffer. Prepositioning is impossible here — nothing
+exists to push — yet the cache hit ratio is still high, because popularity is
+concentrated _at the same instant_: the first viewer of a segment fills the cache
+and the next ten thousand are served from it. **Use request coalescing at the
+edge** so a cache miss produces one origin fetch rather than ten thousand; that
+is what makes zero predictability survivable.
+
+Write traffic is chat, and chat is a fan-out problem rather than a storage one.
+Consistency hot spots follow: message ordering within a room, and a moderation
+action that has to take effect immediately rather than eventually. Recommendation
+inverts too — a channel is recommendable only while it is live, so the candidate
+set is the tens of thousands of live channels, comfortably below the point where
+a candidate-generation stage pays for itself, and freshness dominates every
+other feature.
+
+**Step 3 — price the one number that decides.**
+
+```text
+Assumptions: 5,000,000 concurrent viewers, ~3 Mbps delivered
+
+Egress
+  5,000,000 x 3 Mbps            =  15,000,000 Mbps  =  15 Tbps
+
+Chat fan-out, one large room
+  100,000 viewers, 10 messages/s posted
+  100,000 x 10                  =  1,000,000 deliveries/s in one room
+```
+
+Fifteen terabits per second is a delivery network, which was expected. The
+million deliveries per second inside a single room is the number that changes the
+design. Deliveries are viewers multiplied by the room's message rate, and if a
+fixed share of a room posts, that grows with the square of room size while
+delivery bandwidth grows linearly with it. Chat therefore needs its own fan-out
+tier with persistent connections and per-room sharding, and the honest trade is
+that the largest rooms get a sampled or rate-limited view rather than every
+message.
+
+**Step 4 — check, and write the falsifier.** The prediction rests on live viewing
+dominating. If most watching turns out to be of the archive, the popularity dial
+swings to a long tail, prepositioning and tiered storage come back, and the design
+reverts to a video-sharing shape with a live front end. Writing that sentence down
+is what turns the prediction into a decision that can be reviewed, in the form
+[Reasoning About Trade-offs](/learn/sd-trade-off-reasoning/) asks for.
+
+<Callout variant="note">
+  **The dials still work when four of them go quiet.** Place a collaborative
+  document editor: items are kilobytes, the catalogue is private and unranked,
+  popularity is flat because each document has a handful of readers, and there
+  is nothing to preposition. Delivery, caching and recommendation all collapse
+  to nothing — and the write dial takes over completely, because two people
+  editing one paragraph is the entire product. A questionnaire that returns
+  "five of these do not matter" has told you where to spend the design.
+</Callout>
+
+**When this method is the wrong tool.** It works when the product is a variation
+on a workload you can estimate. It fails in three situations, and recognising
+them is part of using it. When the binding constraint is legal or commercial —
+rights, residency, a partner's API quota — no dial predicts it. When the product
+is new enough that nobody knows the workload, the honest answer is the
+architecture cheapest to throw away, not the one the dials imply for a guess.
+And when a single non-functional requirement dominates everything else, such as a
+hard sub-second floor, it overrides the shape: design to the floor first and place
+the product afterwards.
+
+## Trade-offs
+
+**The method is anchored to the shapes you already know.** Three columns are a
+small sample, and an unfamiliar product gets bent toward the nearest one. The
+protection is to write down explicitly what does not fit — the live example's
+"transcode only what is watched" has no analogue in any of the three columns, and
+noticing that is more valuable than the parts that matched.
+
+**A prediction feels like knowledge.** It is a hypothesis with a confident tone,
+and the step people drop is the fourth one. A prediction with no check attached is
+where a design acquires a mechanism nobody can defend six months later.
+
+## Common pitfalls
+
+- **Placing the product where you wish it sat.** "Our catalogue will be curated"
+  when the roadmap has user uploads on it produces a delivery design with a
+  fixed expiry date.
+- **Predicting and never pricing.** The dials say which mechanisms belong; only
+  the estimate says whether the answer is one node or a fleet, and which of the
+  predicted problems is actually first.
+- **Taking the biggest number as the problem.** Fifteen terabits per second is
+  larger than a million chat deliveries per second and far less interesting,
+  because delivery is a purchase and fan-out is a design.
+- **Stopping at the columns that matched.** The rows where the new product has no
+  analogue are the ones nobody has solved for you.
+
+## Interview notes
+
+Say the method out loud before drawing: "before I sketch anything, let me place
+this — how big is one item, how many items exist, who produces them, where do the
+writes land." Two minutes of that reframes the rest of the discussion, and it
+produces the sentence interviewers are listening for, which is a component
+justified by a workload property rather than by familiarity.
+
+Then volunteer the falsifier. "This design assumes live viewing dominates; if the
+archive is most of the watching, I would revisit delivery and storage first" shows
+that the prediction is held as a hypothesis, which is the difference between
+recalling an architecture and reasoning about one.
+
+## Key takeaways
+
+- **Place, predict, price, check** — the dials produce a hypothesis, and the
+  estimate and the check are what turn it into a design.
+- A prediction is only useful if it is written **before** the answer is looked up;
+  otherwise it cannot be wrong.
+- **Every position forces something**: no pre-encoding when content is live, no
+  prepositioning when it does not exist yet, no candidate stage when the live set
+  is small.
+- **Fan-out multiplies where delivery only adds**, which is why a million
+  deliveries per second in one room outranks fifteen terabits per second of video.
+- The method fails on **legal, commercial and unknown-workload** constraints, and
+  a hard latency floor outranks the shape entirely.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. An engineer says this module does not apply to a ride-hailing app, since it has no media and no catalogue to speak of. Taking that as given, which dials still say something useful?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  All six, though the two the objection names survive only once they are read as
+  something other than media. With no media, item shape becomes the size and
+  frequency of a location update rather than a segment, which puts the design on
+  request rate and never on bandwidth. Catalogue shape becomes the number of
+  drivers currently online — small, but changing every few seconds, so it is a
+  live index rather than a stored one. Popularity becomes geography: demand
+  concentrates in a few cells of a city at a few hours of the day, which is the
+  same hot-key problem a trending video has, in a different coordinate system.
+  Write shape dominates, because every moving vehicle emits a steady stream of
+  updates, so the write rate scales with active vehicles rather than with people
+  opening the app — the same generator that made playback positions a design
+  problem. The latency floor is a few seconds, and trust reappears as fraud and
+  safety rather than content moderation.
+</PracticeCheck>
+
+**2. The live example predicts that prepositioning is impossible and, in the same paragraph, that the cache hit ratio is high. Reconcile the two.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  They are statements about different things: prepositioning needs popularity to
+  be predictable *in advance*, and a high hit ratio needs it to be concentrated
+  *at the moment of request*. Live streaming has the second without the first. A
+  segment cannot be pushed anywhere before it is broadcast, because it does not
+  exist — but the instant it does, tens of thousands of viewers of that channel
+  ask for the same object within a second or two, so one origin fetch serves all
+  of them from cache. That is why request coalescing matters more here than
+  cache size: the failure mode is not a low hit ratio, it is ten thousand
+  simultaneous misses on the same object stampeding the origin. A long-tail
+  archive is the opposite case — predictable in aggregate, never concentrated,
+  so its hit ratio is the thing you fight for.
+</PracticeCheck>
+
+**3. A team places a product, predicts its architecture, builds it, and the prediction turns out to have been right. Six months later the design is in trouble. Which step did they most likely skip, and why does being right make it more likely?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The fourth one — the falsifier — and being right is exactly what removes the
+  pressure to write it. A prediction that is confirmed feels finished, so nobody
+  records the dial positions it depended on, and the design's assumptions leave
+  no trace anyone can review. Then a dial moves: the product adds user uploads,
+  or most viewing shifts to the archive, or an item gets ten times longer.
+  Nothing fails on the day it moves, because the architecture still runs; it
+  degrades over months, and the team debugs components rather than the
+  assumption underneath them. The habit that prevents it is small: write the
+  position and the threshold next to the decision, so a review can ask whether
+  the dial is still where it was when the design was made.
+</PracticeCheck>

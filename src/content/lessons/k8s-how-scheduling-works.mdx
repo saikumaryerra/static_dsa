@@ -80,16 +80,20 @@ Events:
   Type     Reason            Age   From               Message
   ----     ------            ----  ----               -------
   Warning  FailedScheduling  30s   default-scheduler  0/5 nodes are available: 2 Insufficient cpu,
-    2 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint
-    {node-role.kubernetes.io/control-plane: }. preemption: 0/5 nodes are available: 5 Preemption
-    is not helpful for scheduling.
+    2 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s).
+    no new claims to deallocate, preemption: 0/5 nodes are available: 5 Preemption is not
+    helpful for scheduling.
 ```
 
 Five nodes, three different rejections. Lowering the CPU request fixes at most
 two of them, so the honest reading is that you have a labelling or toleration
-problem as well as a capacity one. The trailing sentence is the scheduler saying
-it also considered making room by removing lower-priority Pods and found that it
-could not help — a mechanism the priority lesson covers.
+problem as well as a capacity one. Notice what the message withholds: it counts
+the node that refused the Pod over a taint and never says which taint, so
+reading that node's `Taints` line with `kubectl describe node` is the second
+half of the diagnosis. The trailing clauses are the scheduler reporting what else it tried
+before giving up — releasing resource claims, then removing lower-priority Pods
+to make room — and finding that neither would help, which is a mechanism the
+priority lesson covers.
 
 <Callout variant="note">
   `Insufficient cpu` means the sum of the *requests* already placed on that node
@@ -166,7 +170,7 @@ arrangement that no one would have chosen deliberately.
 
 Work each one out before opening the answer.
 
-**1. A Pod is `Pending`. The event reads `0/6 nodes are available: 4 Insufficient memory, 2 node(s) had untolerated taint {gpu: true}`. Your monitoring shows the cluster at 35% memory. What is going on, and what are your options?**
+**1. A Pod is `Pending`. The event reads `0/6 nodes are available: 4 Insufficient memory, 2 node(s) had untolerated taint(s)`. Your monitoring shows the cluster at 35% memory. What is going on, and what are your options?**
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Both numbers are correct and they measure different things. The four
@@ -176,8 +180,11 @@ Work each one out before opening the answer.
   nodes are reserved by a taint this Pod does not tolerate, so capacity there is
   irrelevant to it. The options follow the two reasons separately — lower this
   Pod's memory request if it is inflated, lower the requests of the Pods already
-  on those nodes so the bookings match reality, add a node, or add a toleration
-  for `gpu: true` if this workload genuinely belongs on those machines.
+  on those nodes so the bookings match reality, or add a node. The taint branch
+  needs one step first: the event never names the taint, so run `kubectl
+  describe node` on one of those two and read its `Taints` line, then decide
+  whether this workload genuinely belongs on those machines and deserves the
+  matching toleration.
 </PracticeCheck>
 
 **2. You add two large, empty nodes to a cluster where several nodes are heavily booked. Nothing moves. Is something broken?**

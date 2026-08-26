@@ -47,11 +47,14 @@ sustains) and **failure** (a consumer crash loses no work).
 
 ## How it works
 
-The mechanism is a lease. A consumer does not remove a message when it receives
-one; it takes it **invisible for a while** — the visibility timeout — and the
-broker deletes it only on acknowledgement. If the acknowledgement does not
-arrive before the lease expires, the message becomes visible again and somebody
-else gets it.
+In the visibility-timeout family of brokers the mechanism is a lease. A consumer
+does not remove a message when it receives one; it takes it **invisible for a
+while** — the visibility timeout — and the broker deletes it only on
+acknowledgement. If the acknowledgement does not arrive before the lease
+expires, the message becomes visible again and somebody else gets it. Brokers
+differ in the detail — the lease-and-redelivery shape is generally accepted
+industry architecture, and other brokers redeliver when the consumer's
+connection drops instead of on a per-message timer.
 
 ```text
 t=0    consumer A receives message M, lease 30 s
@@ -73,9 +76,11 @@ effect is idempotent, which
 builds with a client-supplied key — so the message carries that key and the
 consumer decides what a repeat means.
 
-A message that fails every time needs somewhere to go. The broker counts
-redeliveries, and after a threshold moves the message to a **dead-letter
-queue**: a separate queue that nothing drains automatically. That is the point —
+A message that fails every time needs somewhere to go. In that same family the
+broker counts redeliveries, and after a threshold moves the message to a
+**dead-letter queue**: a separate queue that nothing drains automatically.
+Elsewhere the same queue is fed by an explicit rejection, a message TTL or an
+overflowing queue rather than by a redelivery count. That is the point —
 one poison message must not block the fleet, and it must not be discarded
 either.
 
@@ -96,7 +101,10 @@ A message may be delivered minutes after it was written, so a copy of the order
 inside it is a copy that can be stale. An identifier the consumer re-reads is
 current by construction.
 
-Now size the consumers, and take the backlog seriously.
+Now size the consumers, and take the backlog seriously. The 70% target below is
+the utilisation curve from
+[Latency and Throughput](/learn/sd-latency-and-throughput/), not an arbitrary
+headroom figure.
 
 ```text
 Assumptions
@@ -187,9 +195,9 @@ drain arithmetic above are the whole answer.
   among competing consumers and cannot replay it to anybody else.
 - Delivery is **at-most-once or at-least-once**; "exactly once" end to end is
   at-least-once plus an idempotent consumer.
-- The visibility timeout is the whole mechanism: **a lease that expires
-  mid-job produces a duplicate**, so leases must exceed the slowest realistic
-  run.
+- Where the broker uses one, the visibility timeout is the whole mechanism: **a
+  lease that expires mid-job produces a duplicate**, so leases must exceed the
+  slowest realistic run.
 - **Queue depth is a backlog with a drain time** — alarm on the age of the
   oldest message, and size consumers below full utilisation.
 - A **dead-letter queue needs an owner, an alarm and a replay path**, or it is

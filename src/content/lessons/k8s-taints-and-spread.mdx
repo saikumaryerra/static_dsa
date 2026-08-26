@@ -144,12 +144,26 @@ the Pod `Pending` when it cannot be met, while `ScheduleAnyway` demotes it to a
 scoring preference. The manifest above is a common shape — insist on zones,
 prefer hosts.
 
+**A domain only exists where its label does.** A node without
+`topology.kubernetes.io/zone` is in no zone at all, and under `DoNotSchedule`
+the scheduler refuses to place the Pod there: apply the manifest above to a
+cluster whose nodes are unlabelled and all six replicas sit `Pending` with
+`didn't match pod topology spread constraints (missing required label)`. A cloud
+provider's controller sets that label; kind, minikube and k3d do not. On a local
+cluster either label the nodes first — `kubectl label node worker-1
+topology.kubernetes.io/zone=a` — or spread on `kubernetes.io/hostname`, which
+every node always carries.
+
 <Callout variant="tip">
-  `minDomains` covers the case that catches people out: with `maxSkew: 1` and
-  two zones currently holding Pods, a third empty zone is not "unbalanced"
-  because nothing there is being counted. `minDomains: 3` says the arithmetic
-  must assume three domains, so the spread happens rather than the two occupied
-  zones staying balanced with each other.
+  `minDomains` is for the domain that does not exist yet. An empty zone whose
+  nodes are there is already counted: it holds zero Pods, so the global minimum
+  is zero and `maxSkew: 1` forces a Pod into it without any help. The case the
+  arithmetic cannot see is a zone with no eligible nodes at all — two zones then
+  look perfectly balanced with each other. `minDomains: 3` says treat the global
+  minimum as zero until three eligible domains exist, so the Pods stay `Pending`
+  and a cluster autoscaler is given a reason to create nodes in the third zone.
+  It is valid only with `whenUnsatisfiable: DoNotSchedule`; the API rejects it
+  outright next to `ScheduleAnyway`.
 </Callout>
 
 Constraints are evaluated when a Pod is placed, against the Pods that exist at

@@ -1,0 +1,252 @@
+---
+title: 'Storage, Bandwidth and Failure'
+slug: 'sd-youtube-scale'
+course: 'system-design'
+track: 'sd-youtube'
+order: 42
+summary: 'Three cost centres with three different shapes, the levers that actually move each one, and a subsystem-by-subsystem account of what a lost region does to uploads, transcoding, counters and playback.'
+difficulty: 'intermediate'
+prerequisites: ['sd-youtube-playback', 'sd-observability-and-recovery']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'storage', 'reliability', 'cost']
+explainPrompt: 'Why is storage the only one of the three big costs that can be cut without a viewer noticing?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Separate the three cost centres by their shape, and name the lever that moves each.
+- Apply erasure coding and tiering to an exabyte without breaking playback latency.
+- Say what a lost region does to each subsystem, in order.
+- Build a degradation ladder that decides what is switched off first.
+
+## Intuition
+
+**Three costs, three shapes.** Bandwidth is a rate set by how much people watch,
+so it plateaus when the audience does. Transcoding is a rate set by how much is
+uploaded. Storage is neither: it is the **integral** of every upload ever
+accepted, so it grows on flat traffic, on falling traffic, and on no traffic at
+all. A capacity plan that treats all three as "big numbers that go up" will size
+the first two correctly and be wrong about the third every year.
+
+The second model splits the catalogue by which problem it is. **The head is where
+the risk lives; the tail is where the money lives.** A million hot videos are
+around a thousandth of the bytes and about 90% of the viewing, so they drive
+delivery capacity, spikes and blast radius. The other billion are almost all of
+the bytes and almost none of the viewing, so they drive the storage bill and
+nothing else. Mixing the two up produces expensive reliability for content nobody
+watches.
+
+The third, for the second half of the lesson: **a region is a unit of correlated
+failure**, and "what happens when we lose one" has a different answer per
+subsystem. Answering it in general produces a slogan; answering it per subsystem
+produces a plan.
+
+## How it works
+
+```text
+Cost shapes (from the module estimate)
+  Bandwidth    36 Tbps average, 100 Tbps peak   a rate, set by viewing
+  Transcoding  180,000 cores, continuous        a rate, set by uploads
+  Storage      ~1 EB now, +3 PB/day             an integral, never decreases
+```
+
+**1. Bandwidth.** Three levers, in order of size. A newer codec carries the same
+picture in fewer bits and is paid for in encode compute — the only lever that
+reduces delivered bytes without the viewer seeing a difference. Serving the right
+rung comes next: a phone handed a rendition its screen cannot show is waste.
+Third, caches change **where** the bytes come from rather than how many there
+are — a better hit ratio removes origin reads and transit, not edge egress.
+Confusing those two is the most common error in this arithmetic.
+
+**2. Transcoding.** The ladder is the cost, and most of it is spent on videos
+nobody watches. Encoding one modest rendition on publish and generating the
+higher rungs only once a video crosses a view threshold moves the great majority
+of that compute onto the small fraction that earns it. The remaining tail work is
+interruptible, so it can run on preemptible capacity, which the idempotent worker
+design already permits.
+
+**3. Storage, where the biggest lever is.** Start with the multiplier that hides
+at the end of every estimate:
+
+```text
+Physical storage (teaching assumptions)
+  logical catalogue                          =  1 EB
+  three full replicas                        =  3 EB
+  erasure coding at ~1.4x overhead           =  1.4 EB
+  saved by the coding scheme alone           ≈  1.6 EB
+```
+
+Erasure coding splits an object into data and parity fragments spread across
+failure domains, surviving the loss of several at about 1.4 times the raw size
+instead of three times. It costs more CPU and a reconstruction step when a
+fragment is missing, which is why it suits large, immutable, read-mostly objects
+— an exact description of a video segment.
+
+Then tier by access. Hot content sits on fast storage, warm on cheaper media,
+cold on the slowest. **The constraint that shapes the whole scheme:** any video
+may be clicked at any moment, so nothing can sit on a tier that takes minutes to
+respond. The resolution, _generally accepted_ across the industry, is to split by
+rendition rather than by video — keep one low rung of everything warm enough to
+start playback immediately, and push the high rungs and the source master to the
+cold tier.
+
+**4. Hot videos and headroom.** The global peak is about three times average, but
+a single video's peak can be a thousand times its average, and cache tiers cannot
+be provisioned in the ten minutes that takes. Spikes are absorbed by headroom
+that is already deployed and by the request coalescing from the
+[playback lesson](/learn/sd-youtube-playback/) — not by autoscaling, which is too
+slow for the only case that matters.
+
+**5. Losing a region.** Take a region as the correlated failure domain and answer
+per subsystem:
+
+| Subsystem      | What a lost region does                                                       |
+| -------------- | ----------------------------------------------------------------------------- |
+| Playback edges | Traffic steers to surviving regions; survivable only if headroom was reserved |
+| Metadata       | Reads served by replicas elsewhere; writes wait for a promoted primary        |
+| Upload         | Sessions in flight break; clients resume against another region               |
+| Transcoding    | The queue is durable, so nothing is lost and publish latency rises            |
+| Counters       | Events buffer in the stream; totals go stale, then catch up on replay         |
+| Comments       | Writes fail over; thread ordering must not reissue a sequence value           |
+| Search         | The index is a replicated read-only artifact, so other regions serve it       |
+| Notifications  | Lowest priority: shed, retry, and accept lateness                             |
+
+Two rows are worth pausing on. **Resumable upload is a disaster-recovery
+mechanism**, not only a mobile-network one: a client that can ask "how many bytes
+do you have?" can ask a different region. And the recovery point objective for an
+accepted upload has to be zero, which holds only if the bytes were in more than
+one failure domain before the acknowledgement was sent — the durability promise
+from the requirements lesson, cashed.
+
+<Callout variant="note">
+  **A degradation ladder decides in advance what goes first.** Recommendations
+  fall back to popular-in-locale rows, comments go read-only, counters freeze at
+  their last value, uploads accept but do not publish, and playback is the last
+  thing standing. Writing that order down before an incident is what stops it
+  being improvised at three in the morning, and it is what makes partial failure
+  a product decision rather than an accident. Netflix's public writing on chaos
+  engineering is the _publicly documented_ example of testing these paths by
+  injecting failure deliberately, and is what named the practice; it is now
+  _generally accepted_. **When not to run one:** before the degradation paths
+  exist and can be halted quickly, injecting failure is not an experiment, it is
+  an outage.
+</Callout>
+
+## Trade-offs
+
+**Erasure coding against replication.** Coding roughly halves physical storage
+and adds CPU and a reconstruction path on every degraded read. Replication is
+simpler, faster to read from and more than twice the cost, which is why cold
+objects are coded and hot metadata is replicated.
+
+**Headroom against utilisation.** Running regions at high utilisation is
+efficient until one is gone and the others cannot take the load. Sizing so that
+the survivors absorb a full region means paying for capacity that is idle by
+design.
+
+**Cold tiering against retrieval latency.** Deeper tiers are dramatically cheaper
+and answer in seconds or minutes, which no viewer will accept. Splitting by
+rendition keeps the cheap tier available for the bytes nobody is waiting on.
+
+## Common pitfalls
+
+- **Quoting the daily growth as the storage figure.** Three petabytes a day is a
+  rate; the bill is its integral, and it is already an exabyte.
+- **Forgetting the replication multiplier.** Every logical estimate is short by
+  the factor the storage layer applies, and that factor is a design choice worth
+  making explicitly.
+- **Counting a cache hit ratio as a bandwidth saving.** It saves origin reads and
+  transit, and the bytes still leave an edge.
+- **Sizing for all regions healthy.** Everything is comfortable until one is
+  gone, and then the survivors fail in the same hour.
+- **Failover that has never been exercised.** A promotion path nobody has run is
+  a plan, not a capability, and incidents are a poor first rehearsal.
+
+## Interview notes
+
+Lead with the three shapes. "Bandwidth and transcoding are rates; storage is an
+integral" is one sentence that reframes a cost conversation, and it is the reason
+tiering and lazy encoding are architecture rather than housekeeping.
+
+On failure, refuse the general answer and go subsystem by subsystem. Saying "the
+transcode queue is durable so we lose latency, not work; uploads in flight break
+but resume against another region; counters buffer in the stream and catch up"
+demonstrates that each component's failure behaviour was designed rather than
+assumed.
+
+## Key takeaways
+
+- Bandwidth and transcoding are **rates**; storage is an **integral** that grows
+  even when nothing else does.
+- The head drives **risk and delivery capacity**; the tail drives **cost**.
+  Optimise each for the right thing.
+- **Erasure coding plus rendition-level tiering** is the large storage lever, and
+  it works because one low rung of everything stays warm.
+- **Resumable upload is a recovery mechanism**, and an accepted upload's recovery
+  point objective is zero only if the acknowledgement waited for a second failure
+  domain.
+- A **written degradation ladder** turns partial failure into a product decision;
+  chaos testing is how you find out whether it works.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Of bandwidth, transcoding and storage, which can be reduced substantially without any viewer noticing, and by what?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Storage, by a large factor, and it is the one nobody looks at. Two levers
+  compound. Erasure coding instead of three full replicas takes the physical
+  footprint from roughly three times the logical size to about 1.4 times, which
+  on an exabyte of catalogue is over an exabyte and a half saved, at the cost of
+  CPU and a reconstruction step on degraded reads. Tiering by rendition then
+  attacks what is stored rather than how: keep one low rung of every video warm
+  so any click starts immediately, and push the high rungs and the source master
+  to cold storage, retrieving them only for videos that attract an audience.
+  Since the tail is almost all of the bytes and almost none of the viewing, the
+  viewers affected are the handful who watch a cold video in high resolution,
+  and they wait once. Bandwidth can only be cut by delivering fewer or smaller
+  bytes, which a viewer sees unless a better codec pays for it in encode compute
+  — and transcoding is already bounded by what creators upload.
+</PracticeCheck>
+
+**2. A region is lost at peak. Say what happens to an upload that is halfway through, to the transcoding backlog, and to view counts.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  The upload's session breaks, because the session URI was served by that region
+  — but the protocol is what makes this recoverable. The client re-queries with
+  `Content-Range: bytes */TOTAL` against a surviving region, is told how many
+  bytes are already committed, and continues from there; the bytes already
+  acknowledged are safe because they were committed to more than one failure
+  domain before the acknowledgement was sent. The transcoding backlog loses no
+  work at all: the queue is durable and the jobs are idempotent, so anything
+  half-encoded is redelivered and redone elsewhere. What is lost is time —
+  publish latency rises until the surviving fleet drains the queue, and if that
+  fleet was sized without headroom it may not drain during peak. View counts
+  stop advancing rather than going wrong: events accumulate in the stream, the
+  displayed totals go stale, and when aggregation resumes it replays from the
+  last committed offset and catches up. That staleness is exactly the property
+  the counter design bought.
+</PracticeCheck>
+
+**3. A proposal: move every video not watched in the past year to an archival tier whose retrieval takes minutes. On the numbers here it would archive most of the catalogue.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The premise is right about the size of the prize — most of the catalogue is
+  cold, so most of the bytes would move to the cheapest tier, and that is where
+  the storage bill lives. The problem is that the tier's retrieval time is on
+  the viewer's path. Any archived video is one click away from someone, and a
+  click that produces minutes of waiting is not a degraded experience, it is a
+  broken one; worse, the videos affected are exactly the obscure ones a search
+  or a recommendation has surfaced, so the failure lands on discovery. Keep the
+  proposal and change its unit from the video to the rendition. One low rung of
+  every video stays on a tier that answers in milliseconds, which is a small
+  fraction of the ladder's bytes, and the high rungs plus the source master go
+  to archive. A viewer who opens a forgotten video starts playing immediately at
+  modest quality, a background job restores the higher rungs if the video starts
+  attracting attention, and almost all of the saving is still collected.
+</PracticeCheck>

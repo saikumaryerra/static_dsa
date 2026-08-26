@@ -62,7 +62,7 @@ spec:
 
 Exactly one of `minAvailable` and `maxUnavailable`, either an integer or a
 percentage, plus a selector naming the Pods it covers. `minAvailable: 4` on a
-five-replica Deployment allows one Pod to be evicted at a time; the fifth
+five-replica Deployment allows one Pod to be evicted at a time; the **second**
 eviction request is refused until a replacement is running and ready.
 
 ```bash
@@ -110,7 +110,8 @@ means losing the whole thing — wants `minAvailable` set to the quorum size,
 because the floor is a property of the algorithm and not of the current replica
 count. And a workload the budget covers needs a controller behind it: eviction
 deletes a Pod and something has to create the replacement, so a budget over bare
-Pods blocks at the first eviction and never recovers.
+Pods is granted its first eviction and then blocks for ever, because nothing
+creates the replacement.
 
 **Preemption respects it only as far as it can.** When the scheduler preempts
 lower-priority Pods to place an urgent one it tries to avoid violating a budget,
@@ -119,10 +120,12 @@ budget loses. [Priority and preemption](/learn/k8s-quotas-and-priority/) has the
 mechanism.
 
 **Unhealthy Pods and the deadlock they cause.** By default a budget counts only
-healthy Pods towards its availability, which means a Pod that is broken and
-will never become ready is still protected from eviction — the one Pod you most
-want removed is the one the budget refuses to release. The
-`unhealthyPodEvictionPolicy` field exists for exactly this: set it to
+healthy Pods towards its availability, and a Pod that is broken and will never
+become ready is protected _only once the workload is already below its floor_ —
+while the budget is still met, the default `IfHealthyBudget` policy does release
+an unready Pod. Below the floor it does not, and then the one Pod you most want
+removed is the one the budget refuses to release. The
+`unhealthyPodEvictionPolicy` field removes that condition: set it to
 `AlwaysAllow` and Pods that are not ready may always be evicted, at the cost of
 losing the protection in the moment when the workload is already fragile.
 
@@ -171,8 +174,8 @@ someone scales down to five.
   budget that can never be satisfied produces a hang, not an error.
 - **A rolling update ignores the budget**; the Deployment's own
   `maxUnavailable` is what bounds it.
-- By default an unhealthy Pod is still protected — `unhealthyPodEvictionPolicy`
-  is what changes that.
+- By default an unhealthy Pod is protected **only once the workload is below its
+  floor** — `unhealthyPodEvictionPolicy: AlwaysAllow` removes that condition.
 
 ## Practice
 

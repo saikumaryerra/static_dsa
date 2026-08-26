@@ -176,14 +176,15 @@ Work each one out before opening the answer.
   `kubectl apply` succeeded at the only thing it does: the API server accepted
   and stored the new desired state. Everything after that is a controller
   working over time, and the pipeline did not wait for it. The users are
-  unaffected because the rollout is stuck with the old Pods still serving —
-  under `maxUnavailable: 0` the Deployment will not remove an old Pod until a
-  new one is ready, and the new ones are not becoming ready. A bad image tag, a
-  failing readiness probe or a Pod that cannot be scheduled all present exactly
-  this way. The pipeline needs `kubectl rollout status deployment/web
-  --timeout=180s` as its next step, which blocks and exits non-zero, and the
-  diagnosis then comes from `kubectl get rs -l app=web` and `kubectl describe
-  pod` on a new Pod.
+  unaffected because the rollout is stuck with the old Pods still serving — the
+  default `maxUnavailable: 25%` lets the Deployment retire only a quarter of
+  them before new ones become ready, and on a small replica count it rounds down
+  to zero. The new ones are not becoming ready: a bad image tag, a failing
+  readiness probe or a Pod that cannot be scheduled all present exactly this
+  way. The pipeline needs `kubectl rollout status deployment/web --timeout=180s`
+  as its next step, which blocks and exits non-zero, and the diagnosis then
+  comes from `kubectl get rs -l app=web` and `kubectl describe pod` on a new
+  Pod.
 </PracticeCheck>
 
 **2. Release 1.4.2 added a database column and started writing to it. It is bad, so you run `kubectl rollout undo`. The old Pods come back within a minute. What have you actually restored, and what have you not?**

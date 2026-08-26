@@ -1,0 +1,287 @@
+---
+title: 'CrashLoopBackOff and ImagePullBackOff'
+slug: 'k8s-pod-startup-failures'
+course: 'kubernetes'
+track: 'k8s-troubleshooting'
+order: 60
+summary: 'Both names describe a timer the kubelet is running, not a fault — the cause is in the event that precedes the back-off, or in the container’s last exit code.'
+difficulty: 'intermediate'
+prerequisites: ['k8s-debugging-workflow', 'k8s-images-and-tags']
+estimatedMinutes: 11
+tags: ['kubernetes', 'troubleshooting', 'crashloopbackoff', 'images', 'kubelet']
+explainPrompt: 'Why is CrashLoopBackOff never the reason a Pod is broken, and where does the reason actually live?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Read the three-event sequence behind `ImagePullBackOff` and name the registry problem from the error text.
+- Turn a container's exit code and last state into a specific cause.
+- Choose the repair that matches the cause, instead of the one that clears the symptom.
+
+## Intuition
+
+These are the two statuses everyone meets first, and both are misread the same
+way. Neither one is a fault.
+
+**A `BackOff` status is the kubelet's timer, not a diagnosis.** The kubelet tries
+something — pull an image, start a container — and when it fails, it waits before
+trying again, doubling the wait each time so a broken workload cannot hammer a
+registry or a node. `ImagePullBackOff` and `CrashLoopBackOff` are the names of
+that waiting. They tell you the kubelet has given up trying quickly. They say
+nothing about why.
+
+The cause is always one step earlier, and it is in one of exactly two places. For
+a pull failure it is the `Failed` event that preceded the back-off, carrying the
+registry's own words. For a crash it is the container's **last terminated state**
+— an exit code, a reason and two timestamps — plus the log of the instance that
+died. Both of those are on rungs 2 and 3 of the workflow in
+[A Systematic Debugging Workflow](/learn/k8s-debugging-workflow/).
+
+<Callout variant="note">
+  Restarting the Pod is not a repair for either status, and it is not neutral: a
+  fresh Pod resets the restart count, discards the previous container's log, and
+  puts the back-off timer back to its shortest interval, which makes the failure
+  look newer and less frequent than it is.
+</Callout>
+
+## How it works
+
+### ImagePullBackOff: the kubelet cannot get the image
+
+The status arrives in three events. Read the middle one:
+
+```bash
+kubectl describe pod badimage -n shop
+kubectl events -n shop
+```
+
+```text
+LAST SEEN   TYPE      REASON    OBJECT         MESSAGE
+25s         Normal    Pulling   pod/badimage   Pulling image "ghcr.io/shop/web:9.9.9"
+25s         Warning   Failed    pod/badimage   Failed to pull image "ghcr.io/shop/web:9.9.9": failed to pull and unpack image "ghcr.io/shop/web:9.9.9": failed to resolve reference "ghcr.io/shop/web:9.9.9": failed to authorize: failed to fetch anonymous token: unexpected status from GET request to https://ghcr.io/token?scope=repository%3Ashop%2Fweb%3Apull&service=ghcr.io: 403 Forbidden
+12s         Normal    BackOff   pod/badimage   Back-off pulling image "ghcr.io/shop/web:9.9.9"
+```
+
+`ErrImagePull` is the first failure and `ImagePullBackOff` is the state it settles
+into; the text in the `Failed` event is what the container runtime got back from
+the registry, and it names the cause:
+
+| Error text                                    | What it means                                                                                                                      | The repair                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `401 Unauthorized`, `403 Forbidden`, `denied` | The kubelet has no credential the registry accepts — and some registries answer this way for a repository that does not exist, too | An `imagePullSecret` on the Pod or its ServiceAccount |
+| `manifest unknown`, `not found`               | The tag or repository does not exist                                                                                               | Fix the tag; check it was actually pushed             |
+| `429 Too Many Requests`, `toomanyrequests`    | Pull rate limit on a public registry                                                                                               | Authenticate, or mirror the image                     |
+| `dial tcp`, `i/o timeout`                     | The node cannot reach the registry                                                                                                 | Egress, DNS or proxy on the node network              |
+| `no match for platform`                       | The image has no build for the node's architecture                                                                                 | Publish a multi-architecture image                    |
+
+Two of these have a trap worth naming. **A pull Secret is namespaced**, so a
+Deployment that works in `staging` and fails in `shop` with a `403` is usually a
+Secret that was never copied — the manifest is identical and the credential is
+not. And `imagePullPolicy: Never` produces `ErrImageNeverPull` on any node that
+does not already hold the image, which is why it belongs to local single-node
+clusters and nowhere else.
+
+```bash
+kubectl create secret docker-registry ghcr -n shop \
+  --docker-server=ghcr.io --docker-username=deploy --docker-password="$TOKEN"
+kubectl patch serviceaccount default -n shop \
+  -p '{"imagePullSecrets":[{"name":"ghcr"}]}'
+```
+
+Attaching the Secret to the ServiceAccount covers every Pod in the namespace
+rather than every manifest. Creating it does not interrupt the timer: the kubelet
+retries on its own schedule, and deleting the Pod is the quick way to see whether
+the fix worked.
+
+### CrashLoopBackOff: the container starts and stops
+
+Here the image is fine and a process ran. `restartPolicy` decides what happens
+when it exits — `Always` for a long-running workload, `OnFailure` or `Never` for
+a Job — and under `Always` the kubelet restarts the container after a delay that
+doubles: ten seconds, twenty, forty, up to a ceiling of a few minutes. The Pod
+shows `CrashLoopBackOff` while it waits and `Error` or `Running` in between, which
+is why the status flickers.
+
+The diagnosis is in the container's last state:
+
+```text
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Wed, 26 Aug 2026 10:26:12 +0530
+      Finished:     Wed, 26 Aug 2026 10:26:14 +0530
+    Ready:          False
+    Restart Count:  4
+```
+
+Two seconds between `Started` and `Finished` says the process rejected something
+at startup — configuration, a missing file, a dependency it refuses to run
+without. Hours between them is a different problem: something the workload met
+later, and the log is where it is.
+
+Check the Pod's events for a `Killing` line before you read the code at all,
+because a kill from outside the process can produce almost any code. Once you
+have, the exit code narrows it further:
+
+| Exit code    | Meaning                                                            | Where to look                                                                              |
+| ------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `0`          | The process finished successfully and was restarted anyway         | A task written as a Deployment — use a Job; or a probe kill, if there is a `Killing` event |
+| `1`, `2`     | The application exited on its own error                            | `kubectl logs --previous`                                                                  |
+| `126`, `127` | A shell entrypoint could not run the command, or could not find it | The `sh -c` line, and the `command` you overrode the image's entrypoint with               |
+| `128`        | The runtime could not start the process at all, with `StartError`  | The message beside it names the path — missing, or not executable                          |
+| `137`        | Killed with SIGKILL                                                | The memory limit, or a process that ignored the SIGTERM of a probe kill                    |
+| `143`        | Terminated with SIGTERM                                            | Something asked it to stop — a probe kill, an eviction, a drain                            |
+
+Two rows need the detail the table has no room for. **A command the runtime
+cannot execute never reaches a shell**, so it does not produce 126 or 127: the
+container reports `State: Waiting` with `Reason: RunContainerError`, a last state
+of `Terminated` with `Reason: StartError`, and **exit code 128**, and the message
+carries the runtime's own words — `stat /does/not/exist: no such file or
+directory`, or `permission denied`. The 126 and 127 codes come from a shell that
+did start: `sh -c 'exec /usr/bin/app'` exits 127 when `/usr/bin/app` is not there.
+
+**And a liveness kill is named by an event, not by an exit code.** The kubelet
+sends SIGTERM first, so what the container reports depends entirely on how the
+process handles it: one that shuts down cleanly exits `0` with `Reason:
+Completed`, one that dies on the signal reports `143`, and only one that ignores
+SIGTERM until the grace period runs out reaches SIGKILL and `137`. All three are
+the same failure, and the fact that identifies it is a `Normal Killing` event on
+the Pod saying the container failed its liveness probe. Read that first, or a
+well-behaved process killed by a probe will send you to the `0` row and its
+advice about Jobs.
+
+An out-of-memory kill is the one that reads differently, because the kernel did
+it rather than your code:
+
+```text
+    Last State:     Terminated
+      Reason:       OOMKilled
+      Exit Code:    137
+```
+
+<Callout variant="warning">
+  A container killed at 137 with `Reason: OOMKilled` exceeded **its own memory
+  limit**, and the node may have had gigabytes free. That reason is the primary
+  signal, and it is not the only one: a 137 with **no `Killing` event**, on a
+  container sitting at its memory limit, is an out-of-memory kill whether or not
+  the reason field says so. Raising the limit is sometimes the right fix,
+  because the number was guessed low. It is a postponement when the process
+  leaks, and the way to tell is whether the time between `Started` and
+  `Finished` shrinks with each restart.
+</Callout>
+
+When the container dies before writing anything, `--previous` is empty and there
+is nothing to read. Run the real command by hand instead:
+
+```bash
+kubectl debug crashy -n shop -it --copy-to=crashy-debug --container=crashy -- sh
+```
+
+That copies the Pod with the entrypoint replaced by a shell, so the container
+stays up with the same image, mounts and environment. Start the application from
+inside it and the error goes to your terminal. Delete the copy afterwards.
+
+## Trade-offs
+
+**Recover fast versus keep the body.** `restartPolicy: Always` is what makes a
+workload self-healing, and it is also what destroys the scene: each restart
+overwrites the previous container, so only the most recent failure is readable.
+For a Job you are actively debugging, `restartPolicy: Never` leaves each failed
+Pod in place with its log intact, at the cost of no automatic retry.
+
+**Pull policy costs.** `imagePullPolicy: Always` contacts the registry on every
+container start, which catches a moved tag and adds a network dependency to
+starting a Pod — a registry outage becomes a scaling outage. `IfNotPresent`
+starts faster and will happily run a stale image that shares a tag with the new
+one, which is the argument for immutable tags in
+[Immutable Images and Tagging](/learn/k8s-images-and-tags/).
+
+## Common pitfalls
+
+- **Treating the back-off as the bug.** Searching the web for
+  "CrashLoopBackOff fix" returns advice about a status shared by a hundred
+  unrelated causes.
+- **Deleting the Pod to clear it.** It resets the restart count and the timer,
+  hides how long this has been happening, and takes the previous log with it.
+- **Reading the running container's log.** After a restart the failure is in
+  `--previous`; without the flag the log looks healthy and short.
+- **Raising the memory limit reflexively.** It is tempting because it makes the
+  symptom stop for a while, and on a leak "a while" is the whole of the fix.
+- **Copying a Deployment into a new namespace.** The manifest travels; the
+  `imagePullSecret`, the ConfigMap and the Secret do not, and the failure surfaces
+  as a `403` from the registry rather than as a missing object.
+
+## Key takeaways
+
+- **`BackOff` names the kubelet's retry timer, never the fault.** The cause is
+  the `Failed` event before it, or the container's last terminated state.
+- The registry's own words — `403`, `manifest unknown`, `429`, `i/o timeout`,
+  `no match for platform` — map one-to-one onto five different repairs.
+- **A pull Secret is namespaced**, so the same manifest can pull in one namespace
+  and be refused in another.
+- **Look for a `Killing` event before reading the exit code**, because a probe
+  kill can report `0`, `143` or `137` depending on how the process handles
+  SIGTERM. After that the code is the fastest diagnosis available: `128` means
+  the runtime could not start the command, `137` at the memory limit means an
+  out-of-memory kill, `0` means you deployed a task as a Deployment.
+- When nothing is logged before the crash, **copy the Pod with `kubectl debug`
+  and run the command by hand** rather than guessing.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A Deployment that has run in `staging` for months is copied to a new namespace and its Pods sit in `ImagePullBackOff`. The image tag is unchanged and the registry is up. What is the likely cause, and which command confirms it?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  The manifest is the same, so the reference is right and the tag exists — which
+  points away from the image and towards the credential, because a pull Secret
+  is a namespaced object that does not travel with the Deployment. In the new
+  namespace the kubelet has no credential for a private registry and the pull is
+  refused. `kubectl describe pod` confirms it: the `Failed` event carries the
+  registry's response, and a `401` or `403` points at authorization first — with
+  the caveat that some registries answer a request for a repository you cannot
+  see with the same code, so identical text does not always mean an identical
+  cause. The repair is to create the `docker-registry` Secret in the new
+  namespace and reference it, ideally by attaching it to the ServiceAccount so
+  every Pod in the namespace inherits it.
+</PracticeCheck>
+
+**2. A container shows `Exit Code: 0` with `Reason: Completed`, a rising restart count, and `CrashLoopBackOff`. Nothing in the log looks like an error. What has gone wrong?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Check the Pod's events for a `Killing` line first, because a liveness probe
+  killing a process that handles SIGTERM produces this exact reading. With no
+  such event, nothing has gone wrong inside the container — exit code 0 is
+  success, and the log is clean because the process did what it was written to
+  do and finished. The mismatch is the workload type: under `restartPolicy:
+  Always`, which is the default and what a Deployment sets, the kubelet restarts
+  a container that exits for any reason at all, including success. So a task
+  that runs for ten seconds and stops is restarted, exits successfully again,
+  and back-off engages exactly as it would for a crash. The repair is not in the
+  container: run it as a Job, whose `restartPolicy` is `OnFailure` or `Never`
+  and whose whole model is a process that is meant to end.
+</PracticeCheck>
+
+**3. A Pod is `CrashLoopBackOff` with `Exit Code: 137`. Its memory limit is 512Mi and the node has 20 GiB free. What does the free memory on the node tell you, and how would you decide between raising the limit and fixing the application?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The node's free memory tells you almost nothing, because a container's limit
+  is enforced against that container's own cgroup: this process exceeded 512Mi
+  and the kernel killed it while the machine still had room. First confirm which
+  kind of 137 it is, and the discriminator is the event rather than the code: a
+  `Killing` event naming a failed liveness probe means the kubelet decided,
+  while a 137 with no such event on a container sitting at its limit is an
+  out-of-memory kill whether or not `Reason: OOMKilled` is there to say so. If
+  it is genuinely a limit, the deciding evidence is the shape over time: a limit
+  that was guessed too low fails at a steady point, often under load, while a
+  leak makes the interval between `Started` and `Finished` shrink restart after
+  restart. The first case is a number to correct; the second is a defect that a
+  larger number only delays.
+</PracticeCheck>

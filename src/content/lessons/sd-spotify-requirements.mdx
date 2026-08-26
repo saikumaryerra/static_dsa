@@ -1,0 +1,259 @@
+---
+title: 'Requirements and Scale'
+slug: 'sd-spotify-requirements'
+course: 'system-design'
+track: 'sd-spotify'
+order: 30
+summary: 'A hundred million tracks, sessions that touch dozens of them, and the estimate that shows why request rate rather than bandwidth is the number this design has to answer.'
+difficulty: 'intermediate'
+prerequisites: ['sd-requirements', 'sd-capacity-estimation']
+estimatedMinutes: 9
+tags: ['system-design', 'case-study', 'requirements', 'estimation', 'music']
+explainPrompt: 'Why does a three-minute track make request rate, rather than egress bandwidth, the number that shapes this architecture?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Write the requirements sheet for a Spotify-like music platform, exclusions included.
+- Derive plays per second, concurrent streams, egress and event volume from stated assumptions.
+- Name which of those numbers decides the architecture, and why the byte total is not it.
+
+## Intuition
+
+**A music platform is a metadata system with an audio attachment.** That
+reframing is the whole module. The catalogue is enormous in rows and small in
+bytes: a hundred million tracks, but a three-minute track at 128 kbps is about
+3 MB, so the entire audio library is on the order of a petabyte — less than two
+weeks of uploads on the video platform estimated in
+[Back-of-Envelope Estimation](/learn/sd-capacity-estimation/). What is large here
+is the number of things, and the number of times per hour a listener asks for one.
+
+The second model follows from the first. **A listening session is a burst of
+small requests, not one long byte stream.** A viewer starts a film and the system
+does one authorisation, one manifest fetch and then thirty minutes of cached
+segment reads. A listener starts a track and the same work happens again three
+minutes later, twenty times a day, on every device they own. Sessions that touch
+dozens of objects are what make this platform's shape different from a streaming
+platform's: a viewer takes half an hour of media in one session, and a listener
+takes an hour of it in twenty.
+
+Three systems hide behind "play a song", and it is worth separating them before
+any box is drawn: the **catalogue** (read-mostly, cacheable, shared by everyone),
+**personal state** (playlists, likes, history — written constantly, private, and
+the only place a consistency argument happens), and the **audio bytes**
+(immutable, large, and never touched by an application server). Each of the three
+has a different read-to-write ratio, a different consistency requirement and a
+different store.
+
+## How it works
+
+Start with the sheet, in the shape
+[Functional and Non-Functional Requirements](/learn/sd-requirements/) uses. Every
+figure below is **a teaching assumption** chosen to keep the example concrete,
+and the listener figures are the ones that lesson already assumed, so the two
+agree.
+
+```text
+Music platform — requirements (Spotify-like; every scale figure is an assumption)
+
+Functional
+  F1  A listener searches the catalogue by track, artist, album or playlist.
+  F2  A listener plays a track, pauses, skips, and resumes on another device.
+  F3  A listener creates playlists, adds and reorders tracks, follows others, and
+      edits a playlist a collaborator may be editing at the same moment.
+  F4  A listener likes a track or follows an artist, and browses that library.
+  F5  The home screen is personalised from what this listener has played.
+  F6  A listener downloads a playlist for offline playback while subscribed.
+  F7  Every play emits a listening event, for personalisation and for royalties.
+  F8  Podcast episodes are catalogue items with the same operations, plus a
+      saved position per listener per episode.
+  F9  A listener browses what they have recently played, per device and merged.
+
+Non-functional
+  N1  p99 under 250 ms from pressing play to the first audio byte.
+  N2  99.9% availability for playback, 99.5% for writes to personal state.
+  N3  An acknowledged playlist edit survives the loss of one machine.
+  N4  An edit or a play is visible on the listener's other devices within 5 s.
+  N5  Territory rights are checked when playback is authorised, not on the client.
+  N6  Concurrent edits to one playlist merge rather than overwrite, under a rule
+      stated per pair of operations.
+
+Out of scope
+  X1  Ingesting audio from labels and distributors.
+  X2  Royalty accounting beyond emitting a correct, deduplicated event.
+  X3  Live audio, social feeds and user-uploaded tracks.
+
+Assumptions
+  A1  100,000,000 tracks; 50,000,000 daily listeners.
+  A2  20 plays per listener per day, 3 minutes each.
+  A3  Delivered audio averages 128 kbps across the rendition ladder.
+  A4  5 listening events per play: start, three heartbeats, end.
+  A5  Podcast episodes number in the low millions, 40 minutes each at 64 kbps.
+```
+
+Now the arithmetic. A day rounds to 100,000 seconds and peak is roughly three
+times average, exactly as the estimation lesson sets out.
+
+```text
+Play requests
+  50,000,000 × 20           =  1,000,000,000 plays/day
+  1,000,000,000 ÷ 100,000   =      10,000 plays/s average
+  peak ≈ 3 × average        =      30,000 plays/s
+
+Concurrent streams and egress
+  1,000,000,000 × 180 s     =  180,000,000,000 listening-seconds/day
+  ÷ 100,000                 =  1,800,000 concurrent streams
+  1,800,000 × 128 kbps      ≈  230,000 Mbps  =  230 Gbps average
+  peak ≈ 3 × average        ≈  700 Gbps
+
+Listening events
+  1,000,000,000 × 5         =  5,000,000,000 events/day
+  ÷ 100,000                 =  50,000 events/s average, 150,000/s peak
+  × 200 B per event         ≈  1 TB/day of raw events
+
+Audio at rest
+  180 s × (96 + 128 + 256) kbps = 86,400 kbit ≈ 10 MB per track, all renditions
+  100,000,000 × 10 MB           ≈ 1 PB, before replication
+
+Catalogue metadata
+  100,000,000 × 2 kB            ≈ 200 GB for every track in the catalogue
+
+Personal state
+  50,000,000 × 20 playlists × 40 items = 40,000,000,000 playlist items
+  × 50 B per item                      ≈ 2 TB, before replication
+  2 playlist edits per listener/day    ≈ 1,000 writes/s, 3,000/s peak
+  reads at 100 to 1                    ≈ 100,000 playlist reads/s
+```
+
+**Read the numbers, not the arithmetic.** Ten thousand plays per second is the
+figure that shapes this design, because each one is an authorisation, a rights
+check, a metadata read and a signed URL — a small pile of work that recurs every
+three minutes per listener. Compare the video platform in the estimation lesson:
+180,000 concurrent streams carrying 540 Gbps average — a tenth of the concurrency
+here, moving more than twice the bytes, from 10,000,000 daily viewers who between
+them start about a hundred sessions per second. Normalise the two by the media
+they actually deliver and the shapes separate cleanly: per hour of media, the
+video platform moves more than twenty times the bits (3 Mbps against 128 kbps)
+and starts a tenth as many sessions (one per half-hour against one per three
+minutes). Opposite bottlenecks, from the same play button.
+
+Two hundred and thirty gigabits per second still needs a delivery network — no
+origin fleet should answer that from one place — but it is not the deciding
+number, and at these volumes the delivery network is a commodity purchase rather
+than an architecture. The petabyte is more interesting than it looks: an entire
+audio catalogue that fits in a petabyte is small enough that caches near
+listeners can hold a large share of what anybody asks for, which is why a design
+like this can assume a high cache hit ratio rather than engineering for a low one.
+
+The two hundred gigabytes of metadata is the quiet result. **The whole catalogue
+fits in memory across a modest cache tier**, so catalogue reads need never touch
+a primary database in the request path. Almost nothing else in this course is
+small enough for that to be true.
+
+Personal state is the third shape, and its three figures point in three
+directions. Forty billion playlist items is a partitioning decision — by owner,
+so one listener's rows stay together. A hundred thousand playlist reads per
+second is a caching decision, at a hundred reads per write. And a thousand writes
+per second is small, comfortably one well-partitioned store. **The hard problem
+in playlists is not volume; it is that two devices and a collaborator may write
+the same list at once**, which is why it gets a lesson of its own rather than a
+capacity plan.
+
+Fifty thousand events per second is the last one, and it rules out the obvious
+implementation. That is not a row inserted per event into a relational primary;
+it is an append to a partitioned log with several independent consumers, which is
+[Event Streams](/learn/sd-event-streams/) and the subject of the last lesson in
+this module.
+
+<Callout variant="note">
+  **Podcasts are the same objects with different constants.** An episode is 40
+  minutes rather than 3, so an hour of podcast listening generates a fraction of
+  the play requests an hour of music does; speech encodes acceptably at half the
+  bitrate, so it moves fewer bytes; and because an episode is long, a saved
+  position per listener becomes a requirement rather than a nicety. The
+  recommendation signal is weaker too — an item with thousands of plays rather
+  than millions has far less co-occurrence data to learn from.
+</Callout>
+
+## Common pitfalls
+
+- **Sizing this like a video platform.** Bandwidth is the reflex answer for
+  anything with a play button, and here it is the least constraining number on
+  the sheet. Design for the request rate and the event rate.
+- **Treating the catalogue as one thing.** Track metadata, audio bytes and rights
+  have different sizes, different change rates and different consistency needs;
+  a single "catalogue service" that owns all three inherits the strictest of each.
+- **Forgetting that rights are a requirement, not a detail.** N5 says a rights
+  check happens on every authorisation. That single line rules out handing
+  clients long-lived audio URLs, and it decides the delivery design two lessons
+  from now.
+- **Assuming listening events are analytics.** They pay artists. An event
+  pipeline that may silently drop 0.1% is fine for a dashboard and not fine for
+  a royalty statement, and knowing that at requirements time changes what gets built.
+
+## Key takeaways
+
+- The catalogue is **large in rows and small in bytes**: 100,000,000 tracks,
+  roughly 1 PB of audio and around 200 GB of metadata.
+- **Request rate, not bandwidth, is the shaping number** — about 10,000 plays per
+  second average and 30,000 at peak, because a three-minute item restarts the
+  work twenty times a day per listener.
+- Catalogue metadata is small enough to **cache in its entirety**, which almost
+  nothing else at this scale is.
+- **50,000 listening events per second** is an append-only log with several
+  consumers, not a database insert per event.
+- Every figure here is **a stated assumption**; changing one changes the fleet
+  size, and the structural conclusions survive.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. Per hour of media delivered, this platform starts twenty sessions where the video platform in Back-of-Envelope Estimation starts two, and moves a twentieth of the bits. Why does that make one design worry about request rate and the other about bandwidth?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Because item length and bitrate pull in opposite directions. An hour of music
+  is twenty separate items, each needing its own authorisation, rights check,
+  metadata read and URL — so an hour of listening produces twenty session
+  starts, while an hour of viewing produces one or two. That is what puts play
+  requests at 10,000 per second here. Bitrate does the reverse: 128 kbps against
+  3 Mbps is more than a twenty-fold difference per second of media, so an hour
+  of viewing costs more than twenty times the bytes an hour of listening does.
+  The two platform totals are not directly comparable — 230 Gbps here carries
+  50,000,000 listener-hours a day, 540 Gbps there carries 5,000,000 viewer-hours
+  — and it is dividing each by its media-hours that recovers the twenty-fold
+  ratio. Short items make request rate the constraint; large items make bytes
+  the constraint.
+</PracticeCheck>
+
+**2. Which of the estimates change if podcasts become a significant share of listening, and which do not?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Play requests fall per hour of listening, because a 40-minute episode replaces
+  roughly thirteen three-minute tracks — the same listening hour generates far
+  fewer authorisations. Egress falls a little too, since speech is acceptable at
+  a lower bitrate than music. Listening events per hour fall for the same reason
+  as play requests, though a saved position per episode adds a small, steady
+  write that music did not have. Catalogue metadata barely moves: A5 puts
+  podcast episodes in the low millions against a hundred million tracks. Audio
+  at rest grows, because a 40-minute episode is several times more bytes than a
+  track even at half the bitrate.
+</PracticeCheck>
+
+**3. A reviewer challenges assumption A2 and says listeners average 40 plays a day, not 20. What has to be recalculated, and which conclusions survive?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  Everything driven by listening doubles: about 20,000 plays per second average
+  and 60,000 at peak, roughly 3,600,000 concurrent streams, around 460 Gbps
+  average egress, and 100,000 listening events per second. Everything driven by
+  the catalogue is untouched — a petabyte of audio and 200 GB of metadata depend
+  on how many tracks exist, not on how often anyone plays them. That split is
+  the point: the rate figures size today's fleet, and doubling them is a
+  purchasing decision. The structural conclusions all survive, because they came
+  from ratios rather than absolutes: still a delivery network, still a cacheable
+  catalogue, still a log rather than a table for events.
+</PracticeCheck>

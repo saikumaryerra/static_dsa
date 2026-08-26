@@ -54,19 +54,19 @@ through it as you can.
 metadata, refreshes a heartbeat, and deregisters on a clean shutdown. Instances
 that die badly are removed when their heartbeat lapses. The window in which a
 name resolves to a dead instance is a sum, and it is longer than people expect:
-detection is interval × threshold, as
+detection is interval × threshold plus one timeout, as
 [Load Balancers and Reverse Proxies](/learn/sd-load-balancers/) sets out, plus
 propagation to the registry, plus whatever the client has cached.
 
 ```text
-health check every 5 s, 3 consecutive failures to eject
-  detection                       =  5 × 3      =  15 s
+health check every 5 s, timeout 1 s, 3 consecutive failures to eject
+  detection                       =  5 × 3 + 1  =  16 s
   registry propagation to clients                ≈   5 s
   client-side cache or DNS TTL of 30 s           ≈  30 s
-  worst case a client dials a dead instance      ≈  50 s
+  worst case a client dials a dead instance      ≈  51 s
 ```
 
-Fifty seconds is why every caller retries against another address, with backoff
+Nearly a minute is why every caller retries against another address, with backoff
 and a budget. No registry setting removes that window; it only makes it shorter
 and the health checks more expensive.
 
@@ -181,7 +181,8 @@ coordinate — that is the sentence that shows you know what it costs.
 ## Key takeaways
 
 - **Discovery is best-effort naming**: the answer is always slightly stale, so
-  clients retry and the eviction window is interval × threshold plus caching.
+  clients retry and the eviction window is interval × threshold, plus one
+  timeout, plus caching.
 - **Consensus costs a majority round trip per decision** — a few thousand a
   second inside a datacentre, single figures across continents.
 - A group of 5 **tolerates 2 failures and stops entirely at 3**; that is a real
@@ -199,17 +200,17 @@ Work each one out before opening the answer.
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
   Add the windows rather than taking the largest. Detection is 5 × 3 = 15
-  seconds before the instance is declared unhealthy, then the change has to
-  propagate to whatever answers queries, and then a client that resolved the
-  name a moment before the change keeps its cached answer for up to another 30
-  seconds — so roughly 45 to 50 seconds in the worst case, and longer for a
-  client that caches beyond the TTL, which many runtimes do. Shortening the
-  interval and the TTL narrows the window and costs more checks and more
-  lookups; it never closes it, because a healthy instance can die immediately
-  after passing a check. The behaviour that actually fixes it belongs to the
-  caller: connect with a short timeout, retry the next address on a connection
-  failure, and use a retry budget so a widespread failure does not become a
-  retry storm.
+  seconds plus the failing probe's own timeout before the instance is declared
+  unhealthy, then the change has to propagate to whatever answers queries, and
+  then a client that resolved the name a moment before the change keeps its
+  cached answer for up to another 30 seconds — so roughly 45 to 50 seconds in
+  the worst case, and longer for a client that caches beyond the TTL, which many
+  runtimes do. Shortening the interval and the TTL narrows the window and costs
+  more checks and more lookups; it never closes it, because a healthy instance
+  can die immediately after passing a check. The behaviour that actually fixes
+  it belongs to the caller: connect with a short timeout, retry the next address
+  on a connection failure, and use a retry budget so a widespread failure does
+  not become a retry storm.
 </PracticeCheck>
 
 **2. A team runs a 5-node consensus cluster for leader election and configuration. They propose storing per-user session data in it too, "since it is already replicated and consistent". What do you tell them?**

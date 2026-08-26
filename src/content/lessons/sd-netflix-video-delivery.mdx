@@ -1,0 +1,238 @@
+---
+title: 'Video Delivery'
+slug: 'sd-netflix-video-delivery'
+course: 'system-design'
+track: 'sd-netflix'
+order: 26
+summary: 'Encode once, cut into segments, let the client pick a rendition per segment, and cache the bytes near viewers — plus the two numbers that explain why no application server is ever on the byte path.'
+difficulty: 'intermediate'
+prerequisites: ['sd-netflix-architecture', 'sd-cdn']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'streaming', 'cdn', 'encoding']
+explainPrompt: 'Why does cutting a film into thousands of small files make it deliverable when streaming it as one long response is not?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Give two independent reasons no application server may stream video bytes.
+- Follow a title from mezzanine master through encoding, packaging and caching.
+- Explain adaptive bitrate, and say which party decides and why.
+- Place DRM in the design without making it a delivery dependency.
+
+## Intuition
+
+**A stream is a playlist of small static files, chosen one at a time by the
+client.** That single reframing is what makes internet video tractable, because
+it turns a two-hour transmission into a few thousand ordinary cacheable GET
+requests — and everything already known about caching reverse proxies
+([content delivery networks](/learn/sd-cdn/)) applies unchanged.
+
+The alternative — one long-lived connection per viewer, fed by a server — fails
+for two independent reasons, and it is worth having both.
+
+**Bandwidth.** The [requirements estimate](/learn/sd-netflix-requirements/) gives
+about 90 Tbps at peak. At 100 Gbps per interface that is nine hundred saturated
+links before redundancy, and buying them would still not help a viewer on another
+continent, who pays roughly 150 ms of round trip whatever the origin's capacity.
+
+**Connection lifetime.** A two-hour view holds a connection for 7,200 seconds. An
+application tier is sized for requests measured in tens of milliseconds; it is
+deployed daily, autoscaled hourly, and every one of those events would cut
+viewing sessions. Segmenting converts 7.2 million long-lived sockets into short
+independent requests that any cache can answer and any node can drop without a
+viewer noticing.
+
+## How it works
+
+```text
+mezzanine master (object storage)
+  |
+  '-> encode: a ladder of renditions, several codecs, audio tracks
+        |
+        '-> package: fixed-length segments, subtitles, manifest, encrypted once
+              |
+              '-> origin -> regional cache -> edge cache -> client
+```
+
+**1. The master.** Studios deliver a mezzanine file at a bitrate far above
+anything a viewer receives. It lives in object storage, is never delivered, and is
+the input every re-encode starts from — which is what makes adding a codec three
+years later a batch job rather than a renegotiation.
+
+**2. Encoding the ladder.** Each title is encoded into rungs from well under
+1 Mbps up to the highest resolution offered, in more than one codec because a 2015
+television and a current phone do not decode the same formats. With audio tracks
+per language and subtitle files added, a title stores roughly fifty megabits per
+second of content against the four megabits per second a viewer receives. Storing
+twelve times what you deliver is affordable because the whole rendition set is
+2 PB.
+
+Because the catalogue is small and curated, encoding can be slow and careful:
+tuning the ladder per title, so that a visually complex title gets more bits than
+a flat animated one, is generally accepted industry practice wherever encode cost
+is paid once and delivery cost is paid millions of times.
+
+**3. Packaging.** The renditions are cut into fixed-length segments, typically a
+few seconds each, and described by a manifest that lists every rung, every audio
+track, every subtitle and the URLs of their segments. The industry has two
+dominant manifest formats, HLS and DASH, and a player supports both. Segments are
+encrypted once at packaging time, which is what lets them be cached as public
+bytes.
+
+**4. Adaptive bitrate.** Before each segment the player looks at its measured
+throughput and its buffer occupancy and chooses which rung to fetch next. The
+client decides because it is the only party that knows how much buffer it has,
+how large its screen is and whether the network changed a second ago. Players
+typically start on a low rung so playback begins quickly, then climb once the
+buffer is comfortable — trading a few seconds of soft picture for a fast start.
+
+**5. Caching near viewers.** Segments are immutable and shared by everyone
+watching the title, which makes them close to ideal cache objects. Netflix's Open
+Connect programme is the publicly documented version of taking this to its
+conclusion: purpose-built caching appliances placed inside internet service
+providers' own networks, so the bytes are served from inside the viewer's own
+provider rather than from a distant origin. Open Connect's own documentation
+describes the consequence: because it can predict with high accuracy what members
+will watch and at what time of day, the vast majority of content updates are
+downloaded to those appliances during configurable off-peak fill windows rather
+than pulled on demand by the first viewer to ask. Prefilling is generally accepted
+architecture wherever popularity can be forecast.
+
+**6. DRM, at concept level.** The segments are encrypted; the keys are not in
+them. The player asks a licence service for a key, the licence service checks that
+this account is entitled to this title on this device, and it returns key material
+bound to that session. Two rules follow: the licence request is on the control
+plane and must never be cached by a shared cache, and the delivery network never
+sees a key, which is exactly why it can serve the encrypted bytes to anyone.
+
+<Callout variant="warning">
+  **When this machinery is the wrong answer.** For clips of a few seconds,
+  segmenting and manifests cost more than they save — serve one progressive
+  file. For content that is free and unrestricted, DRM adds startup latency and
+  a per-device support burden for nothing. And for small audio files, whole-file
+  fetch with prefetch beats per-segment adaptation, which is why a music
+  platform looks different here.
+</Callout>
+
+## Trade-offs
+
+**Ladder depth.** More rungs match more networks and cost storage, encode time and
+cache efficiency: every rung is a separate object, so a deeper ladder spreads the
+same demand over more cache entries and lowers the hit ratio on each.
+
+**Codec choice.** A newer codec can carry the same quality in appreciably fewer
+bytes, which is money at 90 Tbps, but costs more encode compute and excludes older
+devices — so platforms ship several and let the manifest sort it out.
+
+**Segment length.** Short segments adapt quickly and start fast; they also mean
+more requests, more manifest entries and slightly worse compression. Long segments
+compress better and react slowly, which a viewer feels as a stall when a network
+degrades mid-segment.
+
+**Client-side adaptation.** Putting the decision in the player is right because
+the player has the information, and it means every client optimises for itself.
+Several players sharing one home link can oscillate, each reading another's
+backoff as spare capacity.
+
+## Common pitfalls
+
+- **Serving video through the application tier "for now".** Tempting during
+  prototyping, and it embeds an assumption — that bytes flow through your servers —
+  into clients, load balancers and monitoring, all of which have to be undone.
+- **Caching a licence response.** It looks like any other JSON call, and a shared
+  cache answering it means the entitlement check never runs — an account with no
+  right to the title is handed a licence, and the key material inside it was bound
+  to somebody else's session.
+- **Purging the delivery network on every re-encode.** Versioned segment URLs make
+  the new encode a new object, so old and new coexist and no invalidation is
+  needed.
+- **One ladder for the whole catalogue.** Convenient, and it overspends bits on
+  simple content while starving complex content of them.
+- **Measuring average delivered bitrate as the quality metric.** What viewers feel
+  is time to first frame and rebuffer ratio; a high average bitrate with frequent
+  stalls is a worse experience than a steady lower one.
+- **Pricing only the video.** Ten audio tracks and twenty subtitle languages
+  multiply manifest size, packaging work and storage alike.
+
+## Interview notes
+
+Say the sentence "no application server is on the byte path" and then give both
+numbers — the interface arithmetic and the connection lifetime. Candidates who
+give only bandwidth have usually read about CDNs; candidates who mention that a
+two-hour socket cannot live on a fleet that redeploys daily have thought about
+operating one.
+
+The second thing to volunteer is where DRM sits. Placing the licence on the
+control plane and the encrypted segments on the data plane, in one sentence, shows
+the security model and the caching model were designed together rather than bolted
+to each other.
+
+## Key takeaways
+
+- Segmented HTTP delivery turns a stream into **thousands of small immutable
+  files**, which is what makes it cacheable at all.
+- No application server is on the byte path for **two independent reasons**:
+  aggregate bandwidth, and connection lifetime against a fleet that redeploys.
+- **The client picks the rendition** for each segment, because only the client
+  knows its buffer, its screen and its current network.
+- Encode cost is paid **once per title**; delivery cost is paid every view, which
+  is what justifies careful per-title encoding for a small catalogue.
+- **Encrypt segments once, issue licences on the control plane**: the delivery
+  network can then serve the bytes to anyone, and never holds a key.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A colleague suggests keeping one long-lived connection per viewer, served from a fleet of streaming servers, and points out that the fleet could be scaled horizontally. What are the two independent objections?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Horizontal scaling answers neither. The first objection is aggregate bandwidth
+  and distance: about 90 Tbps at peak is roughly nine hundred saturated 100 Gbps
+  interfaces, and even if the fleet owned them, a viewer on another continent
+  still pays around 150 ms per round trip, which capacity cannot buy away. The
+  second is independent of scale entirely: a connection that lives for two hours
+  cannot sit on a fleet that is deployed daily and autoscaled hourly, because
+  every deploy, every scale-in and every node failure cuts viewing sessions.
+  Segmented delivery fixes both — the bytes come from caches near viewers, and
+  each request is short enough that losing a node is invisible.
+</PracticeCheck>
+
+**2. The ladder has eight rungs and the team proposes four more for finer adaptation. What does that cost, beyond encoding time?**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Storage grows by roughly the bitrate of the added rungs, which is real but the
+  smallest cost here. The one people miss is cache efficiency: every rung is a
+  distinct set of objects, so the same demand for a title now spreads across
+  twelve sets instead of eight, each individually less popular. Cache footprint
+  per title rises and the hit ratio on any given object falls, which at this
+  scale is origin traffic rather than an inconvenience. Against that, the
+  benefit is marginal — a player switching between two adjacent rungs that
+  differ by a few hundred kilobits per second gains little quality and risks
+  visible switching. Add rungs where the gaps are wide, particularly at the low
+  end where networks are worst, not uniformly.
+</PracticeCheck>
+
+**3. The DRM licence request adds 120 ms to playback start, and someone proposes caching licence responses at the edge, keyed by title, to remove it.**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  It would remove the latency and break the security model in the same change.
+  Keyed by title in a shared cache, the licence service stops being consulted at
+  all after the first request, so the entitlement check goes with it: an account
+  with no right to the title is served a licence. The cached object itself then
+  fails one of two ways. A licence carries key material bound to one account,
+  device and session, so every later requester's decryption module rejects it
+  and playback breaks for everyone but the first viewer; and if the binding is
+  weak enough that it does not, what the cache is handing out is a content key
+  that has escaped the account it was issued to. That is the "never cache a
+  per-user response" rule in its most expensive form. Take the 120 ms off
+  elsewhere: request the licence in parallel with the manifest rather than after
+  it, keep the licence service in-region and reachable over a warm connection so
+  the request costs one round trip instead of a handshake plus one, and start
+  fetching the first low-rung segment while the licence is in flight. The
+  encrypted segments are still fully cacheable; it is only the key that is not.
+</PracticeCheck>

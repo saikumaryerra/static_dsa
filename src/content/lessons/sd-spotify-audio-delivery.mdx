@@ -1,0 +1,217 @@
+---
+title: 'Audio Delivery and Offline'
+slug: 'sd-spotify-audio-delivery'
+course: 'system-design'
+track: 'sd-spotify'
+order: 32
+summary: 'Immutable three-megabyte files, a rendition ladder, prefetch and client caches — and why rights are enforced when a URL is signed rather than when a byte is cached.'
+difficulty: 'intermediate'
+prerequisites: ['sd-spotify-architecture', 'sd-cdn']
+estimatedMinutes: 10
+tags: ['system-design', 'case-study', 'cdn', 'caching', 'offline']
+explainPrompt: 'Why can an audio object be cached forever while the right to play it expires in minutes?'
+published: true
+---
+
+import Callout from '../../components/Callout.astro';
+import PracticeCheck from '../../components/PracticeCheck.astro';
+
+## What you'll learn
+
+- Design the audio path from an encoded object to a listener's speaker.
+- Choose a rendition ladder, a prefetch policy and a client cache, and say what each costs.
+- Separate the bytes, which are cacheable forever, from the rights, which are not.
+
+## Intuition
+
+**Audio delivery is a caching problem wearing a streaming problem's clothes.** A
+three-minute track at 128 kbps is roughly 3 MB, smaller than the images on many
+web pages, and once encoded it never changes. Nothing about that needs adaptive
+segmentation, a manifest or a rebuffering strategy of the kind video demands. It
+needs an immutable object, a URL that can be cached, and a client that fetches
+the next one before the current one ends.
+
+The second idea is the one that makes the design non-obvious. **The bytes are
+public-shaped and the permission is private-shaped.** The same encoded file is
+identical for every listener on earth, so it should be cached as close to
+listeners as possible and kept for as long as possible. Whether a particular
+listener may play it depends on their subscription, their country and a licensing
+window that a label can close tomorrow. Push those two facts into one mechanism
+and you get either uncacheable audio or unenforceable rights. Keep them apart —
+**cache the object forever, authorise the access every time** — and both work.
+This split is generally accepted industry architecture for licensed media, and
+the Spotify-like platform below applies it; none of it is a claim about any
+particular company's implementation.
+
+## How it works
+
+**Encoding.** A track arrives as a high-quality master and is transcoded once
+into a small ladder — around 96 kbps for metered mobile connections, 128 kbps as
+the default, 256 kbps for subscribers who ask for higher quality. Each rendition
+is a separate immutable object in
+[object storage](/learn/sd-object-storage/), named by a content hash so the name
+changes if the bytes ever do. That is what makes the URL safe to cache
+indefinitely: an object at that path can never become a different object.
+
+Transcoding here is cheap and batchable, the opposite of the video case: three
+minutes of audio at three bitrates is seconds of work on one core, so a new
+release is encoded, checked and published without anybody designing a scheduling
+system for it.
+
+**Delivery.** The client asks the playback service to authorise a play and
+receives short-lived signed URLs, one per rendition. It then fetches bytes from a
+[content delivery network](/learn/sd-cdn/) with HTTP range requests, taking the
+first few seconds first so playback can start, then the rest. The origin is
+object storage, and it is reached only on a cache miss.
+
+```text
+GET /audio/9f2ca1b7e4/128.ogg
+Range: bytes=0-131071
+Cache-Control: public, max-age=31536000, immutable
+```
+
+Cache efficiency is unusually good here for two reasons that are properties of
+music rather than clever engineering. **Assume listening is concentrated**, a
+small fraction of tracks taking most plays. And the catalogue is a petabyte that
+barely grows day to day, so the head an edge holds stays the head — where the
+video platform in [Back-of-Envelope Estimation](/learn/sd-capacity-estimation/)
+adds 36 PB a year for a cache to chase. Assume a few terabytes of the most-played
+audio in a large market — a sliver of the catalogue by bytes — and it serves the
+large majority of that market's requests.
+
+**Regional distribution** follows from the estimate: 230 Gbps of average egress
+is a delivery-network purchase, not a datacentre project. A commercial CDN with
+points of presence in each large market is enough. The publicly documented
+extreme is **Netflix Open Connect**, which places Netflix's own caching
+appliances inside internet service providers' networks, and which Netflix
+documents publicly under that name. It exists at a scale this module does not
+estimate: assume a video platform in the tens of terabits per second against the
+hundreds of gigabits derived here, and a music platform's byte volume rarely
+justifies building and shipping hardware — the same problem at a different size,
+with a different answer.
+
+**Prefetch.** The client knows what plays next, because a queue or an album is
+an ordered list. Fetching the next track while the current one plays removes the
+gap at a track change and hides a slow network entirely. When not to prefetch:
+on a metered or roaming connection, where a skipped prefetch is wasted data the
+listener pays for; and when the next item is genuinely unknown, as in a shuffled
+radio stream whose next pick depends on a skip that has not happened yet. Then
+prefetch a candidate and accept an occasional miss, or shorten the ladder instead.
+
+**The client cache** holds recently played tracks under a size cap with
+least-recently-used eviction, which removes the network from a repeat listen
+altogether. It is stored encrypted, because a cache of playable audio files on
+disk is a distribution channel if the bytes are readable.
+
+**Offline** is the same mechanism with the dial turned up. A download is the same
+encrypted object stored without an eviction policy, plus a **licence**: a small
+signed record saying which content this device may decrypt and until when. The
+client revalidates that licence periodically — a window of a few weeks is a
+common teaching figure — and when the subscription lapses the licence is not
+renewed, so downloads stop playing without anybody deleting anything. This is the
+concept-level shape of digital rights management; the cryptographic detail is a
+specialist subject and none of it changes the architecture.
+
+**Rights** run through the same seam. A track's availability is per territory and
+per licensing window, and a label can pull a track with short notice. Because
+audio URLs are cached forever and cannot be recalled from every edge in the
+world, revocation cannot be a cache operation. It is an authorisation operation:
+the signed URL expires in minutes, so a track pulled at noon stops being
+authorised at noon and the last listeners drop off as their URLs expire. The
+cached bytes are then garbage that no one can request a signature for.
+
+<Callout variant="warning">
+  **A signed URL is a bearer token.** Anyone holding it can fetch the object
+  until it expires, so the expiry is the security control — minutes, not days —
+  and it should be bound to the rendition and, where the client allows, the
+  session. Long-lived signed URLs are how a licensed catalogue leaks.
+</Callout>
+
+## Trade-offs
+
+**Immutable URLs against revocation.** Caching forever is what makes the
+economics work, and it means you can never take a byte back. The cost is short
+authorisation lifetimes — 10,000 authorisations per second, which the previous
+lesson already sized for.
+
+**Every rendition multiplies two things.** A fourth bitrate adds storage across a
+hundred million tracks and, worse, splits cache occupancy: the same track now
+occupies four entries competing for the same edge memory. Three renditions is a
+defensible ladder for audio; the video habit of eight or ten does not transfer.
+
+**Prefetch against data cost.** It buys gapless playback and spends bytes on
+tracks that may be skipped, so make it a policy that reads the connection type
+rather than a constant.
+
+## Common pitfalls
+
+- **Proxying audio through the application tier.** It is the shortest path to a
+  working prototype and it converts a bandwidth bill into an application fleet.
+- **Expecting a cache TTL to enforce a takedown.** Purging every edge is slow and
+  unreliable, and the object may already be on ten million phones. Enforce in
+  authorisation, where the answer is computed fresh.
+- **Caching the authorisation response.** The bytes are shared; the decision is
+  personal. Cache the decision and one listener's territory or subscription
+  decides for another's.
+- **One object per track with no range support.** Playback then waits for a whole
+  file before starting, and a seek re-downloads from the beginning.
+- **Ignoring the cold cache in a new market.** The first hours in a new region
+  are a miss storm against the origin; pre-warm the most-played tracks or accept
+  a slow start, but decide which.
+
+## Key takeaways
+
+- Audio objects are **small, immutable and identical for everyone**, so they are
+  cached indefinitely under a content-addressed URL.
+- Rights are **evaluated per request** and expressed as a short-lived signed URL,
+  which is what makes a takedown effective without purging any cache.
+- A **three-rendition ladder** is enough; each extra rendition costs storage
+  across the whole catalogue and fragments edge cache occupancy.
+- **Prefetch the next item** when it is known and the connection is not metered;
+  a client cache removes the network from repeat listens.
+- **Offline is a download plus an expiring licence**, so access ends by expiry
+  rather than by deletion.
+
+## Practice
+
+Work each one out before opening the answer.
+
+**1. A label pulls a track from one country at noon. Cached copies exist at hundreds of edge locations and on millions of devices. How does the platform stop serving it, and how quickly?**
+
+<PracticeCheck slug={frontmatter.slug} index={1} total={3}>
+  Not by purging caches — that is slow, incomplete, and useless against copies
+  already on devices. The catalogue's rights record for that territory is
+  updated, and from that moment the playback service refuses to sign a URL for
+  listeners in that country. Playback stops within the lifetime of the
+  signatures already issued, which is minutes because that is what the expiry
+  was chosen for. Listeners with an offline download keep it until their licence
+  next revalidates, which is why the licence has an expiry at all. The cached
+  bytes stay at the edges and become unreachable: without a valid signature no
+  one can request them, and they age out normally.
+</PracticeCheck>
+
+**2. A proposal adds two more bitrates to the ladder so every connection gets a closer match. Name what it costs beyond storage.**
+
+<PracticeCheck slug={frontmatter.slug} index={2} total={3}>
+  Cache occupancy, which is the expensive one. Five renditions means one track
+  occupies five entries at every edge, so the number of distinct tracks a given
+  cache can hold falls by roughly two fifths against three renditions, and the
+  hit ratio falls with it — pushing traffic back to the origin, which is the
+  cost the CDN existed to avoid. Encoding cost rises across a hundred million
+  tracks, and every client and test matrix gains two more cases. The gain is a
+  slightly better bitrate match on a medium that is already small enough to
+  prefetch, which is why audio ladders stay short where video ladders do not.
+</PracticeCheck>
+
+**3. A client team suggests caching the playback service's authorisation response for ten minutes per track, since a listener often replays a track. What breaks?**
+
+<PracticeCheck slug={frontmatter.slug} index={3} total={3}>
+  The response is a decision about one listener at one moment, not a fact about
+  the track. Cached on the client for that listener alone it is defensible but
+  shortens nothing — the signature already expires in minutes, so the cache
+  would mostly serve expired URLs. Cached anywhere shared, it is a rights
+  failure: the entry carries a signature minted for one listener's subscription
+  and territory, and a second listener served from it is playing on someone
+  else's permission. The rule from the lesson holds — the bytes are shared and
+  cacheable, the decision is personal and is not.
+</PracticeCheck>
