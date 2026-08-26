@@ -24,8 +24,8 @@ Single source of truth for state (SPEC §4). Update after every completed unit, 
 
 | | Courses | Modules | Lessons | Pages in `dist/` |
 |---|---|---|---|---|
-| Before | 1 | 6 | 15 | 26 |
-| Now | 3 | 29 | 127 | 136 |
+| Before | 1 | 2 | 15 | 26 |
+| Now | 3 | 25 | 127 | 136 |
 
 The 112 new lessons are 67 Kubernetes (14 modules) and 45 System Design
 (9 modules). Full plan in `CURRICULUM.md`; every Appendix A/B topic maps to a

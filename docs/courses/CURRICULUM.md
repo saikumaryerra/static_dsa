@@ -257,9 +257,14 @@ Every architectural claim carries one of the three labels in CONTENT_STYLE.md.
 
 ## Status
 
-| Course | Module | Lessons | Status |
+All 112 planned lessons are written, reviewed and shipped; this table was the
+production tracker and is kept as the final count.
+
+| Course | Modules | Lessons | Status |
 |---|---|---|---|
-| Kubernetes | 01 `k8s-foundations` | 5 | 1 of 5 `ok` |
-| Kubernetes | 02–14 | 62 | — |
-| System Design | 01 `sd-foundations` | 4 | 1 of 4 `ok` |
-| System Design | 02–09 | 41 | — |
+| Kubernetes | 14 | 67 | **all shipped** |
+| System Design | 9 | 45 | **all shipped** |
+
+Coverage is enforced rather than tracked here: every Appendix A and B topic in
+`coverage.json` maps to a published lesson, and `npm run validate:content --strict`
+fails if one does not.

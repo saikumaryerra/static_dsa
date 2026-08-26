@@ -21,10 +21,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
  * the modules still to come.
  */
 const strict = process.argv.includes('--strict');
-const { errors, warnings, notes, pending, checked } = validateContent(root, {
-  strict,
-});
-
 /**
  * Writes a line to stdout. `console` is banned repo-wide by ESLint (spec §18),
  * which is why every script here uses the stream directly.
@@ -33,6 +29,21 @@ const { errors, warnings, notes, pending, checked } = validateContent(root, {
  * @returns {void}
  */
 const say = (line) => void process.stdout.write(`${line}\n`);
+
+// A rule that cannot RUN is a worse outcome than a rule that fails, because it
+// is invisible: `fontCharset` throws rather than returning an empty set for
+// exactly that reason, and an unhandled throw here would surface as a Node stack
+// trace nobody reads as "a check was silently retired".
+let result;
+try {
+  result = validateContent(root, { strict });
+} catch (error) {
+  say(
+    `ERROR the validator could not run: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exit(1);
+}
+const { errors, warnings, notes, pending, checked } = result;
 
 // Notes first, and always: they are decisions somebody reviewed, and printing
 // them on every run is what keeps them decisions rather than a silent exemption.

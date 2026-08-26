@@ -11,8 +11,8 @@ nothing pushed, no PR opened, per SPEC §3.
 
 | | Courses | Modules | Lessons | Pages in `dist/` |
 |---|---|---|---|---|
-| Before | 1 | 6 | 15 | 26 |
-| Now | 3 | 29 | 127 | 136 |
+| Before | 1 | 2 | 15 | 26 |
+| Now | 3 | 25 | 127 | 136 |
 
 **Kubernetes — 14 modules, 67 lessons.** Foundations (5) · Core workloads (6) ·
 Configuration and secrets (4) · Storage (5) · Networking (5) · Scheduling and

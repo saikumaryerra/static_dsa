@@ -331,15 +331,28 @@ function fontCharset(root) {
   const line = source
     .split('\n')
     .find((l) => l.startsWith('export const FONT_CHARSET'));
-  if (!line) return new Set();
+  // THROW rather than return an empty set. The caller skips rule 5f when the
+  // set is empty, so a `font-charset.ts` that was renamed, restructured, or
+  // stopped parsing would silently retire the only check that catches a
+  // character the committed subsets cannot draw — and it would retire it in the
+  // quietest possible way, as a green run. A guard that fails open is worse
+  // than no guard, because it is trusted.
+  if (!line) {
+    throw new Error(
+      'src/styles/font-charset.ts has no `export const FONT_CHARSET` line — the glyph-coverage rule cannot run. Re-run `npm run fonts`.',
+    );
+  }
   const literal = line
     .slice(line.indexOf('=') + 1)
     .trim()
     .replace(/;$/, '');
   try {
     return new Set(JSON.parse(literal));
-  } catch {
-    return new Set();
+  } catch (cause) {
+    throw new Error(
+      "src/styles/font-charset.ts's FONT_CHARSET literal did not parse as JSON, so the glyph-coverage rule cannot run",
+      { cause },
+    );
   }
 }
 

@@ -23,7 +23,7 @@ touching its area:
 ## Course expansion (**shipped** on `feat/kubernetes-and-system-design-courses`)
 
 Two courses added: **Kubernetes** (67 lessons, 14 modules) and **System Design**
-(45 lessons, 9 modules). The catalogue went 1 → 3 courses, 6 → 29 modules,
+(45 lessons, 9 modules). The catalogue went 1 → 3 courses, 2 → 25 modules,
 15 → 127 lessons. `docs/courses/REPORT.md` is what was built and what was
 verified; `docs/courses/PROGRESS.md` carries the §8 gate and the e2e ledger.
 
