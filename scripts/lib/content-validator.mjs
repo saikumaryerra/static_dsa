@@ -434,6 +434,66 @@ function sections(body) {
  * rather than a remembered one.
  * @returns {{ errors: string[], warnings: string[], pending: string[], checked: number }} Findings.
  */
+/** The share of a course that must carry an optional section before it counts. */
+const CONVENTION_SHARE = 0.75;
+
+/**
+ * Optional sections that have quietly become a course's convention, and the
+ * lessons that then lack one.
+ *
+ * `OPTIONAL_SECTIONS` is optional per lesson and stays that way: CONTENT_STYLE
+ * §2 says "Interview notes — only where there is something real to say", and "a
+ * section that would only restate the explanation is omitted". Making one
+ * required would force padding, which is worse than an absence.
+ *
+ * What a per-lesson rule cannot see is the COHORT. Kubernetes carries Interview
+ * notes in 1 lesson of 67 — plainly not that course's shape, and nothing to
+ * report. System Design carried it in 39 of 45, which makes it that course's
+ * shape, and the six lessons without it were not six judgements: five of them
+ * were one module, sitting between a Netflix module at 6 of 6 and a YouTube
+ * module at 7 of 7. A reader working the case studies in order meets the section
+ * thirteen times and then loses it — which is what a rendered read of all 112
+ * lessons actually reported, and what nothing in the validator could see.
+ *
+ * So the cohort is the COURSE and the test is a majority. Below the threshold
+ * nothing is said at all, because a section three lessons use is not a
+ * convention. Warned, never failed, and each warning carries the ratio so its
+ * reader can judge whether it is an omission or a judgement — "I considered it
+ * and there is nothing to say" has to remain a legal answer.
+ *
+ * @param {{ file: string, course: string, titles: string[] }[]} lessons - One
+ * entry per lesson: its filename, its course, and its `##` headings.
+ * @param {number} [share] - Presence share above which a section is a convention.
+ * @returns {string[]} One warning per (lesson, missing convention), sorted.
+ */
+export function conventionGaps(lessons, share = CONVENTION_SHARE) {
+  /** @type {string[]} */
+  const out = [];
+  const courses = new Set(
+    // `dsa` predates these courses and follows the older six-heading contract.
+    lessons.map((l) => l.course).filter((c) => c !== 'dsa'),
+  );
+  for (const course of [...courses].sort()) {
+    const inCourse = lessons.filter((l) => l.course === course);
+    if (inCourse.length === 0) continue;
+    for (const section of OPTIONAL_SECTIONS) {
+      const absent = inCourse
+        .filter((l) => !l.titles.includes(section))
+        .map((l) => l.file)
+        .sort();
+      const present = inCourse.length - absent.length;
+      if (present / inCourse.length < share) continue;
+      const pct = Math.round((present / inCourse.length) * 100);
+      for (const file of absent) {
+        out.push(
+          `${file}: no "## ${section}", which ${present} of ${inCourse.length} ${course} lessons (${pct}%) carry — add it, or keep the omission deliberately`,
+        );
+      }
+    }
+  }
+  return out;
+}
+
 export function validateContent(root, options = {}) {
   const strict = options.strict === true;
   /** @type {string[]} */
@@ -860,6 +920,17 @@ export function validateContent(root, options = {}) {
         }
       }
     }
+  }
+
+  // --- 8b. optional sections that have become a course's convention ------
+  for (const warning of conventionGaps(
+    lessons.map(({ file, data, body }) => ({
+      file,
+      course: data.course ?? 'dsa',
+      titles: sections(body).map((s) => s.title),
+    })),
+  )) {
+    warnings.push(warning);
   }
 
   // --- 9. coverage -------------------------------------------------------
