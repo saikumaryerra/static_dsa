@@ -1,5 +1,5 @@
 ---
-title: 'Cost Optimization'
+title: 'Cost Optimisation'
 slug: 'k8s-cost-optimization'
 course: 'kubernetes'
 track: 'k8s-production'
@@ -111,7 +111,7 @@ every night and weekend.
 
 ### Give the number an owner
 
-Nobody optimizes what nobody owns. Attribute node cost to namespaces by their
+Nobody optimises what nobody owns. Attribute node cost to namespaces by their
 share of requests, and a ResourceQuota stops being an abstract cap and becomes a
 budget with a currency figure attached. Ecosystem tools such as OpenCost do that
 attribution; nothing in Kubernetes does it for you, and a single cluster-wide
@@ -156,7 +156,7 @@ and it is an outage generator for a database.
 - **Reading low usage as no usage.** A namespace at 2% CPU may hold the thing
   that runs once a quarter. Ask before deleting; the saving is small and the
   apology is not.
-- **Optimizing the cluster and forgetting the storage.** Compute is elastic and
+- **Optimising the cluster and forgetting the storage.** Compute is elastic and
   visible, and volumes and snapshots keep billing at the same rate whether or
   not anything mounts them.
 

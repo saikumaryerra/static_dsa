@@ -135,7 +135,7 @@ Target version **1.36** (DECISIONS D-01). Every manifest uses the D-02 allowlist
 | 54 | `k8s-upgrades` | Cluster Upgrades and Version Skew | Upgrade without an outage, inside the supported skew. | A12 |
 | 55 | `k8s-etcd-and-disaster-recovery` | etcd, HA and Disaster Recovery | Back up the one thing that is irreplaceable, and practise the restore. | A12 |
 | 56 | `k8s-multi-tenancy` | Multi-Tenancy | Isolate teams on shared infrastructure, and know what is not isolated. | A12 |
-| 57 | `k8s-cost-optimization` | Cost Optimization | Find the money: idle requests, oversized nodes, forgotten volumes. | A12 |
+| 57 | `k8s-cost-optimization` | Cost Optimisation | Find the money: idle requests, oversized nodes, forgotten volumes. | A12 |
 | 58 | `k8s-operators` | CRDs and Operators | Extend the API, and encode operational knowledge as a controller. | A12 |
 
 ### Module 13 · `k8s-troubleshooting` — Troubleshooting (orders 59–63)

@@ -120,9 +120,9 @@ usual way to name one.
 
 **The list structure is the trap.** Entries in the `from` array are ORed, but
 `podSelector` and `namespaceSelector` written inside the _same_ entry are ANDed.
-Two dashes means "Pods with this label anywhere, or any Pod in that namespace".
-One dash means "Pods with this label, in that namespace". Both parse; they permit
-very different things.
+Two dashes means "Pods with this label **in this namespace**, or any Pod in that
+namespace". One dash means "Pods with this label, in that namespace". Both parse;
+they permit very different things.
 
 **Policies select Pods, never Services.** A connection to a ClusterIP is
 rewritten to a Pod address by the dataplane, and what the policy evaluates is the

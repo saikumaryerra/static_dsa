@@ -151,7 +151,7 @@ append per edit, a compaction job and conflict rules you had to write down. It
 buys concurrent edits that do not lose data, deltas instead of full lists on
 every sync, and an audit trail. Below a certain size that trade is not worth
 making: a single-writer playlist that only ever syncs one device at a time is
-fine as a document, and the operation log is complexity with no user visible.
+fine as a document, and the operation log is complexity the user never sees.
 
 **When a conflict-free replicated data type is the right answer, and when it is
 not.** A full CRDT lets replicas merge with no server ordering at all, which is

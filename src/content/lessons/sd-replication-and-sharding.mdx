@@ -60,8 +60,8 @@ A synchronous follower must acknowledge before the write commits, so no
 acknowledged write is lost on failover and every write pays the slowest
 follower's latency. An asynchronous follower lags, so a failover promotes a node
 that is missing the last few writes — writes the client was told had succeeded.
-Most systems run one synchronous follower and several asynchronous ones, which is the generally accepted industry position between the two, which is
-a deliberate position between the two.
+Most systems run one synchronous follower and several asynchronous ones — the
+generally accepted industry position between the two.
 
 Replication lag is also where read-your-writes goes missing, and routing a
 session's reads to the primary for a few seconds after it writes is the standard,

@@ -193,8 +193,10 @@ than a label — the first two in an annotation, the third in `status`.
 - **Labels are identity and are indexed; annotations are everything else and are
   not selectable.** Size and queryability are the two things that decide which
   you want.
-- Overlapping selectors are a real outage: two controllers fighting over one set
-  of Pods look, from each side, exactly like the right behaviour.
+- **Overlapping selectors are a real outage precisely because nothing fights.**
+  Each controller ignores Pods another already owns, so both hold their counts
+  and every dashboard looks right — while a Service, a `kubectl get -l` and a
+  NetworkPolicy can no longer tell the two sets apart.
 
 ## Practice
 

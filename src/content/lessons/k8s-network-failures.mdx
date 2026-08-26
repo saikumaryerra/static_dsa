@@ -150,13 +150,14 @@ it is the same loopback the application binds to:
 
 ```text
 Proto Recv-Q Send-Q Local Address           Foreign Address         State
-tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN
+tcp        0      0 0.0.0.0:8080            0.0.0.0:*               LISTEN
 ```
 
-`0.0.0.0:80` accepts connections from outside the Pod. A process bound to
-`127.0.0.1:80` accepts only from inside it, which passes every local test and
+`0.0.0.0:8080` accepts connections from outside the Pod, and it is the port the
+EndpointSlice named — the two agree, so this step passes. A process bound to
+`127.0.0.1:8080` accepts only from inside it, which passes every local test and
 refuses every real one — a configuration mistake that looks exactly like a
-networking failure. `kubectl port-forward pod/web-6f9c-2xk5v 8080:80` answers the
+networking failure. `kubectl port-forward pod/web-6f9c-2xk5v 8080:8080` answers the
 same question from your terminal, and answers nothing about the Service path,
 because it does not use one.
 
