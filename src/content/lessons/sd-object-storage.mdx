@@ -7,7 +7,7 @@ order: 16
 summary: 'A durable key-to-blob store reachable over HTTP — where images, video and backups belong, why a database row should hold a key rather than the bytes, and the four filesystem habits it does not support.'
 difficulty: 'beginner'
 prerequisites: ['sd-capacity-estimation', 'sd-relational-databases']
-estimatedMinutes: 8
+estimatedMinutes: 9
 tags: ['system-design', 'object-storage', 'blobs', 'durability', 'storage']
 explainPrompt: 'Why should a database row hold an object key rather than the bytes of the file itself?'
 published: true
@@ -153,6 +153,20 @@ architecture_, not a claim about a particular product.
 - **Deleting the row and forgetting the object.** The bytes stay, unreferenced
   and billed, for years. A sweeper that reconciles keys against rows is a
   scheduled job every mature system eventually writes; write it early.
+
+## Interview notes
+
+Open with the split, not with a product name: metadata in the database, bytes in
+the object store, the row holding the key. The follow-up is always what happens
+when one of the two writes fails, so answer it unasked: "I write the object
+first and the row second, deletes go the other way, and a background job clears
+the orphans." That concedes the missing transaction instead of hoping nobody
+notices.
+
+Then reach for the two columns. "100,000 videos a day at a gigabyte each is
+roughly 36 PB a year in the store and about 18 GB a year in the database" turns
+"we will keep the files in blob storage" into a decision, and it is what makes
+signed URLs and tiering read as consequences rather than recited features.
 
 ## Key takeaways
 
