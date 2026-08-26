@@ -87,6 +87,8 @@ const OVER_CEILING_ACCEPTED = {
     "restores the prefetch trade-off bullet and the takedown pitfall's remedy, both cut to make room for a section; a Trade-offs section collects the trades and a pitfall names its fix",
   'sd-spotify-requirements.mdx':
     'the Trade-offs section both sibling case-study requirements lessons carry, and that conventionGaps() asked for',
+  'sd-spotify-reliability.mdx':
+    'the Trade-offs section 44 of 45 system-design lessons carry; 44 words of restatement were cut to pay for part of it, and the rest of the lesson is argument',
 };
 
 /**
@@ -626,6 +628,29 @@ export function validateContent(root, options = {}) {
       errors.push(`duplicate slug "${slug}" in ${where.join(' and ')}`);
     }
   }
+
+  // Titles too, and for a reason slugs do not have: the title is the ONLY thing
+  // several surfaces show. `BaseLayout` builds `<title>` as `{title} · LearnDSA`,
+  // so two lessons sharing one ship two pages with an identical document title —
+  // which is a duplicate-title SEO defect, not a stylistic one. It is also what
+  // a "Builds on:" chip renders, so a lesson naming two prerequisites that share
+  // a title shows the reader two identical chips and no way to tell them apart.
+  // Both happened here: the three case-study modules each opened with
+  // "Requirements and Scale" and two of them with "High-Level Architecture", so
+  // five pages shipped two document titles between them.
+  /** @type {Map<string, string[]>} */
+  const byTitle = new Map();
+  for (const { file, data } of lessons) {
+    if (!data.title) continue;
+    byTitle.set(data.title, [...(byTitle.get(data.title) ?? []), file]);
+  }
+  for (const [title, where] of byTitle) {
+    if (where.length > 1) {
+      errors.push(
+        `duplicate title ${JSON.stringify(title)} in ${where.join(' and ')} — the title is the whole of <title> and of a "Builds on:" chip, so it has to identify one lesson`,
+      );
+    }
+  }
   for (const course of COURSES) {
     const inCourse = lessons.filter((l) => l.data.course === course);
     if (inCourse.length === 0) continue;
@@ -960,6 +985,37 @@ export function validateContent(root, options = {}) {
             `${file}:${line}: kind "${kind}" is not served by "${apiVersion}"`,
           );
         }
+      }
+    }
+  }
+
+  // --- 8c. link text that quotes a title must point at that lesson --------
+  //
+  // Most internal links are a noun phrase describing the destination — "[CDN
+  // edge]", "[Little's Law]", "[PodDisruptionBudget]" — and those are good
+  // prose, so this rule says nothing about them. It fires only when the link
+  // text is EXACTLY some lesson's title and the link goes somewhere else, which
+  // is not a style choice but a stale reference: the reader is promised one
+  // lesson by name and taken to another.
+  //
+  // It exists because retitling is when this breaks. Three case-study lessons
+  // shared the title "Requirements and Scale"; renaming two of them left two
+  // links reading "[Requirements and Scale]" pointing at a lesson that no longer
+  // had that title — while a third lesson still did.
+  const titleToSlug = new Map();
+  for (const { data } of lessons) {
+    if (data.title && data.slug) titleToSlug.set(data.title, data.slug);
+  }
+  for (const { file, body } of lessons) {
+    for (const m of body.matchAll(/\[([^\]]+)\]\(\/learn\/([a-z0-9-]+)\/\)/g)) {
+      // Link text wraps across lines in the source; compare it the way it reads.
+      const text = (m[1] ?? '').replace(/\s+/g, ' ').trim();
+      const target = m[2] ?? '';
+      const owner = titleToSlug.get(text);
+      if (owner && owner !== target) {
+        errors.push(
+          `${file}: link text ${JSON.stringify(text)} is the title of "${owner}", but the link points at "${target}"`,
+        );
       }
     }
   }

@@ -4,7 +4,7 @@ slug: 'sd-spotify-reliability'
 course: 'system-design'
 track: 'sd-spotify'
 order: 35
-summary: 'Fifty thousand listening events a second with three consumers that need different guarantees, the bursts that arrive on a schedule, and a degradation ladder written before the outage.'
+summary: 'Fifty thousand listening events a second with four consumers that need different guarantees, the bursts that arrive on a schedule, and a degradation ladder written before the outage.'
 difficulty: 'intermediate'
 prerequisites: ['sd-spotify-architecture', 'sd-idempotency-and-backpressure']
 estimatedMinutes: 10
@@ -18,27 +18,26 @@ import PracticeCheck from '../../components/PracticeCheck.astro';
 
 ## What you'll learn
 
-- Design a listening-event pipeline for three consumers with three different guarantees.
+- Design a listening-event pipeline for four consumers with three durability guarantees.
 - Absorb a scheduled burst without scaling the whole platform for it.
 - Write the degradation ladder for a regional outage, in the order features are given up.
 
 ## Intuition
 
-**One log, three durability requirements.** That is what is new here. Royalty
-accounting must not lose or double-count an event, because it turns into money.
-Personalisation can lose a fraction of a percent and nobody will ever detect it.
-Analytics can be hours behind. Three pipelines for three guarantees is the
-obvious mistake: it triples the client work, and the three then disagree about
-what happened. One durable log that every consumer reads at its own pace, with
-the strict guarantee in the strict consumer, is **generally accepted industry
-architecture** for exactly this mismatch, and every figure below is **a teaching
-assumption** carried from
-[Requirements and Scale](/learn/sd-spotify-requirements/).
+**One log, four consumers, three durability requirements.** That is what is new
+here. Royalty accounting must not lose or double-count an event, because it
+turns into money. Personalisation can lose a fraction of a percent and nobody
+will ever detect it. Analytics can be hours behind. Three pipelines for three
+guarantees is the obvious mistake. One durable log that every consumer reads at
+its own pace, with the strict guarantee in the strict consumer, is **generally
+accepted industry architecture** for exactly this mismatch, and every figure
+below is **a teaching assumption** carried from
+[Requirements and Request Rate](/learn/sd-spotify-requirements/).
 
-The second model is a callback.
-[Scale, Reliability and Degradation](/learn/sd-netflix-reliability/) already
-argued that degradation is designed rather than discovered; **the ranking is a
-feature list written before the outage, not a decision taken during one.** Here
+The second model is a callback to
+[Scale, Reliability and Degradation](/learn/sd-netflix-reliability/): **the
+degradation ranking is a feature list written before the outage, not a decision
+taken during one.** Here
 one thing dominates — audio that is already playing should keep playing — and
 everything else, a shelf, a search result, a saved edit, can wait, be stale, or
 be queued. What the log adds is a bottom rung that ladder did not need.
@@ -132,16 +131,27 @@ five services, so if each meets its p99 independently all five are fast on only
 0.99^5 = 0.95 of requests — about one home-screen request in twenty lands in a
 slow tail, not one in a hundred. That is the arithmetic
 [Latency and Throughput](/learn/sd-latency-and-throughput/) runs for twenty
-calls, and Dean and Barroso's _The Tail at Scale_ (CACM, 2013), publicly
-documented, takes it to a hundred-way fan-out that reaches most requests. It is
-why fan-out endpoints need deadlines and per-dependency fallbacks rather than
-only good averages.
+calls, and Dean and Barroso's _The Tail at Scale_ (CACM, 2013) takes it to a
+hundred-way fan-out that reaches most requests. It is why fan-out endpoints need
+deadlines and per-dependency fallbacks rather than only good averages.
 
-**Chaos engineering** — deliberately injecting failures into production — is a
-publicly documented practice from Netflix's own writing, and the previous case
-study works through it. One precondition bears repeating: without alerting that
-catches the injected failure and a rollback that ends the experiment, an injected
-failure is an outage you scheduled.
+**Chaos engineering** — publicly documented in Netflix's own writing, and worked
+through in the previous case study — has one precondition worth repeating:
+without alerting that catches the injected failure and a rollback that ends the
+experiment, an injected failure is an outage you scheduled.
+
+## Trade-offs
+
+**One log against three pipelines.** One log makes the strictest consumer's
+guarantee everybody's, so analytics pays for royalties; three pipelines let each
+be tuned, and cost triple client work and three versions of what happened.
+
+**Retention against storage.** Seven days is a week of replay for a broken
+consumer, and a week of events kept for nobody until the day it saves you.
+
+**Refuse writes against accept and reconcile.** Refusing edits in a cut-off
+region keeps one history and shows an error; accepting them keeps the product
+working and hands you a merge — which is why playlists are operations.
 
 ## Common pitfalls
 

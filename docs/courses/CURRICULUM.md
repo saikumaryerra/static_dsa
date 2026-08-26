@@ -189,7 +189,7 @@ Every architectural claim carries one of the three labels in CONTENT_STYLE.md.
 | 10 | `sd-cdn` | Content Delivery Networks | Push the bytes to the reader; know what must not be cached. | B2 |
 | 11 | `sd-caching` | Caching | Placement, key design, TTL, invalidation, stampedes and cold starts. | B2 |
 | 12 | `sd-rate-limiting` | Rate Limiting | Token bucket versus sliding window, and limiting fairly at scale. | B2 |
-| 13 | `sd-api-design` | API Design and Data Modeling | Design the contract before the schema, and pick the entities carefully. | B2 |
+| 13 | `sd-api-design` | API Design and Data Modelling | Design the contract before the schema, and pick the entities carefully. | B2 |
 
 ### Module 04 · `sd-data` — Building blocks: data (orders 14–18)
 
@@ -226,8 +226,8 @@ Every architectural claim carries one of the three labels in CONTENT_STYLE.md.
 
 | # | Slug | Title | Objective | Appendix B |
 |---|---|---|---|---|
-| 30 | `sd-spotify-requirements` | Requirements and Scale | A hundred million small tracks, and sessions that touch dozens. | B4 |
-| 31 | `sd-spotify-architecture` | High-Level Architecture | Catalogue, playlist, playback and event services, and what joins them. | B4 |
+| 30 | `sd-spotify-requirements` | Requirements and Request Rate | A hundred million small tracks, and sessions that touch dozens. | B4 |
+| 31 | `sd-spotify-architecture` | Architecture and the Two Paths | Catalogue, playlist, playback and event services, and what joins them. | B4 |
 | 32 | `sd-spotify-audio-delivery` | Audio Delivery and Offline | Small files, prefetch, caching, and rights at concept level. | B4 |
 | 33 | `sd-spotify-recommendations` | The Recommendation Pipeline | Events → features → candidates → ranking → feedback, offline and online. | B4 |
 | 34 | `sd-spotify-playlists` | Playlist Consistency | Concurrent and collaborative edits, ordering and conflict handling. | B4 |
@@ -237,7 +237,7 @@ Every architectural claim carries one of the three labels in CONTENT_STYLE.md.
 
 | # | Slug | Title | Objective | Appendix B |
 |---|---|---|---|---|
-| 36 | `sd-youtube-requirements` | Requirements and Scale | Anyone uploads; a billion videos; a long tail that dominates. | B5 |
+| 36 | `sd-youtube-requirements` | Requirements and an Unbounded Catalogue | Anyone uploads; a billion videos; a long tail that dominates. | B5 |
 | 37 | `sd-youtube-upload-pipeline` | Upload and Transcoding | Resumable upload → storage → queue → transcode → moderate → publish. | B5 |
 | 38 | `sd-youtube-playback` | Playback and Delivery | Manifests, segments, ABR, and hot content over a cold catalogue. | B5 |
 | 39 | `sd-youtube-search` | Search | Indexing, ranking, freshness, autocomplete and distribution. | B5 |
