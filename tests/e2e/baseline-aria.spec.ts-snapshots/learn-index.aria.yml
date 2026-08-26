@@ -33,17 +33,17 @@
         - paragraph: Practiced 0 · Mastered 0
         - text: ""
     - listitem:
-      - 'link /Kubernetes: From Fundamentals to Production Run containers the way production does — declaratively, and on purpose\. 1 lesson · 1 module · ~\d+ min · intermediate 0 of 1 done on this device Practiced 0 · Mastered 0 Open the course/':
+      - 'link /Kubernetes: From Fundamentals to Production Run containers the way production does — declaratively, and on purpose\. \d+ lessons · \d+ modules · ~\d+ min · intermediate 0 of \d+ done on this device Practiced 0 · Mastered 0 Open the course/':
         - /url: ../learn/kubernetes/
-        - text: "/Kubernetes: From Fundamentals to Production Run containers the way production does — declaratively, and on purpose\\. 1 lesson · 1 module · ~\\d+ min · intermediate/"
-        - paragraph: 0 of 1 done on this device
+        - text: "/Kubernetes: From Fundamentals to Production Run containers the way production does — declaratively, and on purpose\\. \\d+ lessons · \\d+ modules · ~\\d+ min · intermediate/"
+        - paragraph: /0 of \d+ done on this device/
         - paragraph: Practiced 0 · Mastered 0
         - text: Open the course
     - listitem:
-      - 'link /System Design: Principles and Real-World Architectures The reusable principles first — then three real platforms, taken apart\. 1 lesson · 1 module · ~\d+ min · intermediate 0 of 1 done on this device Practiced 0 · Mastered 0 Open the course/':
+      - 'link /System Design: Principles and Real-World Architectures The reusable principles first — then three real platforms, taken apart\. \d+ lessons · \d+ modules · ~\d+ min · intermediate 0 of \d+ done on this device Practiced 0 · Mastered 0 Open the course/':
         - /url: ../learn/system-design/
-        - text: "/System Design: Principles and Real-World Architectures The reusable principles first — then three real platforms, taken apart\\. 1 lesson · 1 module · ~\\d+ min · intermediate/"
-        - paragraph: 0 of 1 done on this device
+        - text: "/System Design: Principles and Real-World Architectures The reusable principles first — then three real platforms, taken apart\\. \\d+ lessons · \\d+ modules · ~\\d+ min · intermediate/"
+        - paragraph: /0 of \d+ done on this device/
         - paragraph: Practiced 0 · Mastered 0
         - text: Open the course
 - contentinfo:

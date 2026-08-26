@@ -21,7 +21,7 @@
   - paragraph: "3 free courses — data structures and algorithms, Kubernetes, and system design. The algorithms run in your browser, one step at a time, on your own input. The rest is taught the same way: one idea per lesson, with a real manifest, a worked estimate or a diagram you can read."
   - link /Start with lesson \d+/:
     - /url: ./learn/complexity-big-o/
-  - link /See all \d+ lessons/:
+  - link /Browse all \d+ courses/:
     - /url: ./learn/
   - region "Binary search on a sorted array visualization":
     - figure:
@@ -111,7 +111,7 @@
     - heading "Data Structures & Algorithms" [level=3]:
       - link "Data Structures & Algorithms":
         - /url: ./learn/dsa/
-    - paragraph: /\d+ lessons · ~\d+ min · \d+ beginner · 2 intermediate/
+    - paragraph: /\d+ lessons · ~\d+ min · \d+ beginner · \d+ intermediate/
     - list:
       - listitem:
         - link "Foundations & Data Structures 9 lessons":
@@ -122,19 +122,82 @@
     - 'heading "Kubernetes: From Fundamentals to Production" [level=3]':
       - 'link "Kubernetes: From Fundamentals to Production"':
         - /url: ./learn/kubernetes/
-    - paragraph: /1 lesson · ~\d+ min · All beginner/
+    - paragraph: /\d+ lessons · ~\d+ min · \d+ beginner · \d+ intermediate/
     - list:
       - listitem:
-        - link "Foundations 1 lesson":
+        - link "Foundations 5 lessons":
           - /url: ./learn/kubernetes/#track-k8s-foundations
+      - listitem:
+        - link "Core workloads 6 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-workloads
+      - listitem:
+        - link "Networking 5 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-networking
+      - listitem:
+        - link "Configuration and secrets 4 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-config
+      - listitem:
+        - link "Storage 5 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-storage
+      - listitem:
+        - link "Scheduling and resources 5 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-scheduling
+      - listitem:
+        - link "Reliability and health 4 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-reliability
+      - listitem:
+        - link "Security 5 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-security
+      - listitem:
+        - link "Observability 4 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-observability
+      - listitem:
+        - link "Scaling 4 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-scaling
+      - listitem:
+        - link "Deployments and DevOps 5 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-delivery
+      - listitem:
+        - link "Production Kubernetes 6 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-production
+      - listitem:
+        - link "Troubleshooting 5 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-troubleshooting
+      - listitem:
+        - link "Practical projects 4 lessons":
+          - /url: ./learn/kubernetes/#track-k8s-projects
     - 'heading "System Design: Principles and Real-World Architectures" [level=3]':
       - 'link "System Design: Principles and Real-World Architectures"':
         - /url: ./learn/system-design/
-    - paragraph: /1 lesson · ~\d+ min · All beginner/
+    - paragraph: /\d+ lessons · ~\d+ min · \d+ beginner · \d+ intermediate/
     - list:
       - listitem:
-        - link "The design workflow 1 lesson":
+        - link "The design workflow 4 lessons":
           - /url: ./learn/system-design/#track-sd-foundations
+      - listitem:
+        - link "Scale, latency and consistency 4 lessons":
+          - /url: ./learn/system-design/#track-sd-properties
+      - listitem:
+        - 'link "Building blocks: the edge 5 lessons"':
+          - /url: ./learn/system-design/#track-sd-edge
+      - listitem:
+        - 'link "Building blocks: data 5 lessons"':
+          - /url: ./learn/system-design/#track-sd-data
+      - listitem:
+        - 'link "Building blocks: asynchrony and operations 5 lessons"':
+          - /url: ./learn/system-design/#track-sd-async
+      - listitem:
+        - link "Designing a Netflix-like streaming platform 6 lessons":
+          - /url: ./learn/system-design/#track-sd-netflix
+      - listitem:
+        - link "Designing a Spotify-like music platform 6 lessons":
+          - /url: ./learn/system-design/#track-sd-spotify
+      - listitem:
+        - link "Designing a YouTube-like video platform 7 lessons":
+          - /url: ./learn/system-design/#track-sd-youtube
+      - listitem:
+        - link "Comparative architecture 3 lessons":
+          - /url: ./learn/system-design/#track-sd-comparison
   - region "What it costs you":
     - heading "What it costs you" [level=2]
     - term: No account, no paywall
