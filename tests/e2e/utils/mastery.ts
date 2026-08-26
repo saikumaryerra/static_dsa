@@ -295,7 +295,18 @@ export async function curriculum(page: Page): Promise<LessonRef[]> {
 }
 
 /**
- * The lessons of one course, in course order.
+ * The lessons of one course, in course order — **the list a LESSON page injects**.
+ *
+ * `curriculum()` reads `/learn/`, which is the catalogue and therefore every
+ * course. A lesson page injects only its own course, because what consumes the
+ * list is `MarkComplete`, whose sentences are course-scoped: "Saved — N of M
+ * complete" and "Course complete — all M lessons done and practiced".
+ *
+ * Deriving a lesson page's expected total from `curriculum()` is what let a
+ * regression through. When the lesson page briefly injected all 127, both sides
+ * of every such assertion moved together and the suite stayed green while a
+ * reader who had finished Arrays was told "1 of 127". Use THIS for anything
+ * asserted on a lesson page.
  *
  * @param page - Page to load `/learn` in (left on `/learn` afterwards).
  * @param course - Course id, e.g. `dsa`.

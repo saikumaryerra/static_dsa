@@ -338,6 +338,27 @@ async function curriculum(page: Page): Promise<LessonRef[]> {
 }
 
 /**
+ * One course's lessons — **the list a LESSON page injects**.
+ *
+ * `curriculum()` above reads `/learn/`, which is the catalogue and therefore all
+ * three courses. A lesson page injects only its own course, because what reads
+ * the list is `MarkComplete`, whose sentences are course-scoped: "Saved — N of M
+ * complete" and "Course complete — all M lessons done and practiced".
+ *
+ * Deriving a lesson page's expected total from the catalogue is what let a
+ * regression through: when the lesson page briefly injected all 127, both sides
+ * of the assertion moved together and this suite stayed green while a reader who
+ * had finished Arrays was told "Saved — 1 of 127 complete".
+ *
+ * @param page - Page to load `/learn` in (left on `/learn` afterwards).
+ * @param course - Course id, e.g. `dsa`.
+ * @returns That course's lessons, in `order`.
+ */
+async function courseLessons(page: Page, course: string): Promise<LessonRef[]> {
+  return (await curriculum(page)).filter((lesson) => lesson.course === course);
+}
+
+/**
  * Slugs of one track (or of everything) in global curriculum order.
  *
  * @param page - Page to load `/learn` in (left on `/learn` afterwards).
@@ -523,7 +544,12 @@ test.describe("What's next — the saved note", () => {
   }) => {
     // The total comes from the injected curriculum, never a hardcoded 15: the
     // note's whole point is that it counts the lessons the BUILD ships.
-    const total = (await curriculum(page)).length;
+    //
+    // `courseLessons`, not `curriculum`: the note lives on a LESSON page, which
+    // injects its own course. Reading the catalogue here would compare a DSA
+    // lesson against all three courses — and would have absorbed the regression
+    // where it briefly did exactly that.
+    const total = (await courseLessons(page, 'dsa')).length;
     await page.goto(`/learn/${SECOND_LESSON.slug}/`);
 
     const button = page.locator('[data-mark-complete]');
@@ -556,10 +582,11 @@ test.describe("What's next — the saved note", () => {
     await expect(note).toBeHidden();
   });
 
-  test('the count covers the whole curriculum, not just this lesson', async ({
+  test('the count covers the whole course, not just this lesson', async ({
     page,
   }) => {
-    const lessons = await curriculum(page);
+    // The course, not the catalogue — see `courseLessons`' note.
+    const lessons = await courseLessons(page, 'dsa');
     // Two lessons OTHER than the one being marked, so a count that only ever
     // reported "1" would fail here.
     const [seedA, target, seedB] = lessons as [LessonRef, LessonRef, LessonRef];

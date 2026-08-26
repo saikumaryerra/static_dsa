@@ -33,7 +33,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { computed, tokenStyle } from './utils/color';
 import {
-  curriculum,
+  courseLessons,
   seedComplete,
   seedPracticed,
   trackLessons,
@@ -102,10 +102,20 @@ test.describe('when it fires', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
-  test('finishing the curriculum replaces it with the course line — never both', async ({
+  test('finishing a COURSE replaces it with the course line — never both', async ({
     page,
   }) => {
-    const lessons = await curriculum(page);
+    // `courseLessons`, not `curriculum`. A lesson page injects its own course,
+    // and the milestone this test is about says "Course complete — all M
+    // lessons". Seeding the whole catalogue instead made the test pass while it
+    // stopped exercising the thing it names: with all 127 seeded, the assertion
+    // and the product moved together, and a `dsa` reader who had finished every
+    // algorithm lesson could no longer earn this line at all.
+    //
+    // Pinned to `dsa` on purpose — it is the course whose milestone shipped in
+    // M8 and the one the course expansion was required to leave working.
+    const lessons = await courseLessons(page, 'dsa');
+    expect(lessons.length).toBeGreaterThanOrEqual(15);
     const last = await readyToFinish(page, lessons);
     await page.goto(`/learn/${last.slug}/`);
     await page.locator('[data-mark-complete]').click();
