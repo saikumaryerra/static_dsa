@@ -218,7 +218,7 @@ Every architectural claim carries one of the three labels in CONTENT_STYLE.md.
 | 24 | `sd-netflix-requirements` | Requirements and Scale | Profiles, catalogue, playback, devices — and the numbers they imply. | B3 |
 | 25 | `sd-netflix-architecture` | High-Level Architecture | Edge, gateway, catalogue, playback, data and event pipelines. | B3 |
 | 26 | `sd-netflix-video-delivery` | Video Delivery | Encode, segment, adapt, cache — and why no app server streams bytes. | B3 |
-| 27 | `sd-netflix-recommendations` | Personalization and Experimentation | Ranking a small catalogue, and testing changes on real traffic. | B3 |
+| 27 | `sd-netflix-recommendations` | Personalisation and Experimentation | Ranking a small catalogue, and testing changes on real traffic. | B3 |
 | 28 | `sd-netflix-playback-state` | Watch History and Continue Watching | A small, high-frequency write path with a real consistency question. | B3 |
 | 29 | `sd-netflix-reliability` | Scale, Reliability and Degradation | Regional failure, cache efficiency, and chaos engineering as practice. | B3 |
 

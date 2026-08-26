@@ -233,20 +233,20 @@ would have said in one line.
 
 Work each one out before opening the answer.
 
-**1. From a client Pod, `nslookup payments` returns a ClusterIP and a request to that address hangs until it times out. Which hops are proved, and what are the two most likely causes?**
+**1. On a cluster running standard kube-proxy — the iptables or nftables backend — `nslookup payments` from a client Pod returns a ClusterIP, and a request to that address hangs until it times out. Which hops are proved, and what are the two most likely causes?**
 
 <PracticeCheck slug={frontmatter.slug} index={1} total={3}>
-  Discovery is proved: cluster DNS answered, so the Service exists in the
-  namespace the search path reached, and the client's resolver is working — DNS
-  can be crossed off. The hang is the informative half, because nothing answered
-  at all, and that also rules one thing out. An empty endpoint list would have
-  been refused immediately, since kube-proxy programs a reject rule for a
-  Service with nothing behind it rather than no rule; silence means the packet
-  left and never came back. Two causes fit. A NetworkPolicy is dropping it, as
-  egress from the caller or as ingress to the callee, which on many plugins
-  presents as exactly this silence. Or the packet is not reaching the target's
-  node — a route or a CNI fault. List the policies first: that is one command,
-  and the other is not.
+  Discovery is proved: cluster DNS answered with an address, and a name that had
+  failed would have come back as a resolution error rather than as a connection
+  that hangs, so the resolver is crossed off outright. The hang is the
+  informative half, because nothing answered at all, and on this dataplane that
+  also rules one thing out: an empty endpoint list would have been refused
+  immediately, since kube-proxy programs a reject rule for a Service with
+  nothing behind it rather than no rule. Silence means the packet left and never
+  came back. Two causes fit. A NetworkPolicy is dropping it, as egress from the
+  caller or as ingress to the callee, which on many plugins presents as exactly
+  this silence. Or the packet is not reaching the target's node — a route or a
+  CNI fault. List the policies first: that is one command, and the other is not.
 </PracticeCheck>
 
 **2. The EndpointSlice for `web` lists three addresses, all with `conditions.ready: true`, and requests to the Service are refused immediately. What does the refusal rule out, and what is the likely fault?**

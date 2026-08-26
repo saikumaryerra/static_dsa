@@ -184,10 +184,10 @@ to pay for it.
 
 - **Reading a stuck rollout as an outage.** `AVAILABLE 3` with `UP-TO-DATE 1`
   means every request is still being served by the old version.
-- **Waiting for Kubernetes to undo it.** `ProgressDeadlineExceeded` is a status,
-  and no controller acts on it.
-- **Deploying without `kubectl rollout status`.** A pipeline that ends at
-  `kubectl apply` reports success for a release that never became ready.
+- **Expecting the release machinery to notice for you.** It is tempting because
+  `kubectl apply` returned success, but nothing reverts a stuck rollout and a
+  pipeline that ends at the apply never learns there was one —
+  [Rolling Updates and Rollback](/learn/k8s-rolling-updates/) covers both.
 - **Copying probe settings between services.** A one-second `timeoutSeconds` is
   fine for a static file server and fails a service that opens a connection pool
   on first request.

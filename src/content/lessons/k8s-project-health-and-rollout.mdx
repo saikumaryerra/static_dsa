@@ -149,10 +149,11 @@ It is an add-on rather than part of a default install, and without it the HPA's
 `TARGETS` column reads `<unknown>` and nothing scales at all. Check that first
 when the autoscaler appears inert.
 
-Left alone the controller is asymmetric on purpose: scaling up happens
-immediately, while scaling down takes the highest recommendation from the last
-five minutes, so load has to stay low before capacity is removed. Adding capacity
-late costs an outage; removing it late costs a few minutes of a machine.
+Left alone the controller is asymmetric on purpose — quick to add capacity, slow
+to give it back. The arithmetic behind that, and the `behavior` field that
+re-prices it, belong to
+[The Horizontal Pod Autoscaler](/learn/k8s-horizontal-pod-autoscaler/); the
+defaults are the right ones for this project.
 
 <Callout variant="warning">
   Now that the HPA owns the replica count, delete the `replicas: 3` line from
