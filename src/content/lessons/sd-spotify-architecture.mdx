@@ -62,13 +62,13 @@ Seven services, each named by what it owns.
 | Personalisation | Precomputed shelves and candidates        | Key-value store                  | Read-only at serving time               |
 | Event ingestion | The listening-event log                   | Partitioned log                  | 50,000 events/s, append-only            |
 
-Note the two rows with no interesting store. Playback owns no data: it reads
-identity, catalogue and rights, applies a decision, and signs a URL. That makes
+Note the two rows with no interesting store. Playback owns no data, which makes
 it trivial to scale horizontally and the natural place for the one rule that must
-never be bypassed. Personalisation is read-only at serving time because
-all of its work happened hours ago on the other path — and F9's recently-played
-list is the same shape: a log consumer materialises it per listener into that
-key-value store, so reading your own history never queries the log.
+never be bypassed. Personalisation is read-only at serving time because its
+heavy work happened hours ago on the other path — the request reads precomputed
+candidates and ranks them — and F9's recently-played list is
+the same shape: a log consumer materialises it per listener into that key-value
+store, so reading your own history never queries the log.
 
 One play, end to end:
 
@@ -86,9 +86,8 @@ client -> event ingestion -> partitioned log -> consumers (royalties,
 
 <SpotifyArchitecture />
 
-Audio never passes through an application server. The playback service returns a
-URL and steps out of the way, which is why 230 Gbps of egress costs this design
-nothing in application capacity.
+Audio never passes through an application server, which is why 230 Gbps of egress
+costs this design nothing in application capacity.
 
 **The API gateway** terminates authentication, applies
 [rate limiting](/learn/sd-rate-limiting/) and routes to services, so those
@@ -96,7 +95,7 @@ concerns are implemented once instead of seven times. Use one when several clien
 types share a backend and the cross-cutting concerns are real; do not when there
 are three services and one client, where it becomes a deployment bottleneck every
 team queues behind and attracts business logic that then lives nowhere anybody
-looks. A gateway that knows what a playlist is has stopped being a gateway.
+looks.
 
 **The catalogue service** is read-mostly and, at 200 GB, fully cacheable — the
 rare case where a cache can hold everything rather than a working set, so cold
@@ -157,8 +156,8 @@ containing tracks by artists this listener follows" crosses three services and
 cannot be one join. Denormalise into the personalisation store or accept the
 fan-out; both cost something — data that can drift, or a slower page.
 
-**The gateway is a single point of failure by construction.** It is worth it
-because the alternative is authentication implemented seven times, but everything
+**The gateway is a single point of failure by construction.** It buys
+authentication implemented once rather than seven times, and everything then
 depends on it, so it needs the redundancy and attention that implies.
 
 ## Common pitfalls
@@ -168,14 +167,22 @@ depends on it, so it needs the redundancy and attention that implies.
   outside the service that owns the data it protects.
 - **Streaming audio through the application tier.** It works in a prototype and
   it converts a bandwidth problem into an application-fleet problem.
-- **One database shared by several services.** The boxes are drawn but nothing is
-  decoupled: a schema change still requires a coordinated release, and two
-  services still write the same rows.
 - **Making the search index authoritative.** It lags by design, and a rights
   decision taken from a lagging copy is a licensing incident.
 - **Putting analytics on the synchronous path.** A listening event that must be
   acknowledged before playback starts turns a pipeline outage into a playback
   outage.
+
+## Interview notes
+
+Name the two paths before naming a service. "Everything that must finish before
+audio starts is one path; everything that may lag by minutes is the other"
+decides which failures a listener sees.
+
+Then defend a boundary with the ownership test, not a scaling adjective.
+"Playback owns no durable state, so 230 Gbps of egress costs nothing in
+application capacity" is an argument; "it scales horizontally" describes every
+stateless box ever drawn.
 
 ## Key takeaways
 

@@ -64,6 +64,32 @@ const WORD_CEILING = 1500;
 const LONG_FORM_TRACKS = ['k8s-projects', 'k8s-troubleshooting'];
 
 /**
+ * Individual lessons reviewed and allowed past the ceiling, with the reason.
+ *
+ * SPEC §5 makes the ceiling a WARNING, not a failure, precisely so a lesson can
+ * earn its length. But a warning that fires on every run forever is a warning
+ * everybody learns to scroll past, and the next real one arrives into that
+ * habit. So an accepted overage is recorded here instead: it prints as a `note`
+ * with its reason on every run, which is a reviewed decision rather than
+ * background noise, and anything NOT in this table still warns.
+ *
+ * Two rules keep the table from becoming a way to switch the rule off. A reason
+ * is mandatory — writing one is the review. And an entry whose lesson is no
+ * longer over the ceiling is an ERROR, so the list cannot quietly rot into a
+ * blanket exemption: when a lesson is trimmed, its entry has to go.
+ */
+const OVER_CEILING_ACCEPTED = {
+  'sd-consistency-models.mdx':
+    'read for a cut and there is no fat left, only argument: quorum overlap, why overlap is not linearizability, CAP\'s narrower "available", and PACELC as a configuration rather than a product',
+  'sd-spotify-architecture.mdx':
+    'restores what the gateway single-point-of-failure trade BUYS; a trade with one side stated is what sd-trade-off-reasoning calls an announcement',
+  'sd-spotify-audio-delivery.mdx':
+    "restores the prefetch trade-off bullet and the takedown pitfall's remedy, both cut to make room for a section; a Trade-offs section collects the trades and a pitfall names its fix",
+  'sd-spotify-requirements.mdx':
+    'the Trade-offs section both sibling case-study requirements lessons carry, and that conventionGaps() asked for',
+};
+
+/**
  * Placeholder markers (Appendix D item 3), as regexes rather than substrings.
  *
  * The naive version — case-insensitive `String.includes` on each phrase — reads
@@ -500,6 +526,9 @@ export function validateContent(root, options = {}) {
   const errors = [];
   /** @type {string[]} */
   const warnings = [];
+  /** Reviewed decisions, printed on every run so they stay visible. */
+  /** @type {string[]} */
+  const notes = [];
   /** Topics whose lesson is planned in CURRICULUM.md but not yet written. */
   /** @type {string[]} */
   const pending = [];
@@ -693,8 +722,21 @@ export function validateContent(root, options = {}) {
         words > WORD_CEILING &&
         !LONG_FORM_TRACKS.includes(data.track)
       ) {
-        warnings.push(
-          `${file}: ${words} prose words, above the ${WORD_CEILING}-word ceiling`,
+        const accepted = OVER_CEILING_ACCEPTED[file];
+        if (accepted) {
+          notes.push(
+            `${file}: ${words} prose words, past the ${WORD_CEILING}-word ceiling and accepted — ${accepted}`,
+          );
+        } else {
+          warnings.push(
+            `${file}: ${words} prose words, above the ${WORD_CEILING}-word ceiling`,
+          );
+        }
+      } else if (OVER_CEILING_ACCEPTED[file]) {
+        // The entry outlived the overage it excused. Left alone it would sit
+        // there excusing a future one nobody reviewed.
+        errors.push(
+          `${file}: ${words} prose words is inside the ${WORD_CEILING}-word ceiling, but it still has an OVER_CEILING_ACCEPTED entry — delete it`,
         );
       }
     }
@@ -967,5 +1009,5 @@ export function validateContent(root, options = {}) {
     );
   }
 
-  return { errors, warnings, pending, checked: lessons.length };
+  return { errors, warnings, notes, pending, checked: lessons.length };
 }

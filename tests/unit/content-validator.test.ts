@@ -31,6 +31,18 @@ describe('content validator', () => {
     expect(result.errors, result.errors.join('\n')).toEqual([]);
   });
 
+  it('has no OVER_CEILING_ACCEPTED entry that outlived its overage', () => {
+    // The table in content-validator.mjs excuses four lessons from the word
+    // ceiling, each with a written reason. The guard against it rotting into a
+    // blanket exemption is that an entry whose lesson is back INSIDE the ceiling
+    // is an error, not a note — so this assertion is the first one above,
+    // reached transitively. Stated here so the intent is visible: trim one of
+    // those lessons and `npm run test` goes red until its entry is deleted.
+    expect(
+      result.errors.filter((e) => e.includes('OVER_CEILING_ACCEPTED')),
+    ).toEqual([]);
+  });
+
   it('actually looked at the lessons', () => {
     // Without this, an empty glob would satisfy the assertion above by never
     // checking anything — the same non-vacuity guard the glossary suite uses.

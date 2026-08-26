@@ -95,8 +95,7 @@ post-filters rather than model features is what makes them auditable when
 somebody asks why a track appeared.
 
 **5. Feedback.** The listener plays, skips or saves, and those events re-enter
-stage 1. Closing the loop is what makes the system improve and also what makes it
-drift, which the trade-offs below take seriously.
+stage 1.
 
 <SpotifyRecommendationPipeline />
 
@@ -166,8 +165,19 @@ experimentation infrastructure work.
 - **One giant model in the request path.** It scores fewer items per millisecond
   than the funnel does, so it either times out or forces a candidate set so small
   that the interesting recommendations were discarded before ranking.
-- **Training on your own output without recording impressions.** The model then
-  learns which of its own suggestions worked and nothing about what it missed.
+
+## Interview notes
+
+Lead with the signal rather than the funnel. "The skip is the cheapest strong
+negative signal in music — a negative judgement that arrives within seconds, and
+listeners produce them constantly without being asked — and few products have an
+equivalent" says something about this catalogue a generic pipeline answer never
+reaches.
+
+Then earn the two-stage split with the arithmetic instead of asserting it: a
+hundred million tracks at even a microsecond each is a hundred seconds of work
+for a page that has about fifty milliseconds. That sentence produces the funnel;
+"we'd use collaborative filtering" names a technique and settles nothing.
 
 ## Key takeaways
 

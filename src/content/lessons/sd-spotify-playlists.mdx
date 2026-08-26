@@ -56,8 +56,7 @@ playlist service owns both, partitioned by playlist owner as the architecture
 lesson set out — a playlist has exactly one owner, so every edit to one playlist
 still lands on one partition and has an unambiguous order there.
 
-**Position keys.** Keys are strings compared lexicographically, and a new key is
-generated between its two neighbours.
+**Position keys.** Keys are strings compared lexicographically.
 
 ```text
 positions are strings, sorted lexicographically
@@ -72,8 +71,8 @@ integer positions instead
 ```
 
 Keys grow a character or two under repeated insertion at the same spot, so a
-background job renormalises a playlist that has been heavily edited. That is a
-maintenance chore, and it is a far smaller one than renumbering on every insert.
+background job renormalises a heavily edited playlist — a smaller chore than
+renumbering on every insert.
 
 **Operations.** Every edit is one of a small set, and each carries an operation id
 the client generates:
@@ -92,8 +91,6 @@ the client generates:
 The operation id makes a retry safe: the server records applied ids and returns
 the original result for a repeat, which is the idempotency contract from
 [Idempotency, Retries and Backpressure](/learn/sd-idempotency-and-backpressure/).
-Without it, a request that times out after being applied becomes a duplicate
-track every time the client retries.
 
 **Revisions and sync.** The playlist carries a monotonically increasing revision.
 The server appends each accepted operation to a per-playlist log and increments
@@ -132,10 +129,10 @@ invalidating it.
 the operation locally and the server's response confirms it, so they never see
 their edit disappear. Everyone else — other devices, collaborators, followers —
 is eventually consistent within the five-second target. Read-your-writes is one
-of the four session guarantees Terry and colleagues set out in their 1994 paper
-on session guarantees for weakly consistent replicated data, publicly documented
-and worth knowing by name because it is the guarantee that makes eventual
-consistency acceptable to a user interface.
+of the four session guarantees Terry and colleagues set out in 1994 for weakly
+consistent replicated data, publicly documented and worth knowing by name because
+it is the guarantee that makes eventual consistency acceptable to a user
+interface.
 
 <Callout variant="tip">
   Attribute every item to whoever added it. In a collaborative playlist the hard
@@ -151,7 +148,7 @@ append per edit, a compaction job and conflict rules you had to write down. It
 buys concurrent edits that do not lose data, deltas instead of full lists on
 every sync, and an audit trail. Below a certain size that trade is not worth
 making: a single-writer playlist that only ever syncs one device at a time is
-fine as a document, and the operation log is complexity the user never sees.
+fine as a document.
 
 **When a conflict-free replicated data type is the right answer, and when it is
 not.** A full CRDT lets replicas merge with no server ordering at all, which is
@@ -178,11 +175,19 @@ never adopted platform-wide.
 - **Retries with no operation id.** A timeout on a slow network becomes a
   duplicate track, and the duplicate arrives most often for the listeners with
   the worst connections.
-- **Hard-deleting items.** A late operation referring to a deleted item has no
-  tombstone to check against, so it either fails loudly or recreates the item.
 - **Caching a playlist without its revision in the key.** An editor then reloads
   and watches their own edit disappear, which is the one failure this design's
   read-your-writes guarantee exists to prevent.
+
+## Interview notes
+
+Lead with the data model, not the merge rule. "A playlist is a sequence of
+operations, not a document" is what makes concurrency answerable at all — the
+document version loses an edit no lock can rescue.
+
+Then give a rule per pair rather than one policy — adds merge, a remove
+tombstones and beats a concurrent move, the later rename wins — weighed against
+what each loss costs a listener. "Last write wins" everywhere is the shrug.
 
 ## Key takeaways
 

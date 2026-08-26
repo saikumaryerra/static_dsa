@@ -6,7 +6,8 @@
  * what makes it part of `npm run test` and therefore of the DoD gate (spec §18,
  * SPEC Appendix D item 10).
  *
- * Exits non-zero on any error. Warnings are printed and do not fail.
+ * Exits non-zero on any error. Warnings and notes are printed and do not fail;
+ * a note is an overage or omission somebody reviewed, printed so it stays seen.
  */
 import process from 'node:process';
 import path from 'node:path';
@@ -20,7 +21,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
  * the modules still to come.
  */
 const strict = process.argv.includes('--strict');
-const { errors, warnings, pending, checked } = validateContent(root, {
+const { errors, warnings, notes, pending, checked } = validateContent(root, {
   strict,
 });
 
@@ -33,6 +34,9 @@ const { errors, warnings, pending, checked } = validateContent(root, {
  */
 const say = (line) => void process.stdout.write(`${line}\n`);
 
+// Notes first, and always: they are decisions somebody reviewed, and printing
+// them on every run is what keeps them decisions rather than a silent exemption.
+for (const note of notes) say(`note  ${note}`);
 for (const warning of warnings) say(`warn  ${warning}`);
 for (const error of errors) say(`ERROR ${error}`);
 
@@ -45,6 +49,7 @@ if (errors.length > 0) {
 say(
   `content validator${strict ? ' (strict)' : ''} — ${checked} published lesson(s) clean` +
     (warnings.length > 0 ? `, ${warnings.length} warning(s)` : '') +
+    (notes.length > 0 ? `, ${notes.length} accepted note(s)` : '') +
     (!strict && pending.length > 0
       ? `, ${pending.length} coverage topic(s) pending`
       : ''),

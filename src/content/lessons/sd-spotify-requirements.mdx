@@ -7,7 +7,7 @@ order: 30
 summary: 'A hundred million tracks, sessions that touch dozens of them, and the estimate that shows why request rate rather than bandwidth is the number this design has to answer.'
 difficulty: 'intermediate'
 prerequisites: ['sd-requirements', 'sd-capacity-estimation']
-estimatedMinutes: 9
+estimatedMinutes: 10
 tags: ['system-design', 'case-study', 'requirements', 'estimation', 'music']
 explainPrompt: 'Why does a three-minute track make request rate, rather than egress bandwidth, the number that shapes this architecture?'
 published: true
@@ -179,6 +179,25 @@ this module.
   than millions has far less co-occurrence data to learn from.
 </Callout>
 
+## Trade-offs
+
+**Fixing the assumptions rather than ranging them.** Twenty plays a listener a
+day is one number standing in for a distribution, and every figure below it
+inherits that. Ranging each would be more honest and would produce a spread
+nobody can design against; one round number produces 10,000 plays per second,
+which is a decision. The cost is that a challenge to A2 moves everything at once.
+
+**Averages first, peaks only where they bind.** A peak factor is applied to the
+two figures that size a system — events and playlist writes — and nowhere else.
+It buys arithmetic short enough to say out loud, and costs a reader who takes
+230 Gbps for a provisioning target rather than a mean.
+
+**A catalogue small enough to cache is a licensed catalogue.** The 200 GB of
+metadata fits in a cache tier because a hundred million tracks arrive through
+rights deals rather than an upload button; the
+[YouTube-like platform](/learn/sd-youtube-requirements/) buys an unbounded
+catalogue and pays in storage its users decide.
+
 ## Common pitfalls
 
 - **Sizing this like a video platform.** Bandwidth is the reflex answer for
@@ -194,6 +213,19 @@ this module.
 - **Assuming listening events are analytics.** They pay artists. An event
   pipeline that may silently drop 0.1% is fine for a dashboard and not fine for
   a royalty statement, and knowing that at requirements time changes what gets built.
+
+## Interview notes
+
+Open by naming the bottleneck rather than the components. "A three-minute item
+restarts the authorisation, the rights check and the metadata read twenty times a
+day per listener, so 10,000 plays per second is the shaping number and 230 Gbps
+of egress is a purchase" reframes a question most candidates answer with
+bandwidth because it has a play button.
+
+Then volunteer the 200 GB. A catalogue whose metadata fits entirely in a cache
+tier — which almost nothing else at this scale does — makes caching a conclusion
+drawn from the estimate rather than the reflex "we'd put a cache in front of the
+database".
 
 ## Key takeaways
 

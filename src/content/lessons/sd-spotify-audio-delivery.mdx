@@ -51,7 +51,7 @@ the default, 256 kbps for subscribers who ask for higher quality. Each rendition
 is a separate immutable object in
 [object storage](/learn/sd-object-storage/), named by a content hash so the name
 changes if the bytes ever do. That is what makes the URL safe to cache
-indefinitely: an object at that path can never become a different object.
+indefinitely.
 
 Transcoding here is cheap and batchable, the opposite of the video case: three
 minutes of audio at three bitrates is seconds of work on one core, so a new
@@ -65,9 +65,13 @@ first few seconds first so playback can start, then the rest. The origin is
 object storage, and it is reached only on a cache miss.
 
 ```text
-GET /audio/9f2ca1b7e4/128.ogg
-Range: bytes=0-131071
-Cache-Control: public, max-age=31536000, immutable
+request
+  GET /audio/9f2ca1b7e4/128.ogg
+  Range: bytes=0-131071
+
+response
+  206 Partial Content
+  Cache-Control: public, max-age=31536000, immutable
 ```
 
 Cache efficiency is unusually good here for two reasons that are properties of
@@ -83,12 +87,10 @@ large majority of that market's requests.
 is a delivery-network purchase, not a datacentre project. A commercial CDN with
 points of presence in each large market is enough. The publicly documented
 extreme is **Netflix Open Connect**, which places Netflix's own caching
-appliances inside internet service providers' networks, and which Netflix
-documents publicly under that name. It exists at a scale this module does not
-estimate: assume a video platform in the tens of terabits per second against the
-hundreds of gigabits derived here, and a music platform's byte volume rarely
-justifies building and shipping hardware — the same problem at a different size,
-with a different answer.
+appliances inside internet service providers' networks. Assume a video platform
+in the tens of terabits per second against the hundreds of gigabits derived here,
+and a music platform's byte volume rarely justifies building and shipping
+hardware.
 
 **Prefetch.** The client knows what plays next, because a queue or an album is
 an ordered list. Fetching the next track while the current one plays removes the
@@ -139,9 +141,9 @@ hundred million tracks and, worse, splits cache occupancy: the same track now
 occupies four entries competing for the same edge memory. Three renditions is a
 defensible ladder for audio; the video habit of eight or ten does not transfer.
 
-**Prefetch against data cost.** It buys gapless playback and spends bytes on
-tracks that may be skipped, so make it a policy that reads the connection type
-rather than a constant.
+**Prefetch against data cost.** Gapless playback, paid for in bytes on tracks the
+listener may skip — so it is a policy that reads the connection type, not a
+constant.
 
 ## Common pitfalls
 
@@ -158,6 +160,17 @@ rather than a constant.
 - **Ignoring the cold cache in a new market.** The first hours in a new region
   are a miss storm against the origin; pre-warm the most-played tracks or accept
   a slow start, but decide which.
+
+## Interview notes
+
+One sentence does most of the work: "the bytes are identical for every listener
+and cacheable forever, and the right to play them is personal and expires in
+minutes." Say it first and the takedown question answers itself.
+
+Then say what revocation actually is. "We purge nothing, we stop signing URLs,
+and the last listeners drop off as their signatures expire" is a mechanism;
+"we'd invalidate the CDN" is a wish — the object is already on ten million
+phones.
 
 ## Key takeaways
 
