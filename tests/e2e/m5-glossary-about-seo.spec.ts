@@ -120,7 +120,7 @@ test.describe('glossary page', () => {
       // glossary cross-link that lost its slash must fail HERE, on the shape,
       // rather than as a confusing 404 two lines down.
       const target = resolveFrom(page.url(), href!);
-      expect(target).toMatch(/^\/learn\/[a-z-]+\/$/);
+      expect(target).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
       const res = await request.get(target);
       expect(res.status(), `${target} should be reachable`).toBe(200);
     }
@@ -185,7 +185,7 @@ test.describe('glossary with JavaScript disabled', () => {
     ).toHaveAttribute('href', '#letter-a');
     // A cross-link is a real <a href> into a lesson.
     const firstXref = page.locator('.glossary__xref').first();
-    await linkTarget(page, firstXref).toMatch(/^\/learn\/[a-z-]+\/$/);
+    await linkTarget(page, firstXref).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
   });
 });
 

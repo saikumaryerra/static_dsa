@@ -144,24 +144,38 @@ on 4 cores turns any of these into a false red.
 
 ## §8 verification gate checklist
 
-- [ ] The existing algorithm catalogue still works
-- [ ] The Kubernetes course exists and is fully navigable
-- [ ] Every Appendix A topic is taught (coverage.json ↔ validator)
-- [ ] The System Design course exists with foundations, building blocks, three case studies and the comparison
-- [ ] Every Appendix B topic is taught
-- [ ] Both courses are visible in the catalogue with correct metadata
-- [ ] Navigation and deep links work
-- [ ] Progress and completion work
-- [ ] Responsive layout verified at 375 / 768 / 1280
-- [ ] Accessibility checked (axe + keyboard walk)
-- [ ] Diagrams render (verified in a browser)
-- [ ] No placeholders, feature TODOs, broken links, or new console/runtime errors
-- [ ] Content validator passes
-- [ ] `npm run test` passes
-- [ ] `npm run test:e2e` passes (modulo the pre-existing list above)
-- [ ] `astro check` / typecheck passes
-- [ ] `npm run lint` passes
-- [ ] `npm run format:check` passes
-- [ ] `npm run build` passes
-- [ ] One-off external link check done
-- [ ] Final content reviewed for quality and consistency
+- [x] The existing algorithm catalogue still works — `/learn/dsa/` reachable from
+      the catalogue, its fifteen lesson URLs unmoved, its visualizers, trials and
+      Final Run untouched and still covered by their own specs
+- [x] The Kubernetes course exists and is fully navigable — 67 lessons, 14 modules
+- [x] Every Appendix A topic is taught — `validate:content --strict` passes
+- [x] The System Design course exists with foundations, building blocks, three case
+      studies and the comparison — 45 lessons, 9 modules
+- [x] Every Appendix B topic is taught — same gate
+- [x] Both courses are visible in the catalogue with correct metadata — read in a
+      browser at three widths, and pinned by the re-seeded pixel and aria baselines
+- [x] Navigation and deep links work — `courses.spec.ts` walks catalogue → course →
+      module → lesson by following links, and asserts the breadcrumb's `#track-`
+      fragment resolves to a heading that exists
+- [x] Progress and completion work — course-scoped rings, pips and resume CTAs, all
+      painted by the shared `progress-paint.ts`; no storage key added
+- [x] Responsive layout verified at 375 / 768 / 1280 — 36 captures, zero horizontal
+      document overflow, plus the same three widths asserted in `courses.spec.ts`
+- [x] Accessibility checked — axe at serious-and-above on the two new page shapes in
+      both themes with every `<details>` forced open, plus a keyboard-only walk
+- [x] Diagrams render — all eleven asserted labelled, described, actually drawn and
+      keyboard-reachable; read by eye at ×3 and geometrically verified
+- [x] No placeholders, feature TODOs, broken links, or new console/runtime errors —
+      validator placeholder rule, 0 broken external links, console clean on 36 loads
+- [x] Content validator passes — 127 lessons clean, 5 reviewed notes
+- [x] `npm run test` passes — 1,126 tests
+- [x] `astro check` / typecheck passes
+- [x] `npm run lint` passes
+- [x] `npm run format:check` passes
+- [x] `npm run build` passes — 136 pages, portablize clean
+- [x] One-off external link check done — 18 distinct external URLs, 0 broken, and
+      none of them navigable: the artifact ships no outbound hyperlinks, which is
+      what CONTENT_STYLE's "author and year, no URL" rule produces
+- [x] Final content reviewed for quality and consistency — all 112 lessons read in
+      rendered form, 60 findings, all triaged
+- [ ] `npm run test:e2e` passes

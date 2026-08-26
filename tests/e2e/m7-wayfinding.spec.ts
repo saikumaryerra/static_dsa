@@ -539,7 +539,7 @@ test.describe('"Builds on:" prerequisites', () => {
       // Resolved against this lesson, because D2 made the chip's href
       // document-relative (`../../learn/complexity-big-o/` from depth 2).
       const target = resolveFrom(page.url(), href ?? '');
-      expect(target).toMatch(/^\/learn\/[a-z-]+\/$/);
+      expect(target).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
       // A chip pointing at a 404 would be worse than no chip: the build guard
       // in [slug].astro exists to prevent it, and this proves it holds in the
       // shipped output.

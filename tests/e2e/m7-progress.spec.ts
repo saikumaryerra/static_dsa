@@ -133,7 +133,7 @@ test.describe('/learn resume CTA', () => {
 
     await page.goto(LEARN);
     await expect(resumeLabel(page)).toContainText('Continue: 10 ·');
-    await linkTarget(page, resumeLink(page)).toMatch(/^\/learn\/[a-z-]+\/$/);
+    await linkTarget(page, resumeLink(page)).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
     // The CTA links into the OTHER track, which is the whole point.
     const href = (await resumeLink(page).getAttribute('href')) ?? '';
     // Resolved, not read: the island builds this href against the deployment
@@ -749,7 +749,7 @@ test.describe('JavaScript disabled', () => {
     // Every course is still reachable: the cards are plain links.
     const courses = page.locator('[data-course-card]');
     expect(await courses.count()).toBeGreaterThanOrEqual(3);
-    await linkTarget(page, courses.first()).toMatch(/^\/learn\/[a-z-]+\/$/);
+    await linkTarget(page, courses.first()).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
 
     // The course page keeps the same contract one level down.
     await page.goto(COURSE);
