@@ -5,7 +5,7 @@
  * migration P2); behaviour in the client module
  * `src/client/modules/explain-back.ts`, CSS in
  * `src/styles/components/explain-back.css`. A MODULE, not an island (decision
- * D-05 R-min′): the server markup is the legacy `<template>` and the legacy
+ * D-05 R-min-prime): the server markup is the legacy `<template>` and the legacy
  * script clones it, so nothing here hydrates.
  *
  * Props:
