@@ -42,3 +42,9 @@ CLAUDE.local.md
 .impeccable/
 DESIGN.md
 PRODUCT.md
+
+# React migration (docs/migrations/react-migration-plan.md): the frozen legacy artifact
+# (`.migration/baseline-dist`) and the prerenderer's build metadata (`.build/`). Both are
+# generated, both are large, and neither is source.
+.migration/
+.build/

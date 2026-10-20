@@ -20,6 +20,9 @@ export default defineConfig(
       // that have no tsconfig root here; both are git-excluded already.
       '.claude/',
       '.impeccable/',
+      // React migration: the frozen legacy artifact and prerender metadata.
+      '.migration/',
+      '.build/',
     ],
   },
   js.configs.recommended,

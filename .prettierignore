@@ -39,3 +39,7 @@ CLAUDE.md
 Agents.md
 opencode.json
 .opencode/
+
+# React migration: frozen legacy artifact and prerender metadata (both generated).
+.migration/
+.build/
