@@ -2,6 +2,55 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rewrite in progress (read first)
+
+The current task is a **rewrite of the whole repo onto a new framework, keeping the same product**.
+Target framework: **TBD — not yet chosen; do not assume one.** Ask before scaffolding.
+
+**Everything below this section describes the legacy Astro implementation.** Treat it as the
+reference for *what the product does and why*, not as instructions for how the new code is built.
+
+What carries over (the contract the rewrite must satisfy):
+
+- **Product behavior and content**: the 3 courses, 127 lessons (MDX content and frontmatter),
+  glossary, mastery loop, progress model and the calm invariants. Migrate content; don't rewrite it.
+- **`docs/site-spec.md` and the milestone docs** remain the statement of requirements. Where a spec
+  clause is stack-specific (Astro, §4's dependency list, the build pipeline), flag it as a conflict
+  rather than silently dropping or keeping it.
+- **The test suite is the parity oracle**: port the Vitest unit tests and the Playwright e2e
+  baselines/invariants first, and use them to prove the new build matches the old one. Pixel
+  baselines will differ after a framework swap: regenerate them, but keep the aria and axe checks.
+
+### Hard-constraint decisions for the rewrite (decided 2026-10-20)
+
+The legacy "Hard constraints" section below is **superseded by this list** wherever they differ.
+
+| Constraint | Decision |
+|---|---|
+| Trace-then-render (`Step[]` → generic Player → dumb renderers; deep-copied snapshots; input caps in `parseInput`) | **Keep.** |
+| Dependencies (legacy: nothing beyond spec §4, no viz libs/UI kits) | **Dropped.** No blanket ban; still justify each dependency in a comment, and prefer not adding a viz library the renderers don't need. |
+| JS budget (legacy: ≤ 60 KB gz per lesson page) | **Raised to ~120 KB gz per lesson page.** Keep it a measured, CI-enforced number, not an unchecked aspiration. |
+| No runtime network calls; prose and code work with JS disabled | **Keep both.** Lessons are statically generated. |
+| WCAG 2.1 AA (real buttons/inputs, keyboard, `aria-live`, no color-only signals, reduced motion) | **Keep.** |
+| Persistence: `localStorage` only, §6 key list, `try/catch` on every access, no backend | **Keep**, including the §6 keys so existing users' progress still loads. |
+| No behavioral tracking (explicit acts and self-reports only) | **Keep.** |
+| Gamification: mastery states only; no XP, points, levels, badges, streaks | **Keep.** |
+| URLs: trailing slash on every internal link; existing lesson URLs unchanged | **Keep.** |
+| Portable `dist/` at any origin or sub-path (`portablize.mjs`, relative URLs, `[data-site-root]`) | **Dropped.** The site deploys at one origin; root-absolute URLs are fine. Retire the portability tests and the `rehost` script with it. |
+| Static output on Cloudflare Workers Builds, no server adapter, `wrangler.jsonc` committed | **Keep.** Check `html_handling` / `not_found_handling` still behave for the new build's output layout. |
+| TypeScript strict, Tailwind, MDX lessons | **Keep all three.** Lessons migrate as-is; the token system stays on CSS variables. |
+| DoD gates: build, lint, format:check, test, test:e2e, validate:content | **Keep all six** (pixel baselines regenerated, see above). |
+
+Still open: **which framework.** The ~120 KB budget and dropped dependency ban widen the options
+(React-based static generation is now viable); pick it with the user before scaffolding.
+
+Astro-specific machinery (`BaseLayout`/`Bench`/`Band`, the rehype table pass, `astro check`) must be
+reimplemented or consciously retired. Commit messages: Conventional Commits, no co-author trailer
+(see the `git` section).
+
+Work on a dedicated branch and keep the legacy implementation runnable until parity is shown. Update
+this section as decisions are made (framework chosen, migration order, what was retired).
+
 ## Project
 
 LearnDSA — a static, no-backend Astro + TypeScript site teaching data structures & algorithms with interactive step-through visualizations. **Every milestone in spec §17 has shipped (M1–M8)**: 15 lessons, 11 renderer modules / 12 registered renderer ids, glossary and SEO (M1–M6); the UX overhaul (M7.1 repair → M7.2 progress/player v2/wayfinding → M7.3 brand/print/forced-colors); and the M8 mastery loop (self-graded practice + pips + track rings, predict mode + spaced review, Trace Trials + Final Run). The two M8.3 items trimmed under budget pressure — Explain-it-back and the Learning Days line — **shipped afterwards** in `dab6108`, unchanged from their design; `docs/m8-gamification.md` records both as shipped, spec §7 carries the optional `explainPrompt` frontmatter field (11 of 15 lessons set it) and §6's `ld:days:v1` has a real writer in `src/lib/learning-days.ts`. Treat them as product, not as scope.
@@ -144,7 +193,7 @@ chunk in a page's static import closure) or don't write it. A wrong one here hid
 riding onto `/` and `/learn` for two key strings; the fix and its measurement now live in
 `src/lib/enrichment-store.ts` and at the top of `src/lib/progress.ts`.
 
-## Hard constraints (details in the spec)
+## Hard constraints (legacy Astro list — see "Hard-constraint decisions for the rewrite" at the top for what still applies)
 
 - **Trace-then-render (§11) for every visualization** — an instrumented algorithm emits a `Step[]` trace; a generic Player indexes into it; dumb per-structure renderers draw SVG. Never hand-code timers/mutations per algorithm. Snapshots must be deep-copied; input caps enforced in `parseInput` (arrays ≤ 30, graph nodes ≤ 15).
 - **No dependencies beyond §4** — no D3 or viz libraries, no component UI kits. Adding any dependency requires a `// SPEC-GAP:` justification.
@@ -156,6 +205,23 @@ riding onto `/` and `/learn` for two key strings; the fix and its measurement no
 ## Stack & commands
 
 TypeScript (`strict: true`), Astro (static output), Tailwind, MDX lessons, Vitest + Playwright, ESLint + Prettier, npm, Node ≥ 22.12 (Astro 7's floor; `.nvmrc` and CI pin 24).
+
+Commands (all in `package.json`):
+
+```bash
+npm run dev                      # astro dev
+npm run build                    # astro check + astro build + portablize (the real build; preview/e2e serve dist/)
+npm run lint | format:check      # eslint . | prettier --check .  (`npm run format` writes)
+npm run test                     # vitest run
+npx vitest run tests/unit/renderers/measure.test.ts        # one unit file
+npx vitest run -t "name fragment"                          # one unit test by name
+npm run test:e2e                 # playwright; builds then previews dist/ (reuses an existing build on CI)
+npx playwright test tests/e2e/url-shape.spec.ts            # one e2e file
+npm run validate:content         # lesson frontmatter/content gate (CI uses `-- --strict`)
+npm run fonts | og | icons       # regenerate generated assets; fonts must be re-run when content adds glyphs
+npm run audit:frames             # which renderers' frames vary
+npm run rehost <url>             # stamp a built dist/ for a host with no build step
+```
 
 Test harness shape: Vitest runs `environment: 'node'` with no DOM library and no `localStorage`, so unit tests must be pure functions with injected inputs (see `resolveTheme` in `src/lib/theme.ts`); anything DOM- or storage-shaped belongs in Playwright. Adding jsdom/happy-dom is a new dependency and needs a `// SPEC-GAP:`.
 
