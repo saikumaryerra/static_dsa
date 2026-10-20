@@ -78,8 +78,7 @@ function openAncestors(element: Element): void {
 document.addEventListener('click', (event) => {
   if (event.defaultPrevented || event.button !== 0) return;
   // Let the browser keep its own affordances: a modified click opens a tab.
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-    return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
   const link = target.closest<HTMLAnchorElement>(SELECTOR);

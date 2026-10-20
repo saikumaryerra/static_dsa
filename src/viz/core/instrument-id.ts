@@ -13,18 +13,18 @@
  * The algorithm name is kept LEGIBLE in the id (`viz-binary-search-…`) because a
  * hash alone tells a reader who lands on an anchor nothing about where they are.
  *
- * WHY THE STATE LIVES IN A MODULE. `.astro` frontmatter runs once per component
- * INSTANCE, so a `let` there cannot see the instrument rendered before it; only
- * module scope persists across renders. That is the same reason `uid.ts` is a
- * module, and this follows its shape rather than inventing a second convention.
+ * WHY THE STATE LIVES IN A MODULE. A component body runs once per INSTANCE, so
+ * a `let` there cannot see the instrument rendered before it; the tally has to
+ * live outside the component, keyed to the page render.
  *
  * WHY THE COUNTER IS KEYED PER RENDER, not global. A global counter would be
  * correct in a static build (each page renders exactly once) and WRONG in
- * `astro dev`, where the module survives across requests: the second load of a
+ * the dev server, where the module survives across requests: the second load of a
  * page would see every seed a second time and suffix ids that had no collision,
  * re-introducing exactly the churn this module removes. Keying the tally to one
- * render — `Astro.request`, which is a fresh object per page render and shared
- * by every component within it — makes a reload replay the same ids. The
+ * render — the render context's `instrumentScope` (`src/render/context.ts`; under
+ * Astro it was `Astro.request`), a fresh object per page render shared by every
+ * component within it — makes a reload replay the same ids. The
  * `WeakMap` means a finished render's tally is collectable.
  *
  * This module imports nothing (architecture §8): it is a leaf, like `core/ids.ts`.
@@ -97,7 +97,7 @@ export function instrumentIdFor(
  * `samples.map()`, so a duplicate is one authoring edit away and a silent
  * duplicate id would break every anchor into both of them.
  *
- * @param scope - Any object unique to the current page render (`Astro.request`).
+ * @param scope - Any object unique to the current page render (the render context's `instrumentScope`).
  * @param pathname - The page's path, so two pages never mint the same id.
  * @param algorithm - Registry id of the algorithm, e.g. `'binary-search'`.
  * @param renderer - Registry id of the renderer, e.g. `'array'`.
