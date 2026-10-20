@@ -217,6 +217,14 @@ function highlight(
     lang,
     meta: options.meta ? { __raw: options.meta } : undefined,
     transformers,
+    // No per-line time limit. Shiki's default (500 ms) abandons a line that is
+    // slow to tokenize and paints the rest of the block in the default colour,
+    // so on a loaded build machine the SAME source produced different HTML from
+    // run to run — measured on `/learn/arrays/`'s JavaScript tab, where the
+    // light pass gave up mid-block and every later token came out `#24292E`. A
+    // build must be deterministic, and build-time highlighting has no reader
+    // waiting on it, so the limit buys nothing here.
+    tokenizeTimeLimit: 0,
   };
   return to === 'html'
     ? highlighter.codeToHtml(code, shared)
