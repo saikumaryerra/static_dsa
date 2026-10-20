@@ -205,3 +205,71 @@ export function splitSelectorList(list) {
   out.push(list.slice(start).trim());
   return out.filter(Boolean);
 }
+
+/**
+ * Normalizes selector text for lookup across builds: whitespace collapses,
+ * whitespace around combinators and commas disappears, and Astro's scoping
+ * attributes are removed — so a legacy selector, its DevTools serialization
+ * and the migrated build's selector compare equal when they are the same rule.
+ *
+ * @param {string} selector - Selector list text.
+ * @returns {string} Normalized selector.
+ */
+export function normalizeSelector(selector) {
+  return selector
+    .replace(/(^|[\s>+~,(])\[data-astro-cid-[a-z0-9]+\]/g, '$1*')
+    .replace(/\[data-astro-cid-[a-z0-9]+\]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([>+~,])\s*/g, '$1')
+    .replace(/(^|[\s>+~,(])\*(?=[.:#[])/g, '$1')
+    .trim();
+}
+
+/**
+ * Indexes the selector preludes of every stylesheet under `src/styles/` by
+ * {@link normalizeSelector}, so a rule DevTools names in the migrated build can
+ * be traced to the source file a fix goes into. Quote- and comment-aware; a
+ * nested rule is indexed by its own prelude (good enough for a pointer).
+ *
+ * @param {string} root - Repository root.
+ * @returns {Map<string, string[]>} Normalized selector → `src/styles/…` files.
+ */
+export function sourceSelectorIndex(root) {
+  const index = new Map();
+  const walk = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (entry.name.endsWith('.css')) {
+        const css = readFileSync(file, 'utf8');
+        const rel = path.relative(root, file);
+        let start = 0;
+        let quote = null;
+        for (let i = 0; i < css.length; i += 1) {
+          const c = css[i];
+          if (quote) {
+            if (c === '\\') i += 1;
+            else if (c === quote) quote = null;
+          } else if (c === '"' || c === "'") quote = c;
+          else if (c === '/' && css[i + 1] === '*') {
+            const end = css.indexOf('*/', i + 2);
+            i = end < 0 ? css.length : end + 1;
+            start = i + 1;
+          } else if (c === '{') {
+            const prelude = css.slice(start, i).trim();
+            if (prelude && !prelude.startsWith('@')) {
+              const key = normalizeSelector(prelude);
+              const files = index.get(key) ?? [];
+              if (!files.includes(rel)) files.push(rel);
+              index.set(key, files);
+            }
+            start = i + 1;
+          } else if (c === '}' || c === ';') start = i + 1;
+        }
+      }
+    }
+  };
+  walk(path.join(root, 'src/styles'));
+  return index;
+}
