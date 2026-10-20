@@ -1,25 +1,7 @@
 // SPEC-GAP: @types/node was added as a devDependency (types-only, zero runtime
 // bytes) so `astro check` can type `process.env` in this Node-executed config.
 import { defineConfig, devices } from '@playwright/test';
-
-/**
- * The sub-path the portability project mounts `dist/` at (Plan D §7, R3).
- *
- * TWO segments deep on purpose: a one-level prefix is satisfied by a pass that
- * gets the arithmetic half right, and `/deployments/learndsa` is not.
- *
- * FIXED rather than random, which is the opposite of what "prove nothing is
- * hardcoded" suggests — because this config file is re-imported by every worker
- * process. A random prefix would be generated once for the server command and
- * again, differently, for each worker's `baseURL`, and the suite would fail for
- * a reason that has nothing to do with portability. The spec itself never spells
- * the prefix: it navigates with relative URLs against `baseURL` and asserts only
- * that it is NOT at the origin root, so a hardcoded path in the artifact still
- * fails the test.
- */
-const SUBPATH = '/deployments/learndsa';
-/** Port for the sub-path fixture; `astro preview` owns 4321. */
-const SUBPATH_PORT = 4322;
+import { BASE_URL, DIST, DIST_OVERRIDDEN, PORT } from './tests/e2e/utils/dist';
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -39,7 +21,8 @@ export default defineConfig({
     ? [['list'], ['html', { open: 'never' }]]
     : 'list',
   use: {
-    baseURL: 'http://localhost:4321',
+    // `PW_PORT` (default 4321) — see tests/e2e/utils/dist.ts for why it exists.
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
   },
   expect: {
@@ -61,46 +44,43 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      // The whole suite runs against the ROOT deployment, which is the other
-      // half of the portability proof: the same `dist/` the sub-path project
-      // walks is the one every other test here exercises at `/`.
+      // The sub-path `portable` project and its :4322 server are retired with
+      // the portable artifact (react-migration D-01): the site deploys at one
+      // origin. The spec file itself is deleted in migration phase P4 together
+      // with `scripts/portablize.mjs`; until then it is ignored here so this
+      // root-deployment project does not pick it up.
       testIgnore: /portable\.spec\.ts/,
     },
-    {
-      // D2's requirement R3, served rather than argued: the same artifact under
-      // `http://localhost:4322/deployments/learndsa/`.
-      name: 'portable',
-      testMatch: /portable\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        baseURL: `http://localhost:${SUBPATH_PORT}${SUBPATH}/`,
-      },
-    },
   ],
-  webServer: [
-    {
-      // e2e must exercise the real static output, so preview the built `dist/`.
-      // Locally this is self-contained (build then preview). On CI the workflow has
-      // already run `npm run build` as its own gate step, so rebuilding here would
-      // run `astro check` + build a second time for no benefit. Skipping it is safe:
-      // `astro preview` exits 1 with "The output directory ... does not exist" if
-      // `dist/` is missing, so a mis-ordered pipeline fails loudly, never silently.
-      command: process.env['CI']
+  webServer: {
+    // e2e must exercise the real static output, so serve the built `dist/`
+    // through `npm run preview` (`scripts/serve-dist.mjs`: no redirects,
+    // `404.html` for anything unmatched — the host class Workers static assets
+    // belongs to).
+    //
+    // Locally this is self-contained (build then preview). On CI the workflow
+    // has already run `npm run build` as its own gate step, so rebuilding here
+    // would typecheck and build a second time for no benefit. Skipping it is
+    // safe because the server refuses to start without the directory, so a
+    // mis-ordered pipeline fails loudly, never silently.
+    //
+    // An explicit `PW_DIST` also skips the build: it names a build the caller
+    // already made (`LDSA_OUT=/tmp/ws npm run build`, then
+    // `PW_DIST=/tmp/ws/dist`), and `npm run build` would write to a different
+    // directory than the one being served, so building would only cost minutes.
+    command:
+      process.env['CI'] || DIST_OVERRIDDEN
         ? 'npm run preview'
         : 'npm run build && npm run preview',
-      url: 'http://localhost:4321',
-      reuseExistingServer: !process.env['CI'],
-      timeout: 120_000,
-    },
-    {
-      // Second, and second for a reason: Playwright starts these in order, so
-      // the build above has finished by the time this one is polled. It is a
-      // deliberately dumb static server (no extension guessing, no redirects) —
-      // the host class `build.format: 'directory'` exists to support.
-      command: `node tests/e2e/fixtures/static-server.mjs ${SUBPATH_PORT} ${SUBPATH}`,
-      url: `http://localhost:${SUBPATH_PORT}${SUBPATH}/`,
-      reuseExistingServer: !process.env['CI'],
-      timeout: 120_000,
-    },
-  ],
+    // The server's interface: it binds `PW_PORT` and serves `PW_DIST`. Passed
+    // explicitly (absolute path, resolved port) so the server and the specs
+    // that read `dist/` from disk resolve the same directory.
+    env: { PW_PORT: String(PORT), PW_DIST: DIST },
+    url: BASE_URL,
+    reuseExistingServer: !process.env['CI'],
+    // The local command includes the full build, measured at ~393 s on the
+    // legacy stack; the old 120 s only fit because `reuseExistingServer` let a
+    // developer start the server by hand. A timeout here is a failed run.
+    timeout: 600_000,
+  },
 });

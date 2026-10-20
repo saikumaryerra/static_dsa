@@ -48,13 +48,11 @@
  * browser cross-check) close what is left.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { dirname, join, relative, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
-
-/** The built site. `import.meta.url` is `<repo>/tests/e2e/js-budget.spec.ts`. */
-const DIST = fileURLToPath(new URL('../../dist', import.meta.url));
+// The built site under test: `<repo>/dist`, or `PW_DIST` (see utils/dist.ts).
+import { DIST } from './utils/dist';
 
 /** Spec §4, in bytes. A hard failure, not a warning. */
 const BUDGET_BYTES = 60 * 1024;

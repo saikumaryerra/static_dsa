@@ -30,13 +30,11 @@
  * fails.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
+// The built site under test: `<repo>/dist`, or `PW_DIST` (see utils/dist.ts).
+import { DIST } from './utils/dist';
 import { curriculum } from './utils/mastery';
-
-/** The built site. `import.meta.url` is `<repo>/tests/e2e/url-shape.spec.ts`. */
-const DIST = fileURLToPath(new URL('../../dist', import.meta.url));
 
 /**
  * `dist/404.html` is deliberately outside every check below.
