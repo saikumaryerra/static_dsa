@@ -4,6 +4,7 @@
 # everywhere outside the verbatim blocks.
 src/styles/tokens.css
 src/layouts/BaseLayout.astro
+src/render/pre-paint.inline.js
 
 # Agent/tooling scratch space, not project source. `.claude/worktrees/` holds a
 # full nested checkout of this repo; both are git-excluded already.

@@ -1,37 +1,51 @@
 /**
- * static-server.mjs — serves `dist/` under a SUB-PATH, so the portability claim
- * can be tested instead of asserted (Plan D §7, requirement R3).
+ * serve-dist.mjs — `npm run preview`: serves a built `dist/` the way the
+ * production host does, and no more kindly (React migration, D-13). Promoted
+ * from the e2e sub-path fixture (`tests/e2e/fixtures/static-server.mjs`) when
+ * portability was retired (D-01): the prefix argument is gone, the site is
+ * served at the origin root.
  *
- * Started by `playwright.config.ts`'s second `webServer` entry:
+ *   PW_PORT=4440 PW_DIST=/tmp/ws/dist npm run preview
  *
- *   node tests/e2e/fixtures/static-server.mjs <port> <prefix>
+ * - `PW_PORT` — port to bind (default 4321).
+ * - `PW_DIST` — the `dist/` directory, absolute or relative to the repository
+ *   root (default `dist`). Both exist so two implementers can serve their own
+ *   builds side by side (plan §2.1).
  *
- * WHY IT IS HAND-WRITTEN. Spec §4 forbids a new dependency, and `serve`/
- * `http-server` would be one for a job that is thirty lines of `node:http`. It
- * is also the more honest fixture: it deliberately behaves like the DUMBEST host
- * the site claims to support (a plain static server — an S3 website endpoint,
- * `python -m http.server`), so nothing here quietly rescues the artifact:
+ * WHY IT IS HAND-WRITTEN. `serve`/`http-server` would be a dependency for a
+ * job that is thirty lines of `node:http`. It is also the more honest fixture:
+ * it deliberately behaves like the DUMBEST static host, so nothing here quietly
+ * rescues the artifact:
  *
  *   - `/x` is NOT resolved to `/x.html` and NOT redirected to `/x/`. Only the
- *     directory-format shape D1 ships (`x/index.html` at `/x/`) is served, which
- *     is exactly the R2 requirement that forced `build.format: 'directory'`.
- *   - anything outside the prefix is a 404, so a link that escaped the sub-path
- *     fails here rather than accidentally working.
- *
- * `dist/404.html` is served, with a 404 status, for anything unmatched under the
- * prefix — the same shape GitHub Pages and Cloudflare Pages give it, and the
- * reason its links stay root-absolute (plan §4.4).
+ *     directory-format shape the build ships (`x/index.html` at `/x/`) is
+ *     served, so a slashless internal link is a hard 404 here — which is what
+ *     gives `url-shape.spec.ts` its teeth (amendment U-1).
+ *   - `dist/404.html` is served, with a 404 status, for anything unmatched —
+ *     the shape Workers' `not_found_handling: "404-page"` gives it.
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { join, normalize, resolve, sep } from 'node:path';
+import { isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import process from 'node:process';
 
 /* global URL -- Node has had a global WHATWG URL since 10; ESLint's `js.configs
    .recommended` env has no opinion about Node globals. */
 
-const DIST = fileURLToPath(new URL('../../../dist', import.meta.url));
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const rawDist = process.env.PW_DIST || 'dist';
+const DIST = resolve(isAbsolute(rawDist) ? rawDist : join(ROOT, rawDist));
+const port = Number(process.env.PW_PORT || 4321);
+
+// Fail loudly rather than serve a 404 for every request: a missing directory
+// almost always means "build first" or a mistyped PW_DIST.
+if (!existsSync(join(DIST, 'index.html'))) {
+  process.stderr.write(
+    `serve-dist: ${DIST} holds no built site (no index.html). Run \`npm run build\` (or \`LDSA_OUT=<dir> npm run build\` with PW_DIST=<dir>/dist) first.\n`,
+  );
+  process.exit(1);
+}
 
 /** Extension → Content-Type. Everything the built site actually emits. */
 const TYPES = new Map(
@@ -51,13 +65,6 @@ const TYPES = new Map(
   }),
 );
 
-const port = Number(process.argv[2] ?? 0);
-// Normalized to `/prefix` with no trailing slash, so `${prefix}/` is the site
-// root. An empty argument means "mount at the origin root", which is what makes
-// this fixture usable for the other half of the proof by hand.
-const argument = (process.argv[3] ?? '').replace(/^\/+|\/+$/g, '');
-const prefix = argument === '' ? '' : `/${argument}`;
-
 /**
  * Maps a request path to a file under `dist/`, or `null`.
  *
@@ -65,14 +72,10 @@ const prefix = argument === '' ? '' : `/${argument}`;
  * @returns {string | null} An absolute path inside `dist/`, or `null`.
  */
 function fileFor(pathname) {
-  if (prefix && pathname !== prefix && !pathname.startsWith(`${prefix}/`)) {
-    return null;
-  }
-  const withinSite = pathname.slice(prefix.length) || '/';
   // `normalize` collapses any `../` the artifact (or an attacker) produced; the
   // containment check below is what makes that a guarantee rather than a hope.
   const relative = normalize(
-    withinSite.endsWith('/') ? `${withinSite}index.html` : withinSite,
+    pathname.endsWith('/') ? `${pathname}index.html` : pathname,
   );
   const file = resolve(join(DIST, relative));
   if (file !== DIST && !file.startsWith(DIST + sep)) return null;
@@ -105,7 +108,7 @@ createServer((request, response) => {
     return;
   }
   // A read error (a missing `dist/404.html`, a truncated file) must end the
-  // response rather than take the whole fixture down mid-suite.
+  // response rather than take the whole server down mid-suite.
   createReadStream(target)
     .on('error', () => response.end())
     .pipe(response);

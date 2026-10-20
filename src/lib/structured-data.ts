@@ -7,7 +7,7 @@
  * to contain "</script>" can never break out of the inline script (XSS-safe
  * embedding, arch §3.1). Kept side-effect-free so they are trivially unit-testable.
  */
-import type { CollectionEntry } from 'astro:content';
+import type { LessonData } from '../content/schema';
 import { deploymentUrl } from './deployment-url';
 
 /**
@@ -29,14 +29,20 @@ function serializeJsonLd(data: unknown): string {
  * Omits `hasCourseInstance` deliberately — a free, static, self-paced lesson has
  * no schedule or instructor (arch §3.1 SPEC-GAP); the shape stays valid schema.org.
  *
- * @param entry   - The published lesson collection entry.
- * @param siteUrl - The full deployment URL (from `Astro.site`), sub-path
+ * @param entry   - The published lesson (a `LessonEntry`; only the five
+ *                  `data` fields the block declares are read).
+ * @param siteUrl - The full deployment URL (`resolveSiteUrl()`, src/render/site-url.ts), sub-path
  *                  included, used to build the canonical course URL and the
  *                  provider URL.
  * @returns An inline-safe JSON-LD string describing the lesson as a `Course`.
  */
 export function courseJsonLd(
-  entry: CollectionEntry<'lessons'>,
+  entry: {
+    data: Pick<
+      LessonData,
+      'title' | 'slug' | 'summary' | 'difficulty' | 'tags'
+    >;
+  },
   siteUrl: string | URL,
 ): string {
   // D3: both joins go through `deploymentUrl`. `.origin` and `new URL(path,
@@ -67,7 +73,7 @@ export function courseJsonLd(
 /**
  * Build the optional site-level `WebSite` JSON-LD for the home page (arch §3.3).
  *
- * @param siteUrl - The full deployment URL (from `Astro.site`), sub-path included.
+ * @param siteUrl - The full deployment URL (`resolveSiteUrl()`, src/render/site-url.ts), sub-path included.
  * @returns An inline-safe JSON-LD string describing the site as a `WebSite`.
  */
 export function webSiteJsonLd(siteUrl: string | URL): string {

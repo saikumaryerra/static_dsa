@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import type { CollectionEntry } from 'astro:content';
+import type { LessonEntry } from '../../src/content/lessons';
 import { courseJsonLd, webSiteJsonLd } from '../../src/lib/structured-data';
 
 const SITE = 'https://learndsa.example.com';
 /** The R3 shape: one artifact served from a sub-path of someone else's domain. */
 const SUBPATH_SITE = 'https://sample.com/learndsa';
 
-/** Minimal lesson entry — only the fields the serializers read (arch §3.1). */
-function makeEntry(
-  overrides: Partial<CollectionEntry<'lessons'>['data']> = {},
-): CollectionEntry<'lessons'> {
+/**
+ * A complete lesson entry — the serializers read only five `data` fields (arch
+ * §3.1), but the fixture is a whole, well-typed `LessonEntry` so the test also
+ * fails to compile if the loader's entry shape drifts away from what
+ * `courseJsonLd` accepts.
+ */
+function makeEntry(overrides: Partial<LessonEntry['data']> = {}): LessonEntry {
   return {
     id: 'binary-search',
-    collection: 'lessons',
     data: {
       title: 'Linear & Binary Search',
       slug: 'binary-search',
@@ -20,6 +22,7 @@ function makeEntry(
       difficulty: 'beginner',
       tags: ['search', 'arrays'],
       // Fields present on the schema but unused by the serializer.
+      course: 'dsa',
       track: 'algorithms',
       order: 11,
       prerequisites: [],
@@ -31,7 +34,11 @@ function makeEntry(
       published: true,
       ...overrides,
     },
-  } as unknown as CollectionEntry<'lessons'>;
+    body: '',
+    headings: [],
+    // Never rendered here; the serializers do not touch the body.
+    Content: () => null,
+  };
 }
 
 describe('courseJsonLd', () => {
