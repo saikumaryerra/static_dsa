@@ -1,14 +1,39 @@
 /**
- * Callout — static note/tip/warning box (design §6.7, site spec §9). Ported
- * markup (React migration P1 step 7); the full design rationale (M7.3 CMP-11
- * severity encoding, VD-3 elevation) lives with `Callout.astro`, whose CSS
- * moves to `src/styles/components/callout.css` in P2.
+ * Callout — static note/tip/warning box (design §6.7, site spec §9).
+ * Ported from `Callout.astro` (React migration P1 markup, P2 CSS); the CSS lives
+ * in `src/styles/components/callout.css`.
  *
  * Props:
  * - `variant` "note" | "tip" | "warning" (default "note").
  *
- * Meaning is never color-only: every callout shows a 16px icon AND a bold
- * label. Body prose goes in the children.
+ * Meaning is never color-only: every callout shows a 16px icon AND a bold label.
+ * To keep the palette calm (saturated color reserved for the viz), accents stay
+ * in-system — Note/Tip use `--brand`; Warning uses `--accent-warn`. Body prose
+ * goes in the children.
+ *
+ * M7.3 CMP-11 inverted the severity encoding, which used to run backwards: the
+ * warning — the only variant that exists to stop a reader making a real mistake
+ * — had the WEAKEST accent of the three (a grey `--border-strong` keyline and a
+ * plain `--text` head) while note and tip got the brand. It now routes both its
+ * keyline and its head through `--accent-warn`, the chrome-side attention token
+ * (`--hl-compare` is NOT reachable from chrome: the six highlight roles belong
+ * to the visualization). Still not a red, and still not color-carried: the
+ * triangle glyph and the bold word "Warning" remain the non-color layer.
+ * `--accent-warn` on `--surface` is 5.02:1 light / 8.26:1 dark, so the head
+ * clears 1.4.3 as text and the 4px keyline clears 1.4.11 as a graphic (against
+ * the canvas it borders on its other side it is 4.89:1 light / 8.92:1 dark).
+ * The achromatic repaint left this token alone deliberately — it is now the only
+ * chrome hue on the page, which is the trade recorded in m7-ux-overhaul CMP-11.
+ *
+ * M7.3 VD-3 also moves the box onto elevation level 1 — `--surface` + 1px
+ * `--border` + a resting `--shadow-1`, the same recipe `.track-card` uses. The
+ * fill alone stopped doing the job when the canvas inverted: `--surface` against
+ * `--bg` is 1.03:1 light (#FFFFFF on #FCFCFB) and 1.08:1 dark, so a borderless,
+ * shadowless callout read as an indented paragraph with a bar. Neither the
+ * keyline nor the shadow is a 1.4.11 boundary and neither is asked to be
+ * (`--border` on the canvas is 1.32:1 light / 1.36:1 dark, the decorative
+ * register the token is documented for) — they separate the box, while the icon
+ * and the bold label are what actually name it.
  */
 import type { JSX, ReactNode } from 'react';
 

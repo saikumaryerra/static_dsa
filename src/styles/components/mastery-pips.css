@@ -1,0 +1,120 @@
+/* Hidden until an island resolves a stage — the LessonCard check pattern.
+   Hiding is more honest than an empty three-pip row: "nothing recorded" and
+   "not read yet" are the same state, and neither is a thing to display. */
+.mastery-pips {
+  display: none;
+}
+
+/* A COLUMN: the stage row, then the gate note under it. With no note (every
+   stage but Practiced, and every instance that opts out) there is one item and
+   one line, exactly as before — a flex `gap` is only ever paid between items
+   that exist, and a `display: none` child is not one. */
+.mastery-pips[data-stage] {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.mastery-pips__stage {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mastery-pips__row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* An unearned pip is a thin ring in the neutral --border-strong; an earned one
+   takes --brand AND gains its inner shape (below). Two signals, one of which
+   is not colour. */
+.mastery-pips__pip {
+  display: block;
+  color: var(--border-strong);
+}
+
+.mastery-pips__fill {
+  display: none;
+}
+
+/* The stage decides how many pips are filled, and nothing else does — one
+   attribute, three rules, no per-pip bookkeeping in either island. */
+.mastery-pips[data-stage='learned'] .mastery-pips__pip:nth-child(-n + 1),
+.mastery-pips[data-stage='practiced'] .mastery-pips__pip:nth-child(-n + 2),
+.mastery-pips[data-stage='mastered'] .mastery-pips__pip:nth-child(-n + 3) {
+  color: var(--brand);
+}
+
+.mastery-pips[data-stage='learned']
+  .mastery-pips__pip:nth-child(-n + 1)
+  .mastery-pips__fill,
+.mastery-pips[data-stage='practiced']
+  .mastery-pips__pip:nth-child(-n + 2)
+  .mastery-pips__fill,
+.mastery-pips[data-stage='mastered']
+  .mastery-pips__pip:nth-child(-n + 3)
+  .mastery-pips__fill {
+  display: inline;
+}
+
+/* FORCED COLOURS. The colour half of the two rules above is author colour on
+   an SVG, and that is the half this mode does NOT take back. Measured in
+   Chromium with forced colours active: an author `color` on an HTML element
+   computes to CanvasText, but the same declaration on an `<svg>` keeps the
+   author's value — as does `stroke`, from CSS or from a presentation
+   attribute. So without this block the pips kept --brand and --border-strong
+   on a Canvas they were never picked against, and the EARNED pip was the
+   fainter of the two: light tokens on a black Canvas put --brand at 1.15:1
+   and --border-strong at 5.19:1. The achromatic repaint did not fix that, it
+   widened it — --brand was 3.34:1 against --border-strong's 4.41:1 while the
+   brand was indigo, and a near-black earned pip on a black Canvas is now
+   effectively invisible. Said explicitly in system colours instead, which
+   are the one kind of author colour this mode does not override — the pips
+   draw from `currentColor`, so setting `color` carries the ring, the check and
+   the inner dot together.
+
+   Highlight for earned / GrayText for unearned mirrors how a native progress
+   control renders its value against its track. The SHAPE difference (a check
+   or a filled dot inside the ring) is untouched and remains the primary cue,
+   and the stage word beside the pips is the accessible one — this rule is
+   about not losing the visual cue, never about being the only one.
+
+   Same selectors as the rules they follow, so they win on source order; a
+   lighter selector would lose to the (0,4,0) stage rules above. */
+@media (forced-colors: active) {
+  .mastery-pips__pip {
+    color: GrayText;
+  }
+
+  .mastery-pips[data-stage='learned'] .mastery-pips__pip:nth-child(-n + 1),
+  .mastery-pips[data-stage='practiced'] .mastery-pips__pip:nth-child(-n + 2),
+  .mastery-pips[data-stage='mastered'] .mastery-pips__pip:nth-child(-n + 3) {
+    color: Highlight;
+  }
+}
+
+/* Inherits its host's type (both hosts are --text-sm/--text-muted rows), so
+   the word never looks like a chip of its own. */
+.mastery-pips__label {
+  line-height: var(--leading-normal);
+}
+
+/* The gate's one-line explanation. Hidden at every other stage: at `none` and
+   `learned` there is no gate to explain yet, and at `mastered` it has already
+   been walked through — leaving it up would be an instruction with nothing to
+   do. Same `[data-stage]` attribute as the pips, so it is revealed by the one
+   paint that resolves the stage and cannot fall out of step with the pip it
+   explains. */
+.mastery-pips__gate {
+  display: none;
+}
+
+.mastery-pips[data-stage='practiced'] .mastery-pips__gate {
+  display: block;
+  max-width: var(--measure);
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
+}

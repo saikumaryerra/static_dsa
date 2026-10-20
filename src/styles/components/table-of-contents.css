@@ -1,0 +1,185 @@
+.toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.toc a {
+  display: block;
+  padding-block: var(--space-1-5);
+  padding-inline: var(--space-3) var(--space-2);
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-muted);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.toc a:hover {
+  color: var(--text);
+}
+
+/* M7.3: the current section gets the brand TINT as well as the brand bar, so
+   "you are here" is a shape the eye lands on rather than a 2px edge. The bar
+   and `aria-current` are the non-color cues and both stay — the fill is the
+   reinforcement, never the signal. `--text` on `--brand-soft` is 14.86:1 light
+   / 12.90:1 dark; the tint itself is quiet against what it sits on (1.20:1 on
+   the rail's `--bg`, 1.23:1 on the inline panel's `--surface`, and 1.26:1 /
+   1.16:1 for the same two in dark), which is precisely why it may not carry
+   meaning alone. It used to be luminance-IDENTICAL to `--surface` in dark;
+   that stopped being true when Plan B moved dark `--brand-soft` off the bluest
+   step in the ramp, and the tint is now a hair darker than the panel rather
+   than exactly equal to it. Still decorative either way. */
+.toc a[aria-current='location'] {
+  color: var(--text);
+  border-left-color: var(--brand);
+  background-color: var(--brand-soft);
+}
+
+/* ---- Inline form: the sticky mini-ToC bar below 1024px (M7.2) ---- */
+.toc--inline {
+  display: block;
+  position: sticky;
+  /* Directly under the header — no gap, or the article shows through it. */
+  top: var(--header-h);
+  /* Below the site header (z-40), above the article it covers. */
+  z-index: 30;
+  margin-bottom: var(--space-2);
+  background-color: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.toc--inline summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* --toc-bar-h is declared on .lesson (global.css): the heading
+     scroll-margin-top has to know this bar's height, and two scoped
+     stylesheets cannot otherwise share a value. */
+  min-height: var(--toc-bar-h);
+  padding-block: var(--space-2);
+  cursor: pointer;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  list-style: none;
+}
+
+.toc--inline summary::-webkit-details-marker {
+  display: none;
+}
+
+.toc__chevron {
+  color: var(--text-muted);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.toc--inline[open] .toc__chevron {
+  transform: rotate(90deg);
+}
+
+/* The section you are in, right-aligned in the collapsed bar. Truncates
+   rather than wraps so the bar's height never changes as you scroll. */
+.toc__current {
+  margin-left: auto;
+  max-width: 55%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-weight: var(--weight-normal);
+}
+
+/* Absolutely positioned (M7.2): opening the ToC must not shift the article
+   under the reader's finger. The bar itself is `position: sticky`, which is a
+   positioned ancestor, so this anchors to the bar. */
+.toc__panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: min(60svh, 24rem);
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  box-shadow: var(--shadow-2);
+}
+
+/* CMP-13 in its inline form: the panel fades instead of popping. Same
+   mechanism as `Collapsible` — `::details-content` + `allow-discrete`, the
+   same `--duration-slow`, and the same "an engine without the pseudo-element
+   drops the whole ruleset and keeps today's instant open" fallback — but a
+   DIFFERENT animated property, deliberately. `.toc__panel` is absolutely
+   positioned so that opening the bar shifts no article text (M7.2), so it
+   contributes no height whatsoever and `block-size: 0 -> auto` would
+   interpolate between two zeroes here. Opacity is the pair of endpoints that
+   actually exists. Nothing clips it for the same reason: the panel's
+   containing block is the sticky <details>, an ancestor of the pseudo. */
+/* The two directions get DIFFERENT transitions, deliberately — a transition
+   declared on a state applies when moving TO that state.
+
+   Closing (base rule) animates `content-visibility` with `allow-discrete`, so
+   the panel stays rendered for the length of the fade instead of vanishing
+   mid-way.
+
+   Opening (the `[open]` rule) animates opacity ONLY. Including
+   `content-visibility` here would keep the subtree skipped for the first frame
+   of the fade, and a skipped subtree is not focusable: a keyboard user who
+   opened the panel and pressed Tab was thrown PAST the navigation they had
+   just opened (measured: `content-visibility: hidden` at 0ms, `visible` by
+   50ms). Navigation has to be operable the instant it opens; the fade is only
+   polish, and this keeps it without buying it at the cost of focus order. */
+.toc--inline::details-content {
+  opacity: 0;
+  transition:
+    content-visibility var(--duration-slow) allow-discrete,
+    opacity var(--duration-slow) var(--ease-standard);
+}
+
+.toc--inline[open]::details-content {
+  opacity: 1;
+  transition: opacity var(--duration-slow) var(--ease-standard);
+}
+
+/* `allow-discrete` keeps the closing panel rendered for the length of the
+   fade, which would otherwise leave it tappable while it is invisible — a
+   stray tap on a link the reader can no longer see. Set on the panel itself,
+   not on the pseudo-element: inheritance runs down the DOM tree and never
+   passes through ::details-content. */
+.toc--inline:not([open]) .toc__panel {
+  pointer-events: none;
+}
+
+/* ---- Rail (desktop) form ---- */
+.toc--rail {
+  display: none;
+  position: sticky;
+  top: calc(var(--header-h) + var(--space-6));
+  max-height: calc(100svh - var(--header-h) - var(--space-12));
+  overflow-y: auto;
+}
+
+.toc__label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+/* The 1024px swap that used to hide this bar and reveal the rail is GONE
+   (redesign 2026-08, amendment L-3). The rail's 15rem was the only thing
+   standing between the reading column and the instrument pane, and it bought
+   one list a reader consults a handful of times per lesson.
+
+   The bar is the better of the two anyway, and not only because it is
+   cheaper: it names the section you are IN (`data-toc-current`, filled by the
+   same scroll-spy that used to only tint a rail entry), which is the question
+   wayfinding is actually asked. The rail could show a highlight but never a
+   label, so on a 9,000px lesson it answered "where am I" only if you looked
+   away from what you were reading. `.toc--rail` is retained for any future
+   surface that wants a static list; nothing renders it today. */

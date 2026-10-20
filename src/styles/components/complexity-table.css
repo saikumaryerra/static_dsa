@@ -1,0 +1,37 @@
+.complexity-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  font-size: var(--text-sm);
+}
+
+.complexity-table caption {
+  text-align: left;
+}
+
+.complexity-table th,
+.complexity-table td {
+  padding: var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.complexity-table tbody tr:last-child th,
+.complexity-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.complexity-table thead th,
+.complexity-table tbody th {
+  color: var(--text-muted);
+  font-weight: var(--weight-semibold);
+}
+
+.complexity-table tbody td {
+  color: var(--text);
+  font-family: var(--font-mono);
+}

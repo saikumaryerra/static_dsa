@@ -1,6 +1,7 @@
----
 /**
  * WhatsNext — the end-of-lesson close-the-loop section (M7.2; spec §8 "LessonLayout").
+ * Ported from `WhatsNext.astro` (React migration P2); CSS in
+ * `src/styles/components/whats-next.css`.
  *
  * Props:
  * - `slug`      the lesson being read (MarkComplete's persistence key).
@@ -23,19 +24,14 @@
  * MarkComplete's group, so that same kill-switch covers it and this section
  * keeps exactly one JS-dependent block to reason about.
  */
-import MarkComplete from './MarkComplete.astro';
-import PrevNext from './PrevNext.astro';
-import type { LessonRef } from '../lib/progress';
+import type { JSX } from 'react';
 import type { CourseId } from '../lib/courses';
+import type { LessonRef } from '../lib/progress';
+import MarkComplete from './MarkComplete';
+import PrevNext, { type Adjacent } from './PrevNext';
 
-interface Adjacent {
-  slug: string;
-  title: string;
-  /** Human track name — present ONLY when this neighbour crosses tracks. */
-  trackLabel?: string;
-}
-
-interface Props {
+/** Props of `WhatsNext`. */
+export interface WhatsNextProps {
   slug: string;
   lessons: LessonRef[];
   prev: Adjacent | null;
@@ -44,41 +40,28 @@ interface Props {
   course: CourseId;
 }
 
-const { slug, lessons, prev, next, course } = Astro.props;
----
-
-<section class="whats-next" aria-labelledby="whats-next">
-  <h2 id="whats-next" class="whats-next__heading">What's next</h2>
-  <MarkComplete slug={slug} lessons={lessons} />
-  <div class="whats-next__nav">
-    <PrevNext prev={prev} next={next} course={course} />
-  </div>
-</section>
-
-<style>
-  .whats-next {
-    margin-block: var(--space-8) var(--space-16);
-  }
-
-  /* An h2 for the document outline, but sized below the lesson's section
-     headings: this closes the page, it does not open another section. It is
-     also a legitimate anchor target (#whats-next), so it clears the sticky
-     chrome the same way the body headings do. */
-  .whats-next__heading {
-    font-size: var(--text-xl);
-    margin-bottom: var(--space-4);
-    scroll-margin-top: calc(
-      var(--header-h) + var(--toc-bar-h) + var(--space-2)
-    );
-  }
-
-  @media (min-width: 1024px) {
-    .whats-next__heading {
-      scroll-margin-top: calc(var(--header-h) + var(--space-6));
-    }
-  }
-
-  .whats-next__nav {
-    margin-top: var(--space-6);
-  }
-</style>
+/**
+ * The end-of-lesson section.
+ *
+ * @param props - See `WhatsNextProps`.
+ * @returns The titled section.
+ */
+export default function WhatsNext({
+  slug,
+  lessons,
+  prev,
+  next,
+  course,
+}: WhatsNextProps): JSX.Element {
+  return (
+    <section className="whats-next" aria-labelledby="whats-next">
+      <h2 id="whats-next" className="whats-next__heading">
+        {"What's next"}
+      </h2>
+      <MarkComplete slug={slug} lessons={lessons} />
+      <div className="whats-next__nav">
+        <PrevNext prev={prev} next={next} course={course} />
+      </div>
+    </section>
+  );
+}

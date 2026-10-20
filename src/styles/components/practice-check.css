@@ -1,0 +1,86 @@
+/* Sits directly under the question prose and above the disclosure's keyline,
+   so it reads as part of the question rather than of the answer. The size and
+   colour keep it quiet: it is an instruction, not a heading. */
+.practice-check__prompt {
+  margin-block: var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.practice-check__footer {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.practice-check__ask {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.practice-check__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* CHOSEN state. Three signals, and the first is not a colour at all: the
+   glyph's ring gains a DOT — a shape difference, so it survives forced
+   colours and every form of colour blindness — while the border turns brand
+   and an inset ring thickens it to 2px WITHOUT reflowing the row (the same
+   no-reflow trick the header's `aria-current` underline uses). The fill is
+   MarkComplete's 12% brand tint, so "I chose this" looks the same in both
+   places. Text colour is left at --text, which measures 13.85:1 light /
+   12.21:1 dark on that tint over the lesson canvas, and the brand ring is
+   the same figure now that --brand and --text are one value — both clear of
+   1.4.3 and 1.4.11 with room to spare. (The tint is TRANSLUCENT, so it
+   composites over whatever is painted behind the button, and nothing between
+   it and <html> paints: the backdrop is --bg, not this button's own --surface
+   fill, which the tint replaces. Confirmed by sampling the rendered pixel —
+   Chromium composites #DFE0DF light / #292A2B dark — rather than by reading
+   the rule.) The dot is also what
+   separates chosen from `.btn-secondary`'s hover, which lands on a
+   similar fill. */
+.practice-check__dot {
+  display: none;
+}
+
+.practice-check__btn[aria-pressed='true'] .practice-check__dot {
+  display: inline;
+}
+
+.practice-check__btn[aria-pressed='true'] {
+  border-color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand);
+  background-color: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.practice-check__saved {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* Block spans, like MarkComplete's note: Tailwind's preflight hides `[hidden]`
+   with `display: none !important`, so the parent's `hidden` attribute still
+   wins over any display these carry. */
+.practice-check__tally {
+  display: block;
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.practice-check__scope {
+  display: block;
+  color: var(--text-muted);
+}
+
+/* On paper the answers are revealed (global.css print rule 4) and the sheet
+   becomes a study sheet — device-local controls have no meaning there, the
+   same reason `.whats-next` is dropped. No `!important` needed: nothing else
+   targets this class. */
+@media print {
+  .practice-check__footer {
+    display: none;
+  }
+}

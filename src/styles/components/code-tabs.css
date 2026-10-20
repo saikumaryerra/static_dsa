@@ -1,0 +1,101 @@
+.codetabs {
+  margin-block: var(--space-4);
+}
+
+.codetabs__tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.codetabs__tab {
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.codetabs__tab:hover {
+  color: var(--text);
+}
+
+.codetabs__tab[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--brand);
+}
+
+.codetabs__panel {
+  position: relative;
+  margin-top: var(--space-3);
+}
+
+/* Language heading is only surfaced in the JS-off fallback. */
+.codetabs__lang {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.codetabs__copy {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background-color: var(--bg);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.codetabs__copy:hover {
+  color: var(--text);
+}
+
+/* Copy failed (CMP-9). Colour is a SECOND signal only: the label itself reads
+   "Copy failed" and the glyph becomes a warning triangle, so nothing here is
+   colour-only (WCAG 1.4.1). --accent-warn, never --hl-compare — the six --hl-*
+   roles stay reserved for the visualization. */
+.codetabs__copy[data-copy-failed] {
+  color: var(--accent-warn);
+  border-color: var(--accent-warn);
+}
+
+.codetabs__copy-icon--failed {
+  display: none;
+}
+
+.codetabs__copy[data-copy-failed] .codetabs__copy-icon--copy {
+  display: none;
+}
+
+.codetabs__copy[data-copy-failed] .codetabs__copy-icon--failed {
+  display: inline;
+}
+
+.codetabs pre {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  font-size: var(--text-sm);
+  overflow-x: auto;
+}

@@ -1,0 +1,319 @@
+.lesson {
+  padding-block-start: var(--space-6);
+}
+
+@media (min-width: 768px) {
+  .lesson {
+    padding-block-start: var(--space-10);
+  }
+}
+
+/* The 15rem ToC rail that used to take the right-hand column is retired
+   (redesign 2026-08, amendment L-3) — the sticky "On this page" bar now runs
+   at every width, and the column it freed is where the instrument pane lives.
+   `.lesson__grid` survives as the article's own wrapper rather than as a grid;
+   the two-column composition is per-bench now, because only a bench knows
+   whether it has prose worth scrolling past a pinned drawing. */
+
+.lesson__article {
+  min-width: 0;
+}
+
+/* Everything that is not a bench keeps the lesson's original reading shell:
+   the page is wider now, but that width was bought for the instrument, and
+   spending it on the header or the practice questions would just move the
+   empty band rather than fill it. */
+/* Scope-audit fix #1 (docs/migrations/css-scope-audit.md): name the layout's own children; unscoped `:not(.lesson-body)` also capped the breadcrumb, ToC, What's next and noscript. */
+.lesson__grid > .lesson__article > :is(.lesson__header, .lesson__rule) {
+  max-width: var(--container-max);
+}
+
+.lesson__header {
+  margin-top: var(--space-4);
+}
+
+.lesson__header h1 {
+  max-width: var(--measure);
+}
+
+.lesson__summary {
+  margin-top: var(--space-3);
+  max-width: var(--measure);
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.lesson__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.lesson__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.lesson__dot {
+  color: var(--text-muted);
+}
+
+/* Its own flex box so the separator sits at the row's gap even though the two
+   are one item; `hidden` still wins over this display, because Tailwind's
+   preflight hides `[hidden]` with `display: none !important`. */
+.lesson__stage {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* "Builds on:" prerequisites row (M7.2; spec §3 "no dead ends", §8). The
+   slugs come from frontmatter and are validated against the published
+   collection at build time, so a chip can never point at a dead page. */
+.lesson__prereqs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.lesson__prereqs-label {
+  color: var(--text-muted);
+}
+
+.lesson__prereq-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lesson__prereq {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background-color: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.lesson__prereq:hover {
+  border-color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lesson__rule {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin-block: var(--space-6);
+}
+
+.lesson__rule--wide {
+  margin-block: var(--space-8);
+}
+
+/* ---- Lesson body: prose capped at --measure; artifacts break out ---- */
+.lesson-body > * {
+  max-width: var(--measure);
+}
+
+/* Code and complexity tables break out of the measure but NOT to the full
+   shell: a 1376px-wide code block is a worse read than a 1152px one, and the
+   extra width was bought for the drawing. A bench takes all of it. */
+.lesson-body > .viz,
+.lesson-body > .codetabs,
+.lesson-body > .complexity-table,
+.lesson-body > .table-scroll,
+.lesson-body > .figure {
+  max-width: var(--container-max);
+}
+
+.lesson-body > .bench {
+  max-width: 100%;
+}
+
+/* Inside a bench the same two rules apply one level down: the narration is
+   prose and keeps the measure, the instrument is not and takes its column. */
+.lesson-body .bench__read > * {
+  max-width: var(--measure);
+}
+
+.lesson-body .bench__stage > * {
+  max-width: 100%;
+}
+
+/* ---- Markdown prose artifacts (course expansion, decision D-09) ---- */
+
+/* A fenced code block. `md-code` is added by the rehype pass in
+   astro.config.mjs and can ONLY be on a real markdown fence — `<CodeTabs>`'
+   `<pre>` never passes through rehype — so this rule and the one inside that
+   component cannot fight. The recipe is deliberately the same as CodeTabs':
+   one code block should not look like two things on one site.
+   `tabindex="0"` comes from the same pass, so a block wide enough to scroll
+   is reachable from the keyboard (WCAG 2.1.1). */
+.lesson-body pre.md-code {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  font-size: var(--text-sm);
+  overflow-x: auto;
+}
+
+/* Markdown tables. The wrapper is what scrolls, so the `<table>` keeps its
+   semantics; `min-width: 100%` lets a narrow table still fill the column
+   while a wide one overflows its wrapper rather than the page. */
+.lesson-body .table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.lesson-body .table-scroll > table {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.lesson-body .table-scroll th,
+.lesson-body .table-scroll td {
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  vertical-align: top;
+  border-block-end: 1px solid var(--border);
+}
+
+.lesson-body .table-scroll th {
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.lesson-body .table-scroll td {
+  color: var(--text-muted);
+}
+
+.lesson-body .table-scroll tbody tr:last-child th,
+.lesson-body .table-scroll tbody tr:last-child td {
+  border-block-end: none;
+}
+
+/* M7.1 RSP-4: a visualizer wrapped in an anchor/test-hook div (e.g.
+   `<div id="viz-binary-search">` in binary-search.mdx) is capped by the
+   `> *` measure rule above, and the `> .viz` breakout can't reach through
+   the wrapper. Lift the wrapper itself; the inner .viz is then unconstrained
+   because only direct children of .lesson-body carry the measure cap. */
+.lesson-body > div:has(> .viz) {
+  max-width: 100%;
+}
+
+.lesson-body h2 {
+  margin-top: var(--space-12);
+  margin-bottom: var(--space-4);
+}
+
+.lesson-body h3 {
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-3);
+}
+
+/* Where an in-page jump parks a heading: clear of the sticky header and of
+   the sticky "On this page" bar (M7.2 — the same reason /glossary offsets for
+   its sticky jump bar). Both offsets derive from --header-h, replacing the
+   hardcoded 5.5rem that was wrong at <768px where the header is 56px. The
+   scroll-spy READS this computed value as its band, so the highlighted entry
+   and the jump target can never disagree.
+
+   The ≥1024px variant that dropped --toc-bar-h from this sum is gone with the
+   rail (amendment L-3): the bar is now the wayfinding at every width, so it
+   occupies the same band at every width and the offset is one rule again. */
+.lesson-body h2,
+.lesson-body h3 {
+  scroll-margin-top: calc(var(--header-h) + var(--toc-bar-h) + var(--space-2));
+}
+
+.lesson-body p {
+  margin-block: var(--space-4);
+}
+
+.lesson-body ul,
+.lesson-body ol {
+  margin-block: var(--space-4);
+  padding-left: var(--space-6);
+}
+
+.lesson-body ul {
+  list-style: disc;
+}
+
+.lesson-body ol {
+  list-style: decimal;
+}
+
+.lesson-body li {
+  margin-block: var(--space-2);
+}
+
+.lesson-body li::marker {
+  color: var(--text-muted);
+}
+
+.lesson-body a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lesson-body strong {
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+/* Inline code (not inside a Shiki <pre>). Elevation level -1 (M7.3 VD-3):
+   global.css assigns "code chrome" to `--surface-sunken`, and after the
+   inversion `--surface` is the level-1 CARD fill — a `token` span left on it
+   both contradicted the model (code read as raised) and, inside a callout or
+   a complexity-table cell, painted exactly the same colour as the box it sits
+   in, leaving only the keyline. The `--border` keyline stays because a well
+   dropped straight onto the canvas is only 1.10:1 light / 1.02:1 dark and
+   needs an edge to exist at all; inside a level-1 card it is 1.13:1 / 1.06:1.
+   The achromatic repaint tightened both of those in dark (they were 1.06:1
+   and 1.21:1 on the slate palette), so the fill is now nearly a no-op there
+   and the 1.20:1 / 1.34:1 keyline is what actually draws the well — which is
+   why it is not optional. Text is well clear of AA on the fill: `--text` on
+   `--surface-sunken` is 16.13:1 light / 15.96:1 dark, and where the code falls
+   inside a prose link it inherits `--brand`, now the same value as `--text`
+   and so the same figure; the link is identified by its underline, not by a
+   colour the code span could have swallowed. */
+.lesson-body :not(pre) > code {
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+
+.lesson-body blockquote {
+  margin-block: var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}

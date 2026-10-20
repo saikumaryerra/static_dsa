@@ -1,17 +1,28 @@
 /**
- * Collapsible — styled native `<details>` (design §6.8, site spec §9). Ported
- * markup (React migration P1 step 7); the animation rationale (M7.3 CMP-13)
- * lives with `Collapsible.astro`, whose CSS moves to
- * `src/styles/components/collapsible.css` in P2.
+ * Collapsible — styled native `<details>` (design §6.8, site spec §9).
+ * Ported from `Collapsible.astro` (React migration P1 markup, P2 CSS); the CSS lives
+ * in `src/styles/components/collapsible.css`.
  *
  * Props:
  * - `summary` the always-visible clickable label.
  * - `open`    optional; render expanded by default.
  *
- * Native `<details>` = keyboard operable and fully functional with JS off.
+ * Native `<details>` = keyboard operable and fully functional with JS off. The
+ * chevron rotates on `[open]`; the rotation is gated by `prefers-reduced-motion`
+ * via the global `--duration-*` collapse. Content goes in the children.
+ *
+ * M7.3 CMP-13: opening a multi-paragraph Practice answer used to snap the page
+ * open under the reader, so the answer arrived with the surrounding text already
+ * shoved elsewhere. The expand is now animated — CSS only, zero JS — and the
+ * whole ruleset is a progressive enhancement: an engine without
+ * `::details-content` (pre-Chrome 131 / Safari 18.4 / Firefox 139) drops it and
+ * keeps today's instant open.
+ *
  * This component has **no `<noscript>` kill-switch of its own**, deliberately:
- * it needs no JavaScript at all. Anything that composes it and adds JS-only
- * affordances ships its own (`PracticeCheck`).
+ * it needs no JavaScript at all, so there is nothing to switch off. Anything
+ * that composes it and adds JS-only affordances must therefore ship its own —
+ * `PracticeCheck` (M8.1) wraps this disclosure with self-grading buttons
+ * and hides exactly those, leaving this `<details>` untouched with JS off.
  */
 import type { JSX, ReactNode } from 'react';
 
