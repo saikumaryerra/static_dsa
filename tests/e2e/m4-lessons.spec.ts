@@ -114,8 +114,8 @@ test.describe('three-language code is present and unmangled', () => {
           page.getByRole('tab', { name: lang }).first(),
         ).toBeVisible();
       }
-      // Highlighted code actually rendered (Shiki -> .astro-code <pre>).
-      await expect(page.locator('pre.astro-code').first()).toBeVisible();
+      // Highlighted code actually rendered (Shiki -> .shiki <pre>).
+      await expect(page.locator('pre.shiki').first()).toBeVisible();
     });
   }
 });
@@ -126,10 +126,10 @@ test.describe('three-language code is present and unmangled', () => {
 // TRACKED debt: the shipped Shiki `github-dark` code theme renders comment
 // tokens (#6a737d on #24292e ≈ 3.04:1) below the 4.5:1 AA text ratio (§12). That
 // is a real defect reported to the frontend team; it lives only inside the code
-// blocks (`pre.astro-code`/`.line`), never in a renderer or the page chrome, so
+// blocks (`pre.shiki`/`.line`), never in a renderer or the page chrome, so
 // filtering it here keeps this guard green while still failing on any NEW serious
 // issue (e.g. a low-contrast viz marker, muted label, or metric pill).
-const CODE_BLOCK_TARGET = /astro-code|data-language|\.line/;
+const CODE_BLOCK_TARGET = /\.shiki\b|data-language|\.line/;
 
 const RENDERER_SAMPLE: Record<string, string> = {
   chart: 'complexity-big-o',

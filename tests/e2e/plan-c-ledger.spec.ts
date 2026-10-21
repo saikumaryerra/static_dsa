@@ -431,7 +431,7 @@ test.describe('axe, with every ledger opened', () => {
           v.nodes.map((n) => `${v.impact} ${v.id}: ${n.target.join(' ')}`),
         )
         // The same tracked Shiki code-comment contrast debt m4-lessons excludes.
-        .filter((entry) => !/astro-code|data-language|\.line/.test(entry));
+        .filter((entry) => !/\.shiki\b|data-language|\.line/.test(entry));
 
       expect(offenders).toEqual([]);
     });

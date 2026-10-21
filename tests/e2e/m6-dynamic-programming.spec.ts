@@ -117,11 +117,11 @@ test('both tabulation and memoization code ship Python/JavaScript/Java, unmangle
   // §15 spot-check that the code was not mangled into prose. Multiple memo code
   // blocks (Python/JS/Java) carry the `memo` identifier.
   expect(
-    await page.locator('pre.astro-code', { hasText: 'memo' }).count(),
+    await page.locator('pre.shiki', { hasText: 'memo' }).count(),
   ).toBeGreaterThanOrEqual(2);
   // The tabulation recurrence identifier survives in its own block.
   await expect(
-    page.locator('pre.astro-code', { hasText: 'dp[i - 1]' }).first(),
+    page.locator('pre.shiki', { hasText: 'dp[i - 1]' }).first(),
   ).toBeVisible();
 });
 
@@ -141,7 +141,7 @@ test('complexity table renders O(n) time and O(n) space', async ({ page }) => {
 // also enforce zero serious except the one KNOWN, TRACKED Shiki code-comment
 // contrast debt (same carve-out as m4-lessons.spec.ts — lives only inside code
 // blocks, never in a renderer or page chrome).
-const CODE_BLOCK_TARGET = /astro-code|data-language|\.line/;
+const CODE_BLOCK_TARGET = /\.shiki\b|data-language|\.line/;
 
 for (const theme of ['light', 'dark'] as const) {
   test(`axe: DP lesson (${theme} theme) — no critical, no serious outside code-comment debt`, async ({

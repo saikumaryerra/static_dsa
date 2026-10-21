@@ -238,7 +238,7 @@ async function codeInk(
   page: Page,
 ): Promise<{ base: string; background: string; inks: string[] }> {
   return page
-    .locator('.astro-code')
+    .locator('.shiki')
     .first()
     .evaluate((pre) => {
       const style = getComputedStyle(pre);

@@ -121,7 +121,7 @@ describe('the prose pass', () => {
       `${FRONTMATTER}\n\`\`\`yaml\nkind: Pod\n\`\`\`\n`,
     );
     const pre = /<pre([^>]*)>/.exec(html)?.[1] ?? '';
-    // EXACTLY `md-code`: Shiki's `astro-code` class is overwritten by the
+    // EXACTLY `md-code`: Shiki's own `shiki` class is overwritten by the
     // prose pass's `className` — the pre-existing defect plan §1 records and
     // the migration reproduces for parity.
     expect(pre).toMatch(/ class="md-code"/);
