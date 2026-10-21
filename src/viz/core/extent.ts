@@ -1,8 +1,9 @@
 /**
  * Trace → one drawing box (site spec §11.2, Plan A §3).
  *
- * Imported by BOTH the Visualizer's Astro frontmatter (build time) and its
- * island script (every custom run), so it lives in `core/` and imports nothing
+ * Imported by the Visualizer island (`src/viz/VisualizerIsland.tsx`), whose
+ * code runs BOTH at build time (the server render) and in the browser on every
+ * custom run, so it lives in `core/` and imports nothing
  * but types — a renderer-specific home would drag a renderer into every page.
  * Pure and `measure`-injected, so the node-only Vitest harness tests it whole.
  */

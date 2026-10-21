@@ -161,7 +161,7 @@
 /* ---- Markdown prose artifacts (course expansion, decision D-09) ---- */
 
 /* A fenced code block. `md-code` is added by the rehype pass in
-   astro.config.mjs and can ONLY be on a real markdown fence — `<CodeTabs>`'
+   src/mdx/rehype-lesson-prose.ts and can ONLY be on a real markdown fence — `<CodeTabs>`'
    `<pre>` never passes through rehype — so this rule and the one inside that
    component cannot fight. The recipe is deliberately the same as CodeTabs':
    one code block should not look like two things on one site.

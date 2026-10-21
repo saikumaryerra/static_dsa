@@ -9,8 +9,8 @@
  *
  * It is deliberately pure — no DOM, no imports beyond `core/types` — so the
  * harness's `environment: 'node'` can unit-test it (`tests/unit/ledger.test.ts`),
- * which is the whole reason the derivation lives here rather than inside
- * `Visualizer.astro`, and why the same function can build the server-rendered
+ * which is the whole reason the derivation lives here rather than inside the
+ * Visualizer component, and why the same function can build the server-rendered
  * table and the island's rebuild after a custom run.
  *
  * TWO PROVENANCE RULES, enforced by those tests rather than by review, because
@@ -255,8 +255,9 @@ export interface LedgerLayout {
 /**
  * The per-COLUMN presentation facts both renderers need.
  *
- * Two of them draw this table — `Ledger.astro` at build time and the island's
- * rebuild after a custom run — and they have to agree, so the rule lives here
+ * The table is drawn at build time (the server render of `Ledger.tsx`) and
+ * again in the browser after a custom run (the same component in the island;
+ * under Astro these were two separate implementations) — and they have to agree, so the rule lives here
  * once rather than in each of them. A column is numeric only when EVERY one of
  * its cells is: deciding it per cell makes alignment flicker down a column whose
  * value is absent on the first rows (see {@link LedgerColumn.numeric}), and a

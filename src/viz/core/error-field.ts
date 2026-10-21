@@ -4,8 +4,9 @@
  * `parseInput` returns a plain message string and nothing else — giving it a
  * field discriminator would change the contract in all 22 algorithm files — so
  * the Visualizer island reads the prose to decide which field to mark
- * `aria-invalid` and move focus to. This lives outside the `.astro` `<script>`
- * because everything in there is unreachable from Vitest; the heuristic is the
+ * `aria-invalid` and move focus to. This lives outside the island component
+ * (it lived outside the legacy `.astro` `<script>` for the same reason) because
+ * the island's behaviour is unreachable from Vitest; the heuristic is the
  * one piece of the island that is pure, so it is unit-testable here.
  */
 

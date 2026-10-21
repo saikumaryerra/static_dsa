@@ -1,5 +1,6 @@
 // SPEC-GAP: @types/node was added as a devDependency (types-only, zero runtime
-// bytes) so `astro check` can type `process.env` in this Node-executed config.
+// bytes) so the type gate (`npm run typecheck`, `tsc --noEmit`; it was
+// `astro check`) can type `process.env` in this Node-executed config.
 import { defineConfig, devices } from '@playwright/test';
 import { BASE_URL, DIST, DIST_OVERRIDDEN, PORT } from './tests/e2e/utils/dist';
 
