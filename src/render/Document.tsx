@@ -62,10 +62,10 @@ export interface DocumentProps {
  * theme toggle would be a dead control — hide it (designer spec: no-JS
  * behaviour). `!important`: a noscript kill-switch must be unbeatable by the
  * stylesheet's equal-specificity `.theme-toggle { display: inline-flex }`
- * (QA DEFECT-1). Byte-identical to the legacy head's block.
+ * (QA DEFECT-1). The legacy head's block, its comment reworded at P5.
  */
 const THEME_TOGGLE_NOSCRIPT = `<style>
-        /* !important: this <style> sits in <head> BEFORE Astro's injected
+        /* !important: this <style> sits in <head> BEFORE the site
            stylesheet link, so the bundle's equal-specificity \`.theme-toggle
            { display: inline-flex }\` would otherwise win on source order. A
            noscript kill-switch must be unbeatable (QA DEFECT-1). */

@@ -13,7 +13,7 @@
  * Differences from the original, none visible in output: the walk is the local
  * `walk` (`unist-util-visit` is not a dependency); the file is always MDX here,
  * so the `isMDXFile` branch is constant-folded; the frontmatter comes from
- * `file.data.astro.frontmatter`, which `remark-lesson-body.ts` fills (Astro's
+ * `file.data.lesson.frontmatter`, which `remark-lesson-body.ts` fills (Astro's
  * content layer filled it before); and instead of `export function
  * getHeadings()` the compiled lesson gets `export const headings`.
  */
@@ -44,7 +44,7 @@ export function rehypeHeadingIds(): (
 ) => void {
   return (tree, file) => {
     const headings: MarkdownHeading[] = [];
-    const frontmatter = file.data.astro?.frontmatter;
+    const frontmatter = file.data.lesson?.frontmatter;
     const slugger = new GithubSlugger();
     walk(tree, (node) => {
       if (!isElement(node)) return;
@@ -88,8 +88,8 @@ export function rehypeHeadingIds(): (
       }
       headings.push({ depth, slug: node.properties.id as string, text });
     });
-    file.data.astro ??= {};
-    file.data.astro.headings = headings;
+    file.data.lesson ??= {};
+    file.data.lesson.headings = headings;
     (tree.children ??= []).unshift(exportConst('headings', headings));
   };
 }

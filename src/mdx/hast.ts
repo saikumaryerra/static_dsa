@@ -50,7 +50,7 @@ export interface LessonVFile {
   history: string[];
   path?: string;
   data: {
-    astro?: {
+    lesson?: {
       frontmatter?: Record<string, unknown>;
       headings?: MarkdownHeading[];
     };

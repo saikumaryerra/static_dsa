@@ -13,7 +13,7 @@
  * `getEntryInfo`. (TOML frontmatter is not supported: no lesson uses it, and
  * CONTENT_STYLE.md specifies YAML.)
  *
- * The parsed frontmatter is also stored on `file.data.astro.frontmatter`, where
+ * The parsed frontmatter is also stored on `file.data.lesson.frontmatter`, where
  * `rehype-heading-ids.ts` reads it to resolve `{frontmatter.x}` inside a heading
  * the way Astro did. The exported `frontmatter` VALUE comes from
  * `remark-mdx-frontmatter`, not from here.
@@ -49,8 +49,8 @@ export function remarkLessonBody(): (
     const source = String(file.value);
     const rawFrontmatter = frontmatterRE.exec(source)?.[1];
     const parsed: unknown = rawFrontmatter == null ? {} : parse(rawFrontmatter);
-    file.data.astro ??= {};
-    file.data.astro.frontmatter =
+    file.data.lesson ??= {};
+    file.data.lesson.frontmatter =
       parsed && typeof parsed === 'object'
         ? (parsed as Record<string, unknown>)
         : {};
