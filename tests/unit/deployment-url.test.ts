@@ -26,7 +26,7 @@ import { deploymentUrl } from '../../src/lib/deployment-url';
 /** The three deployment shapes R1/R3 promise to support. */
 const ROOT = 'https://learndsa.dev';
 const SUBPATH = 'https://sample.com/learndsa';
-/** The e2e sub-path fixture's shape: a port and two path segments. */
+/** The retired e2e sub-path fixture's shape: a port and two path segments. */
 const NESTED = 'http://localhost:4322/deployments/learndsa';
 
 describe('deploymentUrl — the sub-path (requirement R3)', () => {
