@@ -44,12 +44,6 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      // The sub-path `portable` project and its :4322 server are retired with
-      // the portable artifact (react-migration D-01): the site deploys at one
-      // origin. The spec file itself is deleted in migration phase P4 together
-      // with `scripts/portablize.mjs`; until then it is ignored here so this
-      // root-deployment project does not pick it up.
-      testIgnore: /portable\.spec\.ts/,
     },
   ],
   webServer: {
