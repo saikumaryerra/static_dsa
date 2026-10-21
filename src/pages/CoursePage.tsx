@@ -1,15 +1,20 @@
 /**
- * A course page `/learn/{course}/` — P1 STUB (React migration, plan §5 P1
- * step 6): the real head and the course title as `<h1>`. One component serves
- * all three courses (the route table passes the id); the body arrives with the
- * port of `CourseIndex.astro` (WS-C, P3).
+ * Course page — `/learn/{course}/` (course expansion, decision D-05), ported
+ * from `src/pages/learn/{dsa,kubernetes,system-design}.astro` (React
+ * migration P3): one component for the three routes `src/routes.tsx` lists.
+ *
+ * A few lines of page and one shared component. Course pages share
+ * `/learn/{…}/` with the lessons, so `checkCollection()` fails the build if a
+ * lesson ever takes a course's slug, and the two cannot collide silently.
  */
 import type { JSX } from 'react';
+import CourseIndex from '../components/CourseIndex';
+import { getLessons } from '../content/lessons';
 import BaseLayout from '../layouts/BaseLayout';
 import { COURSE_COPY, coursePath, type CourseId } from '../lib/courses';
 
 /**
- * One course page (stub).
+ * One course page.
  *
  * @param props - The course id.
  * @returns The page body.
@@ -26,7 +31,7 @@ export default function CoursePage({
       canonicalPath={coursePath(course)}
       description={copy.description}
     >
-      <h1>{copy.title}</h1>
+      <CourseIndex course={course} lessons={getLessons()} />
     </BaseLayout>
   );
 }

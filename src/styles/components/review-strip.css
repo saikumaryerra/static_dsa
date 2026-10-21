@@ -1,0 +1,102 @@
+/* Sits between the page head and the first track section, closer to the head
+   than the tracks are to each other: it belongs to the page's opening, not to
+   Foundations. */
+.review-strip {
+  margin-top: var(--space-8);
+}
+
+/* Deliberately quieter than the track h2s below it (--text-2xl/bold): an
+   invitation should not out-shout the curriculum. */
+.review-strip__heading {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-normal);
+}
+
+.review-strip__note {
+  max-width: var(--measure);
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Capped at the prose measure rather than stretched across the 3-column
+   lesson grid: two cards spanning the full width would read as the page's
+   main event, which they are not. */
+.review-strip__list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  max-width: var(--measure);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .review-strip__list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Layout only — the fill, border, radius, shadow and every state come from
+   `.track-card`. Padding is denser than that recipe's --space-6 for the same
+   reason `.lesson-card` overrides it: these are small cards. */
+.review-strip__card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-4);
+}
+
+.review-strip__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.review-strip__lesson {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+/* States the size of the ask, in the muted role the estimate takes on a
+   lesson card. It is an estimate, never a timer: nothing here counts down. */
+.review-strip__check {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* The same "this card is a link" convention the lesson and track cards use. */
+.review-strip__arrow {
+  margin-left: auto;
+  color: var(--brand);
+}
+
+/* The reader's own earlier words, under the card they belong to: the lesson
+   body's blockquote idiom (a left keyline, muted, small), so it reads as a
+   quotation rather than as something this page is telling them. Clamped to
+   three lines — the whole note is one tap away in the box that wrote it, and a
+   280-character wall would out-weigh the invitation it sits under. */
+.review-strip__wrote {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* On paper the page is a curriculum listing; a device-local invitation to
+   come back has no meaning there (the same reason `.whats-next` is dropped). */
+@media print {
+  .review-strip {
+    display: none;
+  }
+}

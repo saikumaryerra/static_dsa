@@ -1,0 +1,295 @@
+/* ---- Shared section rhythm ----
+   One vertical scale for the whole page, so the gaps between sections read as
+   a system rather than as four independent decisions. */
+.promises,
+.curriculum,
+.candour,
+.close {
+  margin-top: var(--space-20);
+}
+
+@media (min-width: 768px) {
+  .promises,
+  .curriculum,
+  .candour,
+  .close {
+    margin-top: var(--space-24);
+  }
+}
+
+.section-heading {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ---- Hero ---- */
+.hero {
+  display: grid;
+  gap: var(--space-10);
+  padding-block: var(--space-12) 0;
+}
+
+/* Two columns only where the instrument still has room to be legible. Below
+   1024px it stacks under the CTA row, separated by the ordinary grid gap
+   rather than any extra hero padding — the mobile hero must not regrow a dead
+   band (M7.1 RSP-6). `start` so the copy sits at the top of a tall
+   instrument instead of floating in the middle of it. */
+@media (min-width: 1024px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+    /* Centred, not `start`: the instrument is roughly twice the height of the
+       copy, and top-aligning left a 350px hole under the CTA row that read as
+       an unfinished column rather than as breathing room. */
+    align-items: center;
+    gap: var(--space-12);
+    padding-block: var(--space-16) 0;
+  }
+}
+
+@media (min-width: 1280px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
+  }
+}
+
+/* The one display-tier heading on the site (M7.3): --text-5xl, --weight-heavy
+   and --tracking-tighter are a set, and no other page may use them. Capped at
+   18ch so the rag breaks where the meaning does. */
+.hero__title {
+  max-width: 18ch;
+  font-size: var(--text-5xl);
+  font-weight: var(--weight-heavy);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tighter);
+  text-wrap: balance;
+}
+
+.hero__lede {
+  margin-top: var(--space-5);
+  max-width: 46ch;
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-8);
+}
+
+.hero__secondary {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--weight-medium);
+  color: var(--brand);
+}
+
+.hero__secondary:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.hero__resume {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.hero__resume-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--weight-medium);
+  color: var(--brand);
+}
+
+.hero__resume-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The instrument's own full-bleed negative margin (RSP-2) is right inside a
+   lesson's reading column and wrong here, where the hero column already has
+   the page gutter. Cancel it at the widths where the hero is one column; the
+   `.viz` rule restores its own margins from 768px up anyway. */
+.hero__stage .viz {
+  margin-block-start: 0;
+}
+
+.hero__stage-note {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.hero__stage-note a {
+  color: var(--brand);
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- What a lesson does ---- */
+.promises__grid {
+  display: grid;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+@media (min-width: 768px) {
+  .promises__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-10);
+  }
+}
+
+.promise__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.promise__body {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Curriculum ---- */
+.curriculum__intro {
+  margin-top: var(--space-3);
+  max-width: 60ch;
+  color: var(--text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.curriculum__courses {
+  display: grid;
+  gap: var(--space-10);
+  margin-top: var(--space-8);
+}
+
+@media (min-width: 900px) {
+  .curriculum__courses {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-12);
+    align-items: start;
+  }
+}
+
+.course-block__title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.course-block__title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.course-block__meta {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.course-block__list {
+  margin-top: var(--space-4);
+  list-style: none;
+  padding: 0;
+  /* A hairline between rows rather than a card each: fifteen cards would make
+     the curriculum look like a shop, and the list is already a list. */
+  border-top: 1px solid var(--border);
+}
+
+.course-block__list li {
+  border-bottom: 1px solid var(--border);
+}
+
+/* The whole row is the target, and it clears 44px (WCAG 2.5.5) without a
+   card's worth of padding. Grid rather than flex so the numbers, the names
+   and the minutes each hold their own column across every row. */
+.course-block__item {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding-block: var(--space-2);
+  color: var(--text);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* Fill AND underline, never colour alone: the achromatic chrome leaves the
+   fill move nearly invisible on its own (M7.3), so hover carries two signals
+   exactly as `.btn-secondary` and the collapsed disclosure rows do. */
+.course-block__item:hover {
+  background-color: var(--brand-soft);
+}
+
+.course-block__item:hover .course-block__name {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.course-block__num {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  padding-inline-start: var(--space-2);
+}
+
+.course-block__mins {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  padding-inline-end: var(--space-2);
+}
+
+/* ---- Candour ---- */
+.candour__list {
+  display: grid;
+  gap: var(--space-6);
+  margin-top: var(--space-8);
+}
+
+@media (min-width: 768px) {
+  .candour__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-8) var(--space-12);
+  }
+}
+
+.candour__list dt {
+  font-weight: var(--weight-semibold);
+}
+
+.candour__list dd {
+  margin-top: var(--space-1);
+  max-width: 46ch;
+  color: var(--text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+/* ---- Close ---- */
+.close {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding-top: var(--space-12);
+  border-top: 1px solid var(--border);
+}
+
+.close__title {
+  max-width: 22ch;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-tight);
+}

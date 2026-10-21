@@ -1,7 +1,8 @@
----
 /**
  * CourseCard — one course on the `/learn` catalogue (course expansion,
  * `docs/courses/SPEC.md` §6, decision D-05).
+ * Ported from `CourseCard.astro` (React migration P3); CSS in
+ * `src/styles/components/course-card.css`.
  *
  * Props:
  * - `course` the course id; every string on the card comes from
@@ -35,95 +36,62 @@
  * levels. Like every M8 surface it ships empty, holds its own height, and
  * removes itself with JS off through its own kill-switch.
  */
-import TrackArc from './TrackArc.astro';
+import type { JSX } from 'react';
 import { COURSE_COPY, coursePath, type CourseId } from '../lib/courses';
+import TrackArc from './TrackArc';
 
-interface Props {
+/** Props of `CourseCard`. */
+export interface CourseCardProps {
   course: CourseId;
   lessonCount: number;
   moduleCount: number;
   totalMinutes: number;
 }
 
-const { course, lessonCount, moduleCount, totalMinutes } = Astro.props;
-const copy = COURSE_COPY[course];
-
 /** `2 modules` / `1 module` — a card that says "1 modules" reads as unfinished. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * The meta line, assembled here rather than in the markup. Interleaving text and
- * `<span>` separators in JSX collapses the whitespace around them unpredictably
- * ("15 lessons ·2 modules"), and one joined string cannot get that wrong.
- * Minutes are rounded to the nearest five, like the home page's totals.
+ * One course on the catalogue.
+ *
+ * @param props - See `CourseCardProps`.
+ * @returns The card link.
  */
-const meta = [
-  plural(lessonCount, 'lesson'),
-  plural(moduleCount, 'module'),
-  `~${Math.round(totalMinutes / 5) * 5} min`,
-  copy.difficulty,
-].join(' · ');
----
+export default function CourseCard({
+  course,
+  lessonCount,
+  moduleCount,
+  totalMinutes,
+}: CourseCardProps): JSX.Element {
+  const copy = COURSE_COPY[course];
 
-<a
-  href={coursePath(course)}
-  class="track-card course-card"
-  data-course-card
-  data-course={course}
->
-  <span class="course-card__title">{copy.title}</span>
-  <span class="course-card__blurb">{copy.blurb}</span>
-  <span class="course-card__meta">{meta}</span>
+  // The meta line, assembled here rather than in the markup. Interleaving text
+  // and `<span>` separators collapses the whitespace around them unpredictably
+  // ("15 lessons ·2 modules"), and one joined string cannot get that wrong.
+  // Minutes are rounded to the nearest five, like the home page's totals.
+  const meta = [
+    plural(lessonCount, 'lesson'),
+    plural(moduleCount, 'module'),
+    `~${Math.round(totalMinutes / 5) * 5} min`,
+    copy.difficulty,
+  ].join(' · ');
 
-  <TrackArc track={course} />
+  return (
+    <a
+      href={coursePath(course)}
+      className="track-card course-card"
+      data-course-card=""
+      data-course={course}
+    >
+      <span className="course-card__title">{copy.title}</span>
+      <span className="course-card__blurb">{copy.blurb}</span>
+      <span className="course-card__meta">{meta}</span>
 
-  <span class="course-card__cta">
-    Open the course <span aria-hidden="true">→</span>
-  </span>
-</a>
+      <TrackArc track={course} />
 
-<style>
-  /* `.track-card` (global.css) owns the level-1 elevation and its five states;
-     this file adds only the internal layout, so the card cannot drift from the
-     lesson cards and the prev/next card that compose the same class. */
-  .course-card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .course-card__title {
-    font-size: var(--text-lg);
-    font-weight: var(--weight-semibold);
-    line-height: var(--leading-snug);
-    color: var(--text);
-    text-wrap: balance;
-  }
-
-  .course-card__blurb {
-    font-size: var(--text-sm);
-    line-height: var(--leading-normal);
-    color: var(--text-muted);
-  }
-
-  .course-card__meta {
-    font-size: var(--text-sm);
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* The arc pushes the CTA to the bottom of the tallest card in the row, so the
-     three "Open the course" lines sit on one baseline however long the titles
-     are. `margin-block-start: auto` on the CTA does the rest. */
-  .course-card :global(.track-arc) {
-    margin-block-start: var(--space-1);
-  }
-
-  .course-card__cta {
-    margin-block-start: auto;
-    padding-block-start: var(--space-2);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    color: var(--text);
-  }
-</style>
+      <span className="course-card__cta">
+        Open the course <span aria-hidden="true">→</span>
+      </span>
+    </a>
+  );
+}
