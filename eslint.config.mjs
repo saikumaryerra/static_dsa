@@ -1,10 +1,7 @@
-// ESLint flat config: JS recommended + typescript-eslint + React hooks + Astro
-// plugin. Astro components are linted via astro-eslint-parser (pulled in by the
-// plugin), which stays until the last `.astro` file is ported (React migration P3).
+// ESLint flat config: JS recommended + typescript-eslint + React hooks.
 import { defineConfig } from 'eslint/config';
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
-import astro from 'eslint-plugin-astro';
 // eslint-plugin-react-hooks: rules-of-hooks and exhaustive-deps — the
 // stale-closure guard for the islands' player timers (React migration D-15).
 import reactHooks from 'eslint-plugin-react-hooks';
@@ -14,7 +11,6 @@ export default defineConfig(
     // Never lint build output, generated types, or third-party/tooling artifacts.
     ignores: [
       'dist/',
-      '.astro/',
       'node_modules/',
       'playwright-report/',
       'test-results/',
@@ -31,7 +27,6 @@ export default defineConfig(
   },
   js.configs.recommended,
   tseslint.configs.recommended,
-  astro.configs['flat/recommended'],
   {
     files: ['**/*.tsx'],
     ...reactHooks.configs.flat.recommended,
@@ -49,16 +44,9 @@ export default defineConfig(
     // `var` + an intentionally empty `catch (e)`), so these two rules are relaxed
     // for the file that holds it rather than editing the mandated script. It
     // lives in `src/render/pre-paint.inline.js` (inlined by `Document.tsx` via
-    // `?raw`); the BaseLayout globs cover the legacy layout until WS-C ports it
-    // (the second matches the virtual files the Astro plugin creates for
-    // inline <script> blocks).
-    files: [
-      'src/render/pre-paint.inline.js',
-      '**/BaseLayout.astro',
-      '**/BaseLayout.astro/*.{js,ts}',
-    ],
-    // A plain browser script (not a module): name the three globals it reads,
-    // which an Astro <script> got from the plugin's browser environment.
+    // `?raw`).
+    files: ['src/render/pre-paint.inline.js'],
+    // A plain browser script (not a module): name the three globals it reads.
     languageOptions: {
       globals: {
         localStorage: 'readonly',
