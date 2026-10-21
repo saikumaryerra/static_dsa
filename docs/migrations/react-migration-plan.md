@@ -785,3 +785,58 @@ accepts with that reason after P5.
 5. `scripts/migration/` and `docs/migrations/parity-exceptions/` stay until the branch merges.
 6. **Pre-existing fence dark-theme defect (§1):** reproduced for parity, reported as a follow-up,
    not fixed inside the migration.
+
+---
+
+## 13. Outcome (measured 2026-10-21, `feat/react-migration` @ `8b10aac`)
+
+**Status: complete on the branch; not merged, not deployed.** No `.astro` source remains, `npm ls
+astro` is empty, and every gate below ran on the final tree.
+
+| Gate | Command | Result |
+|---|---|---|
+| Install | `npm ci` | exit 0 |
+| Types | `npm run typecheck` (also inside `build`) | 0 errors |
+| Lint / format | `npm run lint`; `npm run format:check` | clean / clean |
+| Unit | `npm run test` | 68 files, 1,098 tests passed (65 / 1,126 before: −`portablize`, −`rehost`; +`site-url`, `mdx-pipeline`, `content-loader`, `island-ssr`, `viz-session`) |
+| Content | `npm run validate:content -- --strict` | 127 lessons clean, 5 accepted notes (unchanged) |
+| Build | `npm run build` | exit 0 in 175 s (legacy 393 s); `verify-dist`: 136 pages, every internal URL resolves |
+| Content/route parity | `inventory.mjs --compare … --allow parity-exceptions/final.json` | **0 drift**; 128 accepted: 127 × `lesson.bodySha` (the import codemod) + `file:_headers` (`/_astro/*` → `/assets/*`). `proseHash`, `bodyHash`, `mainHash`, headings, links, titles, canonicals, JSON-LD, sitemap and robots identical on all 136 routes. Final inventory: `react-migration-inventory.final.json` |
+| Style parity | `style-parity.mjs dist` (38 pages × 2 viewports × 2 themes) | no visible difference; the residue is accounted for in `css-scope-audit.md` |
+| e2e (pinned container, `CI=1 VISUAL_BASELINE=1`) | `npx playwright test` | **501 passed, 4 flaky, 12 failed** in 47.9 min (legacy, same host: 481 / 2 / 20). All 12 are timeouts — 8 axe `page.evaluate` 30 s, 4 `toHaveScreenshot` 5 s captures on the two tallest pages — the same signature as the legacy run; **all 33 axe/pixel tests pass** when re-run with longer timeouts (throwaway config, not committed). The two fixes made after that run (idle deadline, trials-walk timeout) were re-verified: Trials/Final Run, hydration and JS budget 41/41 |
+| Pixel baselines | `baseline-visual.spec.ts` | **all 14 pass against the unchanged legacy PNGs** — nothing re-seeded |
+| ARIA baselines | `baseline-aria.spec.ts` | pass; the only edit is 153 `/url` lines going relative → root-absolute (D-01), every other line byte-identical |
+
+**JS, gzip -9 (`js-budget.spec.ts`).** EAGER legacy → React; FULL = eager + everything the page's
+islands load on activation (the new gate, D-06).
+
+| Page | Legacy EAGER | React EAGER | React FULL |
+|---|---:|---:|---:|
+| `/learn/sorting-basics/` | 20.4 KB | 11.4 KB | 100.0 KB (worst page, 83 % of 120) |
+| `/learn/binary-search/` | 21.1 KB | 12.0 KB | 99.2 KB |
+| `/` | 13.3 KB | 6.7 KB | 89.7 KB |
+| `/about/` | 9.9 KB | 3.5 KB | 86.5 KB |
+| `/learn/k8s-services/` (prose) | 8.5 KB | 10.6 KB | 10.6 KB (no React) |
+| `/learn/` | 7.2 KB | 9.2 KB | 9.2 KB |
+| `/learn/dsa/` | 5.6 KB | 7.7 KB | 7.7 KB |
+| `/glossary/` | 1.3 KB | 1.3 KB | 1.3 KB |
+| `/404.html` | 0.7 KB | 0.7 KB | 0.7 KB |
+
+React's runtime (`react-dom/client`, 62.7 KB gz) is the bulk of FULL on instrument pages and is
+never fetched by the 112 prose lessons, the catalogue, course pages or glossary. Pages without
+islands carry ~2 KB more eager JS than before (module chunking differs from Astro's hoisted
+scripts) — measured, inside budget, noted as a follow-up rather than tuned during parity work.
+**CSS:** one stylesheet, 94 KB raw / 15.6 KB gz, on every page (legacy: 8 per-page bundles,
+18.1 KB gz in total, a subset per page — the glossary and 404 now load more CSS than before;
+D-10's accepted cost).
+
+**Deviations from this plan, as executed:** Explain-it-back is a module (R-min′, §12). The Final Run
+and Trace Trials islands activate on idle with a 1 s deadline — the plan's `visible` trigger for
+the Final Run left its field disabled until scrolled into view, a real regression the full e2e run
+caught. Shiki's per-line `tokenizeTimeLimit` is disabled for deterministic builds. The validator's
+diagram rule moved to `.tsx` in P3 (with the diagram ports) rather than P5. Five curriculum-walk
+timeouts are now derived from the lesson count (the legacy constants timed out on this host too).
+
+**Open follow-ups (not regressions):** the pre-existing fence dark-theme defect (§1); the ~2 KB
+eager increase on island-free pages; one shared stylesheet versus per-page CSS; the long axe scans
+and tall-page captures need either a quieter CI host or explicit per-test timeouts.
