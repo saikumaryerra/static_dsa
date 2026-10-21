@@ -110,7 +110,12 @@ export const islandRegistry: Record<string, IslandEntry> = {
     },
   },
   'final-run': {
-    trigger: 'visible',
+    // Idle, not visible: the legacy card enabled its field on page load, so a
+    // reader who reaches it without scrolling it into view — find-in-page, a
+    // `#practice` deep link landing just above it, Tab from the last Practice
+    // answer — found a live field, never a disabled one waiting on an
+    // IntersectionObserver. The chunk is in the page's FULL budget either way.
+    trigger: 'idle',
     async load(_container, props) {
       const island = await import('../components/FinalRunIsland');
       return { component: island.default as unknown as AnyIsland, props };
