@@ -5,7 +5,7 @@
  * or a companion token an array instrument already accepts.
  *
  * Pure `(string, string, string) → string`, which is why it is testable here at
- * all: the composition it replaces lives inside `Visualizer.astro`'s `<script>`,
+ * all: the composition it replaces lives inside `VisualizerIsland.tsx`,
  * and nothing in there is reachable from the `environment: 'node'` harness. The
  * DOM half — that the island actually calls this with the AUTHORED first field
  * — is asserted in `tests/e2e/plan-a-frames.spec.ts`.

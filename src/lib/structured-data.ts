@@ -7,7 +7,7 @@
  * to contain "</script>" can never break out of the inline script (XSS-safe
  * embedding, arch §3.1). Kept side-effect-free so they are trivially unit-testable.
  */
-import type { CollectionEntry } from 'astro:content';
+import type { LessonData } from '../content/schema';
 import { deploymentUrl } from './deployment-url';
 
 /**
@@ -29,20 +29,26 @@ function serializeJsonLd(data: unknown): string {
  * Omits `hasCourseInstance` deliberately — a free, static, self-paced lesson has
  * no schedule or instructor (arch §3.1 SPEC-GAP); the shape stays valid schema.org.
  *
- * @param entry   - The published lesson collection entry.
- * @param siteUrl - The full deployment URL (from `Astro.site`), sub-path
- *                  included, used to build the canonical course URL and the
- *                  provider URL.
+ * @param entry   - The published lesson (a `LessonEntry`; only the five
+ *                  `data` fields the block declares are read).
+ * @param siteUrl - The deployment URL (`resolveSiteUrl()`,
+ *                  src/render/site-url.ts — one origin since D-01), used to
+ *                  build the canonical course URL and the provider URL.
  * @returns An inline-safe JSON-LD string describing the lesson as a `Course`.
  */
 export function courseJsonLd(
-  entry: CollectionEntry<'lessons'>,
+  entry: {
+    data: Pick<
+      LessonData,
+      'title' | 'slug' | 'summary' | 'difficulty' | 'tags'
+    >;
+  },
   siteUrl: string | URL,
 ): string {
-  // D3: both joins go through `deploymentUrl`. `.origin` and `new URL(path,
-  // base)` each DROP a deployment sub-path, so under `sample.com/learndsa` this
-  // block used to declare `sample.com/learn/<slug>/` — a page that host does not
-  // serve — and name the provider at a site root that is not this site's.
+  // D3: both joins go through `deploymentUrl`, the one builder of declared
+  // URLs, so the JSON-LD `url` normalizes exactly as the canonical does. (It
+  // was introduced because `.origin` and `new URL(path, base)` drop a
+  // deployment sub-path; the site has deployed at one origin since D-01.)
   const home = deploymentUrl(siteUrl, '/');
   const url = deploymentUrl(siteUrl, `/learn/${entry.data.slug}/`);
 
@@ -67,7 +73,7 @@ export function courseJsonLd(
 /**
  * Build the optional site-level `WebSite` JSON-LD for the home page (arch §3.3).
  *
- * @param siteUrl - The full deployment URL (from `Astro.site`), sub-path included.
+ * @param siteUrl - The deployment URL (`resolveSiteUrl()`, src/render/site-url.ts).
  * @returns An inline-safe JSON-LD string describing the site as a `WebSite`.
  */
 export function webSiteJsonLd(siteUrl: string | URL): string {

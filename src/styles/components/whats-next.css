@@ -1,0 +1,23 @@
+.whats-next {
+  margin-block: var(--space-8) var(--space-16);
+}
+
+/* An h2 for the document outline, but sized below the lesson's section
+   headings: this closes the page, it does not open another section. It is
+   also a legitimate anchor target (#whats-next), so it clears the sticky
+   chrome the same way the body headings do. */
+.whats-next__heading {
+  font-size: var(--text-xl);
+  margin-bottom: var(--space-4);
+  scroll-margin-top: calc(var(--header-h) + var(--toc-bar-h) + var(--space-2));
+}
+
+@media (min-width: 1024px) {
+  .whats-next__heading {
+    scroll-margin-top: calc(var(--header-h) + var(--space-6));
+  }
+}
+
+.whats-next__nav {
+  margin-top: var(--space-6);
+}

@@ -3,7 +3,7 @@
    color, size, or duration.
 
    SPEC-GAP: the designer handoff assumed Tailwind v3 and a `tailwind.config.ts`.
-   Current Astro integrates Tailwind v4 (CSS-first, via @tailwindcss/vite), which has
+   The build integrates Tailwind v4 (CSS-first, via @tailwindcss/vite), which has
    no JS config file; the handoff's theme-extension table is translated 1:1 into the
    `@theme` block below, still referencing the tokens.css variables. Utility names are
    unchanged (bg-bg, text-muted, rounded-control, shadow-1, max-w-container, ...). */
@@ -172,8 +172,8 @@
    inherits it for free by setting `aria-invalid="true"`.
 
    Unlayered and `!important` on purpose: a control's resting border comes from
-   its component's SCOPED style, whose generated `.viz-field input[data-astro-cid-…]`
-   specificity beats any selector this file can write, and an error keyline must
+   its component's style, which under Astro was SCOPED (`.viz-field
+   input[data-astro-cid-…]`) and outspecified any selector this file can write, and an error keyline must
    never lose to a resting style (same unbeatable-rule rationale as the noscript
    kill-switches). Colour is NOT the only signal: `aria-invalid` names the state
    for assistive tech, the inset ring doubles the keyline's apparent thickness
@@ -186,7 +186,10 @@
 }
 
 /* ---------- Shiki dual-theme wiring (spec §12/§13 AA) ----------
-   Astro's dual-theme Shiki (astro.config.mjs + CodeTabs' <Code themes>) renders
+   The dual-theme Shiki highlighter (src/lib/highlight.ts, shared by markdown
+   fences and CodeTabs; vendored from Astro's, decision D-07 — though markdown
+   fences lose the `shiki` class to the prose pass, the pre-existing defect the
+   migration plan §1 records) renders
    the LIGHT theme inline and stashes the dark theme in `--shiki-dark*` CSS vars.
    Bind those vars to THIS site's theme mechanism so code flips with the toggle:
    the explicit [data-theme="dark"] (set by BaseLayout/ThemeToggle) and, for the
@@ -212,8 +215,8 @@
    is true on a LIGHT screen and would unbind dark there). A positive media type
    composes with the colour-scheme query and leaves nothing to get wrong. */
 @media screen {
-  [data-theme='dark'] .astro-code,
-  [data-theme='dark'] .astro-code span {
+  [data-theme='dark'] .shiki,
+  [data-theme='dark'] .shiki span {
     color: var(--shiki-dark) !important;
     background-color: var(--shiki-dark-bg) !important;
     font-style: var(--shiki-dark-font-style) !important;
@@ -223,8 +226,8 @@
 }
 
 @media screen and (prefers-color-scheme: dark) {
-  :root:not([data-theme]) .astro-code,
-  :root:not([data-theme]) .astro-code span {
+  :root:not([data-theme]) .shiki,
+  :root:not([data-theme]) .shiki span {
     color: var(--shiki-dark) !important;
     background-color: var(--shiki-dark-bg) !important;
     font-style: var(--shiki-dark-font-style) !important;
@@ -569,8 +572,8 @@
      inside `@media print`: Shiki's colours are inline style attributes, not
      tokens, and the dark theme is bound through `--shiki-dark*` with
      `!important`, which beats those inline LIGHT values. A rule here could
-     out-important that binding, but it would have nothing to put back — Astro
-     emits no `--shiki-light` variable to re-assert. So the binding is declared
+     out-important that binding, but it would have nothing to put back — the
+     highlighter emits no `--shiki-light` variable to re-assert. So the binding is declared
      `@media screen` at its own site above and paper falls through to the inline
      github-light colours (#24292E on #FFFFFF = 14.67:1, measured). */
   :root,
@@ -604,9 +607,10 @@
   }
 
   /* 2. CHROME THAT MEANS NOTHING ON PAPER. `!important` throughout: every one of
-     these lives in a component-SCOPED stylesheet whose generated
-     `.viz-controls[data-astro-cid-…]` selector outspecifies anything this file
-     can write — the same unbeatable-rule rationale as the noscript kill-switches.
+     these lived in a component-SCOPED stylesheet under Astro, whose generated
+     `.viz-controls[data-astro-cid-…]` selector outspecified anything this file
+     can write; `!important` keeps these unbeatable whatever the converted
+     selectors weigh — the same unbeatable-rule rationale as the noscript kill-switches.
      `.whats-next` goes wholesale: it holds only the mark-complete button (a
      device-local control) and prev/next (navigation). `.codetabs__copy` is a
      clipboard button sitting on top of the code it would obscure. */

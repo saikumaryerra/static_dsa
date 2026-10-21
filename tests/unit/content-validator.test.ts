@@ -11,6 +11,16 @@
  * executed, not that it can fail.
  */
 import { describe, it, expect } from 'vitest';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -156,5 +166,86 @@ describe('conventionGaps', () => {
     const gaps = conventionGaps(mixed);
     expect(gaps).toHaveLength(6);
     expect(gaps.every((g) => g.includes('system-design'))).toBe(true);
+  });
+});
+
+describe('rule 7: diagram imports after the cutover codemod', () => {
+  /**
+   * The codemod (scripts/migration/codemod-mdx-imports.mjs) rewrote every
+   * lesson import to the extensionless specifier the React build resolves
+   * (`…/diagrams/K8sArchitecture`). The rule must still FIND those imports —
+   * otherwise it would pass every lesson by never checking a diagram — and read
+   * the `.tsx` they name. A throwaway root holds one real diagram lesson and a
+   * diagram component without a caption, so the rule's error proves it parsed
+   * the import; the shipped component proves the happy path.
+   */
+  const LESSON = 'k8s-what-kubernetes-is.mdx';
+
+  /**
+   * A validator root with the real lesson and a chosen diagram source.
+   *
+   * @param diagram - `K8sArchitecture.tsx`'s source in the fixture.
+   * @returns The root path.
+   */
+  function fixtureRoot(diagram: string): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'ldsa-validator-'));
+    mkdirSync(path.join(root, 'src', 'content', 'lessons'), {
+      recursive: true,
+    });
+    mkdirSync(path.join(root, 'src', 'components', 'diagrams'), {
+      recursive: true,
+    });
+    symlinkSync(
+      path.join(ROOT, 'src', 'styles'),
+      path.join(root, 'src', 'styles'),
+    );
+    symlinkSync(path.join(ROOT, 'docs'), path.join(root, 'docs'));
+    copyFileSync(
+      path.join(ROOT, 'src', 'content', 'lessons', LESSON),
+      path.join(root, 'src', 'content', 'lessons', LESSON),
+    );
+    writeFileSync(
+      path.join(root, 'src', 'components', 'diagrams', 'K8sArchitecture.tsx'),
+      diagram,
+    );
+    return root;
+  }
+
+  const diagramErrors = (root: string) =>
+    validateContent(root).errors.filter((e: string) => e.includes('diagram'));
+
+  it('the shipped lesson uses the extensionless specifier', () => {
+    const source = readFileSync(
+      path.join(ROOT, 'src', 'content', 'lessons', LESSON),
+      'utf8',
+    );
+    expect(source).toContain(
+      "import K8sArchitecture from '../../components/diagrams/K8sArchitecture';",
+    );
+  });
+
+  it('reads the .tsx an extensionless import names, and flags a missing caption', () => {
+    const root = fixtureRoot('<Figure title="t" description="d" />');
+    try {
+      expect(diagramErrors(root)).toEqual([
+        'diagrams/K8sArchitecture.tsx: no `caption` — every figure needs an accessible name, description and caption',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes the shipped component', () => {
+    const root = fixtureRoot(
+      readFileSync(
+        path.join(ROOT, 'src', 'components', 'diagrams', 'K8sArchitecture.tsx'),
+        'utf8',
+      ),
+    );
+    try {
+      expect(diagramErrors(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

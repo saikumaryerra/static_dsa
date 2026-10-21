@@ -15,7 +15,7 @@
  * The pairings mirror what the browser paints, not what the token table implies:
  * a highlighted cell is FILLED `color-mix(in srgb, var(--hl-x) 15%, var(--surface))`
  * (18% for the found/insert roles) and STROKED with the raw `--hl-x`, with the
- * cell value drawn in `--text` on top of that mixed fill (`Visualizer.astro`
+ * cell value drawn in `--text` on top of that mixed fill (`visualizer.css`
  * cell + node rules). So the stroke owes 3:1 against its own tint (WCAG 1.4.11
  * non-text contrast) and the value text owes 4.5:1 against it (1.4.3) — never
  * against `--surface`, which is not what is behind them.
@@ -26,7 +26,7 @@
  *     `@media print`, which forces light tokens onto paper (PRN-1). Its own
  *     comment asks for a test pinning it to `:root` "identical in VALUE, not in
  *     bytes" — that is the print-palette describe below.
- *   src/components/DifficultyChip.astro ... which declares NO palette of its
+ *   src/styles/components/difficulty-chip.css ... which declares NO palette of its
  *     own. VD-6's semantic `--chip-*` fills were built and then not shipped
  *     (design review withheld sign-off), so the chip is back to reading
  *     `--text-muted` / `--surface` / `--border` — and the describe near the foot
@@ -264,7 +264,7 @@ const THEME_NAMES = ['light', 'dark'] as const;
 
 /**
  * Highlight roles and the `color-mix()` ratio their cell/node fill uses in
- * `Visualizer.astro`. `is-insert` reuses `--hl-found` at 18% and `is-delete`
+ * `visualizer.css`. `is-insert` reuses `--hl-found` at 18% and `is-delete`
  * reuses `--hl-swap` at 15%, so those two states are covered by these entries.
  */
 const HIGHLIGHT_FILLS: { name: string; ratio: number }[] = [
@@ -354,7 +354,7 @@ const CORE_PAIRS: { fg: string; bg: string; min: number }[] = [
   // It used to be described as holding the strip's hovered LETTER: the strip
   // hovered its label to --brand, and the achromatic repaint made --brand
   // byte-identical to --text, so that half became a no-op and the chip took a
-  // border instead (glossary.astro). The row survives the rewrite because the
+  // border instead (glossary.css). The row survives the rewrite because the
   // hero CTA still draws it — but rows one and three are now the same
   // measurement, and only row one is load-bearing on its own.
   { fg: '--text', bg: '--brand-soft', min: AA_TEXT },
@@ -431,15 +431,42 @@ for (const theme of THEME_NAMES) {
 // M7.3 VD-5 — the one token with no floor at all
 // --------------------------------------------------------------------------
 
-/** Every `.css` and `.astro` file under `src/`, for the source scan below. */
+/**
+ * Every file under `src/` that can carry CSS, for the source scan below:
+ * stylesheets, plus the `.tsx` (and any not-yet-ported `.astro`) files whose
+ * `<style>` blocks survive as markup — the inline `<noscript>` kill-switches.
+ */
 function sourceFiles(dir: string, found: string[] = []): string[] {
   const here = fileURLToPath(new URL(dir, import.meta.url));
   for (const entry of readdirSync(here, { withFileTypes: true })) {
     if (entry.isDirectory()) sourceFiles(`${dir}/${entry.name}`, found);
-    else if (/\.(css|astro)$/.test(entry.name))
+    else if (/\.(css|tsx|astro)$/.test(entry.name))
       found.push(`${dir}/${entry.name}`);
   }
   return found;
+}
+
+/**
+ * How many stylesheets the scan must find, so a broken walk cannot pass as "no
+ * offenders". The legacy tree carried 35 component `<style>` blocks (30 scoped,
+ * 5 `is:global`; BaseLayout's only block was its `<noscript>` kill-switch) plus
+ * `global.css` and `tokens.css`. The React migration moves each block into its
+ * own file under `src/styles/` (plan §2.6, D-10), so at least 37 non-empty
+ * stylesheets must exist — `site.css` (imports only) and files with no legacy
+ * block are not counted.
+ */
+const LEGACY_STYLESHEETS = 37;
+
+/** The CSS a source file contributes: all of a `.css`, only `<style>` blocks elsewhere. */
+function cssOf(file: string): string {
+  const source = stripComments(read(file));
+  // Components carry CSS only inside <style>; one that merely names the token
+  // in prose or in a prop must not register as a use.
+  return file.endsWith('.css')
+    ? source
+    : [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+        .map((match) => match[1])
+        .join('\n');
 }
 
 /**
@@ -496,21 +523,17 @@ describe('tokens.css — --brand-border carries no meaning', () => {
     const offenders: string[] = [];
     const mentions: string[] = [];
     const files = sourceFiles('../../src');
-    // Non-vacuous, twice over: the walk really reached the source tree, and the
-    // token really is findable through it. Without these two lines a broken
-    // path, or a `<style>` extraction that quietly returned nothing, would read
-    // as "no offenders" forever.
-    expect(files.length).toBeGreaterThan(20);
+    // Non-vacuous, twice over: the walk really reached every converted
+    // stylesheet, and the token really is findable through it. Without these
+    // two assertions a broken path, or an extraction that quietly returned
+    // nothing, would read as "no offenders" forever.
+    const stylesheets = files.filter(
+      (file) => file.endsWith('.css') && cssRules(cssOf(file)).length > 0,
+    );
+    expect(stylesheets.length).toBeGreaterThanOrEqual(LEGACY_STYLESHEETS);
 
     for (const file of files) {
-      const source = stripComments(read(file));
-      // `.astro` files carry CSS only inside <style>; a component that merely
-      // named the token in prose must not register as a use.
-      const css = file.endsWith('.astro')
-        ? [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
-            .map((match) => match[1])
-            .join('\n')
-        : source;
+      const css = cssOf(file);
       if (!css.includes('--brand-border')) continue;
       mentions.push(file);
       for (const rule of cssRules(css)) {
@@ -598,10 +621,12 @@ describe('global.css — @media print forces the light palette', () => {
 // M7.3 VD-6 — the difficulty chip, which stayed neutral
 // --------------------------------------------------------------------------
 
-const CHIP_SOURCE = read('../../src/components/DifficultyChip.astro');
-const CHIP_STYLE = /<style>([\s\S]*?)<\/style>/.exec(CHIP_SOURCE)?.[1];
-if (CHIP_STYLE === undefined) {
-  throw new Error('DifficultyChip.astro: no <style> block found');
+// The chip's stylesheet: the legacy `DifficultyChip.astro` `<style>` block,
+// moved into its own file by the React migration (plan §2.6, D-10).
+const CHIP_FILE = 'src/styles/components/difficulty-chip.css';
+const CHIP_STYLE = read(`../../${CHIP_FILE}`);
+if (CHIP_STYLE.trim() === '') {
+  throw new Error(`${CHIP_FILE} is empty — the chip styles were not ported`);
 }
 const CHIP_RULES = cssRules(stripComments(CHIP_STYLE));
 
@@ -609,7 +634,7 @@ const CHIP_RULES = cssRules(stripComments(CHIP_STYLE));
 const CHIP = new Map(
   block(
     CHIP_RULES,
-    'DifficultyChip.astro .difficulty-chip',
+    'difficulty-chip.css .difficulty-chip',
     (rule) =>
       rule.ancestors.length === 0 && rule.prelude === '.difficulty-chip',
   ),

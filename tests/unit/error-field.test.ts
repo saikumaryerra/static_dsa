@@ -35,7 +35,7 @@ const ALGORITHMS_DIR = fileURLToPath(
  * `targetLabel="…"` where it overrides one, the component default `"Target"`
  * where it does not, and `''` for `showTarget={false}` — the empty string is
  * exactly what the island passes, because `data-target-label` is blank when the
- * field is not rendered (`Visualizer.astro`).
+ * field is not rendered (`Visualizer.tsx`).
  */
 const TARGET_LABEL = {
   'array-operations': 'Index',

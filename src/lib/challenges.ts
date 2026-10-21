@@ -15,7 +15,7 @@
  *    the witness guard below be a unit test rather than a hand-broken fixture.
  * 3. **The pinned visualizers** — the input each lesson's `<Visualizer>` is
  *    seeded with and the heading it sits under. ONE description per visualizer,
- *    so that neither the trial guard nor `FinalRun.astro` has to re-derive it by
+ *    so that neither the trial guard nor `FinalRun.tsx` has to re-derive it by
  *    reading the lesson body (`docs/m8-gamification.md`, M8.3).
  *
  * What does NOT live here is the pair of storage keys and the `viz:run` event
@@ -35,7 +35,7 @@
  * - **Award mastery.** Clearing a trial writes `ld:challenges:v1` and nothing
  *   else: `docs/m8-gamification.md` names exactly three Practiced paths (all
  *   practice checks self-graded, a predict session, a cleared Final Run), and a
- *   trial is not one of them. Only `FinalRun.astro` calls `recordPass()`, which
+ *   trial is not one of them. Only `FinalRunIsland.tsx` calls `recordPass()`, which
  *   is where the 3-day Mastered gate lives (M8.1 owns it).
  * - **Keep a score.** There is no attempt count, no clear-rate, no "n of N
  *   collected" (the badge cabinet was killed for being exactly that). A trial is
@@ -359,7 +359,7 @@ export function challengeById(id: string): Challenge | null {
 // fallback for if the inputs stayed inline. Shipping both is the two-sources-of-
 // truth the design set out to avoid, so nothing here is a build-time scan:
 // {@link findVisualizerInput} exists for the drift TEST, and {@link pinnedInput}
-// plus {@link visualizerAnchor} are between them everything `FinalRun.astro`
+// plus {@link visualizerAnchor} are between them everything `FinalRun.tsx`
 // needs to stop matching `<Visualizer>` tags of its own.
 // ---------------------------------------------------------------------------
 
@@ -367,9 +367,10 @@ export function challengeById(id: string): Challenge | null {
  * The input string each lesson's visualizer is pinned to, keyed
  * `{lessonSlug}/{algorithmId}`.
  *
- * WHY THIS EXISTS: `FinalRun.astro` computes its answer at build time from the
- * run the reader can actually watch, and an Astro component cannot read a
- * sibling MDX component's props. Rather than assert agreement after the fact,
+ * WHY THIS EXISTS: `FinalRun.tsx` computes its answer at build time from the
+ * run the reader can actually watch, and a component cannot read a sibling MDX
+ * component's props (true of the Astro component it was ported from and of the
+ * React one). Rather than assert agreement after the fact,
  * this module holds the string and BOTH sides read it — the MDX
  * `<Visualizer input={…}>` and the Final Run — so divergence is impossible by
  * construction (`docs/m8-gamification.md`, M8.3).
@@ -412,7 +413,7 @@ export function pinnedInput(lesson: string, algorithm: string): string | null {
 /**
  * The id of the heading each pinned visualizer sits under, keyed exactly like
  * {@link PINNED_INPUTS} — the second half of "the run you can watch", and what
- * lets `FinalRun.astro` stop reading the lesson body.
+ * lets `FinalRun.tsx` stop reading the lesson body.
  *
  * WHY IT IS AUTHORED HERE rather than derived: the Final Run's "Watch it happen"
  * link has to land on a heading that EXISTS, and the only other way to know
@@ -744,7 +745,7 @@ export function metricsSentence(
  * @param trace - A completed trace.
  * @param metric - Metric key, e.g. `comparisons`.
  * @returns The final cumulative value, or `null` when the trace is empty or
- * never emitted that metric (`FinalRun.astro` fails the build on `null`, so an
+ * never emitted that metric (`FinalRun.tsx` fails the build on `null`, so an
  * authored question can never be one the run does not answer).
  */
 export function finalMetric(
@@ -762,9 +763,9 @@ export function finalMetric(
 
 /**
  * How the validator reaches an algorithm. Injected rather than imported so this
- * module stays free of the registry — `Challenge.astro` passes the registry's
- * own lazy thunks (the Visualizer-still pattern), and the unit test passes the
- * same map without the module ever depending on it.
+ * module stays free of the registry — `Challenge.tsx` passes a resolver over
+ * the preloaded registry (`loadedAlgorithm`), and the unit test passes the
+ * registry's lazy thunks without the module ever depending on it.
  */
 export type AlgorithmLoader = (
   id: string,
@@ -838,7 +839,7 @@ export async function factsForInput(
  * 2. the lesson's own pinned example does NOT clear them, so no trial is handed
  *    out by pressing Run on the input the page already shows.
  *
- * Called by `Challenge.astro` at build time for the card it renders, and by
+ * Called by `Challenge.tsx` at build time for the cards it renders, and by
  * `tests/unit/challenges.test.ts` for the whole catalog — which is how the guard
  * is regression-tested in CI without committing a deliberately broken fixture.
  *
@@ -873,17 +874,18 @@ export async function validateChallenge(
 // They moved for a MEASURED reason (the table in that module's header): every
 // page that draws a visualizer or offers the reset control needs them, while
 // only the five lessons that host a trial need the catalog and DSL above. One
-// module carrying both shipped a single 1323 gz chunk to 18 of the 21 built
+// module carrying both shipped (on the legacy Astro build, measured then) a
+// single 1323 gz chunk to 18 of the 21 built
 // pages, of which the 419 gz below was all most of them could use.
 //
 // Re-exported rather than re-pointed at the importers, because this module's
-// public surface is what `src/lib/progress.ts`, `src/viz/Visualizer.astro`,
-// `src/components/FinalRun.astro` and `tests/unit/challenges.test.ts` already
-// name. The bundler folds the pass-through away entirely, so the split measures
-// the same whether an importer says this module or that one — verified by
-// building both and diffing: identical chunk names, hashes and bytes. An
+// public surface is what its importers (`FinalRun.tsx`, `FinalRunIsland.tsx`,
+// `ChallengeIsland.tsx`, `tests/unit/challenges.test.ts`) name. The bundler
+// folds the pass-through away entirely, so the split measures the same whether
+// an importer says this module or that one — verified on the legacy Astro build
+// by building both and diffing: identical chunk names, hashes and bytes. An
 // importer that wants the store alone may of course say so directly
-// (`Challenge.astro` does), and either way there is exactly one definition, in
+// (`ChallengeIsland.tsx` and `VisualizerIsland.tsx` do), and either way there is exactly one definition, in
 // one module, with one writer per key.
 // ---------------------------------------------------------------------------
 

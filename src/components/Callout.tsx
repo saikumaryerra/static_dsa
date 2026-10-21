@@ -1,0 +1,95 @@
+/**
+ * Callout — static note/tip/warning box (design §6.7, site spec §9).
+ * Ported from `Callout.astro` (React migration P1 markup, P2 CSS); the CSS lives
+ * in `src/styles/components/callout.css`.
+ *
+ * Props:
+ * - `variant` "note" | "tip" | "warning" (default "note").
+ *
+ * Meaning is never color-only: every callout shows a 16px icon AND a bold label.
+ * To keep the palette calm (saturated color reserved for the viz), accents stay
+ * in-system — Note/Tip use `--brand`; Warning uses `--accent-warn`. Body prose
+ * goes in the children.
+ *
+ * M7.3 CMP-11 inverted the severity encoding, which used to run backwards: the
+ * warning — the only variant that exists to stop a reader making a real mistake
+ * — had the WEAKEST accent of the three (a grey `--border-strong` keyline and a
+ * plain `--text` head) while note and tip got the brand. It now routes both its
+ * keyline and its head through `--accent-warn`, the chrome-side attention token
+ * (`--hl-compare` is NOT reachable from chrome: the six highlight roles belong
+ * to the visualization). Still not a red, and still not color-carried: the
+ * triangle glyph and the bold word "Warning" remain the non-color layer.
+ * `--accent-warn` on `--surface` is 5.02:1 light / 8.26:1 dark, so the head
+ * clears 1.4.3 as text and the 4px keyline clears 1.4.11 as a graphic (against
+ * the canvas it borders on its other side it is 4.89:1 light / 8.92:1 dark).
+ * The achromatic repaint left this token alone deliberately — it is now the only
+ * chrome hue on the page, which is the trade recorded in m7-ux-overhaul CMP-11.
+ *
+ * M7.3 VD-3 also moves the box onto elevation level 1 — `--surface` + 1px
+ * `--border` + a resting `--shadow-1`, the same recipe `.track-card` uses. The
+ * fill alone stopped doing the job when the canvas inverted: `--surface` against
+ * `--bg` is 1.03:1 light (#FFFFFF on #FCFCFB) and 1.08:1 dark, so a borderless,
+ * shadowless callout read as an indented paragraph with a bar. Neither the
+ * keyline nor the shadow is a 1.4.11 boundary and neither is asked to be
+ * (`--border` on the canvas is 1.32:1 light / 1.36:1 dark, the decorative
+ * register the token is documented for) — they separate the box, while the icon
+ * and the bold label are what actually name it.
+ */
+import type { JSX, ReactNode } from 'react';
+
+type Variant = 'note' | 'tip' | 'warning';
+
+const labels: Record<Variant, string> = {
+  note: 'Note',
+  tip: 'Tip',
+  warning: 'Warning',
+};
+
+// Stroke icon paths (24×24), house style.
+const icons: Record<Variant, string[]> = {
+  note: ['M12 16v-4', 'M12 8h.01', 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z'],
+  tip: [
+    'M9 18h6',
+    'M10 22h4',
+    'M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2h6c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z',
+  ],
+  warning: ['M12 3 2 20h20z', 'M12 10v4', 'M12 17h.01'],
+};
+
+/**
+ * A callout.
+ *
+ * @param props - Variant and body.
+ * @returns The `<aside role="note">`.
+ */
+export default function Callout({
+  variant = 'note',
+  children,
+}: {
+  variant?: Variant;
+  children?: ReactNode;
+}): JSX.Element {
+  return (
+    <aside className={`callout callout--${variant}`} role="note">
+      <div className="callout__head">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          {icons[variant].map((d) => (
+            <path key={d} d={d} />
+          ))}
+        </svg>
+        <span className="callout__label">{labels[variant]}</span>
+      </div>
+      <div className="callout__body">{children}</div>
+    </aside>
+  );
+}

@@ -64,7 +64,7 @@ test.describe('sticky A–Z strip', () => {
       //
       // Asserted against the token, not against a fixed number: the shape is
       // deliberately per-breakpoint (one scrollable row below 768px, a wrapped
-      // two-row bar above it — glossary.astro documents why), so a single
+      // two-row bar above it — pages/glossary.css documents why), so a single
       // pixel budget could only ever be right at one width, while THIS holds at
       // every width and still fails the moment the two disagree.
       const declared = await page.evaluate(() => {

@@ -1,0 +1,83 @@
+.track-arc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* Beside the track heading from 640px (the `.learn__section-head` row), under
+   it below that — where it must not stretch to the row's width. */
+@media (min-width: 640px) {
+  .track-arc {
+    flex: none;
+  }
+}
+
+/* Reserved, not hidden: see the SSR-state note above. `visibility` also keeps
+   the empty block out of the accessibility tree until it has numbers to
+   state, which `opacity` would not. */
+.track-arc[data-track-pending] {
+  visibility: hidden;
+}
+
+/* Nothing could be read, so nothing is shown — including the empty ring, which
+   on its own would read as "you have done none of this". The reserved height
+   goes with it: the reservation exists to stop hydration shifting the page,
+   and on this path there is no hydrated state to shift TO. */
+.track-arc[data-track-unreadable] {
+  display: none;
+}
+
+.track-arc__ring {
+  flex: none;
+  /* Both circles are 3px strokes on the same geometry; the groove is the
+     unfilled remainder, so it is the decorative --border rather than a
+     meaningful boundary. */
+  fill: none;
+  stroke-width: 3;
+}
+
+.track-arc__groove {
+  stroke: var(--border);
+}
+
+.track-arc__fill {
+  stroke: var(--brand);
+  stroke-linecap: round;
+}
+
+/* FORCED COLOURS. Both strokes above are author colour on an SVG, and this
+   mode does not take those back: measured in Chromium with forced colours
+   active, `stroke` set from CSS (or from a presentation attribute) computes to
+   the author's value, unlike `color` on an HTML element. So without this block
+   the ring kept --brand on a repainted Canvas it was never picked against, and
+   the decorative groove outshone the fill that carries the meaning: light
+   tokens on a black Canvas put --border at 15.46:1 and --brand at 1.15:1 (they
+   were 17.03:1 and 3.34:1 while --brand was indigo — the achromatic repaint
+   widened the inversion rather than closing it, since a near-black ring on a
+   black Canvas is effectively invisible).
+   Said explicitly in system colours, which this mode does not override, and
+   split the way a native progress control splits value from track.
+
+   The ring is `aria-hidden` decoration whose every number is stated in the two
+   text lines beside it, so this restores a redundant cue rather than the only
+   one. Same selectors as the rules above, so they win on source order. */
+@media (forced-colors: active) {
+  .track-arc__groove {
+    stroke: GrayText;
+  }
+
+  .track-arc__fill {
+    stroke: Highlight;
+  }
+}
+
+/* Holds two lines from first paint, so filling them moves nothing. `1em` is
+   this element's own --text-sm and the multiplier is the body line-height,
+   the same reservation shape `.viz-explain` uses. */
+.track-arc__text {
+  min-height: calc(var(--leading-relaxed) * 2em);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}

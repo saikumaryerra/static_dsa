@@ -33,8 +33,9 @@ import { linkTarget, resolveFrom } from './utils/urls';
 const AXE_PAGES: { path: string; name: string }[] = [
   { path: '/glossary/', name: 'glossary' },
   { path: '/about/', name: 'about' },
-  // `/404/` — the slashless form does not reach this site's 404 document under
-  // `trailingSlash: 'always'`, so axe would scan Astro's error page instead.
+  // `/404/` — the trailing-slash shape every page URL takes (U-1); it reaches
+  // `dist/404.html` through the not-found fallback. (Under the legacy
+  // `astro preview` the slashless form reached Astro's own error page.)
   { path: '/404/', name: '404' },
 ];
 
@@ -340,7 +341,7 @@ test('sitemap.xml + robots.txt are served and cross-referenced', async ({
   expect(xml).toContain('/learn/system-design/</loc>');
   // D1: the <loc>s carry the trailing slash, because that is the URL the site
   // actually serves. A slashless <loc> would point every crawler at a redirect
-  // (a 404 under `astro preview`), which is the defect D1 exists to close —
+  // (a 404 under `npm run preview`), which is the defect D1 exists to close —
   // tests/e2e/url-shape.spec.ts asserts it for every entry, not just these two.
   expect(xml).toContain('/glossary/</loc>');
   expect(xml).toContain('/learn/binary-search/</loc>');

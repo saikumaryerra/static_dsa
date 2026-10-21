@@ -1,0 +1,43 @@
+/* `.track-card` (global.css) owns the level-1 elevation and its five states;
+   this file adds only the internal layout, so the card cannot drift from the
+   lesson cards and the prev/next card that compose the same class. */
+.course-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.course-card__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  color: var(--text);
+  text-wrap: balance;
+}
+
+.course-card__blurb {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+
+.course-card__meta {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The arc pushes the CTA to the bottom of the tallest card in the row, so the
+   three "Open the course" lines sit on one baseline however long the titles
+   are. `margin-block-start: auto` on the CTA does the rest. */
+.course-card .track-arc {
+  margin-block-start: var(--space-1);
+}
+
+.course-card__cta {
+  margin-block-start: auto;
+  padding-block-start: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}

@@ -1,0 +1,145 @@
+/* Trace Trial card (src/components/Challenge.tsx) — the legacy scoped block,
+   moved verbatim: the CSS scope audit found no rule here that changes when the
+   scoping is removed (docs/migrations/css-scope-audit.md). */
+
+/* A card at level 1 on the lesson canvas, sized to the prose measure so it
+   reads as part of the lesson rather than as chrome bolted beside it. */
+.challenge {
+  margin-block: var(--space-6);
+  max-width: var(--measure);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-5);
+}
+
+.challenge__kicker {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Styled as a title, not marked up as a heading: the card can sit under an h2
+   or an h3 depending on the lesson, and inventing a level would put a wrong
+   rung in the document outline. `role="group"` + `aria-labelledby` gives it the
+   same accessible name without touching the heading structure or the ToC. */
+.challenge__title {
+  margin: var(--space-1) 0 var(--space-3);
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+.challenge__prompt {
+  margin: 0;
+  color: var(--text);
+  line-height: var(--leading-relaxed);
+}
+
+.challenge__pinned {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.challenge__pinned code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  /* Selectable, not a button: copying is the browser's job, and a clipboard
+     control here would be a second thing to learn for six characters. */
+  user-select: all;
+  /* REFLOW (WCAG 1.4.10). The longest pinned array is binary search's
+     `[1,2,...,15]` — 37 characters of --font-mono at 0.9 × --text-sm, which
+     lays out 290px wide inside a 246px content box at 320px — and a comma
+     carries no break opportunity of its own, so without this the line pushed
+     the whole document to 327px against a 320px viewport (measured) and the
+     page scrolled sideways. `anywhere` rather than a scroll container of its
+     own: 1.4.10 asks for reflow and only excuses two-dimensional content,
+     which a list of numbers is not, and a nested scroll region would owe a
+     keyboard path (2.1.1) for a string that reads perfectly well wrapped.
+     `anywhere` and not `break-word` so the break counts toward min-content
+     too — this element is `user-select: all`, so a wrapped array still copies
+     whole. */
+  overflow-wrap: anywhere;
+}
+
+.challenge__hint {
+  margin-top: var(--space-4);
+}
+
+.challenge__hint summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.challenge__hint p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.challenge__how {
+  margin: var(--space-4) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* The state line takes its top margin only once it says something, so an
+   untouched card carries no empty gap (the live region must stay in the DOM
+   from the start for its first announcement to fire reliably). A CLASS rather
+   than `:empty`, because whether this element is `:empty` depends on how the
+   formatter wraps its attributes — a wrapped tag leaves a whitespace text
+   node, and whitespace is not empty. */
+.challenge__run {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.challenge__run.is-said {
+  margin-top: var(--space-3);
+}
+
+.challenge__cleared {
+  margin: var(--space-3) 0 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* CLEARED. Three signals and only one is a colour: the word "Cleared" in the
+   status line, this check glyph, and the brand keyline — so the state survives
+   forced colours, greyscale and every form of colour blindness (§12: never
+   colour alone). The tint is MarkComplete's brand mix at half strength (6% of
+   --brand, against this card's --surface rather than MarkComplete's
+   `transparent`), and --text stays far clear of AA on it: 16.15:1 light,
+   12.99:1 dark — recomputed with the same sRGB `color-mix` + WCAG luminance
+   math `tests/unit/tokens-contrast.test.ts` uses, because the numbers this
+   comment carried at M8 (14.6 / 12.9) matched neither theme, and the
+   achromatic repaint moved both again. */
+.challenge[data-cleared] {
+  border-color: var(--brand);
+  background-color: color-mix(in srgb, var(--brand) 6%, var(--surface));
+}
+
+.challenge[data-cleared] .challenge__kicker::after {
+  content: ' ✓';
+  color: var(--brand);
+}
+
+/* On paper a trial is uncompletable — there is no input box — exactly like the
+   practice check's grade buttons and the player's controls. */
+@media print {
+  .challenge {
+    display: none;
+  }
+}

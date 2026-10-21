@@ -515,7 +515,7 @@ describe('finalMetric (the Final Run’s answer)', () => {
     const trace = algo.run(algo.parseInput('[5,2,9,1,7,3]') as never);
     expect(finalMetric(trace, 'comparisons')).toBe(14);
     expect(finalMetric(trace, 'swaps')).toBe(8);
-    // A metric this algorithm never emits is `null`, not 0 — FinalRun.astro
+    // A metric this algorithm never emits is `null`, not 0 — FinalRun.tsx
     // fails the build on it rather than asking an unanswerable question.
     expect(finalMetric(trace, 'cacheHits')).toBeNull();
     expect(finalMetric([], 'comparisons')).toBeNull();

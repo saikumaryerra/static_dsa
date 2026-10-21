@@ -2,46 +2,46 @@
   - /url: "#main"
 - banner:
   - link "LearnDSA":
-    - /url: ../
+    - /url: /
   - navigation "Main":
     - list:
       - listitem:
         - link "Learn":
-          - /url: ../learn/
+          - /url: /learn/
       - listitem:
         - link "Glossary":
-          - /url: ../glossary/
+          - /url: /glossary/
       - listitem:
         - link "About":
-          - /url: ../about/
+          - /url: /about/
       - listitem:
         - button "Switch to dark theme"
 - main:
   - heading "Courses" [level=1]
   - paragraph: /3 courses, \d+ lessons\. Pick one and work through it in order, or jump to whichever topic you came for — nothing is locked, and every lesson names what it builds on\. Lessons you finish are checked off on this device\./
   - link /Start with \d+ · Complexity & Big-O/:
-    - /url: http://localhost:4321/learn/complexity-big-o/
+    - /url: /learn/complexity-big-o/
   - button "Reset progress" [disabled]
   - status
   - group: What the three pips mean
   - list:
     - listitem:
       - link /Data Structures & Algorithms The core of computer science, watched one step at a time\. \d+ lessons · 2 modules · ~\d+ min · beginner 0 of \d+ done on this device Practiced 0 · Mastered 0 Open the course/:
-        - /url: ../learn/dsa/
+        - /url: /learn/dsa/
         - text: ""
         - paragraph: /0 of \d+ done on this device/
         - paragraph: Practiced 0 · Mastered 0
         - text: ""
     - listitem:
       - 'link /Kubernetes: From Fundamentals to Production Run containers the way production does — declaratively, and on purpose\. \d+ lessons · \d+ modules · ~\d+ min · intermediate 0 of \d+ done on this device Practiced 0 · Mastered 0 Open the course/':
-        - /url: ../learn/kubernetes/
+        - /url: /learn/kubernetes/
         - text: "/Kubernetes: From Fundamentals to Production Run containers the way production does — declaratively, and on purpose\\. \\d+ lessons · \\d+ modules · ~\\d+ min · intermediate/"
         - paragraph: /0 of \d+ done on this device/
         - paragraph: Practiced 0 · Mastered 0
         - text: Open the course
     - listitem:
       - 'link /System Design: Principles and Real-World Architectures The reusable principles first — then three real platforms, taken apart\. \d+ lessons · \d+ modules · ~\d+ min · intermediate 0 of \d+ done on this device Practiced 0 · Mastered 0 Open the course/':
-        - /url: ../learn/system-design/
+        - /url: /learn/system-design/
         - text: "/System Design: Principles and Real-World Architectures The reusable principles first — then three real platforms, taken apart\\. \\d+ lessons · \\d+ modules · ~\\d+ min · intermediate/"
         - paragraph: /0 of \d+ done on this device/
         - paragraph: Practiced 0 · Mastered 0
@@ -52,11 +52,11 @@
     - list:
       - listitem:
         - link "Learn":
-          - /url: ../learn/
+          - /url: /learn/
       - listitem:
         - link "Glossary":
-          - /url: ../glossary/
+          - /url: /glossary/
       - listitem:
         - link "About":
-          - /url: ../about/
+          - /url: /about/
   - paragraph: /Free and open source\. © \d+ LearnDSA/

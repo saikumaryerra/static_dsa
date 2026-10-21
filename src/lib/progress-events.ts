@@ -3,7 +3,8 @@
  * changed", so an act that WRITES progress and a surface that only DISPLAYS it
  * can agree without sharing a scope.
  *
- * WHY IT EXISTS: Astro gives component scripts no shared scope, and none of the
+ * WHY IT EXISTS: the islands and client modules that write progress share no
+ * scope (as Astro's component scripts did not before them), and none of the
  * writes emit a DOM event of their own. A cleared Final Run and a qualifying
  * predict session both stamp `practicedAt` from an island that owns no pips, so
  * the lesson header — the only mastery display a lesson page has — kept whatever
@@ -18,7 +19,7 @@
  * `PROGRESS_RESET_EVENT` lives: that file is the store — every read, write and
  * delete of the keys — and this is only a channel name, wanted on both sides of
  * it. Separating them means a caller that reaches the store through a lazy
- * `import()` (as `Visualizer.astro`'s predict path does, so a page with no
+ * `import()` (as the Visualizer island's predict path does, so a page with no
  * lesson to credit never downloads it) can still take the NAME with a plain
  * static import. Folding the two constants back together later is safe: what
  * callers depend on is the name and the shape, not the file.

@@ -1,27 +1,19 @@
 /**
  * Reading a link the way a browser reads it — D2's one shared helper.
  *
- * `scripts/portablize.mjs` (Plan D §4.2) rewrites every internal URL in `dist/`
- * to a document-relative one so the artifact works under a sub-path as well as
- * at a root domain. The consequence for this suite is that an `href` attribute
- * is no longer the path it points at: the curriculum card that read
- * `/learn/arrays/` now reads `./learn/arrays/` on the home page and
- * `../../learn/arrays/` on a lesson, and the same destination therefore has as
- * many spellings as the site has depths.
+ * Specs assert where a link GOES, not how its `href` is spelled. The helper was
+ * born when the portable artifact (Plan D) rewrote every internal URL to a
+ * document-relative one, so the same destination had as many spellings as the
+ * site had depths. Portability is retired (react-migration D-01) and every
+ * internal link is root-absolute again — `url-shape.spec.ts` pins that — but
+ * the helpers stay, because "this link goes to that page" is still what each
+ * of those tests means: resolving the href against the document that carries it
+ * is a no-op on a root-absolute link, and still fails on a relative one that
+ * points one level off.
  *
- * Asserting the new spellings would be the wrong repair — it would pin the
- * artifact's *encoding* in a dozen specs and re-break all of them the next time
- * the encoding moves. What each of those tests actually means is "this link goes
- * to that page", so that is what these two helpers say, by resolving the href
- * against the document that carries it. A prefix one level off changes the
- * resolved path and still fails, which is the property worth keeping.
- *
- * `dist/404.html` keeps root-absolute links by design (plan §4.4) — resolution
- * is a no-op on those, so the same helper reads them unchanged. The links client
- * JS builds go the other way: they are ABSOLUTE, resolved at runtime against the
- * deployment root (`siteRoot` in `src/lib/progress.ts`), which is one more
- * spelling of the same destination and one more reason to compare resolved
- * paths rather than attribute text.
+ * Links client JS builds (`lessonHref`/`reviewHref` in `src/lib/progress.ts`)
+ * are root-absolute literals too, so one comparison covers server-rendered and
+ * client-written links alike.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 
@@ -43,9 +35,7 @@ export function resolveFrom(pageUrl: string, href: string): string {
  *
  * `expect.poll` rather than a single `getAttribute`, deliberately: some of these
  * hrefs are written by an island after hydration (the resume CTA), and a
- * one-shot read would race the script that fills them — the exact retry
- * `toHaveAttribute` used to provide before D2 made the raw attribute the wrong
- * thing to compare.
+ * one-shot read would race the script that fills them.
  *
  * @param page - The page under test.
  * @param link - The anchor.

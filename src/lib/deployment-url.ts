@@ -9,7 +9,13 @@
  * canonical, an `og:url` and a sitemap `<loc>` pointing at the origin root — a
  * URL that host does not serve. `new URL(site).origin` is the same bug in
  * another costume: it throws the sub-path away by definition. Requirement R3
- * ("any sub-path") therefore needs an explicit join, and this is it.
+ * ("any sub-path") therefore needed an explicit join, and this is it.
+ *
+ * Since the React migration (D-01) the site deploys at the root of one origin
+ * and `resolveSiteUrl()` (`src/render/site-url.ts`) rejects a `SITE_URL` with a
+ * path, so in the build the base path is always empty. The join is kept rather
+ * than swapped for `new URL`: it is correct for both shapes, and it is still
+ * the single place the path normalization below happens.
  *
  * ── AND WHY IT NORMALIZES THE PATH ───────────────────────────────────────────
  * Declared URLs are authored at their own call sites — a `canonicalPath` prop
@@ -17,15 +23,16 @@
  * and each one is a chance to publish a URL the host would redirect. Two shapes
  * have to be neutralized rather than trusted:
  *
- * - **`index.html`.** `BaseLayout`'s default is `canonicalPath ?? Astro.url
- *   .pathname`, and `src/pages/dev/renderers.astro` ships with NO
+ * - **`index.html`.** `Document`'s default is `canonicalPath ?? pathname`
+ *   (`src/render/Document.tsx`), and `src/pages/DevRenderers.tsx` passes NO
  *   `canonicalPath`, so that default is a live code path on a published page.
- *   Whether Astro hands it `/dev/renderers/` or `/dev/renderers/index.html`
- *   depends on build internals this file should not have an opinion about, so it
- *   accepts both and emits one.
- * - **The trailing slash.** `trailingSlash: 'always'` (D1) makes the slashed
- *   form the only URL the site serves; a slashless canonical would name a URL
- *   that 301s on a real host and hard-404s under `astro preview`.
+ *   Whether the path arrives as `/dev/renderers/` or `/dev/renderers/index.html`
+ *   is a detail of the renderer this file should not have an opinion about (it
+ *   varied under Astro), so it accepts both and emits one.
+ * - **The trailing slash.** Every page route ends in a slash (D1, amendment
+ *   U-1; `src/routes.tsx`), the only URL the site serves; a slashless canonical
+ *   would name a URL that 301s on the host and hard-404s under `npm run
+ *   preview`.
  *
  * An ASSET keeps its extension and gets no slash — `/og-default.png` and
  * `/sitemap.xml` are declared URLs too (`og:image`, robots' `Sitemap:` line),
@@ -59,7 +66,8 @@ function normalizePath(path: string): string {
  * `<loc>`, robots' `Sitemap:` line, and the JSON-LD `url` fields.
  *
  * @param deployment - The full deployment URL, sub-path included, e.g.
- *   `https://sample.com/learndsa` (usually `Astro.site`). A trailing slash on it
+ *   `https://sample.com/learndsa` (in the build, `resolveSiteUrl()`'s origin).
+ *   A trailing slash on it
  *   is optional and makes no difference.
  * @param path - A root-absolute site path, e.g. `/`, `/learn/arrays/`,
  *   `/learn/index.html`, `/og-default.png`.

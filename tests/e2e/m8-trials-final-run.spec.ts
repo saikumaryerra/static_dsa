@@ -153,6 +153,9 @@ test.describe('the trials reached the lessons they were written for', () => {
     // rejects a viz-coupled component in a new-course lesson outright, so one
     // cannot appear for this walk to find.
     const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
+    // One navigation per lesson: the budget scales with the course (f0a2b47's
+    // rule) rather than resting on the 30 s default.
+    test.setTimeout(30_000 + lessons.length * 2_000);
     const seen: string[] = [];
 
     for (const lesson of lessons) {

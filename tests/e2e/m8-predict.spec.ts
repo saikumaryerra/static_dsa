@@ -150,6 +150,11 @@ test.describe('the toggle exists exactly where a predictor does', () => {
     // would be a false one.
     const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
     expect(lessons.length).toBeGreaterThanOrEqual(15);
+    // One navigation per lesson, so the budget is a multiple of the course, not
+    // a bare constant (the rule f0a2b47 set for the curriculum walks). The 30 s
+    // default timed out on this walk on the legacy build too (plan §1's e2e
+    // baseline) — it was a load-bound constant, not a measurement.
+    test.setTimeout(30_000 + lessons.length * 2_000);
 
     for (const lesson of lessons) {
       await page.goto(`/learn/${lesson.slug}/`);

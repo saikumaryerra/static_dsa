@@ -6,16 +6,18 @@
  * WHY THIS IS ITS OWN MODULE — MEASURED, not assumed. Everything here is
  * reached by pages that host no Trace Trial at all: `src/lib/progress.ts` needs
  * {@link ENRICHMENT_KEYS} and {@link resetEnrichment} for `/learn`'s reset
- * control, and every page it serves imports it; `Visualizer.astro` needs
- * {@link VIZ_RUN_EVENT} because the island announces its runs whether or not
+ * control, and every page it serves imports it; the Visualizer island
+ * (`src/viz/VisualizerIsland.tsx`) needs {@link VIZ_RUN_EVENT} because the island announces its runs whether or not
  * anything is listening. With those living beside the trial catalog and its
  * predicate DSL, one chunk carrying all of it was pulled into **18 of the 21
  * built pages** — home, /learn, /about and the ten lessons with no
  * `<Challenge>` — at 2946 raw / 1323 gz.
  *
  * Splitting it here and leaving the DSL with its single consumer was measured
- * both ways (`npx astro build --outDir` into a scratch copy, then gzipping each
- * chunk of every page's static import closure):
+ * both ways on the legacy Astro build (`npx astro build --outDir` into a
+ * scratch copy, then gzipping each chunk of every page's static import
+ * closure) — HISTORY: the numbers below are that build's; the React build's
+ * per-page budget is measured by `tests/e2e/js-budget.spec.ts`:
  *
  * | page | before | after |
  * |---|---|---|
@@ -33,8 +35,9 @@
  * SAME DISCIPLINE AS `src/lib/progress.ts`: the version lives in the KEY (an
  * incompatible shape moves to `v2` and this reader ignores the unknown version
  * by construction), every access is `try/catch`-guarded (private mode), storage
- * is never prefix-scanned, and each key has ONE writer — `Challenge.astro` for
- * the first, `FinalRun.astro` for the second.
+ * is never prefix-scanned, and each key has ONE writer — the Trace Trial island
+ * (`src/components/ChallengeIsland.tsx`) for the first, the Final Run island
+ * (`src/components/FinalRunIsland.tsx`) for the second.
  */
 import type { Step } from '../viz/core/types';
 
@@ -191,7 +194,7 @@ export function isFinalRunCleared(slug: string): boolean {
  *
  * The record is cleared-only, by design: no attempt count, no first-try flag,
  * nothing that could later be rendered as a score. Promotion to Practiced is
- * NOT done here — `FinalRun.astro` calls `recordPass()` in `progress.ts`, which
+ * NOT done here — `FinalRunIsland.tsx` calls `recordPass()` in `progress.ts`, which
  * owns the 3-day Mastered gate and is the single promotion path.
  *
  * @param slug - Lesson slug.

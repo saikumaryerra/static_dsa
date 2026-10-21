@@ -19,8 +19,9 @@
  * the server together — "the URL this document names is the URL it was fetched
  * from" — and only Playwright's harness guarantees a `dist/` that matches the
  * source (`playwright.config.ts`'s `webServer` runs `npm run build && npm run
- * preview`; on CI the DoD gate builds first and `astro preview` exits 1 if it
- * did not). A Vitest test reading `dist/` could pass against a stale build.
+ * preview`; on CI the DoD gate builds first and the preview server refuses to
+ * start without `dist/`). A Vitest test reading `dist/` could pass against a
+ * stale build.
  *
  * WHAT MAKES IT SELF-MAINTAINING. The page list is walked out of `dist/` rather
  * than typed, so a page added tomorrow is covered the day it is added, and a page
@@ -30,21 +31,21 @@
  * fails.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
+// The built site under test: `<repo>/dist`, or `PW_DIST` (see utils/dist.ts).
+import { DIST } from './utils/dist';
 import { curriculum } from './utils/mastery';
 
-/** The built site. `import.meta.url` is `<repo>/tests/e2e/url-shape.spec.ts`. */
-const DIST = fileURLToPath(new URL('../../dist', import.meta.url));
-
 /**
- * `dist/404.html` is deliberately outside every check below.
+ * `dist/404.html` is deliberately outside the URL-identity checks below (its
+ * links are still swept: it must point somewhere real from any address).
  *
- * Measured under `build.format: 'directory'`: it stays at `dist/404.html` and
+ * The build writes it as `dist/404.html` (react-migration D-13, the layout the
+ * legacy build measured under directory format): it stays at `dist/404.html` and
  * does NOT become `dist/404/index.html` (probe §10.5), because it is not a page
  * with an address — it is the document a host serves *instead of* whatever was
- * asked for. Its `canonicalPath` is `"/"` on purpose (`src/pages/404.astro`):
+ * asked for. Its `canonicalPath` is `"/"` on purpose (`src/pages/NotFound.tsx`):
  * "the canonical URL of this content" is the home page, not the dead URL that
  * happened to summon it. Asserting canonical == served path there would be
  * asserting the opposite of the design.
@@ -102,9 +103,9 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
    * the URL the document was fetched from are the same URL.
    *
    * Compared on the PATHNAME only, deliberately. The origin in a canonical comes
-   * from `astro.config.mjs`'s `site` (a deploy-time input — `SITE_URL`, or the
+   * from `SITE_URL` (a deploy-time input, `src/render/site-url.ts`, or the
    * sentinel `https://learndsa.invalid` when it is unset), while the test fetches
-   * `localhost:4321`; asserting on the
+   * `localhost:${PW_PORT}`; asserting on the
    * full URL would fail for a reason that has nothing to do with URL shape. The
    * path is the part D1 moved and the part a redirect would change.
    */
@@ -133,7 +134,7 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
         mismatches.push(`${served} canonicalizes to ${declared}`);
       }
 
-      // og:url and the canonical are one value in `BaseLayout.astro` today; this
+      // og:url and the canonical are one value in `src/render/Document.tsx` today; this
       // keeps them one value. Two machine-readable declarations of "this page"
       // that disagree is the same defect wearing a different tag name.
       expect(ogUrlOf(html), `${served} og:url matches its canonical`).toBe(
@@ -150,7 +151,7 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
    * The sitemap half of the same defect. Every `<loc>` is a promise to a crawler
    * that the URL is fetchable; under `trailingSlash: 'always'` a slashless one is
    * a promise the site cannot keep — a 301 on a real host and a hard 404 under
-   * `astro preview`.
+   * `npm run preview`.
    */
   test('every sitemap <loc> is a URL the site actually serves', async ({
     page,
@@ -219,28 +220,25 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
    * href a future page invents — the thing reviewer vigilance across 30-odd call
    * sites cannot do.
    *
-   * D2 MOVED THE GROUND UNDER IT, AND THAT IS WHY IT IS WRITTEN THIS WAY.
-   * `scripts/portablize.mjs` now rewrites every internal URL to a
-   * document-relative one, so the old form of this sweep — which read
-   * `href="/…"` out of the HTML — would have found NOTHING and passed forever.
-   * A shape test that silently stops matching is worse than one that fails.
-   *
-   * So the invariant is asserted after RESOLUTION instead: every internal link
-   * is resolved against the URL of the page that carries it, and the result must
-   * be a URL this build actually serves. That is strictly stronger than the
-   * old check, because a relative link has a second way to be wrong — a prefix
-   * one level off resolves to `/learn/glossary/`, which ends in a slash and is a
-   * 404. Only "resolves to a file that exists" catches that.
+   * The invariant is asserted after RESOLUTION: every internal link is resolved
+   * against the URL of the page that carries it, and the result must be a URL
+   * this build actually serves. That form dates from the portable artifact,
+   * whose document-relative links a literal `href="/…"` match would have missed;
+   * with portability retired (react-migration D-01) every link is root-absolute
+   * again — the test below pins that — and resolving first keeps this sweep
+   * honest should a relative link ever reappear (a prefix one level off resolves
+   * to `/learn/glossary/`, which ends in a slash and is a 404; only "resolves to
+   * a file that exists" catches that).
    *
    * The rule that sorts the two kinds: an internal URL whose final segment has
    * no extension addresses a PAGE, and every page address ends in `/` and has an
    * `index.html`. Assets (`/og-default.png`, `/fonts/plex-sans.woff2`,
-   * `/_astro/*.js`) are files and must exist as files.
+   * `/assets/*.js`) are files and must exist as files.
    */
   test('every internal link resolves to something this build serves', async () => {
     const pages = builtPages();
-    // The 404 document's own links count too — it is exempt from being relative
-    // (see the carve-out test below), never from pointing somewhere real.
+    // The 404 document's own links count too: it is served at whatever URL the
+    // reader typed, so its links must point somewhere real from anywhere.
     const files = [...pages, join(DIST, NOT_A_PAGE)];
     const resolvedPages = new Set<string>();
     const dead: string[] = [];
@@ -249,7 +247,7 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
       const html = readFileSync(file, 'utf8');
       const where = relative(DIST, file);
       // `dist/404.html` is served at whatever URL was typed; its links are
-      // root-absolute by design, so any base resolves them identically.
+      // root-absolute (the test below), so any base resolves them identically.
       const base = where === NOT_A_PAGE ? '/' : servedPathOf(file);
       for (const match of html.matchAll(/\b(?:href|src)="([^"]*)"/g)) {
         const value = match[1]!;
@@ -289,82 +287,85 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
       'distinct internal page URLs reached from the built HTML',
     ).toBeGreaterThanOrEqual(15);
 
-    // No allowlist, deliberately — not even for `/404`. Under `trailingSlash:
-    // 'always'` there is no internal page URL that may legitimately omit the
-    // slash: measured, even `/404` does not reach this site's own 404 document
-    // (the preview server answers the slashless form with Astro's built-in error
-    // page before it ever looks for a file). An exception here would be a hole
-    // large enough for a real dead link to hide in.
+    // No allowlist, deliberately — not even for `/404`. There is no internal
+    // page URL that may legitimately omit the slash (amendment U-1): `/404`
+    // would be served the 404 document only by accident of the fallback, never
+    // as a page. An exception here would be a hole large enough for a real dead
+    // link to hide in.
     expect(
       dead,
-      'internal links that resolve to nothing this build serves — a missing trailing slash (a 404 under `astro preview`), or a relative prefix one level off',
+      'internal links that resolve to nothing this build serves — a missing trailing slash (a 404 under `npm run preview`), or a relative prefix one level off',
     ).toEqual([]);
   });
 
   /**
-   * THE PIPELINE GUARD (Plan D §4.2/§4.4). `scripts/portablize.mjs` asserts its
-   * own output, but that assertion lives inside the very step someone can drop:
-   * `npm run build` is `astro check && astro build && node
-   * scripts/portablize.mjs`, and an artifact built without the third command is
-   * indistinguishable from a portable one to the sweep above — root-absolute
-   * hrefs resolve to slash-terminated paths that exist, so every assertion there
-   * still passes. This test is what notices.
+   * ONE ORIGIN, ROOT-ABSOLUTE URLS (react-migration D-01, plan §7). The site
+   * deploys at a single origin, so every internal `href`/`src` in every built
+   * document — `404.html` included — is written root-absolute (`/learn/arrays/`,
+   * `/assets/site-HASH.css`): never `./` or `../`, never a bare relative path.
    *
-   * Its second half is the carve-out, exercised rather than merely excused: a
-   * 404 document is served AT THE URL THE READER TYPED, so a relative link on it
-   * resolves against an arbitrary path (`../glossary/` from `/learn/typo/deep`
-   * is nonsense). `dist/404.html` therefore KEEPS root-absolute links, and a
-   * pass that "helpfully" relativized them would break the one page whose links
-   * cannot be relative.
+   * Why it matters more than tidiness: `404.html` is served AT THE URL THE
+   * READER TYPED, so a relative link on it resolves against an arbitrary path
+   * (`../glossary/` from `/learn/typo/deep` is nonsense), and a lesson's relative
+   * link silently changes meaning when the page's depth does. Root-absolute is
+   * the one spelling that means the same thing from every document.
+   *
+   * This inverts the portable artifact's guard, which demanded the opposite of
+   * every page but the 404. Resolution is checked here as well, for pages and
+   * assets alike, and without a base — a root-absolute URL needs none, which is
+   * the property under test.
    */
-  test('the relative pass ran, and the 404 kept its root-absolute links', async () => {
-    const rootAbsolute = (file: string): string[] =>
-      [
-        ...readFileSync(file, 'utf8').matchAll(
-          /\b(?:href|src)="(\/[^"/][^"]*)"/g,
-        ),
-      ]
-        .map((match) => match[1]!)
-        .filter((url) => !url.startsWith('//'));
-
-    const leftBehind: string[] = [];
-    for (const file of builtPages()) {
-      for (const url of rootAbsolute(file)) {
-        leftBehind.push(`${url}  (in ${relative(DIST, file)})`);
+  test('every internal URL is root-absolute, 404 included, and resolves', async () => {
+    const files = [...builtPages(), join(DIST, NOT_A_PAGE)];
+    const relativeUrls: string[] = [];
+    const dead: string[] = [];
+    let internal = 0;
+    for (const file of files) {
+      const where = relative(DIST, file);
+      for (const match of readFileSync(file, 'utf8').matchAll(
+        /\b(?:href|src)="([^"]*)"/g,
+      )) {
+        const value = match[1]!;
+        // External, protocol-relative, non-navigational, or a bare fragment.
+        if (value === '' || value.startsWith('#')) continue;
+        if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) continue;
+        internal += 1;
+        if (!value.startsWith('/')) {
+          relativeUrls.push(`${value}  (in ${where})`);
+          continue;
+        }
+        const path = new URL(value, 'https://resolve.test').pathname;
+        const last = path.slice(path.lastIndexOf('/') + 1);
+        const target = last.includes('.')
+          ? join(DIST, path.slice(1))
+          : join(DIST, path, 'index.html');
+        if (!existsSync(target)) dead.push(`${value}  (in ${where})`);
       }
     }
+    // Nonvacuity: the header and footer alone give every page several internal
+    // links, and 136 pages give thousands. A regex that stopped matching would
+    // report no offenders and pass.
+    expect(internal, 'internal URLs found in the built HTML').toBeGreaterThan(
+      files.length * 4,
+    );
     expect(
-      leftBehind,
-      'root-absolute internal URLs in a built page — under a sub-path deployment every one of them points at the origin root. Did `npm run build` run `node scripts/portablize.mjs`?',
+      relativeUrls,
+      'document-relative internal URLs — the site deploys at one origin, so every internal link is root-absolute (D-01)',
     ).toEqual([]);
-
-    // …and the exception really is exceptional. The nav alone gives the 404 four
-    // internal links; a floor rather than a count, so the page's content can
-    // change without editing this test, while a 404 that lost them (or was
-    // relativized) fails.
-    const notAPage = join(DIST, NOT_A_PAGE);
     expect(
-      rootAbsolute(notAPage).length,
-      '404.html keeps root-absolute links (plan §4.4)',
-    ).toBeGreaterThanOrEqual(4);
-    const relativized = [
-      ...readFileSync(notAPage, 'utf8').matchAll(
-        /\b(?:href|src)="(\.{1,2}\/[^"]*)"/g,
-      ),
-    ].map((match) => match[1]!);
-    expect(
-      relativized,
-      'document-relative links on 404.html — they resolve against the URL the reader typed, not against the document',
+      dead,
+      'root-absolute URLs with no file behind them in dist/',
     ).toEqual([]);
   });
 
   /**
-   * WHY the three tests above are strict rather than tidy, pinned as a fact
-   * instead of left in a comment: Astro does not redirect the slashless form, it
-   * refuses it. Measured (probe §10.3): `/about` → 404, `/about/` → 200. So a
-   * single missed link fails loudly in this suite instead of costing a redirect
-   * hop nobody notices — and if a future Astro version starts 301-ing instead,
-   * this test says so out loud rather than letting the suite quietly relax.
+   * WHY the tests above are strict rather than tidy, pinned as a fact instead
+   * of left in a comment: the preview server (`scripts/serve-dist.mjs`) does not
+   * redirect the slashless form, it refuses it — `/about` → 404, `/about/` →
+   * 200. So a single missed link fails loudly in this suite instead of costing a
+   * redirect hop nobody notices (Workers' `html_handling` would redirect it in
+   * production) — and if the server ever starts 301-ing instead, this test says
+   * so out loud rather than letting the suite quietly relax.
    */
   test('the slashless form is not served', async ({ request }) => {
     for (const path of ['/about', '/glossary', '/learn', '/learn/arrays']) {

@@ -1,0 +1,114 @@
+/* GLOBAL, for the reason `ReviewStrip`'s block records: Astro scopes a
+   component's CSS by stamping `data-astro-cid-*` onto the elements it renders,
+   and everything here is cloned out of a `<template>` by script. Every
+   selector is therefore namespaced under `.explain-back`, and nothing in this
+   block declares `background-color`, `border-color` or `box-shadow` — it is
+   unlayered, so it would beat `@layer components`' state rules from the
+   resting state (the trap `LessonCard` documents). */
+.explain-back {
+  max-width: var(--measure);
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+}
+
+/* The reader's own earlier words, quoted back. A left rule and the muted role
+   make it read as a quotation rather than as authored copy — the same idiom
+   the lesson body gives a blockquote. */
+.explain-back__recall {
+  max-width: var(--measure);
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* The authored question, at the weight of a control's label rather than a
+   heading: this block titles itself (it has no heading of its own, so it can
+   never leave one stranded — the rule `nojs-orphan-sections.spec.ts` guards). */
+.explain-back__label {
+  display: block;
+  max-width: var(--measure);
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-normal);
+}
+
+.explain-back__field {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background-color: var(--surface-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  resize: vertical;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.explain-back__field:hover {
+  border-color: var(--brand);
+}
+
+.explain-back__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.explain-back__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* The shared disabled recipe every aria-disabled control here uses (M7.1
+   CMP-3), so "there is nothing to delete" looks the same as every other
+   unavailable control on the site. */
+.explain-back [aria-disabled='true'] {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+/* Text AND a glyph, never colour: the confirmation reads the same in forced
+   colours, in greyscale and to a screen reader (which gets the text alone —
+   the glyph is aria-hidden). */
+.explain-back__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* The margin is unconditional, unlike MarkComplete's `:empty` trick, because
+   this region is never empty in the DOM sense — it holds the glyph wrapper and
+   the text span from the start, and it must: a live region that is only
+   inserted (or un-hidden) in the same frame as its first message is the classic
+   way to lose an announcement. With no message the two spans generate no line
+   box, so the block itself is zero-height and all this leaves under the buttons
+   is --space-3 of breathing room. */
+.explain-back__status-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+/* On paper a device-local control has no meaning, the same reason
+   `.whats-next` and the practice footer are dropped (global.css print rules). */
+@media print {
+  .explain-back {
+    display: none;
+  }
+}

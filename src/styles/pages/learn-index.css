@@ -1,0 +1,163 @@
+.learn {
+  padding-block: var(--space-12) var(--space-16);
+}
+
+.learn__intro {
+  margin-top: var(--space-4);
+  max-width: var(--measure);
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+}
+
+.learn__resume {
+  margin-top: var(--space-6);
+}
+
+.learn__resume-link {
+  gap: var(--space-2);
+}
+
+.learn__resume-done {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+/* One line of muted small print under the CTA — deliberately the same weight
+   as the reset control below it rather than a headline. It states something
+   the reader did; it is not an invitation, a target or a call to action, and
+   type that shouted would make it one. */
+.learn__days {
+  max-width: var(--measure);
+  margin-top: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Quiet by design: a destructive control should be findable, not competing
+   with the resume CTA directly above it. */
+.learn__reset {
+  margin-top: var(--space-4);
+}
+
+.learn__reset-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.learn__reset-toggle:hover {
+  color: var(--text);
+}
+
+/* aria-disabled, not `disabled`: the button is where focus stands the instant
+   the last mark is cleared, and a real `disabled` would drop that focus onto
+   <body>. Same shared recipe every other disabled control uses (M7.1 CMP-3). */
+.learn__reset-toggle[aria-disabled='true'] {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.learn__reset-toggle[aria-disabled='true']:hover {
+  color: var(--text-muted);
+}
+
+.learn__reset-panel {
+  max-width: var(--measure);
+  margin-top: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--accent-warn);
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+}
+
+.learn__reset-warn {
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.learn__reset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.learn__status {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* The pip legend. Quiet: it is reference material, not a call to action, so it
+   takes the measure and the small type and stays closed until asked for. */
+.learn__legend {
+  max-width: var(--measure);
+  margin-top: var(--space-4);
+}
+
+.learn__legend p {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.learn__legend-list {
+  margin-block: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* The stage word carries the weight; its sentence is muted body text, so the
+   three read as a list of definitions rather than three headings. */
+.learn__legend-list dt {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.learn__legend-list dd {
+  margin-inline-start: 0;
+  margin-block-end: var(--space-3);
+  color: var(--text-muted);
+}
+
+.learn__legend-list dd:last-child {
+  margin-block-end: 0;
+}
+
+/* Only the margin collapses while the region is empty — never `display: none`.
+   A live region that is un-hidden in the same frame as its text lands is the
+   classic way to lose an announcement, so this one is always rendered; an
+   empty <p> simply has no height. */
+.learn__status:empty {
+  margin-top: 0;
+}
+
+/* The catalogue grid. One column on a phone, two from 640, three from 1024 —
+   the same ladder the lesson cards used when they lived on this page, so the
+   catalogue and the course pages share a rhythm. */
+.learn__courses {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+  margin: var(--space-12) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .learn__courses {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .learn__courses {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

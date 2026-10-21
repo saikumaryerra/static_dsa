@@ -1,0 +1,21 @@
+.band {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* The same 1200px the bench uses to earn its second column, for the same
+   reason: below it, one column of cards beats two cramped ones. */
+@media (min-width: 1200px) {
+  .band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+/* Paper has one column, always: two 60mm cards side by side is a layout for a
+   screen, not for a page a reader annotates. */
+@media print {
+  .band {
+    display: block;
+  }
+}

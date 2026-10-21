@@ -300,7 +300,7 @@ describe('binarySearch.predictStep (M8.2)', () => {
     // The Visualizer counts these at build time and hands the number to the
     // island (`data-predict-items`), which credits a predict pass at ≥80%
     // across min(5, that count) answers. Pinned here so the number quoted in
-    // `Visualizer.astro` cannot rot: four steps, three predictable.
+    // `Visualizer.tsx` cannot rot: four steps, three predictable.
     const input = binarySearch.parseInput(
       '[1,3,5,7,9,11] target=7',
     ) as BinarySearchInput;

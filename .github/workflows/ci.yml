@@ -1,9 +1,9 @@
 # Definition-of-Done gate (spec §18).
 #
-# Cloudflare Pages is connected directly to this GitHub repo and runs its own build
-# (`npm run build`) on every push — but that only type-checks and builds. This
-# workflow runs the checks Cloudflare does not: lint, format, unit, and the
-# Playwright/axe e2e suite. Make `DoD gate` a required status check on `main`
+# Cloudflare Workers Builds is connected directly to this GitHub repo and runs its
+# own build (`npm run build`) on every push — but that only type-checks, builds and
+# verifies the static output. This workflow runs the checks Cloudflare does not:
+# lint, format, unit, content, and the Playwright/axe e2e suite. Make `DoD gate` a required status check on `main`
 # (Settings → Branches) so a red build can never reach the production branch.
 #
 # This workflow deliberately does NOT deploy — Cloudflare's git integration owns
@@ -42,11 +42,13 @@ jobs:
     name: DoD gate
     runs-on: ubuntu-latest
     # PINNED RENDERING ENVIRONMENT. The e2e suite compares committed pixel
-    # baselines, and this site ships a pure system-font stack — so what a capture
-    # looks like depends entirely on the fonts fontconfig finds. `ubuntu-latest`
-    # is a moving target whose font packages change over time, which is what makes
-    # unpinned pixel baselines unmaintainable: they rot without anyone touching
-    # the site. Pinning the image to the same one the baselines were seeded in
+    # baselines. The site self-hosts its two typefaces (IBM Plex subsets in
+    # public/fonts/), but a capture still depends on the machine that draws it:
+    # FreeType's hinting and antialiasing, and the system fonts fontconfig
+    # resolves for any glyph or chrome the subsets do not cover. `ubuntu-latest`
+    # is a moving target whose font and rendering packages change over time,
+    # which is what makes unpinned pixel baselines unmaintainable: they rot
+    # without anyone touching the site. Pinning the image to the same one the baselines were seeded in
     # makes the comparison meaningful AND locally reproducible — a contributor can
     # regenerate them with the identical command (see the seeding job below).
     # It also ships the browsers, so no `playwright install` step is needed.
@@ -67,7 +69,10 @@ jobs:
 
       - run: npm ci # lockfile-exact, reproducible
 
-      - run: npm run build # astro check (type gate) + astro build + portablize (Plan D §4.2)
+      # tsc --noEmit (type gate) + vite build (client, SSR, prerender of every
+      # page into dist/) + scripts/verify-dist.mjs (every internal URL resolves,
+      # one h1/main/canonical per page, no framework remnants).
+      - run: npm run build
 
       - run: npm run lint
 
@@ -92,10 +97,10 @@ jobs:
           # Step 2 of the visual-baseline flow. The PNGs in
           # tests/e2e/baseline-visual.spec.ts-snapshots/ are committed, so the 14
           # captures compare instead of skipping. This is only safe because the
-          # job runs in the pinned container: the site uses a pure system-font
-          # stack, so glyph rasterisation follows whatever fontconfig resolves,
-          # and a bare ubuntu-latest runner does not render identically to the
-          # image the baselines were made in.
+          # job runs in the pinned container: glyph rasterisation (and any
+          # fallback fontconfig resolves) follows the machine, and a bare
+          # ubuntu-latest runner does not render identically to the image the
+          # baselines were made in.
           VISUAL_BASELINE: '1'
 
       # Keep the evidence on failure so a red run is diagnosable without a local
@@ -119,10 +124,11 @@ jobs:
   # PR as the change that justified them. A diff nobody expected is the gate doing
   # its job; a diff everybody expected is a two-minute artifact review.
   #
-  # WHY BOTH JOBS RUN IN A CONTAINER. The site ships a pure system-font stack, so
-  # every glyph — and therefore every pixel — depends on the fonts fontconfig
-  # resolves. A bare `ubuntu-latest` runner is a moving target: its font packages
-  # change over time, so unpinned baselines rot without anyone touching the site.
+  # WHY BOTH JOBS RUN IN A CONTAINER. Even with self-hosted webfonts, every pixel
+  # depends on how the machine rasterises glyphs and which system fonts it falls
+  # back to. A bare `ubuntu-latest` runner is a moving target: its font and
+  # rendering packages change over time, so unpinned baselines rot without anyone
+  # touching the site.
   # Pinning both jobs to one image makes the comparison stable AND reproducible
   # off CI, which the earlier "this can only run here" note had assumed away.
   #

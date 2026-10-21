@@ -929,11 +929,15 @@ export function validateContent(root, options = {}) {
       errors.push(`${file}: internal link "${href}" resolves to nothing`);
     }
 
-    // 7. diagrams exist and carry accessible text
+    // 7. diagrams exist and carry accessible text. The component is the `.tsx`
+    // the React build renders, imported by its extensionless specifier
+    // (`…/diagrams/K8sArchitecture`) — the form every lesson has used since the
+    // cutover codemod (scripts/migration/codemod-mdx-imports.mjs); a `.astro`
+    // specifier no longer resolves at all, so the build rejects it first.
     for (const m of body.matchAll(
-      /^import\s+(\w+)\s+from\s+'[^']*components\/diagrams\/([\w-]+)\.astro';$/gm,
+      /^import\s+(\w+)\s+from\s+'[^']*components\/diagrams\/([\w-]+)';$/gm,
     )) {
-      const component = `${m[2]}.astro`;
+      const component = `${m[2]}.tsx`;
       /** @type {string} */
       let source;
       try {

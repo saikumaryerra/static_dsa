@@ -23,9 +23,9 @@
  * the media query match, which is what the re-encoding hangs off.
  *
  * The forced-colors half is written against the MAPPING TABLE in
- * `Visualizer.astro` — all ten states, not a sample — because that table is the
+ * `visualizer.css` — all ten states, not a sample — because that table is the
  * design: it is the thing that has to stay collision-free as states are added,
- * and it is declared in two places (the visualizer's `is:global` block plus the
+ * and it is declared in two places (the visualizer's stylesheet plus the
  * 404 page's build-time still, which ships outside it and so carries its own
  * smaller copy). It used to be three: the home hero was a second such still, and
  * amendment H-1 deleted that copy by mounting the real island there — so the
@@ -238,7 +238,7 @@ async function codeInk(
   page: Page,
 ): Promise<{ base: string; background: string; inks: string[] }> {
   return page
-    .locator('.astro-code')
+    .locator('.shiki')
     .first()
     .evaluate((pre) => {
       const style = getComputedStyle(pre);
@@ -337,7 +337,7 @@ test.describe('print stylesheet — the still that actually prints', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * The mapping table from `Visualizer.astro`'s forced-colors block, transcribed:
+ * The mapping table from `visualizer.css`'s forced-colors block, transcribed:
  * the state class, the stroke width forced colours must leave it with, and its
  * dash pattern (empty = solid). Widths are ordinal — thicker means "more
  * important right now" — and no two rows may share a (width, dash) pair, which

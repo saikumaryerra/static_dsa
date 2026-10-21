@@ -1,5 +1,28 @@
 {
-  "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist", "node_modules", "playwright-report", "test-results"]
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The type gate `npm run typecheck` (and the first step of `npm run build`)
+  // runs, replacing `astro check` (React migration D-15). The first block is
+  // what `astro/tsconfigs/strict` set, inlined so nothing here depends on the
+  // Astro package; the second block is what React, Vite and the DOM need.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "strict": true,
+
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src", "scripts", "tests", "*.ts"],
+  "exclude": ["dist", ".build", ".migration", "node_modules"]
 }
