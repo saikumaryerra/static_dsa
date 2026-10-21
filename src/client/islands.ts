@@ -143,9 +143,13 @@ function schedule(
     observer.observe(container);
   } else if (entry.trigger === 'idle') {
     // Safari ships no `requestIdleCallback`; a zero-delay task is the
-    // nearest equivalent there.
+    // nearest equivalent there. The deadline matters: without one a busy main
+    // thread may postpone the callback indefinitely, and an idle island stands
+    // in for a legacy script that ran as soon as the page loaded — a card the
+    // reader can reach must never sit disabled waiting for the browser to be
+    // quiet. One second keeps it off the first paint and bounds it otherwise.
     const idle = (window as Partial<Window>).requestIdleCallback;
-    if (idle) idle.call(window, start);
+    if (idle) idle.call(window, start, { timeout: 1000 });
     else window.setTimeout(start, 0);
   }
 }
