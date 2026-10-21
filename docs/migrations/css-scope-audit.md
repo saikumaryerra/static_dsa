@@ -33,3 +33,18 @@ initial state only — no `:hover`/`:focus`, closed disclosures, no island-rende
 
 Everything else converts verbatim. P3's `style-parity.mjs` run compares the React build against the
 baseline and must show 0 non-derived differences, or each remaining one listed here with a reason.
+
+## P3 result — style parity of the React build
+
+`scripts/migration/style-parity.mjs dist` (run 2026-10-21 against the P3 build `c165d9f`, the same
+38-page × 2 viewports × 2 themes sample, JavaScript off; 31,074 s on a host shared with unrelated
+workloads): **496 rule-changed · 378,606 derived · structural drift on 0 pages.** None of it is a
+visible property. Raw output: `.migration/style-parity/report.{md,json}` (gitignored).
+
+| Difference | Where | Why | Verdict |
+|---|---|---|---|
+| derived: `--jump-bar-h`, `--viz-progress` `(unset)` → empty | every element, 38 pages | the build ships one stylesheet (D-10), so custom properties the legacy build registered only on lesson or instrument pages are now declared everywhere; no rule reads them outside those pages | accepted — custom properties with no consumer on the page |
+| derived + rule-changed: `--lightningcss-light`, `--lightningcss-dark` on `:root` (`tokens.css`) | `html`, 38 pages | Vite's CSS pipeline lowers `light-dark()` with two helper variables at `:root`; every colour they feed computes to the legacy value (no colour property appears in the diff) | accepted — no computed colour differs |
+| rule-changed: `.viz-cell`, `.viz-cell__rect` `transition-*` (`visualizer.css`) | `/404.html`, the build-time still | one stylesheet: the instrument's transition rules now reach the 404's static drawing, which the legacy page never loaded. A still never changes state, so nothing animates; WS-C already neutralised the one visible effect (`.notfound__canvas .viz-cell.is-eliminated { opacity: 1 }`) | accepted — no visible change |
+
+The four scoped-rule fixes above hold: none of their selectors appears in the parity diff.
