@@ -929,11 +929,14 @@ export function validateContent(root, options = {}) {
       errors.push(`${file}: internal link "${href}" resolves to nothing`);
     }
 
-    // 7. diagrams exist and carry accessible text
+    // 7. diagrams exist and carry accessible text. The component is the `.tsx`
+    // the React build renders; the specifier may still spell the retired
+    // `.astro` extension (the build resolves it to the `.tsx` until the import
+    // codemod rewrites every lesson) or carry no extension at all.
     for (const m of body.matchAll(
-      /^import\s+(\w+)\s+from\s+'[^']*components\/diagrams\/([\w-]+)\.astro';$/gm,
+      /^import\s+(\w+)\s+from\s+'[^']*components\/diagrams\/([\w-]+)(?:\.astro)?';$/gm,
     )) {
-      const component = `${m[2]}.astro`;
+      const component = `${m[2]}.tsx`;
       /** @type {string} */
       let source;
       try {
