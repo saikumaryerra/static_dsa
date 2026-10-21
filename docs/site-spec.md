@@ -13,7 +13,7 @@ You are an LLM agent building this project. Follow these rules:
 1. **Build in the order given in §17 (Build Order).** Do not jump ahead. Each milestone has explicit acceptance criteria — satisfy them before moving on.
 2. **Prefer the vertical slice.** Get one lesson working end-to-end (content → layout → one live visualization) before scaling to all lessons.
 3. **When a detail is unspecified, choose the simplest option that satisfies the stated goals, and leave a `// SPEC-GAP:` comment** explaining the choice so a human can review it. Do not invent scope.
-4. **Do not add dependencies** beyond those listed in §4 without leaving a `// SPEC-GAP:` note and a one-line justification.
+4. **Justify every dependency.** There is no blanket ban (§4), but each one carries a comment saying why it is needed, and a visualization library the renderers do not need is still out. *(Amended by the React migration, `docs/migrations/react-amendments.md` R-2; was "do not add dependencies beyond §4".)*
 5. **Every algorithm visualization must follow the trace-then-render architecture in §11.** Do not hand-animate individual algorithms with bespoke timers.
 6. **All output must pass the checks in §18 (Definition of Done).**
 
@@ -23,7 +23,7 @@ You are an LLM agent building this project. Follow these rules:
 
 LearnDSA is a **static, no-backend website** that teaches **basic data structures and algorithms** to beginners (students, self-taught developers, interview-preppers). Each topic is a lesson combining prose explanation, complexity analysis, code samples in multiple languages, and an **interactive animated visualization** the learner can play, pause, step through, and drive with their own input.
 
-The whole site is prerendered to static HTML/CSS/JS and deployable to any static host (GitHub Pages, Netlify, Vercel, Cloudflare Pages). There is no server, no database, no auth, no analytics backend of our own.
+The whole site is prerendered to static HTML/CSS/JS and deployed at the root of one origin on a static host (Cloudflare Workers static assets today; Netlify, Vercel or a plain web server work the same way). There is no server, no database, no auth, no analytics backend of our own. *(Amended by the React migration, `docs/migrations/react-amendments.md` R-1: the site is rendered by React at build time instead of Astro, and it deploys at one origin rather than at any sub-path.)*
 
 *(Amended by the course expansion — `docs/courses/AMENDMENTS.md` C-1/C-7, decisions D-04/D-05.
 The site now carries **three courses**: Data Structures & Algorithms, Kubernetes, and System
@@ -77,12 +77,13 @@ and is not empty; whether the artifact inside it is real and correct is a review
 
 > This section is intentionally the one place stack decisions live. If a human wants a different stack, they change only this section and §16.
 
-- **Framework:** [Astro](https://astro.build) (latest stable). Static output (`output: 'static'`). Chosen because it prerenders content pages to zero-JS HTML by default and lets us ship interactivity only where needed via "islands."
+- **Framework:** **React 19** rendered to static HTML at build time by a small in-repo static-site generator on **Vite** (`scripts/vite-plugin-ssg.ts`): `vite build` builds the client assets, then an SSR bundle with the route table (`src/routes.tsx`) and every compiled lesson, then prerenders each route with `renderToStaticMarkup` into `dist/`. Navigation is ordinary multi-page navigation (no client router). Only the **instruments** hydrate — the Visualizer, Trace Trials and the Final Run, each an isolated React island activated lazily — and every other client behaviour is a framework-free TypeScript module over server-rendered markup. *(Amended by the React migration, `docs/migrations/react-amendments.md` R-2; was Astro `output: 'static'`. The reasoning and the alternatives are decisions D-02–D-06 in `docs/migrations/react-migration-decisions.md`.)*
 - **Language:** TypeScript everywhere. `strict: true`.
 - **Content format:** MDX (Markdown + components) for lessons.
 - **Styling:** Tailwind CSS + a small set of design tokens (§13). No component UI kit (no MUI/Chakra) — keep the bundle tiny and the look bespoke.
-- **Interactive islands:** Plain TypeScript + the DOM, drawing with **SVG** (preferred for structure diagrams: arrays, lists, trees, graphs) and/or **Canvas** (only if an animation has >~300 elements). **No D3, no viz libraries.** We roll our own tiny renderers per §11.
-- **Syntax highlighting:** Shiki (build-time, ships no runtime JS).
+- **Interactive islands:** React for the three instrument islands; the renderers stay plain TypeScript + the DOM behind a React ref, drawing with **SVG** (preferred for structure diagrams: arrays, lists, trees, graphs) and/or **Canvas** (only if an animation has >~300 elements). **No D3, no viz libraries.** We roll our own tiny renderers per §11.
+- **Syntax highlighting:** Shiki (build-time, ships no runtime JS) — for markdown fences through the MDX pipeline in `src/mdx/`, and for `<CodeTabs>` through one shared highlighter (`src/lib/highlight.ts`).
+- **MDX:** `@mdx-js/rollup` with the same remark/rehype chain Astro used (GFM, smartypants, Shiki, heading ids, the prose pass), so lesson output is unchanged; frontmatter is validated with `zod` (`src/content/schema.ts`).
 - **Math (if needed for Big-O):** KaTeX, prerendered.
 - **Testing:** Vitest (unit, esp. algorithm traces) + Playwright (a few smoke/e2e + a11y checks).
 - **Lint/format:** ESLint + Prettier.
@@ -92,10 +93,11 @@ and is not empty; whether the artifact inside it is real and correct is a review
   `// SPEC-GAP:` justification and the rejected alternatives are at the top of that file. Nothing in
   `src/` imports it, so it ships **zero bytes to the browser** and the JS budget below is untouched.
 - **Package manager:** npm.
-- **Node:** LTS (>= 22.12 — Astro 7's floor; `package.json` `engines`, `.nvmrc` and CI pin 24).
+- **Node:** LTS (>= 22.12; `package.json` `engines`, `.nvmrc` and CI pin 24).
+- **Dependencies:** no blanket ban. Every dependency is justified where it is used, and the runtime set is React and React DOM; everything else (Vite, the MDX/remark/rehype packages, Shiki, zod, Tailwind, the test and lint tooling) is build- or test-time. The full list and its justification is decision D-18.
 
 **Hard constraints:**
-- Total JS shipped to any single lesson page ≤ **60 KB gzipped** (excluding the one visualization island's logic, which should still be small).
+- Total JS shipped to any single page ≤ **120 KB gzipped**, gated on two figures: EAGER (the scripts the HTML loads plus their static imports) and FULL (EAGER plus every chunk the page's islands load on activation — React, the island, its algorithm and renderer chunks). A measured, CI-enforced number (`tests/e2e/js-budget.spec.ts`), not an aspiration. *(Amended by the React migration, `docs/migrations/react-amendments.md` R-3; was ≤ 60 KB eager per lesson page.)*
 - No runtime network calls. Everything is bundled at build time.
 - Site must fully function with **JavaScript disabled** for all prose/code content; only the interactive visualization degrades to a static image or a "enable JS to interact" message.
 
@@ -169,10 +171,9 @@ decision D-05).** It listed every lesson grouped by track while there was one co
 courses that is a directory rather than a catalogue, so the module sections, the arcs and the lesson
 cards moved to `/learn/{course}/` and `/learn/` now renders one card per course. **Lesson URLs did
 not move** — they carry external links, canonicals, sitemap entries and `localStorage` keys, which is
-what ruled out nesting lessons under their course. The course pages are three thin files under
-`src/pages/learn/` delegating to one shared `CourseIndex.astro`, because Astro cannot host a second
-dynamic segment beside `[slug].astro`; that route's `getStaticPaths` **fails the build if a lesson
-slug ever collides with a course slug**, so the two cannot silently share a URL.
+what ruled out nesting lessons under their course. The route table (`src/routes.tsx`) renders one course page per course with one shared
+`CourseIndex` component, and the content loader **fails the build if a lesson slug ever collides
+with a course slug**, so the two cannot silently share a URL.
 
 *What stayed on `/learn/`, and why:* the reset-progress control, the ready-to-review strip and the
 learning-days line describe the **device**, not a course. Three reset buttons deleting the same five
@@ -223,7 +224,7 @@ because it is the product's single prompting surface — one per course would be
 
 A lesson is **one `.mdx` file** in `src/content/lessons/`. Authors write prose; structured metadata lives in frontmatter; visualizations are dropped in as MDX components.
 
-Use Astro **Content Collections** with a typed schema. Frontmatter contract:
+Frontmatter is validated by a typed `zod` schema (`src/content/schema.ts`, a field-for-field copy of the former Astro content-collection schema); `src/content/lessons.ts` loads every lesson and fails the build naming the file and the field. *(Amended by the React migration, R-4.)* Frontmatter contract:
 
 ```yaml
 ---
@@ -359,46 +360,46 @@ Save, and **earns nothing** — no stage, no schedule change, no count. Prefer a
 
 ## 8. Page layouts & templates
 
-Implement these as Astro layouts/pages. Keep them composable.
+Implement these as React page and layout components rendered at build time (`src/pages/`, `src/layouts/`). Keep them composable. *(Amended by the React migration, R-5: was "Astro layouts/pages". The DOM each one renders is unchanged.)*
 
-- **`BaseLayout`** — `<head>` (meta, OG tags, theme init inline script to avoid FOUC), skip-to-content link, global header, footer, theme toggle.
+- **`BaseLayout`** — skip-to-content link, global header, footer, theme toggle; the `<head>` (meta, OG tags, the theme init inline script to avoid FOUC) is rendered by `src/render/Document.tsx` from the metadata the page records.
 - **`LessonLayout`** — wraps MDX content; adds breadcrumb, sticky ToC (generated from headings), prev/next, complexity table slot, "mark complete" control, reading-time. *M7 adds:* a "Builds on:" prerequisites row (from frontmatter, build-validated against real slugs) and an end-of-lesson **"What's next"** section merging mark-complete with the next-lesson card. Prev/next follow **global** lesson order, naming the track when it changes — never dead-ending at a track boundary (§3 "no dead ends"). *(Amended by the course expansion, decision D-04: "global" now means **within the lesson's own course**, since `order` is per course and a global sort would interleave three unrelated sequences. Crossing a module boundary still names the module; the end of a course is a real end, not a dead end. Prerequisites are still resolved across the whole catalogue — one course may build on another.)*
 - **Home page** — hero (one-line value prop + subhead), 2–3 feature blurbs (interactive / beginner-friendly / free), track cards linking to `/learn`, footer. *M7 adds:* a hero **product demo panel** at ≥1024px — a build-time `renderStatic()` frame of a real trace (never a hand-drawn mock), stacking below the CTA on mobile. *(Amended by the course expansion, `docs/courses/AMENDMENTS.md` C-7: the cards are **course** cards, each naming and linking its modules, and the hero copy, the footer tagline and the `WebSite` JSON-LD describe a catalogue of engineering courses rather than an algorithms site — without renaming the product. The feature blurbs are the one thing deliberately **not** broadened: all three are about the step-through instrument, which the two prose courses do not mount, so the section is headed "What an algorithms lesson actually does" instead of being reworded to cover courses it is not true of.)*
-- **Curriculum index** — two columns/sections (Foundations, Algorithms); each lesson as a card: number, title, one-line summary, difficulty chip, estimated minutes, done-checkmark. *M7 adds:* a resume CTA, per-track progress, and a reset-progress control. *M8.2 adds:* a ready-to-review strip directly under the page head — at most two cards, zero DOM when empty, never any "overdue"/countdown vocabulary. *M8 amends:* the done-checkmark becomes the first of three **mastery pips** (the existing check glyph is pip 1's fill, preserving the mental model); the per-track counter is drawn as a ring showing `N of M complete · Practiced n · Mastered n` — the self-reported completion count is never displayed alone. Difficulty-chip treatment may become semantic soft-fill (M7.3, designer sign-off) — the difficulty **word** is always retained. *(Split in two by the course expansion, C-2 / decision D-05: everything from "two columns/sections" onward now lives on the **course page** and is rendered by one shared `CourseIndex.astro`, whose sections are that course's modules in `TRACK_IDS` order — a module with no published lesson is absent rather than promised. `/learn/` keeps the page head, the resume CTA, the review strip, the reset control and the learning-days line, and renders one card per course carrying its blurb, a meta line of lesson count · module count · duration · difficulty, a `TrackArc` ring and a CTA. Every count on both pages is derived from the published collection, so a lesson added tomorrow moves the numbers with no edit.)*
-- **Course page** *(added by the course expansion, C-2)* — `/learn/{course}/`: the course's title, description, prerequisites, outcomes and meta line, a resume CTA scoped to that course, then one section per module (heading, blurb, `TrackArc`, `LessonCard`s). Three four-line files under `src/pages/learn/` pass a course id to `CourseIndex.astro`; all course copy lives in `src/lib/courses.ts` and all module copy in `src/lib/tracks.ts`, so no page states either of its own.
+- **Curriculum index** — two columns/sections (Foundations, Algorithms); each lesson as a card: number, title, one-line summary, difficulty chip, estimated minutes, done-checkmark. *M7 adds:* a resume CTA, per-track progress, and a reset-progress control. *M8.2 adds:* a ready-to-review strip directly under the page head — at most two cards, zero DOM when empty, never any "overdue"/countdown vocabulary. *M8 amends:* the done-checkmark becomes the first of three **mastery pips** (the existing check glyph is pip 1's fill, preserving the mental model); the per-track counter is drawn as a ring showing `N of M complete · Practiced n · Mastered n` — the self-reported completion count is never displayed alone. Difficulty-chip treatment may become semantic soft-fill (M7.3, designer sign-off) — the difficulty **word** is always retained. *(Split in two by the course expansion, C-2 / decision D-05: everything from "two columns/sections" onward now lives on the **course page** and is rendered by one shared `CourseIndex` component, whose sections are that course's modules in `TRACK_IDS` order — a module with no published lesson is absent rather than promised. `/learn/` keeps the page head, the resume CTA, the review strip, the reset control and the learning-days line, and renders one card per course carrying its blurb, a meta line of lesson count · module count · duration · difficulty, a `TrackArc` ring and a CTA. Every count on both pages is derived from the published collection, so a lesson added tomorrow moves the numbers with no edit.)*
+- **Course page** *(added by the course expansion, C-2)* — `/learn/{course}/`: the course's title, description, prerequisites, outcomes and meta line, a resume CTA scoped to that course, then one section per module (heading, blurb, `TrackArc`, `LessonCard`s). The route table renders `CoursePage` with a course id, which passes it to `CourseIndex`; all course copy lives in `src/lib/courses.ts` and all module copy in `src/lib/tracks.ts`, so no page states either of its own.
 - **Glossary** — alphabetical; jump-to-letter bar (sticky at every breakpoint, single-row scrollable on mobile); each entry: term, per-term anchor id, 1–2 sentence definition, `Also called:` aliases, "introduced in →" link. *(Left DSA-scoped by the course expansion, decision D-12. New-course prose may **not** link into the glossary — the validator rejects it — so 112 lessons can be written without touching a curated list and no lesson blocks on a term that does not exist yet. Terms pointing *at* the new lessons are safe and are polish, not a gate item.)*
-- **Prose artifacts: tables, fenced code, figures** *(added by the course expansion, C-6, decisions D-08/D-09)* — the site had none of the three. A small local rehype plugin in `astro.config.mjs` — written inline, no package — wraps every markdown `<table>` in a keyboard-reachable `div.table-scroll` and marks every markdown fence `md-code`; `LessonLayout` styles both and includes them in the measure-breakout and print rules. **A wrapper rather than CSS on the table itself**, because `display: block; overflow-x: auto` on a `<table>` strips its semantics from the accessibility tree in Chrome and Firefox — a real regression traded for a scrollbar — while the wrapper keeps `<table>` semantics and its `tabindex` is what WCAG 2.1.1 (and axe's `scrollable-region-focusable`) requires. `md-code` is what keeps the new `pre` styling from fighting `<CodeTabs>`: component output never passes through rehype. Diagrams are `Figure.astro` plus one component per diagram in `src/components/diagrams/`, each hand-written inline SVG coloured from the design tokens; `Figure` owns the `<svg>`, the accessible name, the description and the caption, so those cannot drift between diagrams, and it scrolls rather than shrinking or stretching. **Inline SVG rather than Mermaid**: client-side Mermaid is a large dependency against the ≤ 60 KB budget, build-time Mermaid pulls a headless browser into the build, and a static `.svg` cannot repaint itself for the light/dark tokens — inline SVG is the only option that is zero-dependency, zero-JS, themable and printable.
+- **Prose artifacts: tables, fenced code, figures** *(added by the course expansion, C-6, decisions D-08/D-09)* — the site had none of the three. A small local rehype plugin (`src/mdx/rehype-lesson-prose.ts`, no package) wraps every markdown `<table>` in a keyboard-reachable `div.table-scroll` and marks every markdown fence `md-code`; `LessonLayout` styles both and includes them in the measure-breakout and print rules. **A wrapper rather than CSS on the table itself**, because `display: block; overflow-x: auto` on a `<table>` strips its semantics from the accessibility tree in Chrome and Firefox — a real regression traded for a scrollbar — while the wrapper keeps `<table>` semantics and its `tabindex` is what WCAG 2.1.1 (and axe's `scrollable-region-focusable`) requires. `md-code` is what keeps the new `pre` styling from fighting `<CodeTabs>`: component output never passes through rehype. Diagrams are `Figure` plus one component per diagram in `src/components/diagrams/`, each hand-written inline SVG coloured from the design tokens; `Figure` owns the `<svg>`, the accessible name, the description and the caption, so those cannot drift between diagrams, and it scrolls rather than shrinking or stretching. **Inline SVG rather than Mermaid**: client-side Mermaid is a large dependency against the JS budget (§4), build-time Mermaid pulls a headless browser into the build, and a static `.svg` cannot repaint itself for the light/dark tokens — inline SVG is the only option that is zero-dependency, zero-JS, themable and printable.
 
 ---
 
 ## 9. Component inventory
 
-Build these reusable components (Astro components unless they need interactivity, in which case a TS island). Each should be small and documented with a top-of-file comment describing props.
+Build these reusable components as **server-rendered React components** (`.tsx`). A component that needs behaviour in the browser gets it one of two ways: the three **instruments** hydrate as React islands (`src/client/island-registry.ts`); everything else is a framework-free **module** in `src/client/modules/` over the server markup, loaded only by pages that render the component. Each should be small and documented with a top-of-file comment describing props. *(Amended by the React migration, R-5: was "Astro components, TS island where interactive"; the "Type" column below says which.)*
 
 | Component | Type | Purpose |
 |---|---|---|
 | `SiteHeader` / `SiteFooter` | static | global chrome |
-| `ThemeToggle` | island | light/dark, respects `prefers-color-scheme`, persists to `localStorage` |
+| `ThemeToggle` | module | light/dark, respects `prefers-color-scheme`, persists to `localStorage` |
 | `TableOfContents` | static (from headings) | in-lesson nav |
 | `Breadcrumb` | static | context nav |
 | `PrevNext` | static | lesson pagination |
 | `LessonCard` | static | curriculum index item |
 | `DifficultyChip` | static | label |
 | `ComplexityTable` | static | renders frontmatter `complexity` |
-| `CodeTabs` | island (minimal) | tabbed multi-language code, Shiki-highlighted, copy button |
+| `CodeTabs` | static + module | tabbed multi-language code, Shiki-highlighted, copy button |
 | `Callout` | static | note / warning / tip boxes |
 | `Collapsible` | static | wraps native `<details>` with styling |
-| `MarkComplete` | island | localStorage checkmark |
-| `Visualizer` | island | **the interactive DSA visualization — see §11** |
-| `PracticeCheck` | island (minimal) | *M8* — wraps a Practice answer with one-tap **self**-grading |
-| `TrackArc` | static markup, host-painted | *M8* — per-track progress ring + mastery counts on `/learn`; ships its own `<noscript>` kill-switch and is filled in by the page's progress island (no second store, no second script) |
-| `MasteryPips` | static markup, host-painted | *M8* — the three-pip stage indicator on `LessonCard` and the lesson header, painted by the same island |
-| `ReviewStrip` | island (minimal) | *M8.2* — the ready-to-review cards on `/learn`; ≤2 cards, zero DOM when empty |
-| `Challenge` | island (minimal) | *M8.3* — input-crafting trial validated against the run's final metrics; a build-time `witness` input proves solvability or the build fails |
-| `FinalRun` | island (minimal) | *M8.3* — one numeric prediction per lesson; truth computed at build time |
+| `MarkComplete` | module | localStorage checkmark |
+| `Visualizer` | React island | **the interactive DSA visualization — see §11** |
+| `PracticeCheck` | module | *M8* — wraps a Practice answer with one-tap **self**-grading |
+| `TrackArc` | static markup, host-painted | *M8* — per-track progress ring + mastery counts on `/learn`; ships its own `<noscript>` kill-switch and is filled in by the page's progress module (no second store, no second script) |
+| `MasteryPips` | static markup, host-painted | *M8* — the three-pip stage indicator on `LessonCard` and the lesson header, painted by the same module |
+| `ReviewStrip` | module | *M8.2* — the ready-to-review cards on `/learn`; ≤2 cards, zero DOM when empty |
+| `Challenge` | React island | *M8.3* — input-crafting trial validated against the run's final metrics; a build-time `witness` input proves solvability or the build fails |
+| `FinalRun` | React island | *M8.3* — one numeric prediction per lesson; truth computed at build time |
 | `WhatsNext` | static | *M7.2* — end-of-lesson section merging mark-complete with the next-lesson card |
 | `CourseCard` | static markup, host-painted | *course expansion* — the catalogue item on `/learn/`: title, blurb, meta line, `TrackArc` ring, CTA |
-| `CourseIndex` | static | *course expansion* — the body of one course page: module sections, arcs, lesson cards and a course-scoped resume CTA; the three `/learn/{course}/` pages are four-line files that pass it a course id |
+| `CourseIndex` | static | *course expansion* — the body of one course page: module sections, arcs, lesson cards and a course-scoped resume CTA; each `/learn/{course}/` page renders it with a course id |
 | `Figure` | static | *course expansion* — the frame every diagram is drawn inside: it owns the `<svg>`, the accessible name, the description and the caption; one component per diagram in `src/components/diagrams/` supplies only the children |
 
 **Gamification components (M8) inherit every rule in this spec plus the design stance in
@@ -624,7 +625,7 @@ algorithm's own message. Any such message must contain a first-field word (`core
 
 **The ledger — the trace, written out (added by Plan C).** A `Step` is one **row** and
 `Trace = Step[]` is the **table**, so `core/ledger.ts` (pure) transcribes one into the other and
-`Ledger.astro` draws it at the foot of the instrument, inside a native `<details>`. It is a second
+`Ledger.tsx` draws it at the foot of the instrument, inside a native `<details>`. It is a second
 **view** of the same precomputed trace, never a second copy of its state: it re-runs nothing, holds
 no index of its own, and the Player stays the single source of which step is current. The
 `showLedger` prop (default `true`) opts a chrome demonstration out — `/about` and `/dev/renderers`
@@ -682,6 +683,7 @@ the same offset for its rows and the instrument declares it too.
 />
 ```
 
+- *(Amended by the React migration, R-7.)* `src/viz/Visualizer.tsx` is the server half: it validates the ids at build time, runs the authored input once, and renders the instrument with its static still and its ledger. `src/viz/VisualizerIsland.tsx` is the React island that hydrates it when it nears the viewport; the renderers stay imperative behind a ref, and the Player and every algorithm and renderer are unchanged. The MDX props above are unchanged.
 - The island looks up the `Algorithm` and `Renderer` from a **registry** (`src/viz/registry.ts`) by string id.
 - On mount: run the algorithm → get the trace → hand to the `Player` → render step 0.
 - On custom input: `parseInput` → if valid, recompute trace and reset player; if invalid, show inline error attributed to the offending field, keep previous trace. A "Restore example" control returns to the authored input.
@@ -732,13 +734,13 @@ Define as CSS custom properties + Tailwind theme extension. Support light & dark
 
 ## 14. Performance & SEO
 
-- Prerender everything; ship JS only for islands. Meet the JS budget in §4.
+- Prerender everything; ship JS only for the instruments and the small modules a page renders. Meet the JS budget in §4.
 - Lighthouse targets (mobile): Performance ≥ 95, Accessibility ≥ 100, Best-Practices ≥ 95, SEO ≥ 95.
 - Per-page `<title>` + meta description (from frontmatter `summary`); Open Graph + Twitter card tags; canonical URLs.
-- **URL shape (amended by Plan D stage D1):** the site builds as directories with `trailingSlash: 'always'`, so every page is published at a **trailing-slash** URL (`/learn/binary-search/`) and its canonical, `og:url` and sitemap `<loc>` must carry that exact form — `tests/e2e/url-shape.spec.ts` fails when a declared URL disagrees with the URL the page is served at. (Reasoning and the reversed decision: `docs/redesign-2026-08/03-amendments.md`, U-1.)
-- **The build contract: one artifact, any origin, any sub-path (amended by Plan D stages D2/D3).** Two classes of URL, handled differently and neither one negotiable:
-  - **Navigational** URLs (links, scripts, styles, fonts, icons) are **document-relative in the shipped artifact**. `npm run build` is `astro check && astro build && node scripts/portablize.mjs`, and that third command is what makes it so — Astro cannot emit relative URLs (`base` is root-absolute by contract, `assetsPrefix` is one fixed string for pages at three depths), so **`base` is never set**. The pass fails the build if a root-absolute URL survives in a page or stylesheet, if a JS chunk carries a root-absolute literal or assembles a root base at runtime, or if a page loses the `[data-site-root]` anchor that client-built links resolve against. `dist/404.html` is the single documented exception (it is served at the URL the reader typed), and it carries the deployment's base path instead.
-  - **Declared** URLs (canonical, `og:url`, `og:image`, `twitter:image`, sitemap `<loc>`, robots' `Sitemap:`, JSON-LD `url`) must stay absolute, and the deployment URL is a **deploy-time input, not a build-time constant**: `SITE_URL` (full URL, sub-path included) or the sentinel `https://learndsa.invalid`, joined by the one builder `src/lib/deployment-url.ts` — never `new URL(path, site)`, which discards a sub-path. A Cloudflare build without `SITE_URL` fails by design; `npm run rehost <url>` stamps a built `dist/` for hosts with no build step. Deployment consequences and the three accepted limitations are in `docs/deployment.md` §2; the amendment is `docs/redesign-2026-08/03-amendments.md`, U-2.
+- **URL shape (amended by Plan D stage D1):** the site builds as directories (`<route>/index.html`), so every page is published at a **trailing-slash** URL (`/learn/binary-search/`) and its canonical, `og:url` and sitemap `<loc>` must carry that exact form — `tests/e2e/url-shape.spec.ts` fails when a declared URL disagrees with the URL the page is served at. (Reasoning and the reversed decision: `docs/redesign-2026-08/03-amendments.md`, U-1.)
+- **The build contract: one origin, root-absolute URLs (amended by the React migration, `docs/migrations/react-amendments.md` R-6; replaces Plan D's U-2).** Two classes of URL:
+  - **Navigational** URLs (links, scripts, styles, fonts, icons) are **root-absolute** (`/learn/arrays/`, `/assets/site-HASH.css`), in server markup and in client code alike (`lessonHref()`/`reviewHref()` in `src/lib/progress.ts`). `npm run build` is `tsc --noEmit && vite build && node scripts/verify-dist.mjs`, and the last step fails the build if any internal `href`/`src` in any page does not resolve to a file in `dist/`. The site is served at the root of its origin; sub-path hosting, `scripts/portablize.mjs`, `npm run rehost` and the `[data-site-root]` anchor are retired.
+  - **Declared** URLs (canonical, `og:url`, `og:image`, `twitter:image`, sitemap `<loc>`, robots' `Sitemap:`, JSON-LD `url`) stay absolute, from `SITE_URL` — the deployment's **origin**, no path — or the sentinel `https://learndsa.invalid`, joined by the one builder `src/lib/deployment-url.ts`. A build on a publishing platform (`CF_PAGES`, `WORKERS_CI`, `NETLIFY`, `VERCEL`) without `SITE_URL` fails, and a `SITE_URL` with a path fails everywhere (`src/render/site-url.ts`). Deployment details are in `docs/deployment.md` §2.
 - Generate `sitemap.xml` and `robots.txt`. JSON-LD `Course`/`LearningResource` structured data on lesson pages (nice-to-have).
 - Self-host fonts; preload the primary font; no layout shift (set dimensions on SVG/media).
 
@@ -756,48 +758,51 @@ Define as CSS custom properties + Tailwind theme extension. Support light & dark
 
 ```
 learndsa/
-├─ astro.config.mjs               # also hosts the rehype prose pass (§8)
+├─ vite.config.ts                 # client + SSR environments; buildApp → prerender
 ├─ tsconfig.json
 ├─ package.json
+├─ wrangler.jsonc                 # Cloudflare Workers static-assets deploy contract
 ├─ src/
-│  ├─ content.config.ts           # content-collection schema (§7)
+│  ├─ entry-server.tsx            # init(), routes(), render() — used by dev and prerender
+│  ├─ routes.tsx                  # the route table: every URL the site serves
 │  ├─ content/
-│  │  └─ lessons/*.mdx            # 127 lessons, flat, across three courses
-│  ├─ layouts/
-│  │  ├─ BaseLayout.astro
-│  │  └─ LessonLayout.astro
-│  ├─ pages/
-│  │  ├─ index.astro
-│  │  ├─ learn/index.astro        # the CATALOGUE: one card per course (§6)
-│  │  ├─ learn/dsa.astro          # one static page per course, because
-│  │  ├─ learn/kubernetes.astro   #   [slug].astro already owns /learn/{slug}/
-│  │  ├─ learn/system-design.astro
-│  │  ├─ learn/[slug].astro       # renders a lesson from the collection
-│  │  ├─ glossary.astro
-│  │  ├─ about.astro
-│  │  └─ 404.astro
-│  ├─ components/                 # §9 inventory
+│  │  ├─ lessons/*.mdx            # 127 lessons, flat, across three courses
+│  │  ├─ lessons.ts               # loader + cross-lesson build guards
+│  │  └─ schema.ts                # zod frontmatter schema (§7)
+│  ├─ mdx/                        # remark/rehype pipeline, incl. the prose pass (§8)
+│  ├─ render/                     # Document (<html>/<head>), Island, render context, site-url
+│  ├─ layouts/                    # BaseLayout.tsx, LessonLayout.tsx
+│  ├─ pages/                      # Home, LearnIndex (the CATALOGUE, §6), CoursePage,
+│  │                              #   LessonPage, Glossary, About, NotFound, DevRenderers
+│  ├─ components/                 # §9 inventory, server-rendered .tsx
 │  │  └─ diagrams/                # inline-SVG drawings, one per file (§8)
+│  ├─ client/
+│  │  ├─ islands.ts               # the island bootstrap (loads React on activation)
+│  │  ├─ island-registry.ts       # visualizer, challenge, final-run
+│  │  └─ modules/                 # framework-free behaviour, one entry per component
 │  ├─ viz/
 │  │  ├─ core/                    # Step/Trace/Player/registry types (§11.2)
 │  │  ├─ algorithms/              # one instrumented algorithm per file
 │  │  ├─ renderers/               # ArrayRenderer, TreeRenderer, ... (§11.5)
-│  │  ├─ Visualizer.astro         # the island wrapper
+│  │  ├─ Visualizer.tsx           # the server half of the instrument
+│  │  ├─ VisualizerIsland.tsx     # the hydrated island
 │  │  └─ registry.ts              # id → {algorithm, renderer}
 │  ├─ styles/
 │  │  ├─ tokens.css               # design tokens (§13)
-│  │  └─ global.css
+│  │  ├─ global.css
+│  │  ├─ site.css                 # the one stylesheet: global + one file per former style block
+│  │  └─ components/ layouts/ pages/
 │  └─ lib/                        # small utils (localStorage, toc, reading-time)
-├─ scripts/                       # build and check scripts, incl. validate-content
-├─ public/                        # static assets, fonts, og images
+├─ scripts/                       # vite-plugin-ssg, serve-dist, verify-dist, validate-content, …
+├─ public/                        # static assets, fonts, og images, _headers
 └─ tests/
-   ├─ unit/                       # vitest: algorithm traces, utils
-   └─ e2e/                        # playwright: smoke + axe a11y
+   ├─ unit/                       # vitest: algorithm traces, utils, MDX + SSR output
+   └─ e2e/                        # playwright: smoke, axe a11y, budget, URL shape, hosting
 ```
 
-This is the tree as built, not a plan. It said `(target)` while it carried a
-`tailwind.config.ts` that Tailwind v4 does not use and a `src/content/config.ts`
-that has always been `src/content.config.ts`; both are corrected above.
+This is the tree as built, not a plan. *(Amended by the React migration, R-8: the Astro tree it
+replaced — `astro.config.mjs`, `src/content.config.ts`, `.astro` layouts and pages — is in the git
+history at `51a70cf`.)*
 
 ---
 
@@ -895,7 +900,7 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
 
 ## 18. Definition of Done (every PR / final delivery)
 
-- [ ] `npm run build` passes with no errors or warnings.
+- [ ] `npm run build` passes with no errors or warnings — the type gate (`tsc --noEmit`), the build and prerender, and `scripts/verify-dist.mjs`. *(Amended by the React migration, R-9: was `astro check` + `astro build` + the portability pass.)*
 - [ ] `npm run lint` and `npm run format:check` clean.
 - [ ] `npm run test` (Vitest) green, incl. a trace test for each shipped algorithm.
 - [ ] `npm run validate:content` clean — the sixth command, added by the course expansion
@@ -924,7 +929,10 @@ challenge predicate evaluator is unit-tested such that a `witness` failing its o
 - [ ] Keyboard-only walkthrough of one lesson works, including all viz controls.
 - [ ] JS-disabled: all prose/code readable; viz degrades gracefully.
 - [ ] Meets JS budget (§4) — enforced by `tests/e2e/js-budget.spec.ts`, which fails the run if any
-      page exceeds 60 KB gz of eager JS — and Lighthouse targets (§14), which stay a manual check.
+      page exceeds 120 KB gz EAGER or FULL (islands activated, React included) — and Lighthouse
+      targets (§14), which stay a manual check.
+- [ ] No React island reports a hydration mismatch (`tests/e2e/hydration.spec.ts`), and the built
+      site behaves as a plain static site at one origin (`tests/e2e/static-hosting.spec.ts`).
 - [ ] No `console.log`, no dead code, no unexplained `SPEC-GAP` left unreviewed.
 
 **Two blind spots in that gate, found by Plan C. Neither is a bug; both are things the checklist
@@ -1027,7 +1035,7 @@ than by taste; re-proposing one is a spec amendment that has to beat the evidenc
   `overflow-y: auto`, a `max-height` and scroll-into-view). Three measurements retire all of it:
   every SVG is emitted `preserveAspectRatio="xMidYMid meet"` with `height: auto`, so scaling is
   uniform and the shipped RSP-2 `min-width: calc(var(--viz-natural-w, 0px) * 0.75)` is **already a
-  two-axis floor**; no `max-height` exists anywhere in `Visualizer.astro` to overflow against, so a
+  two-axis floor**; no `max-height` exists anywhere in the visualizer's stylesheet to overflow against, so a
   tall drawing makes the page taller and never scrolls; and adding one would *create* an a11y bug —
   `measureCanvas` decides `tabindex`, `role` and the accessible name from **horizontal** overflow
   alone, so a vertically-overflowing, horizontally-fitting canvas would be an unreachable keyboard
