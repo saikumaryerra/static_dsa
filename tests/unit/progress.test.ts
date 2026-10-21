@@ -1691,14 +1691,14 @@ describe('the Predict toggle has no storage surface at all', () => {
 // covered end to end.)
 // ---------------------------------------------------------------------------
 
-/** Cleared Trace Trials — `Challenge.astro` is the one writer. */
+/** Cleared Trace Trials — `ChallengeIsland.tsx` is the one writer. */
 const CHALLENGES_KEY = 'ld:challenges:v1';
-/** Cleared Final Runs — `FinalRun.astro` is the one writer. */
+/** Cleared Final Runs — `FinalRunIsland.tsx` is the one writer. */
 const FINAL_RUN_KEY = 'ld:finalrun:v1';
 
-/** One cleared trial, in the shape `Challenge.astro` writes. */
+/** One cleared trial, in the shape `ChallengeIsland.tsx` writes. */
 const CLEARED_TRIAL = JSON.stringify({ 'sorting-efficient/worst-case': 1 });
-/** One cleared Final Run, in the shape `FinalRun.astro` writes. */
+/** One cleared Final Run, in the shape `FinalRunIsland.tsx` writes. */
 const CLEARED_FINAL_RUN = JSON.stringify({ 'binary-search': { c: 1 } });
 
 /** A device that has cleared one Trace Trial and one Final Run. */

@@ -7,7 +7,7 @@
  * 1. `termAnchor()` must be collision-free across the whole glossary. Two terms
  *    slugifying alike would emit a duplicate `id` (invalid HTML), make one entry
  *    permanently unreachable, and send every deep link to the wrong definition.
- *    `glossary.astro` also throws on this at build time; this test is the fast
+ *    `src/pages/Glossary.tsx` also throws on this at build time; this test is the fast
  *    feedback loop and pins the exact slugs the lessons hardcode.
  * 2. Every `/glossary/#…` link written in lesson prose must resolve to a real
  *    term. Those 40 anchors are hand-authored strings — renaming a term (say

@@ -473,9 +473,9 @@ function tabStops(ledger: Locator): Locator {
 /**
  * A structural projection of one rendered ledger.
  *
- * Two renderers draw this table — `Ledger.astro` at build time and the island's
+ * Two renderers draw this table — `Ledger.tsx` at build time and the island's
  * rebuild — so the only thing pinning them together is a comparison of what they
- * produce. Deliberately NOT `outerHTML`: Astro's template whitespace differs
+ * produce. Deliberately NOT `outerHTML`: server-rendered whitespace differs
  * from `createElement`'s by construction, and a test that failed on indentation
  * would be deleted rather than fixed.
  */

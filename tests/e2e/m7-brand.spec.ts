@@ -139,7 +139,7 @@ test.describe('home hero instrument', () => {
     await page.goto('/');
     const viz = heroViz(page);
 
-    // The island's own contract, spelled in the registry ids `Visualizer.astro`
+    // The island's own contract, spelled in the registry ids `Visualizer.tsx`
     // validates at BUILD time. A hand-drawn panel has no reason to carry these,
     // and no way to make them true.
     await expect(viz).toHaveCount(1);
@@ -723,7 +723,7 @@ test.describe('collapsible answers, keyboard', () => {
     // keeps the subtree SKIPPED for the first frames of the expand — and a
     // skipped subtree is in neither the render tree nor the accessibility tree.
     // It belongs on the closing rule only, where it keeps the panel rendered
-    // while it collapses; that is the directional split Collapsible.astro
+    // while it collapses; that is the directional split collapsible.css
     // documents, and the same defect the ToC's inline panel had. Reproduced
     // both ways in Chromium before this was written: with the property on the
     // opening rule this reads `hidden`, without it `visible`.

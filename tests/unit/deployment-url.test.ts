@@ -15,7 +15,7 @@
  *    `/learn/<slug>/`, and `BaseLayout`'s `canonicalPath ?? Astro.url.pathname`
  *    default — gets a case here.
  *
- * The `index.html` cases are the sharp ones: `src/pages/dev/renderers.astro`
+ * The `index.html` cases are the sharp ones: `src/pages/DevRenderers.tsx`
  * renders `<BaseLayout>` with NO `canonicalPath`, so that default is live on a
  * published page. Both shapes Astro could hand it are covered, because which one
  * it hands over is a build internal and this function should not care.

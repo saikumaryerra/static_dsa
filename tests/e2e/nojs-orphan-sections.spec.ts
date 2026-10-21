@@ -10,7 +10,7 @@
  * on every lesson that hosts one. It happened with Trace Trials, it happened
  * again with the Final Run, and both fixes were the same: author the component
  * HEADLESS, so heading, card and ToC entry live and die together
- * (`src/components/FinalRun.astro` records the rule at its own source).
+ * (`src/components/FinalRun.tsx` records the rule at its own source).
  *
  * A code-review rule ("remember not to add a heading") is exactly the kind of
  * intention that erodes; this is the test that does not. It is deliberately
@@ -228,7 +228,7 @@ test.describe('JavaScript disabled — no heading is left without its section', 
 
     expect(
       orphaned,
-      'heading(s) with an empty section with JS off. Author the component HEADLESS (it titles itself) so its heading and its ToC entry disappear with it — see the note at the top of src/components/FinalRun.astro.',
+      'heading(s) with an empty section with JS off. Author the component HEADLESS (it titles itself) so its heading and its ToC entry disappear with it — see the note at the top of src/components/FinalRun.tsx.',
     ).toEqual([]);
     expect(
       deadLinks,

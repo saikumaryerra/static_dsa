@@ -422,7 +422,7 @@ describe('withoutCost — the cost column inherits showMetrics', () => {
 
 describe('ledgerLayout — one presentation rule, two renderers', () => {
   /**
-   * `Ledger.astro` draws this table at build time and the island redraws it
+   * `Ledger.tsx` draws this table at build time and the island redraws it
    * after every custom run. The rule lives here so those two cannot disagree
    * about the same run — a column that changed alignment between the authored
    * table and the reader's own would be the product contradicting itself.
@@ -473,7 +473,7 @@ describe('ledgerLayout — one presentation rule, two renderers', () => {
   });
 });
 
-/** The registry's thunks, widened the way `Visualizer.astro` widens them. */
+/** The registry's thunks, widened the way `src/viz/registry.ts` widens them. */
 type AnyAlgoMap = Record<string, () => Promise<Algorithm<unknown, unknown>>>;
 
 /** Every step of every algorithm's default run — the real authored corpus. */

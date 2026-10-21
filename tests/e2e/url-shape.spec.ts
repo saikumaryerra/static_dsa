@@ -42,7 +42,7 @@ import { curriculum } from './utils/mastery';
  * Measured under `build.format: 'directory'`: it stays at `dist/404.html` and
  * does NOT become `dist/404/index.html` (probe §10.5), because it is not a page
  * with an address — it is the document a host serves *instead of* whatever was
- * asked for. Its `canonicalPath` is `"/"` on purpose (`src/pages/404.astro`):
+ * asked for. Its `canonicalPath` is `"/"` on purpose (`src/pages/NotFound.tsx`):
  * "the canonical URL of this content" is the home page, not the dead URL that
  * happened to summon it. Asserting canonical == served path there would be
  * asserting the opposite of the design.
@@ -131,7 +131,7 @@ test.describe('the published URL shape (Plan D §5.1/§5.2)', () => {
         mismatches.push(`${served} canonicalizes to ${declared}`);
       }
 
-      // og:url and the canonical are one value in `BaseLayout.astro` today; this
+      // og:url and the canonical are one value in `src/render/Document.tsx` today; this
       // keeps them one value. Two machine-readable declarations of "this page"
       // that disagree is the same defect wearing a different tag name.
       expect(ogUrlOf(html), `${served} og:url matches its canonical`).toBe(
