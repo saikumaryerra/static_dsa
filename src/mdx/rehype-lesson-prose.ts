@@ -9,7 +9,8 @@
  * KNOWN, KEPT DEFECT (plan §1, orchestrator decision 6): Shiki writes its
  * classes to the hast property `class`, and this pass writes `className`. When
  * MDX turns the tree into JSX the latter wins, so every markdown fence ships as
- * `class="md-code"` WITHOUT `astro-code` and never receives the dark-theme
+ * `class="md-code"` WITHOUT Shiki's `shiki` class (`astro-code` before D-12)
+ * and never receives the dark-theme
  * rules in `global.css`. The migration reproduces the legacy output exactly;
  * the fix is a separate post-migration change with its own visual review. Do
  * not "tidy" the class/className interplay here.

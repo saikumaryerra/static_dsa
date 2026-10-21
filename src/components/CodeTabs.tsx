@@ -11,7 +11,7 @@
  *   to, so the `<pre>` is the one `<Code>` emitted), and all tabs ship as static
  *   HTML. Dual themes (github-light / github-dark-default, `SHIKI_THEMES`) emit
  *   CSS-variable tokens that follow the site theme and both clear WCAG 1.4.3 for
- *   comments; the `.astro-code` dark wiring lives in global.css.
+ *   comments; the `.shiki` dark wiring lives in global.css.
  *
  * WAI-ARIA Tabs: `role="tablist"` + roving-tabindex `role="tab"` buttons control
  * `role="tabpanel"`s (arrow keys wired in the script). Copy button per panel.

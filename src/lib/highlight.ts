@@ -8,12 +8,14 @@
  * `highlight` from `@astrojs/internal-helpers@0.10.1` (`dist/shiki.js`),
  * Copyright (c) 2021 Fred K. Schott, MIT License — copied rather than rewritten
  * because the legacy build's markup is the parity baseline (`proseHash` for all
- * 127 lessons), and every line of it is visible in that markup: the `shiki` →
- * `astro-code` class swap (kept until P5, decision D-12), `data-language`
+ * 127 lessons), and every line of it is visible in that markup: `data-language`
  * keeping a SPECIAL language as authored (`text` stays `text`, never
  * `plaintext`), and the `; overflow-x: auto;` appended to the `<pre>` style.
  * Only `console.warn` on an unknown language is dropped (spec §18 bans console
- * output); the fallback to `plaintext` it announced is kept.
+ * output); the fallback to `plaintext` it announced is kept. And Astro's
+ * `shiki` → `astro-code` class swap is gone (P5, decision D-12): the `<pre>`
+ * carries Shiki's own `shiki shiki-themes …` classes, which `global.css`'s dark
+ * wiring selects.
  *
  * Build-time only: nothing imports this from client code, so Shiki and its
  * grammars never reach the browser.
@@ -174,7 +176,7 @@ function highlight(
         const styleValue =
           (normalizePropAsString(node.properties.style) ?? '') +
           (attributesStyle ? `; ${attributesStyle}` : '');
-        node.properties.class = classValue.replace(/shiki/g, 'astro-code');
+        node.properties.class = classValue;
         node.properties.dataLanguage = lang;
         if (options.wrap === false || options.wrap === undefined) {
           node.properties.style = styleValue + '; overflow-x: auto;';

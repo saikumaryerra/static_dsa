@@ -8,7 +8,7 @@
  * | raw body    | `remarkLessonBody` → `export const body` (Astro's `entry.body`) |
  * | remark      | `remark-gfm@4.0.1`, `remark-smartypants@3.0.2` (default options) |
  * | rehype 1    | `rehypeMetaString`, `rehype-raw@7` with MDX node passthrough    |
- * | rehype 2    | `rehypeShikiAstro` (dual theme, `astro-code` until P5)          |
+ * | rehype 2    | `rehypeShikiAstro` (dual theme, Shiki's own classes, D-12)     |
  * | rehype 3    | `rehypeLessonProse` (table wrapper, `md-code` on fences)        |
  * | rehype 4    | `rehypeHeadingIds` → heading ids + `export const headings`      |
  *
