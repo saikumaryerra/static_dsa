@@ -1296,6 +1296,10 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
     // ledger only exists under a `<Visualizer>` (decision D-05). The validator
     // rejects `<StepLink>` in a new-course lesson, so nothing escapes this.
     const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
+    // One navigation per lesson: the budget scales with the course (f0a2b47's
+    // rule), because the 30 s default was a constant this walk outgrew under
+    // load on the legacy build as well (plan §1).
+    test.setTimeout(30_000 + lessons.length * 2_000);
     let found = 0;
 
     for (const lesson of lessons) {
