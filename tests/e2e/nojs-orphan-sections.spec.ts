@@ -170,6 +170,14 @@ test.describe('JavaScript disabled — no heading is left without its section', 
     expect(lessons.length, 'the curriculum must be readable').toBeGreaterThan(
       0,
     );
+    // One navigation per lesson, so the budget is a multiple of the CURRICULUM,
+    // never a bare constant (the rule f0a2b47 set for the other two curriculum
+    // walks). At 127 lessons this walk measured 42.4 s on the React build and
+    // 40.7 s on the legacy one — ~0.33 s per lesson, over the 30 s default on
+    // both. 2 s per lesson plus a start-up allowance is the same formula
+    // m8-explain-note and m8-practice-check use: generous here because a JS-off
+    // page is cheap, and it does not need raising the next time a module lands.
+    test.setTimeout(30_000 + lessons.length * 2_000);
 
     // Every finding across every lesson, reported in ONE failure. A per-lesson
     // assertion would abort at the first offender, and this bug arrives by
