@@ -67,16 +67,38 @@ export type SiteEnv = Readonly<Record<string, string | undefined>>;
  * well. That is deliberate: set `SITE_URL` project-wide and a preview
  * canonicalizes to production, so it never competes with it in search.
  *
+ * ONE ORIGIN (React migration D-01). The artifact is no longer portable to a
+ * sub-path: every navigational URL is root-absolute, so a `SITE_URL` with a
+ * path would publish canonicals for pages the host does not serve at those
+ * URLs. Such a value fails the build instead of being trimmed silently — a
+ * trailing `/` alone is accepted, since it names the same origin.
+ *
  * @param env - The environment, normally `process.env`.
- * @returns `SITE_URL`, or the sentinel when it is unset.
- * @throws On a publishing builder with no `SITE_URL`.
+ * @returns `SITE_URL` (an origin), or the sentinel when it is unset.
+ * @throws On a publishing builder with no `SITE_URL`, or on a `SITE_URL` that
+ *   is not an absolute URL or carries a path, query or fragment.
  */
 export function resolveSiteUrl(env: SiteEnv): string {
   const site = env.SITE_URL || SENTINEL;
+  if (site !== SENTINEL) {
+    let url: URL;
+    try {
+      url = new URL(site);
+    } catch {
+      throw new Error(
+        `SITE_URL "${site}" is not an absolute URL. Set it to the deployment's origin, e.g. https://learndsa.dev.`,
+      );
+    }
+    if (url.pathname !== '/' || url.search !== '' || url.hash !== '') {
+      throw new Error(
+        `SITE_URL "${site}" carries a path, query or fragment. The site deploys at the root of one origin (React migration D-01): set SITE_URL to the origin alone, e.g. ${url.origin}.`,
+      );
+    }
+  }
   const publisher = PUBLISHING_BUILDERS.find(([key]) => env[key]);
   if (site === SENTINEL && publisher) {
     throw new Error(
-      `SITE_URL is not set on a ${publisher[1]} build. Every canonical, og:url, sitemap <loc> and JSON-LD url would ship the unstamped sentinel ${SENTINEL}. Set SITE_URL to the full deployment URL (e.g. https://learndsa.dev), as a build variable for BOTH the production and preview environments — see docs/deployment.md §2.1.`,
+      `SITE_URL is not set on a ${publisher[1]} build. Every canonical, og:url, sitemap <loc> and JSON-LD url would ship the unstamped sentinel ${SENTINEL}. Set SITE_URL to the deployment's origin (e.g. https://learndsa.dev), as a build variable for BOTH the production and preview environments — see docs/deployment.md §2.1.`,
     );
   }
   return site;

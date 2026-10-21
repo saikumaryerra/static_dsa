@@ -5,8 +5,9 @@
  * `src/` — so every instrument's id churned on every build. Nothing durable
  * could point INTO a run: not a row anchor, not a `<StepLink>`, not a bookmark.
  * Three siblings already went stable for exactly this reason (`hero-demo`,
- * `nf-demo`, `og-still`), and `src/components/uid.ts` exists precisely to avoid
- * `Math.random()` in build-time components.
+ * `nf-demo`, `og-still`), and the render context's per-page `uid()` counter
+ * (`src/render/context.ts`) exists precisely to avoid `Math.random()` in
+ * build-time components.
  *
  * The id is derived from the page's pathname plus the instrument's algorithm and
  * renderer, which is unique per instrument on every page the site ships today.

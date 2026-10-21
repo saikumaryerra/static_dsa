@@ -2,11 +2,12 @@
  * Cloudflare Workers Static Assets — the deploy contract for this site.
  *
  * THIS FILE'S PRIMARY JOB IS TO EXIST. Without a Wrangler config in the repo,
- * `wrangler deploy` (4.68+) runs AUTOMATIC CONFIGURATION: it detects Astro,
- * installs the `@astrojs/cloudflare` adapter, rewrites `astro.config.mjs` and
- * rebuilds. That adapter is forbidden by spec §4 (this site has no server) and
- * it relocates the build to `dist/client/`, which broke `scripts/portablize.mjs`
- * on the 2026-08-24 deployment. A committed config suppresses all of it.
+ * `wrangler deploy` (4.68+) runs AUTOMATIC CONFIGURATION: it detects the
+ * framework (Astro then — on 2026-08-24 it installed the `@astrojs/cloudflare`
+ * adapter, rewrote the config and moved the build to `dist/client/`; Vite now)
+ * and reconfigures the project around a server it does not have. This site has
+ * no server: `npm run build` writes static files to `dist/` and nothing else.
+ * A committed config suppresses all of it.
  *
  * No `main` and no `binding`: there is no Worker script, only assets. The
  * binding key is only valid alongside `main`.
@@ -17,14 +18,15 @@
   "assets": {
     "directory": "./dist",
 
-    // Pairs with `trailingSlash: 'always'` + `build.format: 'directory'`
-    // (Plan D §5.1/§5.2). `/about` 301s to `/about/`, so the URL every
-    // canonical and every sitemap <loc> names is the URL that is served.
+    // Pairs with the build's directory layout (`about/index.html`) and the
+    // trailing slash on every internal link (amendment U-1; the route table in
+    // src/routes.tsx). `/about` 301s to `/about/`, so the URL every canonical
+    // and every sitemap <loc> names is the URL that is served.
     "html_handling": "force-trailing-slash",
 
     // Workers does NOT infer this the way Pages did — the default is "none",
     // which answers a bare 404 and never reaches `dist/404.html`. That file is
-    // built, is the one document keeping root-absolute links (§4.4), and is
+    // built at the root of `dist/` (src/routes.tsx, NOT_FOUND_PATH) and is
     // useless unless this line asks for it.
     "not_found_handling": "404-page",
   },

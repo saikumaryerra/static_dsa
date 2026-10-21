@@ -9,6 +9,9 @@
  * deploy did not run on the one platform that deploys this site. Each of the
  * four publishing builders is therefore asserted by BEHAVIOUR, not by source
  * text: with the variable set and no `SITE_URL`, the build throws.
+ *
+ * Since D-01 the site deploys at one origin, so a `SITE_URL` with a path
+ * fails too (the stronger replacement for the retired sub-path tests).
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -59,5 +62,30 @@ describe('the unstamped-deploy guard', () => {
     expect(
       resolveSiteUrl({ WORKERS_CI: '1', SITE_URL: 'https://learndsa.dev' }),
     ).toBe('https://learndsa.dev');
+  });
+});
+
+describe('one origin (React migration D-01)', () => {
+  it('accepts an origin, with or without the trailing slash', () => {
+    expect(resolveSiteUrl({ SITE_URL: 'https://learndsa.dev/' })).toBe(
+      'https://learndsa.dev/',
+    );
+  });
+
+  it.each([
+    'https://sample.com/learndsa',
+    'https://sample.com/learndsa/',
+    'https://learndsa.dev/?x=1',
+    'https://learndsa.dev/#top',
+  ])('rejects %s, which is not just an origin', (site) => {
+    expect(() => resolveSiteUrl({ SITE_URL: site })).toThrow(
+      'carries a path, query or fragment',
+    );
+  });
+
+  it('rejects a value that is not an absolute URL', () => {
+    expect(() => resolveSiteUrl({ SITE_URL: 'learndsa.dev' })).toThrow(
+      'is not an absolute URL',
+    );
   });
 });

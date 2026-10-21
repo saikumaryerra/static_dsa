@@ -12,6 +12,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { loadLessons } from './content/lessons';
 import { initHighlighter } from './lib/highlight';
+import { preloadVizRegistry } from './viz/registry';
 import { Document, type PageAssets } from './render/Document';
 import { createRenderContext, RenderContextProvider } from './render/context';
 import { resolveSiteUrl } from './render/site-url';
@@ -36,14 +37,20 @@ let ready: Promise<void> | null = null;
 
 /**
  * Prepare everything a render reads synchronously: the Shiki highlighter
- * (CodeTabs highlights during render) and the lesson collection (validated and
- * cross-checked here, so a bad lesson fails before the first page is written).
- * Idempotent.
+ * (CodeTabs highlights during render), the lesson collection (validated and
+ * cross-checked here, so a bad lesson fails before the first page is written)
+ * and every viz algorithm and renderer (the Visualizer and the cards compute
+ * traces at build time). Idempotent; the components that also await
+ * `preloadVizRegistry()` at module level share the same promise.
  *
  * @returns Resolves when rendering may start.
  */
 export function init(): Promise<void> {
-  ready ??= Promise.all([initHighlighter(), loadLessons()]).then(() => {});
+  ready ??= Promise.all([
+    initHighlighter(),
+    loadLessons(),
+    preloadVizRegistry(),
+  ]).then(() => {});
   return ready;
 }
 

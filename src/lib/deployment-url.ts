@@ -9,7 +9,13 @@
  * canonical, an `og:url` and a sitemap `<loc>` pointing at the origin root — a
  * URL that host does not serve. `new URL(site).origin` is the same bug in
  * another costume: it throws the sub-path away by definition. Requirement R3
- * ("any sub-path") therefore needs an explicit join, and this is it.
+ * ("any sub-path") therefore needed an explicit join, and this is it.
+ *
+ * Since the React migration (D-01) the site deploys at the root of one origin
+ * and `resolveSiteUrl()` (`src/render/site-url.ts`) rejects a `SITE_URL` with a
+ * path, so in the build the base path is always empty. The join is kept rather
+ * than swapped for `new URL`: it is correct for both shapes, and it is still
+ * the single place the path normalization below happens.
  *
  * ── AND WHY IT NORMALIZES THE PATH ───────────────────────────────────────────
  * Declared URLs are authored at their own call sites — a `canonicalPath` prop

@@ -1,0 +1,6 @@
+{
+  "routes": {},
+  "global": {
+    "file:_headers": "D-13 (P4): the immutable-cache rule /_astro/* is renamed /assets/*, the directory Vite emits fingerprinted files into; its comments are reworded to match"
+  }
+}
