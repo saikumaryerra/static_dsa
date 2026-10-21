@@ -3,7 +3,8 @@
  *
  * Testable here at all because the id is a pure function of (pathname,
  * algorithm, renderer) plus a per-render tally, and the tally's key is an opaque
- * object — in production `Astro.request`, here a plain `{}`. The harness is
+ * object — in production the page's render context (`instrumentScope`,
+ * `src/render/context.ts`), here a plain `{}`. The harness is
  * `environment: 'node'` with no DOM, and nothing below needs one.
  *
  * This file is where the COLLISION TIEBREAK is proven. No page the site ships
@@ -18,7 +19,7 @@ import {
   instrumentIdFor,
 } from '../../src/viz/core/instrument-id';
 
-/** A fresh page render. Production passes `Astro.request`; the identity is all that matters. */
+/** A fresh page render. Production passes the render context's scope; the identity is all that matters. */
 const render = (): object => ({});
 
 describe('claimInstrumentId', () => {
@@ -103,7 +104,8 @@ describe('claimInstrumentId', () => {
 
   it('restarts the tally per render, so a reload replays the same ids', () => {
     // The failure this guards: a module-global counter would keep counting
-    // across `astro dev` requests, so the second load of an unchanged page
+    // across dev-server requests (and across the 136 pages one prerender
+    // renders in a single process), so the second load of an unchanged page
     // would suffix ids that never collided.
     const page = (): string[] => {
       const scope = render();

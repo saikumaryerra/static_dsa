@@ -1,10 +1,11 @@
 /**
  * The nav's "where am I" rule — D1's landmine, made a test instead of a hope.
  *
- * `trailingSlash: 'always'` (astro.config.mjs) moved every published URL, and
- * `NAV_ITEMS` moved with it: the hrefs are now `/learn/`, `/glossary/`,
+ * The trailing-slash URL shape (U-1; then `trailingSlash: 'always'` in the
+ * Astro config, now the route table's `<path>/index.html`) moved every
+ * published URL, and `NAV_ITEMS` moved with it: the hrefs are now `/learn/`, `/glossary/`,
  * `/about/`, because `SiteFooter` renders them verbatim and the slashless form
- * is a 404 under `astro preview`. That single edit breaks BOTH comparisons in
+ * is a 404 under `npm run preview`. That single edit breaks BOTH comparisons in
  * the old matching rule at once — `'/learn' === '/learn/'` is false, and the
  * descendant probe becomes `startsWith('/learn//')`, which no path satisfies.
  *
@@ -15,8 +16,9 @@
  * sides, and these cases pin that.
  *
  * Pure-function tests, which is only possible because D1 lifted the rule out of
- * `SiteHeader.astro`'s frontmatter into `src/lib/nav.ts`: the Vitest harness is
- * `environment: 'node'` with no DOM, and `.astro` frontmatter is not importable.
+ * the then-`SiteHeader.astro`'s frontmatter into `src/lib/nav.ts`, which
+ * `SiteHeader.tsx` still calls: the Vitest harness is `environment: 'node'`
+ * with no DOM, and a component render is the wrong unit for a pure rule.
  * The rendered half (that the header really marks the item, and that the footer
  * never claims one) stays in `tests/e2e/baseline-aria.spec.ts`.
  */

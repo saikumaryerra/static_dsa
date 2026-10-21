@@ -55,7 +55,8 @@ const ROUTES: { name: string; path: string; hydrates: boolean }[] = [
   },
   { name: 'glossary', path: '/glossary/', hydrates: false },
   // `/404/`, not `/404` — see the note in `m7-brand.spec.ts`'s 404 test: the
-  // slashless form serves Astro's built-in error page, not this site's.
+  // slashed form is the shape every page URL takes (U-1), and under the legacy
+  // `astro preview` the slashless one served Astro's own error page instead.
   { name: 'not-found', path: '/404/', hydrates: false },
 ];
 
@@ -109,7 +110,8 @@ for (const { name, path, hydrates } of ROUTES) {
  * marking the current nav item would leave all five baselines byte-identical and
  * green. Hence a direct assertion — and it belongs against the BUILT site, which
  * is what `playwright.config.ts` previews, because the URL shape is a build-time
- * contract: a nav that compares `Astro.url.pathname` against a `NAV_ITEMS` href
+ * contract: a nav that compares the page's pathname (the render context's, in
+ * `SiteHeader.tsx`) against a `NAV_ITEMS` href
  * verbatim can mark the item in one shape and mark NOTHING in another. That is
  * the exact bug M7.1 fixed (then `build.format: 'file'` emitting `learn.html`),
  * and the one D1 re-armed by putting the trailing slash into the hrefs. The rule

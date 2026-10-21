@@ -340,7 +340,8 @@ describe('buildLedger — the shape of a cell', () => {
     expect(buildLedger.length).toBe(2);
     // @ts-expect-error buildLedger takes (trace, spec?) and nothing else. If a
     // third parameter is ever re-added, this suppression goes unused and
-    // `astro check` fails the build — which is the point of asserting it here
+    // the type gate (`tsc --noEmit`, the first step of `npm run build`) fails —
+    // which is the point of asserting it here
     // as well as by arity, since a defaulted parameter would not change arity.
     buildLedger([{ state: {}, explanation: 'Ready.' }], undefined, {
       suppressFinalCost: true,

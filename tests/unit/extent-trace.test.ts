@@ -29,7 +29,7 @@ describe('traceExtent', () => {
   it('throws on an empty trace rather than inventing a zero box', () => {
     // `steps()` and not a bare `[]`: an empty array literal leaves TState
     // inferred as `unknown`, so `s.state` stops being an `Extent` and the file
-    // fails `astro check` (tsconfig includes the test tree).
+    // fails the type gate, `npm run typecheck` (tsconfig includes the test tree).
     expect(() => traceExtent((s) => s.state, steps())).toThrow(/empty trace/);
   });
 

@@ -586,12 +586,12 @@ for (const theme of ['light', 'dark'] as const) {
         '--surface',
       );
 
-      // D1: `/404` (no slash) no longer reaches the site's own 404 document — under
-      // `trailingSlash: 'always'` the preview server rejects the slashless form BEFORE
-      // the file lookup and answers with Astro's built-in error page, which carries
-      // none of the site's chrome. `/404/` resolves to the same `dist/404.html` that a
-      // genuinely unknown URL is served (verified byte-identical), so the slash is what
-      // keeps this pointed at the product instead of at the harness.
+      // D1: `/404/`, with the slash every page URL carries (U-1). It resolves to the
+      // same `dist/404.html` a genuinely unknown URL is served, through the preview
+      // server's not-found fallback (`scripts/serve-dist.mjs`). The slash dates from
+      // the Astro build, whose preview rejected the slashless form BEFORE the file
+      // lookup and answered with Astro's own error page, carrying none of the
+      // site's chrome; keeping it means this never depended on that fallback.
       await page.goto('/404/');
       await expectLevelOne(
         page,

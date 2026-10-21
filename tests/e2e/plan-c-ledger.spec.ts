@@ -25,8 +25,9 @@ test.describe('stable instrument ids', () => {
   /**
    * The id was `viz-${Math.random()…}` — the last `Math.random()` in `src/`, so
    * no anchor into a run survived a rebuild. Asserting the SHAPE rather than a
-   * literal is deliberate: the hash is over `Astro.url.pathname`, which can
-   * normalize differently between `astro dev` and the built output, so a pinned
+   * literal is deliberate: the hash is over the page's pathname (the render
+   * context's), which can normalize differently between the dev server and the
+   * built output, so a pinned
    * value would be a false anchor. What matters is that it is derived, that it
    * names its algorithm, and that a page's instruments never collide.
    */
@@ -576,7 +577,8 @@ test.describe('the ledger follows the run', () => {
   });
 
   /**
-   * The only thing pinning the island's DOM builder to the Astro template is a
+   * The only thing pinning the island's DOM builder to the server render
+   * (`Ledger.tsx`) is a
    * comparison of the two, and "Restore example" is the one input where they
    * must agree exactly: it re-runs the AUTHORED trace, so the rebuilt table has
    * to come out identical to the one the build shipped — same ids, same classes,
