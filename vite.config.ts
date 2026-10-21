@@ -25,7 +25,6 @@ import {
   prerender,
   SOURCES,
   ssg,
-  ssgResolver,
 } from './scripts/vite-plugin-ssg';
 import { mdxOptions } from './src/mdx/pipeline';
 
@@ -36,7 +35,6 @@ export default defineConfig({
   root: ROOT,
   appType: 'custom',
   plugins: [
-    ssgResolver(),
     // @mdx-js/rollup: compiles the lessons with Astro's remark/rehype chain
     // (src/mdx/pipeline.ts). `pre`, so React's JSX transform sees its output.
     { enforce: 'pre', ...mdx(mdxOptions) },

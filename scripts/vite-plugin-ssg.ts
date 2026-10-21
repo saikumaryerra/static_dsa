@@ -2,19 +2,15 @@
  * The in-repo static-site generator (React migration, D-03): ~the 400 lines of
  * build code option (a) of the decision record buys instead of a framework.
  *
- * Three jobs:
+ * Two jobs (a third, the temporary `.astro` → `.tsx` resolver for lesson
+ * imports, D-08, was deleted at P5 with the codemod that rewrote those imports
+ * — `scripts/migration/codemod-mdx-imports.mjs`):
  *
- * 1. `ssgResolver()` — the TEMPORARY `.astro` → `.tsx` resolver (D-08). The 127
- *    lessons keep importing `../../components/X.astro` until the P5 codemod;
- *    an import of `X.astro` from an `.mdx` file resolves to the sibling
- *    `X.tsx`, and the build fails, naming the lesson, when that file does not
- *    exist. `enforce: 'pre'` because Vite's own resolver would otherwise find
- *    the `.astro` file first.
- * 2. `ssg()` — the dev middleware: every route rendered on request through the
+ * 1. `ssg()` — the dev middleware: every route rendered on request through the
  *    SSR entry (`server.ssrLoadModule`), the same renderer the build uses.
  *    Unknown paths, slashless page paths included, get the 404 page with a 404
  *    status, as in production.
- * 3. `prerender()` — called from `vite.config.ts`'s `builder.buildApp` after
+ * 2. `prerender()` — called from `vite.config.ts`'s `builder.buildApp` after
  *    the client and SSR builds: imports `.build/server/entry-server.js`,
  *    renders every route into `dist/`, writes `.build/page-manifest.json` (the
  *    per-page chunk lists the JS budget reads, D-06) and moves Vite's manifest
@@ -111,38 +107,6 @@ export function moduleEntries(root: string): Record<string, string> {
       .sort()
       .map((file) => [file.slice(0, -'.ts'.length), path.join(dir, file)]),
   );
-}
-
-/**
- * The temporary `.astro` → `.tsx` resolver for MDX importers (D-08). Deleted
- * at P5 with the codemod that rewrites the 356 import lines.
- *
- * @returns A pre-enforced Vite plugin.
- */
-export function ssgResolver(): Plugin {
-  return {
-    name: 'ldsa:astro-to-tsx',
-    enforce: 'pre',
-    resolveId(source, importer) {
-      if (
-        !importer ||
-        !importer.endsWith('.mdx') ||
-        !source.endsWith('.astro')
-      ) {
-        return null;
-      }
-      const target = path.resolve(
-        path.dirname(importer),
-        `${source.slice(0, -'.astro'.length)}.tsx`,
-      );
-      if (!existsSync(target)) {
-        this.error(
-          `${path.relative(process.cwd(), importer)} imports "${source}", but ${path.relative(process.cwd(), target)} does not exist. Port the component (or add its stub) before building.`,
-        );
-      }
-      return target;
-    },
-  };
 }
 
 /** Asset URLs in dev: Vite serves the sources directly. */
