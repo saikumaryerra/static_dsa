@@ -3,7 +3,8 @@
  * home for the site's A–Z vocabulary.
  *
  * Each term names the lesson that INTRODUCES it (spec §6). Those `lessonSlug`s are
- * cross-checked against the published lessons collection in `glossary.astro`, so a
+ * cross-checked against the published lessons in `checkCollection()`
+ * (`src/content/lessons.ts`), so a
  * renamed/removed lesson fails the build rather than shipping a dead cross-link.
  * Definitions are hand-authored (spec §15 — no lorem) at one or two sentences.
  */
@@ -19,7 +20,7 @@ export interface GlossaryTerm {
   /**
    * Optional genuine synonyms and alternate spellings a reader might arrive with,
    * in the casing the literature writes them ("BST", "ring buffer"). Since M7.2
-   * this is DISPLAY COPY: `glossary.astro` renders it verbatim as an "Also called:
+   * this is DISPLAY COPY: `src/pages/Glossary.tsx` renders it verbatim as an "Also called:
    * …" line under the definition — which is also what makes browser find-in-page
    * able to match a synonym, the thing a zero-JS glossary otherwise cannot do.
    *
@@ -37,7 +38,7 @@ export interface GlossaryTerm {
  * Stable, URL-safe fragment id for a term — "Big-O notation" → "big-o-notation".
  * Pure and deterministic so lesson prose can hard-link `/glossary/#binary-search`
  * and a reader can share a single definition. Collision-freedom across the whole
- * list is asserted at build time in `glossary.astro`: two terms slugifying alike
+ * list is asserted at build time in `src/pages/Glossary.tsx`: two terms slugifying alike
  * would make one of them permanently unreachable.
  */
 export function termAnchor(term: string): string {
@@ -54,7 +55,7 @@ export function termAnchor(term: string): string {
 }
 
 /**
- * The curated glossary, in authoring order. `glossary.astro` sorts A–Z and groups
+ * The curated glossary, in authoring order. `src/pages/Glossary.tsx` sorts A–Z and groups
  * by first letter at build time, so order here is irrelevant to output.
  */
 export const glossary: GlossaryTerm[] = [

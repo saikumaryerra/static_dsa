@@ -216,7 +216,7 @@ export interface Renderer<TState> {
    * Replaces the extent used by every subsequent `render`.
    *
    * Required rather than optional, and separate from `mount`, because `mount`
-   * runs exactly ONCE per island (`Visualizer.astro`) while `Player.loadTrace`
+   * runs exactly ONCE per island (`VisualizerIsland.tsx`) while `Player.loadTrace`
    * re-traces on every custom run. An extent that could only arrive at mount
    * would be frozen at the authored run's size, so the custom run — the case
    * that varies most — would draw against a stale box.

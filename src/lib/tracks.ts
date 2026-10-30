@@ -3,7 +3,8 @@
  *
  * SPEC-GAP: the spec names the tracks but not where their copy lives, and it was
  * duplicated — `/learn` inlined the long section headings and blurbs while
- * `Breadcrumb.astro` inlined the short crumb label. Rather than add a third copy
+ * the breadcrumb (then `Breadcrumb.astro`, now `Breadcrumb.tsx`) inlined the
+ * short crumb label. Rather than add a third copy
  * for cross-track prev/next (M7.1 IA-5), this module owns the concept and every
  * caller reads from here, so renaming a track is a one-file edit.
  *

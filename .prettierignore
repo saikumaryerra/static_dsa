@@ -1,9 +1,9 @@
 # Designer handoff mandates the token file and the inline FOUC script VERBATIM —
-# exempt from reformatting (prettier-plugin-astro reformats embedded scripts even
-# behind prettier-ignore comments). Both files are hand-kept in Prettier style
-# everywhere outside the verbatim blocks.
+# exempt from reformatting. The script is inlined into every page's <head> by
+# src/render/Document.tsx (`?raw`), so its bytes are the shipped bytes. Both
+# files are hand-kept in Prettier style everywhere outside the verbatim blocks.
 src/styles/tokens.css
-src/layouts/BaseLayout.astro
+src/render/pre-paint.inline.js
 
 # Agent/tooling scratch space, not project source. `.claude/worktrees/` holds a
 # full nested checkout of this repo; both are git-excluded already.
@@ -15,7 +15,6 @@ src/layouts/BaseLayout.astro
 
 # Build output & generated files
 dist/
-.astro/
 node_modules/
 package-lock.json
 playwright-report/
@@ -39,3 +38,7 @@ CLAUDE.md
 Agents.md
 opencode.json
 .opencode/
+
+# React migration: frozen legacy artifact and prerender metadata (both generated).
+.migration/
+.build/

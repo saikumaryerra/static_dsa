@@ -12,13 +12,14 @@
  * 2. **A canonical that names a URL the site does not serve.** Every call site
  *    that authors a declared path is a chance to publish one, so each of the
  *    plan's three bullets — the sitemap's `STATIC_PATHS`, `LessonLayout`'s
- *    `/learn/<slug>/`, and `BaseLayout`'s `canonicalPath ?? Astro.url.pathname`
- *    default — gets a case here.
+ *    `/learn/<slug>/`, and `Document`'s `canonicalPath ?? pathname` default
+ *    (`src/render/Document.tsx`) — gets a case here.
  *
- * The `index.html` cases are the sharp ones: `src/pages/dev/renderers.astro`
+ * The `index.html` cases are the sharp ones: `src/pages/DevRenderers.tsx`
  * renders `<BaseLayout>` with NO `canonicalPath`, so that default is live on a
- * published page. Both shapes Astro could hand it are covered, because which one
- * it hands over is a build internal and this function should not care.
+ * published page. Both shapes a pathname can arrive in are covered (the Astro
+ * build could hand over either), because which one it is is a build internal
+ * and this function should not care.
  */
 import { describe, expect, it } from 'vitest';
 import { deploymentUrl } from '../../src/lib/deployment-url';
@@ -26,7 +27,7 @@ import { deploymentUrl } from '../../src/lib/deployment-url';
 /** The three deployment shapes R1/R3 promise to support. */
 const ROOT = 'https://learndsa.dev';
 const SUBPATH = 'https://sample.com/learndsa';
-/** The e2e sub-path fixture's shape: a port and two path segments. */
+/** The retired e2e sub-path fixture's shape: a port and two path segments. */
 const NESTED = 'http://localhost:4322/deployments/learndsa';
 
 describe('deploymentUrl — the sub-path (requirement R3)', () => {
@@ -66,7 +67,7 @@ describe('deploymentUrl — the sub-path (requirement R3)', () => {
     expect(deploymentUrl(SUBPATH, '/')).toBe('https://sample.com/learndsa/');
   });
 
-  it('accepts a URL instance (Astro.site is one)', () => {
+  it('accepts a URL instance (the legacy Astro.site was one)', () => {
     expect(deploymentUrl(new URL(SUBPATH), '/about/')).toBe(
       'https://sample.com/learndsa/about/',
     );
@@ -75,10 +76,11 @@ describe('deploymentUrl — the sub-path (requirement R3)', () => {
 
 describe('deploymentUrl — path normalization (D1, trailingSlash: always)', () => {
   /**
-   * `BaseLayout`'s default canonical is `Astro.url.pathname`, and under
-   * `build.format: 'directory'` that is the shape most likely to arrive carrying
-   * `index.html`. Leaking it would publish `…/dev/renderers/index.html` as the
-   * page's own name for itself.
+   * `Document`'s default canonical is the route's pathname, and in a
+   * directory-format build that is the shape most likely to arrive carrying
+   * `index.html` (it did under Astro's `build.format: 'directory'`). Leaking it
+   * would publish `…/dev/renderers/index.html` as the page's own name for
+   * itself.
    */
   it.each([
     ['/index.html', 'https://sample.com/learndsa/'],

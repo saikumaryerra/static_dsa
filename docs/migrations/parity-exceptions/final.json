@@ -1,0 +1,7 @@
+{
+  "routes": {},
+  "global": {
+    "file:_headers": "D-13 (P4): the immutable-cache rule /_astro/* is renamed /assets/*, the directory Vite emits fingerprinted files into; its comments are reworded to match",
+    "lesson.bodySha": "P5 (D-08): scripts/migration/codemod-mdx-imports.mjs rewrote the 356 component import lines from '…/X.astro' to '…/X' in all 127 lessons; the raw-source hash changes, prose is untouched (git diff -U0 shows import lines only) and proseHash/bodyHash still match"
+  }
+}

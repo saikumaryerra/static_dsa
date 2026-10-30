@@ -1,0 +1,110 @@
+.about {
+  padding-block: var(--space-12) var(--space-16);
+  max-width: var(--measure);
+}
+
+@media (min-width: 768px) {
+  .about {
+    padding-block-start: var(--space-16);
+  }
+}
+
+.about__lede {
+  margin-top: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.about__rule {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin-block: var(--space-8);
+}
+
+.about__section {
+  margin-top: var(--space-10);
+}
+
+.about__section:first-of-type {
+  margin-top: 0;
+}
+
+/* These <h2>s are anchor targets (#what / #who / #how), so they must clear the
+   sticky header. --header-h (M7.2) is the single source for that height; the
+   hardcoded 4.5rem this replaces was the mobile header plus --space-4 by
+   coincidence and left only ~8px of air above 768px, where the header is
+   taller. The gap is now a flat --space-4 at every breakpoint, matching
+   /learn's track headings. */
+.about__section h2 {
+  scroll-margin-top: calc(var(--header-h) + var(--space-4));
+}
+
+/* Scope-audit fix #2 (docs/migrations/css-scope-audit.md): leave the embedded Visualizer's own paragraphs alone, as the scoped rule did. */
+.about__section p:not(.viz p) {
+  margin-top: var(--space-4);
+  line-height: var(--leading-relaxed);
+}
+
+/* "Who it's for": compact list, not cards (design §2.2). */
+.about__audience {
+  margin-top: var(--space-4);
+  list-style: none;
+  padding: 0;
+}
+
+.about__audience li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  line-height: var(--leading-relaxed);
+}
+
+.about__audience-icon {
+  flex: none;
+  margin-top: 0.35em;
+  color: var(--brand);
+}
+
+.about__callout-title {
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+/* Scope-audit fix #3: the scoped paragraph rule out-ranked Callout's `.callout__body :first-child`; this restores the title's top margin by specificity. */
+.about__section .about__callout-title {
+  margin-top: var(--space-4);
+}
+
+.about__controls {
+  margin-top: var(--space-2);
+  padding-left: var(--space-5);
+  list-style: disc;
+}
+
+/* Scope-audit fix #4: same competitor as #3, so the list items are qualified by the section. */
+.about__section .about__controls li {
+  margin-top: var(--space-1);
+}
+
+.about__controls li::marker {
+  color: var(--text-muted);
+}
+
+.about__demo {
+  margin: var(--space-6) 0 0;
+}
+
+.about__figcaption {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.about__cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}

@@ -8,13 +8,13 @@
 # Permissions-Policy: the site calls none of these APIs, so deny them outright
 # rather than trust that no future page starts calling one by accident.
 #
-# NO Content-Security-Policy here, deliberately: BaseLayout ships a pre-paint
-# inline theme script and an inline <style> inside <noscript>, so a strict policy
+# NO Content-Security-Policy here, deliberately: every page ships a pre-paint
+# inline theme script (src/render/Document.tsx) and an inline <style> inside <noscript>, so a strict policy
 # would need a per-build hash list and a static host cannot mint a nonce.
 # 'unsafe-inline' would be a CSP that permits exactly the thing it exists to stop.
 #
 # NO Cache-Control on this rule, also deliberately: a catch-all would match
-# /_astro/* too, and hosts differ in how they resolve two matching rules that both
+# /assets/* too, and hosts differ in how they resolve two matching rules that both
 # set the same header — the failure mode (a merged `max-age=0` winning over the
 # immutable rule below) silently defeats asset caching. Per-path rules keep the
 # question from arising.
@@ -25,11 +25,12 @@
   Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=(), usb=()
 
 # --- Content-hashed assets ------------------------------------------------------
-# Astro fingerprints everything it emits here (e.g. ArrayRenderer.zPEiTlER.js), so
-# a given filename's bytes never change — safe to cache forever. HTML is
-# intentionally left on the host default so it revalidates and picks up the new
-# hashes on each deploy.
-/_astro/*
+# Vite fingerprints everything it emits here (e.g. ArrayRenderer-zPEiTlER.js;
+# the directory was /_astro/ under Astro, React migration D-13), so a given
+# filename's bytes never change — safe to cache forever. HTML is intentionally
+# left on the host default so it revalidates and picks up the new hashes on
+# each deploy.
+/assets/*
   Cache-Control: public, max-age=31536000, immutable
 
 # --- Unhashed, path-stable assets -----------------------------------------------

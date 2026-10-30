@@ -100,7 +100,7 @@ const FACES = [
 const FALLBACK_LOCALS = ['Arial', 'Helvetica', 'Liberation Sans'];
 
 /** File extensions worth scanning for renderable characters. */
-const SCANNED = new Set(['.astro', '.mdx', '.ts', '.tsx', '.css', '.json']);
+const SCANNED = new Set(['.mdx', '.ts', '.tsx', '.css', '.json']);
 
 /** Codepoint ranges always included, whether or not the repo uses them today. */
 const ALWAYS = [

@@ -198,10 +198,10 @@ const PERCEPTIBLE_FILL = 1.1;
 
 describe('interaction states stay distinguishable without a hue', () => {
   it('hover fill and active fill are different colours, both themes', () => {
-    // `.btn-secondary` (global.css) and `.viz-btn` (Visualizer.astro) fill with
+    // `.btn-secondary` (global.css) and `.viz-btn` (visualizer.css) fill with
     // --brand-soft on hover and --surface-sunken on active, under the SAME
     // border on both. Identical values make the two states pixel-identical,
-    // because Visualizer.astro already establishes that a 1px border move alone
+    // because visualizer.css already establishes that a 1px border move alone
     // "reads as a rendering artefact" — so the fill is the whole signal, and one
     // token move away from the four-state recipe is a no-op nobody would see.
     for (const theme of THEME_NAMES) {
@@ -239,16 +239,22 @@ describe('interaction states stay distinguishable without a hue', () => {
 // The glossary A–Z strip — the one control the collapse left with no signal
 // --------------------------------------------------------------------------
 
-const GLOSSARY_SOURCE = read('../../src/pages/glossary.astro');
-const GLOSSARY_STYLE = /<style>([\s\S]*?)<\/style>/.exec(GLOSSARY_SOURCE)?.[1];
-if (GLOSSARY_STYLE === undefined) {
-  throw new Error('glossary.astro: no <style> block found');
+// The glossary page's stylesheet: the legacy `glossary.astro` `<style>` block,
+// moved verbatim (plus the scope-audit fixes) into its own file by the React
+// migration (plan §2.6, D-10). An empty file — the state every converted file
+// starts in — fails here by name rather than as a missing selector below.
+const GLOSSARY_FILE = 'src/styles/pages/glossary.css';
+const GLOSSARY_STYLE = read(`../../${GLOSSARY_FILE}`);
+if (GLOSSARY_STYLE.trim() === '') {
+  throw new Error(
+    `${GLOSSARY_FILE} is empty — the glossary styles were not ported`,
+  );
 }
 const GLOSSARY_RULES = cssRules(stripComments(GLOSSARY_STYLE));
 
 const chipRule = (selector: string): Map<string, string> =>
   new Map(
-    block(GLOSSARY_RULES, `glossary.astro ${selector}`, topLevel(selector)),
+    block(GLOSSARY_RULES, `glossary.css ${selector}`, topLevel(selector)),
   );
 
 /**

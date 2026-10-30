@@ -5,7 +5,9 @@
  *
  * WHY A MODULE AND NOT COMPONENT-LOCAL CODE: two separate islands paint these
  * surfaces — `/learn`'s progress script (cards + track rings) and the lesson
- * header's — and Astro gives component scripts no shared scope. A stage word,
+ * header's — and those are separate client modules with no shared scope
+ * (`src/client/modules/learn-index.ts`, `lesson-stage.ts`; separate Astro
+ * component scripts before the React migration). A stage word,
  * the `data-stage` attribute name or the ring formula written inline would
  * therefore exist in two copies, free to drift; here each exists once.
  *

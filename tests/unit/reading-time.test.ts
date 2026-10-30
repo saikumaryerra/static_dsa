@@ -40,8 +40,9 @@ describe('readingTimeMinutes', () => {
   it('excludes MDX scaffolding: imports, tags and expressions', () => {
     const prose = Array.from({ length: 200 }, () => 'word').join(' ');
     const scaffolding = [
-      "import Callout from '../../components/Callout.astro';",
-      "import PracticeCheck from '../../components/PracticeCheck.astro';",
+      // The extensionless specifiers the cutover codemod writes (D-08).
+      "import Callout from '../../components/Callout';",
+      "import PracticeCheck from '../../components/PracticeCheck';",
       '<PracticeCheck slug={frontmatter.slug} index={1} total={3}>',
       '</PracticeCheck>',
       '<Callout variant="warning">',

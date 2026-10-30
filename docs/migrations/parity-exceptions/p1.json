@@ -1,0 +1,14 @@
+{
+  "routes": {
+    "*": {
+      "mainHash": "P1: stub bodies — pages are skeletons with the real head (plan §5 P1 step 6)",
+      "bodyHash": "P1: instrument stubs render only their root element (plan §5 P1 step 7); proseHash is the P1 gate",
+      "h1": "P1: stub bodies carry a placeholder <h1>",
+      "headings": "P1: stub bodies (lesson headings are compared through proseHash)",
+      "internalLinks": "P1: stub bodies have no header, footer or page chrome",
+      "noscript": "P1: stub bodies omit the layout and chrome kill-switches",
+      "markers": "P1: stub bodies omit chrome and instrument internals"
+    }
+  },
+  "global": {}
+}

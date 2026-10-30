@@ -541,7 +541,7 @@ test.describe('"Builds on:" prerequisites', () => {
       const target = resolveFrom(page.url(), href ?? '');
       expect(target).toMatch(/^\/learn\/[a-z0-9-]+\/$/);
       // A chip pointing at a 404 would be worse than no chip: the build guard
-      // in [slug].astro exists to prevent it, and this proves it holds in the
+      // in LessonPage.tsx exists to prevent it, and this proves it holds in the
       // shipped output.
       expect((await request.get(target)).status()).toBe(200);
     }

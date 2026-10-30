@@ -14,8 +14,9 @@ export interface NavItem {
  * The primary nav, in display order.
  *
  * The hrefs carry the trailing slash because that IS the shipped URL
- * (`trailingSlash: 'always'`, astro.config.mjs): the slashless form is a 404 in
- * `astro preview` and a 301 on a real host. SiteFooter renders these verbatim,
+ * (amendment U-1; every page route in `src/routes.tsx` ends in a slash): the
+ * slashless form is a 404 under `npm run preview` (`scripts/serve-dist.mjs`)
+ * and a 301 on the host. SiteFooter renders these verbatim,
  * so authoring the shipped shape here is what keeps the footer correct without
  * a second copy of the rule.
  */
@@ -53,18 +54,20 @@ function normalizePath(path: string): string {
  * hrefs it normalizes, where it cannot drift from them.
  *
  * Normalizing the pathname still earns its keep after the flip, though not for
- * the reason the old comment gave. MEASURED under this config: `astro dev`,
- * `astro preview` and the build all hand this function the SLASHED form
+ * the reason the old comment gave. MEASURED under Astro (and unchanged by the
+ * React build's route table): dev, preview and the build all hand this
+ * function the SLASHED form
  * (`/learn/`) — but `/learn/index.html` is still directly reachable and returns
  * 200, and without the `(/index)?\.html` strip a reader who lands on that URL
  * gets a header that marks nothing. The strip also keeps the function correct
  * for the retired `format: 'file'` shape (`/learn.html`).
  *
- * Pure and exported rather than local to `.astro` frontmatter, because
- * frontmatter is not importable and the Vitest harness has no DOM — this is the
- * only shape in which the rule can be a test instead of a convention.
+ * Pure and exported rather than local to `SiteHeader.tsx`, because the Vitest
+ * harness has no DOM — this is the only shape in which the rule can be a test
+ * instead of a convention.
  *
- * @param currentPath - The current page's path, e.g. `Astro.url.pathname`.
+ * @param currentPath - The current page's path, e.g. the render context's
+ *   `pathname`.
  * @param href - A `NAV_ITEMS` destination.
  * @returns `'page'` for the exact page, `'true'` for a descendant, else `undefined`.
  */

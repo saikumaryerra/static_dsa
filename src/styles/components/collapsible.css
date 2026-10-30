@@ -1,0 +1,79 @@
+.collapsible {
+  border-top: 1px solid var(--border);
+  /* Inherited by ::details-content, and the reason `block-size: 0 -> auto`
+     below interpolates at all: without it `auto` is not an animatable value
+     and the transition silently animates nothing. */
+  interpolate-size: allow-keywords;
+}
+
+/* Both endpoints are stated explicitly — a `transition` on its own has nothing
+   to interpolate between, since the UA only flips content-visibility.
+   `--duration-slow` is the token documented for exactly this ("collapsible
+   expand"); reduced motion collapses it to 0.01ms globally, which is why no
+   duration is written by hand and there is no second media query here.
+   `overflow-y: clip` (not `hidden`, which would create a scroll container)
+   keeps the still-tall content inside the shrinking box.
+   The print sheet's `details::details-content { … !important }` (global.css)
+   out-ranks the `block-size: 0` here, so answers still print revealed.
+
+   The two directions get DIFFERENT transitions, deliberately — a transition
+   declared on a state applies when moving TO that state. This is the same
+   directional split `TableOfContents` uses for its inline panel, for the same
+   reason and against the same measurement recorded there.
+
+   Closing (base rule) animates `content-visibility` with `allow-discrete`, so
+   the panel stays rendered for the length of the collapse instead of vanishing
+   at frame one and leaving an empty box to shrink.
+
+   Opening (the `[open]` rule) animates `block-size` ONLY. Listing
+   `content-visibility` here too — which is what a single shared transition
+   does — keeps the subtree SKIPPED for the first frames of the expand
+   (measured in Chromium 149: `hidden` at the moment `open` is set, `visible`
+   two frames later), and a skipped subtree is in neither the render nor the
+   accessibility tree. That would leave a just-revealed Practice answer briefly
+   absent for assistive tech, and any focusable content an answer ever grows
+   jumped over by the very next Tab. Disclosed content has to be present the
+   instant it is disclosed; the animation is only polish, and splitting the
+   directions keeps the polish without paying for it. */
+.collapsible::details-content {
+  block-size: 0;
+  overflow-y: clip;
+  transition:
+    content-visibility var(--duration-slow) allow-discrete,
+    block-size var(--duration-slow) var(--ease-standard);
+}
+
+.collapsible[open]::details-content {
+  block-size: auto;
+  transition: block-size var(--duration-slow) var(--ease-standard);
+}
+
+.collapsible summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+  list-style: none;
+}
+
+/* Remove the default disclosure marker so the custom chevron is the only cue. */
+.collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible__chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.collapsible[open] .collapsible__chevron {
+  transform: rotate(90deg);
+}
+
+.collapsible__content {
+  padding-block: var(--space-3);
+}

@@ -25,8 +25,9 @@ test.describe('stable instrument ids', () => {
   /**
    * The id was `viz-${Math.random()…}` — the last `Math.random()` in `src/`, so
    * no anchor into a run survived a rebuild. Asserting the SHAPE rather than a
-   * literal is deliberate: the hash is over `Astro.url.pathname`, which can
-   * normalize differently between `astro dev` and the built output, so a pinned
+   * literal is deliberate: the hash is over the page's pathname (the render
+   * context's), which can normalize differently between the dev server and the
+   * built output, so a pinned
    * value would be a false anchor. What matters is that it is derived, that it
    * names its algorithm, and that a page's instruments never collide.
    */
@@ -431,7 +432,7 @@ test.describe('axe, with every ledger opened', () => {
           v.nodes.map((n) => `${v.impact} ${v.id}: ${n.target.join(' ')}`),
         )
         // The same tracked Shiki code-comment contrast debt m4-lessons excludes.
-        .filter((entry) => !/astro-code|data-language|\.line/.test(entry));
+        .filter((entry) => !/\.shiki\b|data-language|\.line/.test(entry));
 
       expect(offenders).toEqual([]);
     });
@@ -473,9 +474,9 @@ function tabStops(ledger: Locator): Locator {
 /**
  * A structural projection of one rendered ledger.
  *
- * Two renderers draw this table — `Ledger.astro` at build time and the island's
+ * Two renderers draw this table — `Ledger.tsx` at build time and the island's
  * rebuild — so the only thing pinning them together is a comparison of what they
- * produce. Deliberately NOT `outerHTML`: Astro's template whitespace differs
+ * produce. Deliberately NOT `outerHTML`: server-rendered whitespace differs
  * from `createElement`'s by construction, and a test that failed on indentation
  * would be deleted rather than fixed.
  */
@@ -576,7 +577,8 @@ test.describe('the ledger follows the run', () => {
   });
 
   /**
-   * The only thing pinning the island's DOM builder to the Astro template is a
+   * The only thing pinning the island's DOM builder to the server render
+   * (`Ledger.tsx`) is a
    * comparison of the two, and "Restore example" is the one input where they
    * must agree exactly: it re-runs the AUTHORED trace, so the rebuilt table has
    * to come out identical to the one the build shipped — same ids, same classes,
@@ -1294,6 +1296,10 @@ test.describe('<StepLink> — a sentence that points at a row', () => {
     // ledger only exists under a `<Visualizer>` (decision D-05). The validator
     // rejects `<StepLink>` in a new-course lesson, so nothing escapes this.
     const lessons = (await curriculum(page)).filter((l) => l.course === 'dsa');
+    // One navigation per lesson: the budget scales with the course (f0a2b47's
+    // rule), because the 30 s default was a constant this walk outgrew under
+    // load on the legacy build as well (plan §1).
+    test.setTimeout(30_000 + lessons.length * 2_000);
     let found = 0;
 
     for (const lesson of lessons) {

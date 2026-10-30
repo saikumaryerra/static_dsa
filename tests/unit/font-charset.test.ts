@@ -32,7 +32,7 @@ const ROOT = path.resolve(
 const SRC = path.join(ROOT, 'src');
 
 /** Mirrors `scripts/build-fonts.mjs` — keep the two extension lists in step. */
-const SCANNED = new Set(['.astro', '.mdx', '.ts', '.tsx', '.css', '.json']);
+const SCANNED = new Set(['.mdx', '.ts', '.tsx', '.css', '.json']);
 
 /**
  * Every character present in the site's source, with the ones that have no glyph

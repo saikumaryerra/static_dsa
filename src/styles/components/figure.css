@@ -1,0 +1,165 @@
+.figure {
+  margin-block: var(--space-8);
+}
+
+.figure__frame {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+}
+
+.figure__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--font-sans);
+}
+
+.figure__caption {
+  margin-block-start: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+  max-width: var(--measure);
+}
+
+/* ---- The drawing kit. Reached through `.figure` because the shapes are the
+   diagram's children, not Figure's own markup (Astro needed `:global` here for
+   the same reason). Every value is a token, so a diagram never states a colour
+   and both themes come free. ---- */
+
+/* A box: the default resting shape. */
+.figure .dg-box {
+  fill: var(--surface-sunken);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  rx: 6;
+}
+
+/* The one box a diagram wants the eye to land on first. One per figure. */
+/* The palette is achromatic by design (`--brand` is byte-identical to
+   `--text`), so a "highlight" fill is a barely-there half-step. The emphasis
+   is carried by the STROKE instead — darker and thicker — which also survives
+   forced colours and greyscale printing, where a fill difference does not. */
+.figure .dg-box--accent {
+  fill: var(--brand-soft);
+  stroke: var(--text);
+  stroke-width: 2.5;
+}
+
+/* A dashed container drawn AROUND a group of boxes (a node, a region, a VPC).
+
+   `--border-strong`, not `--border`. tokens.css annotates the two: `--border`
+   is "decorative separators only" at 1.36:1 on `--surface`, `--border-strong`
+   is "input borders, meaningful icons (>=3:1)" at 4.05:1. A group boundary is
+   the opposite of decorative — in the upload pipeline it is the line between
+   a video that is watchable and one that is not — so WCAG 1.4.11's 3:1 floor
+   for meaning-carrying non-text applies to it. axe cannot see this: it does
+   not evaluate SVG stroke contrast, so a green scan says nothing about it.
+   What keeps a group distinguishable from a connector is the DASH, not the
+   colour. */
+.figure .dg-group {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  rx: 8;
+}
+
+/* Connectors. `.dg-line--soft` is for a relationship that is weaker than the
+   main flow — a watch, a read-through, an optional path — and is dashed so it
+   is distinguishable without colour (§12: never colour alone). */
+.figure .dg-line {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* A FINER dash than `.dg-group`'s 5 4, deliberately. The two shared a stroke
+   colour and a dash pattern, so a soft connector running parallel to a region
+   border twenty units away was drawn with an identical signature and read as a
+   second, mis-drawn group rectangle — found by looking at a 6x zoom, not by
+   any geometric check, because nothing overlapped. A border encloses and a
+   connector travels; they should not look the same. */
+.figure .dg-line--soft {
+  /* Weaker than the main flow, and said with the dash rather than with the
+     contrast — a read-through the reader cannot see is not a weaker
+     relationship, it is a missing one. Same 1.4.11 reasoning as `.dg-group`. */
+  stroke: var(--border-strong);
+  stroke-dasharray: 2 3;
+}
+
+.figure .dg-head {
+  fill: var(--border-strong);
+  stroke: none;
+}
+
+.figure .dg-head--soft {
+  /* The arrowhead of a soft connector. It carries the connector's DIRECTION,
+     which is the one thing a dash cannot say. */
+  fill: var(--border-strong);
+}
+
+/* Text. Sizes are viewBox units, so keep boxes small (see the `viewBox` prop). */
+.figure .dg-label {
+  fill: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.figure .dg-sub {
+  fill: var(--text-muted);
+  font-size: 12px;
+}
+
+.figure .dg-mono {
+  font-family: var(--font-mono);
+  fill: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* A caption INSIDE the drawing — a region name over a dashed group. */
+.figure .dg-legend {
+  fill: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Forced colours: the site's convention is to re-encode state on channels the
+   mode preserves rather than to opt out with `forced-color-adjust`. Fills all
+   collapse to the system canvas there, so the shapes are told apart by their
+   stroke — which is why `.dg-group` and `.dg-line--soft` are dashed by design
+   rather than by decoration, and why the accent box takes a thicker one. */
+@media (forced-colors: active) {
+  .figure .dg-box,
+  .figure .dg-group {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+
+  .figure .dg-box--accent {
+    stroke-width: 3;
+  }
+
+  .figure .dg-line,
+  .figure .dg-line--soft {
+    stroke: CanvasText;
+  }
+
+  .figure .dg-head,
+  .figure .dg-head--soft {
+    fill: CanvasText;
+  }
+
+  .figure .dg-label,
+  .figure .dg-sub,
+  .figure .dg-mono,
+  .figure .dg-legend {
+    fill: CanvasText;
+  }
+}

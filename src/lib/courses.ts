@@ -117,7 +117,8 @@ export const COURSE_COPY: Record<CourseId, CourseCopy> = {
  * The path of a course page, e.g. `/learn/kubernetes/`.
  *
  * Authored root-absolute with a trailing slash, like every other internal link
- * in `src/`; `scripts/portablize.mjs` makes it document-relative in `dist/`.
+ * in `src/`, and shipped that way: the site deploys at one origin (React
+ * migration D-01), so `dist/` keeps it root-absolute.
  *
  * @param course - Course id.
  * @returns The published path, trailing slash included.

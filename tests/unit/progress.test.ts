@@ -1621,51 +1621,32 @@ describe('the review strip copy (the vocabulary ban, read off the exports)', () 
 });
 
 /**
- * THE TWO LINKS ONLY A RETURNING READER EVER SEES, at both deployment shapes.
+ * THE TWO LINKS ONLY A RETURNING READER EVER SEES.
  *
- * Both are built in client JS, where `scripts/portablize.mjs` cannot reach them
- * — so before D2 they were written `/learn/…` and a sub-path deployment served
- * the resume CTA and every review card a 404 at the origin root. They take the
- * deployment root as an argument now (`siteRoot()` reads it off the wordmark at
- * runtime), which is exactly what makes them testable in this harness: the join
- * is pure, and the sub-path case is the case that used to be broken.
+ * Both are built in client JS. While the artifact was portable to any sub-path
+ * they joined onto a deployment root read at runtime; the site now deploys at
+ * one origin (React migration, D-01), so they are root-absolute like every
+ * server-rendered link. The sub-path cases retired with portability; what stays
+ * pinned is the URL shape (amendment U-1): the trailing slash goes on the PATH,
+ * before any `?query` or `#fragment`, or the link is a hard 404.
  */
 describe('reviewHref and lessonHref', () => {
-  const ROOT = 'https://learndsa.dev/';
-  const SUBPATH = 'https://sample.com/deployments/learndsa/';
-
   it('deep-links to the practice section with predict on for one visit', () => {
-    expect(reviewHref('binary-search', ROOT)).toBe(
-      'https://learndsa.dev/learn/binary-search/?review=1#practice',
+    expect(reviewHref('binary-search')).toBe(
+      '/learn/binary-search/?review=1#practice',
     );
   });
 
-  it('keeps a review deep-link inside a sub-path deployment', () => {
-    expect(reviewHref('binary-search', SUBPATH)).toBe(
-      'https://sample.com/deployments/learndsa/learn/binary-search/?review=1#practice',
-    );
+  it('points the resume CTA at a lesson', () => {
+    expect(lessonHref('arrays')).toBe('/learn/arrays/');
   });
 
-  it('points the resume CTA at a lesson, at either deployment shape', () => {
-    expect(lessonHref('arrays', ROOT)).toBe(
-      'https://learndsa.dev/learn/arrays/',
-    );
-    expect(lessonHref('arrays', SUBPATH)).toBe(
-      'https://sample.com/deployments/learndsa/learn/arrays/',
-    );
-  });
-
-  /**
-   * The root is the ANCHOR's resolved href, and an anchor on a lesson page reads
-   * `../../` — i.e. the value handed in is already absolute and already
-   * slash-terminated. Pinned because the join drops everything after the last
-   * slash: a root of `…/learndsa` (no slash) would put the lesson beside the
-   * deployment instead of inside it.
-   */
-  it('joins onto the root path, not beside it', () => {
-    expect(lessonHref('arrays', 'https://sample.com/a/b/')).toBe(
-      'https://sample.com/a/b/learn/arrays/',
-    );
+  it('puts the slash on the path, before the query and the fragment', () => {
+    for (const href of [reviewHref('a-b'), lessonHref('a-b')]) {
+      const { pathname } = new URL(href, 'https://learndsa.invalid');
+      expect(href.startsWith('/learn/a-b/')).toBe(true);
+      expect(pathname).toBe('/learn/a-b/');
+    }
   });
 });
 
@@ -1710,14 +1691,14 @@ describe('the Predict toggle has no storage surface at all', () => {
 // covered end to end.)
 // ---------------------------------------------------------------------------
 
-/** Cleared Trace Trials — `Challenge.astro` is the one writer. */
+/** Cleared Trace Trials — `ChallengeIsland.tsx` is the one writer. */
 const CHALLENGES_KEY = 'ld:challenges:v1';
-/** Cleared Final Runs — `FinalRun.astro` is the one writer. */
+/** Cleared Final Runs — `FinalRunIsland.tsx` is the one writer. */
 const FINAL_RUN_KEY = 'ld:finalrun:v1';
 
-/** One cleared trial, in the shape `Challenge.astro` writes. */
+/** One cleared trial, in the shape `ChallengeIsland.tsx` writes. */
 const CLEARED_TRIAL = JSON.stringify({ 'sorting-efficient/worst-case': 1 });
-/** One cleared Final Run, in the shape `FinalRun.astro` writes. */
+/** One cleared Final Run, in the shape `FinalRunIsland.tsx` writes. */
 const CLEARED_FINAL_RUN = JSON.stringify({ 'binary-search': { c: 1 } });
 
 /** A device that has cleared one Trace Trial and one Final Run. */

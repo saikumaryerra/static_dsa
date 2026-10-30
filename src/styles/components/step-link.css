@@ -1,0 +1,34 @@
+/* StepLink (src/components/StepLink.tsx) — the legacy scoped block, moved
+   verbatim: the CSS scope audit found no rule here that changes when the
+   scoping is removed (docs/migrations/css-scope-audit.md). */
+
+/* A glossary link leaves the lesson; this one moves down the page to a row of
+   the table, and the reader should be able to tell which before clicking. The
+   dotted underline is the ledger's own seek-button affordance
+   (`.viz-ledger__seek`), so the link and the control it lands on read as the
+   same thing — and the STYLE of the underline is the whole signal, not a
+   colour, so it survives forced-colors and is not a 1.4.1 colour-only cue.
+
+   It has to be the underline, in fact: the palette is achromatic since Plan B
+   and `--brand` is byte-identical to `--text` in both themes, so colour cannot
+   tell two kinds of link apart on this site any more. `color: inherit` says
+   that out loud rather than writing `var(--brand)` and quietly painting
+   nothing. The prose face is inherited for the same reason the label is a
+   slot: an author may point at a step with words rather than a number. */
+/* QUALIFIED BY `:any-link`, and measured rather than guessed. Under Astro's
+   scoping a bare `.step-link` rule lost to the lesson body's link rule — the
+   first build of this component shipped a SOLID underline, caught in the pixel
+   baseline. Unscoped, `.step-link:any-link` is (0,2,0) against
+   `.lesson-body a`'s (0,1,1), so it still wins outright instead of tying and
+   depending on which rule the stylesheet emits last; the CSS scope audit
+   confirmed the computed style is unchanged. `ledger.css` documents the same
+   arithmetic for the same reason. */
+.step-link:any-link {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.step-link:any-link:hover {
+  text-decoration-style: solid;
+}

@@ -1,0 +1,87 @@
+.mark-complete {
+  color: var(--text);
+}
+
+/* Default (incomplete): show the empty circle, hide the check. */
+.mark-complete__icon--complete {
+  display: none;
+}
+
+.mark-complete[aria-pressed='true'] {
+  color: var(--brand);
+  background-color: color-mix(in srgb, var(--brand) 12%, transparent);
+  border-color: var(--brand);
+}
+
+.mark-complete[aria-pressed='true'] .mark-complete__icon--incomplete {
+  display: none;
+}
+
+.mark-complete[aria-pressed='true'] .mark-complete__icon--complete {
+  display: inline;
+}
+
+.mark-complete__note {
+  margin-top: var(--space-3);
+  max-width: var(--measure);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* Block spans rather than a flex column: Tailwind's preflight hides `[hidden]`
+   with `display: none !important`, so the parent's `hidden` attribute still
+   wins over any display these carry. */
+.mark-complete__count {
+  display: block;
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}
+
+.mark-complete__privacy {
+  display: block;
+  color: var(--text-muted);
+}
+
+/* ---- The Quiet Milestone (M8.1) ---- */
+
+/* One line of text, and that is the entire celebration. It carries its own
+   "on this device" scope because it is a claim about stored state, which is
+   also why it never appears until a read-back confirms the save. */
+.mark-complete__milestone {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+/* The spacing arrives WITH the text: the element is always in the DOM (the
+   live region must pre-exist its first population), so an unconditional
+   margin would leave a permanent gap under every un-milestoned button. */
+.mark-complete__milestone:not(:empty) {
+  margin-top: var(--space-3);
+}
+
+/* The check draws itself in — only on the click that completes a track, since
+   the script adds this class only then. A @keyframes animation rather than a
+   transition because the two icons swap via `display`, and transitions do not
+   run on a display change. The duration is a TOKEN because the token collapse
+   is this site's entire reduced-motion strategy (tokens.css): a literal
+   200ms here would keep animating for readers who asked it not to. */
+@keyframes mark-complete-draw {
+  from {
+    stroke-dashoffset: 14;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A dash of 14 user units exceeds the tick's own length (~12.1 in this 24×24
+   viewBox), so the resting state — offset 0 — is a solid, fully drawn check
+   with no gap, and the animation is purely the reveal. */
+.mark-complete--milestone .mark-complete__check {
+  stroke-dasharray: 14;
+  animation: mark-complete-draw var(--duration-base) var(--ease-standard);
+}

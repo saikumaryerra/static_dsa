@@ -25,7 +25,6 @@ import {
   nextIncomplete,
   parseLessonRefs,
   resumeLabel,
-  siteRoot,
   type LessonRef,
 } from './progress';
 import {
@@ -206,17 +205,10 @@ export function renderResume(list: LessonRef[], completed: number): void {
   const done = document.querySelector<HTMLElement>('[data-resume-done]');
   if (!link || !label || !done) return;
 
-  // Where this deployment lives, read BEFORE anything is written: the CTA's
-  // wording and its destination are one statement (see `siteRoot`). Without the
-  // anchor this leaves the server-rendered "Start with 01 · …" in place — stale
-  // for a returning reader, but a link that works.
-  const site = siteRoot();
-  if (!site) return;
-
   const next = nextIncomplete(list);
   const text = resumeLabel(next, completed, list.length);
   if (next) {
-    link.href = lessonHref(next.slug, site);
+    link.href = lessonHref(next.slug);
     label.textContent = text;
     done.hidden = true;
     link.hidden = false;

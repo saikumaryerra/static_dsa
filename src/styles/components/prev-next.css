@@ -1,0 +1,53 @@
+.prevnext {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* The card carries the weight: full width, a lesson-sized title and an
+   explicit CTA, matching the affordance of the /learn lesson cards. */
+.prevnext__next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: var(--measure);
+}
+
+.prevnext__overline {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.prevnext__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.prevnext__cta {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--brand);
+}
+
+/* Demoted to a link, but still a comfortable target: the padding gives it a
+   44px-tall hit area without a button's visual weight. */
+.prevnext__prev {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  align-self: flex-start;
+  padding-block: var(--space-2);
+  min-height: 44px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.prevnext__prev:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

@@ -566,14 +566,14 @@ export async function trackIntervals(
     ) => {
       // Timers the HARNESS schedules are excluded by where they come from, not
       // by how fast they tick: the e2e suite normally runs against the built
-      // `dist/`, which has none of this code in it, but a run against
-      // `astro dev` also gets the dev server's own timers (a 30 000 ms ping was
-      // observed from Vite's HMR client; the dev toolbar's scripts are excluded
-      // by the same rule). Filtering by CALLER keeps the assertion "no
-      // repeating timer at all" — weakening it to "no FAST timer" would leave a
-      // slow countdown somewhere to hide.
+      // `dist/`, which has none of this code in it, but a run against the Vite
+      // dev server (`npm run dev`) also gets its own timers (a 30 000 ms ping
+      // was observed from Vite's HMR client, served from `/@vite/`; dependency
+      // pre-bundles live under `/node_modules/.vite/`). Filtering by CALLER
+      // keeps the assertion "no repeating timer at all" — weakening it to "no
+      // FAST timer" would leave a slow countdown somewhere to hide.
       const stack = new Error().stack ?? '';
-      if (!/\/@vite\/|\/@id\/astro\/runtime\/client\/|vite\/dist\//.test(stack))
+      if (!/\/@vite\/|\/node_modules\/\.vite\/|vite\/dist\//.test(stack))
         window.__m8Intervals?.push(timeout ?? 0);
       return real(handler, timeout, ...args);
     }) as typeof window.setInterval;

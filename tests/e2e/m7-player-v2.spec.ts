@@ -752,24 +752,20 @@ test.describe('lifecycle states', () => {
   }) => {
     // The failed state is a terminal one, so it must be visibly different from
     // "loading" — the audit's complaint was that a dead viz looked like a slow
-    // one forever. Forcing it needs an unknown renderer id, which is exactly
-    // what a stale/partial View-Transition swap can leave behind. Hydrate
-    // first, so the root is on screen and the re-init mounts immediately.
+    // one forever. The array renderer's chunk REALLY fails to load (the request
+    // is aborted before the page asks for it), which is the failure a reader
+    // on a flaky connection actually meets — stronger than the legacy test's
+    // simulated View-Transitions swap with a bogus renderer id (migration plan
+    // §7). The glob matches the fingerprinted name Vite emits.
+    await page.route('**/assets/ArrayRenderer-*.js', (route) => route.abort());
     await page.goto(LESSON);
-    await hydrateViz(page);
-    await page.evaluate((selector) => {
-      const root = document.querySelector<HTMLElement>(
-        `${selector} [data-viz]`,
-      );
-      if (!root) throw new Error('viz root not found');
-      root.dataset['renderer'] = 'no-such-renderer';
-      delete root.dataset['vizInit'];
-      root.removeAttribute('data-viz-ready');
-      document.dispatchEvent(new Event('astro:page-load'));
-    }, VIZ);
 
     const viz = page.locator(`${VIZ} [data-viz]`);
-    await expect(viz).toHaveAttribute('data-viz-failed', 'true');
+    // The island activates when visible, so bring it on screen.
+    await viz.scrollIntoViewIfNeeded();
+    await expect(viz).toHaveAttribute('data-viz-failed', 'true', {
+      timeout: 15_000,
+    });
     await expect(viz).not.toHaveAttribute('aria-busy', 'true');
     await expect(page.locator(`${VIZ} .viz-unavailable`)).toContainText(
       'could not load',

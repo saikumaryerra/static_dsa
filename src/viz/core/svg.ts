@@ -10,7 +10,8 @@
  *
  * Imports nothing — a leaf of the one-way dependency graph. No `xmlns` is emitted
  * because the strings are always injected into an existing HTML/SVG context
- * (Astro `set:html`, or an `<svg>`/`<g>` `innerHTML` in the browser).
+ * (React's `dangerouslySetInnerHTML` at build time, or an `<svg>`/`<g>`
+ * `innerHTML` in the browser).
  */
 
 /** Attribute bag; `undefined`/`null`/`false` values are skipped entirely. */

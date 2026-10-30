@@ -215,7 +215,7 @@ test.describe('a new trace brings its own box', () => {
 /**
  * Plan A §7 — the RSP-2 legibility floor, PINNED rather than changed.
  *
- * The floor is `Visualizer.astro`'s `min-width: calc(var(--viz-natural-w, 0px)
+ * The floor is `visualizer.css`'s `min-width: calc(var(--viz-natural-w, 0px)
  * * 0.75)` on the canvas's `<svg>`. Plan A considered giving it a vertical twin
  * and measured the idea away — every `<svg>` is `xMidYMid meet` with
  * `height: auto`, so the scale is uniform and one axis already floors both;

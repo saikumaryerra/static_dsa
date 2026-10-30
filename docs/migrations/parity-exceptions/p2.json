@@ -1,0 +1,141 @@
+{
+  "routes": {
+    "/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/learn/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/learn/dsa/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/learn/kubernetes/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/learn/system-design/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/glossary/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/about/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/dev/renderers/": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/404.html": {
+      "mainHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "bodyHash": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "h1": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "headings": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "internalLinks": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "noscript": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)",
+      "markers": "P2: this page's body is still the P1 stub; its port is P3 (plan \u00a75 P3)"
+    },
+    "/learn/k8s-rolling-updates/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/k8s-services/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/k8s-what-kubernetes-is/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-comparison-table/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-netflix-architecture/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-netflix-video-delivery/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-spotify-architecture/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-spotify-recommendations/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-youtube-playback/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-youtube-recommendations/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    },
+    "/learn/sd-youtube-upload-pipeline/": {
+      "mainHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "bodyHash": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)",
+      "markers": "P2: Figure and the diagrams are ported in P3 (plan \u00a75 P2 exit); the lesson body around them is at parity (proseHash)"
+    }
+  },
+  "global": {}
+}

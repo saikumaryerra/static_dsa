@@ -3,7 +3,7 @@
  *
  * THE SEAM PROOF: this file plus ONE line in `registry.ts` is the entire cost of
  * adding an algorithm that reuses an existing renderer (`renderer="array"`).
- * Nothing else in the codebase changes — the `.astro`, the Player, the renderer,
+ * Nothing else in the codebase changes — the Visualizer component, the Player, the renderer,
  * and the core are all untouched (architecture §1 "add algorithm = 1 file + 1 line").
  *
  * Scans left to right emitting one `Step` per probe. Reuses `ArrayRenderer`'s

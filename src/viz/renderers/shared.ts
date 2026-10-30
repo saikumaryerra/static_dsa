@@ -71,7 +71,8 @@ export const nullLabelWidth = (label: string): number => label.length * 11;
 
 /**
  * Rendered px size of every `<text>` class the renderers emit, transcribed from
- * `Visualizer.astro`'s stylesheet (`--text-xs` is 0.75rem = 12px fixed).
+ * the Visualizer's stylesheet, `src/styles/components/visualizer.css`
+ * (`--text-xs` is 0.75rem = 12px fixed).
  *
  * A per-class table rather than one flat advance because the sizes span 12–20px
  * and a label's own size decides whether it fits: a flat 18px advance falsely

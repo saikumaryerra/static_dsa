@@ -34,7 +34,7 @@
  *    "fix" whenever the card's sr-only stage text is being adjusted — REPLACES
  *    that name and hides the title and the summary from exactly the readers who
  *    depend on it. It has been re-broken before, and until now was recorded only
- *    in a comment (`LessonCard.astro`'s SPEC-GAP note).
+ *    in a comment (`LessonCard.tsx`'s SPEC-GAP note).
  */
 import { expect, test, type Page } from '@playwright/test';
 import {

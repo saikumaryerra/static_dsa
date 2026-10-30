@@ -1,0 +1,138 @@
+/* Final Run card (src/components/FinalRun.tsx) — the legacy scoped block,
+   moved verbatim: the CSS scope audit found no rule here that changes when the
+   scoping is removed (docs/migrations/css-scope-audit.md). */
+
+.final-run {
+  margin-block: var(--space-8);
+  max-width: var(--measure);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-5);
+}
+
+.final-run__kicker {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The question is the card's accessible name, so it is styled as the title
+   rather than marked up as a heading. The card is authored HEADLESS — every
+   lesson that hosts one drops it into that lesson's `## Practice` section,
+   because a heading of its own would outlive the `<noscript>` kill-switch (see
+   the note at the top of this file) — and inventing a level here would put a
+   rung in the outline that no section on the page owns. */
+.final-run__prompt {
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-snug);
+}
+
+.final-run__prompt code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  user-select: all;
+}
+
+.final-run__lead {
+  margin: 0 0 var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.final-run__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.final-run__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.final-run__field label {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Matches the visualizer's custom-input field: level 1 on the page canvas,
+   `--border-strong` (3.94:1 light / 3.71:1 dark on the canvas) so the box is a shape and not a
+   suggestion, and 44px tall like every control it sits beside. */
+.final-run__field input {
+  min-height: 44px;
+  width: 7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.final-run__status {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* The gap arrives with the words: the region stays in the DOM from the start
+   (a live region has to pre-exist its first population), so an unconditional
+   margin would leave a permanent hole under the form. A CLASS rather than
+   `:empty`, because whether this element is `:empty` depends on how the
+   formatter wraps its attributes — a wrapped tag leaves a whitespace text
+   node, and whitespace is not empty. */
+.final-run__status.is-said {
+  margin-top: var(--space-4);
+}
+
+.final-run__watch {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.final-run__note {
+  margin: var(--space-4) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.final-run__cleared {
+  margin: var(--space-3) 0 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* CLEARED — the same three-signal treatment the trial card uses: the word in
+   the status line, the check glyph, and the brand keyline, so the state never
+   depends on colour alone (§12). */
+.final-run[data-cleared] {
+  border-color: var(--brand);
+  background-color: color-mix(in srgb, var(--brand) 6%, var(--surface));
+}
+
+.final-run[data-cleared] .final-run__kicker::after {
+  content: ' ✓';
+  color: var(--brand);
+}
+
+/* On paper the prediction cannot be checked, exactly like the practice check's
+   grade buttons and the player's controls. */
+@media print {
+  .final-run {
+    display: none;
+  }
+}

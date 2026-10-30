@@ -142,9 +142,11 @@ const ROUTES: { name: string; path: string; hydrates: boolean }[] = [
     hydrates: true,
   },
   { name: 'glossary', path: '/glossary/', hydrates: false },
-  // `/404/`, not `/404`: the slashless form serves Astro preview's own error
-  // page under `trailingSlash: 'always'`, which would re-seed this baseline
-  // against a document the site does not ship.
+  // `/404/`, not `/404`: the slashed form is the shape every page URL takes
+  // (U-1), and it reaches `dist/404.html` through the host's not-found fallback.
+  // (Under the legacy `astro preview` the slashless form served Astro's own
+  // error page, which would have seeded this baseline against a document the
+  // site does not ship.)
   { name: 'not-found', path: '/404/', hydrates: false },
 ];
 

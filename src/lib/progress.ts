@@ -39,12 +39,13 @@
  *   unpublished lesson can never leave a stale key behind that inflates a count;
  *   M8.3's two GLOBAL keys are addressed by name, imported from their writer
  *   (see the import below), never found by sweeping for an `ld:` prefix.
- * - **Write completion.** `MarkComplete.astro` owns that write path; this module
+ * - **Write completion.** `MarkComplete` (`src/client/modules/mark-complete.ts`) owns that write path; this module
  *   reads and deletes `lesson:{slug}:complete`, so it has exactly one writer.
  *   (The M8.1 mastery record is a *different* key, `progress:v1:{slug}`, and
  *   this module is the only thing that writes it — same rule, one writer each.
- *   M8.3's `ld:*` keys are the same story once more: `Challenge.astro` and
- *   `FinalRun.astro` write them, this module only clears them.)
+ *   M8.3's `ld:*` keys are the same story once more: the Trace Trial and
+ *   Final Run islands (`ChallengeIsland.tsx`, `FinalRunIsland.tsx`) write
+ *   them, this module only clears them.)
  * - **Infer anything.** Only explicit user acts are stored (spec §6: no
  *   behavioral tracking — nothing here observes scroll depth or time on page).
  *   Every mastery timestamp below is stamped by a click the reader made.
@@ -156,7 +157,8 @@ function byCourseThenOrder(a: LessonRef, b: LessonRef): number {
  * Completion key for one lesson (spec §6 progress keys). Never widened to a
  * prefix scan.
  *
- * Exported because `MarkComplete.astro` is the one WRITER: it used to re-type
+ * Exported because `MarkComplete` (`src/client/modules/mark-complete.ts`) is
+ * the one WRITER: it used to re-type
  * this template literal, which made the format a convention held in two places
  * rather than one rule, and a rename here would have left the read and write
  * paths pointing at different keys with nothing failing.
@@ -531,8 +533,9 @@ export function onRestore(refresh: () => void): void {
  * reason {@link onRestore} is.
  *
  * `/learn` now paints its progress from TWO islands (the page's own, and the
- * review strip's), and only the first of them owns the delete. Astro gives
- * component scripts no shared scope, so without a channel the island that did
+ * review strip's), and only the first of them owns the delete. The two are
+ * separate client modules with no shared scope (as they were separate Astro
+ * component scripts before the React migration), so without a channel the island that did
  * not run the reset keeps whatever it last drew: cleared records, and a strip
  * still inviting the reader to review lessons the device no longer remembers.
  * A `storage` event cannot cover this — browsers fire it in OTHER tabs only.
@@ -655,7 +658,8 @@ function blankMastery(): MasteryRecord {
 
 /**
  * How many of a lesson's questions are graded "I had it" — the tally
- * `PracticeCheck.astro` shows and announces ("2 of 3 checked").
+ * `PracticeCheck` (`src/client/modules/practice-check.ts`) shows and announces
+ * ("2 of 3 checked").
  *
  * Exported so that component calls this instead of re-deriving the same count
  * from `record.checks` inline: the tally on screen and the bar that stamps
@@ -1121,7 +1125,7 @@ export function countMastery(lessons: LessonRef[]): {
 //
 // The ONLY free-form text this product stores, which is why it is four
 // obligations rather than one feature (`docs/m8-gamification.md`): a delete
-// button beside Save (`deleteNote`, wired in `ExplainBack.astro`), the note
+// button beside Save (`deleteNote`, wired in `src/client/modules/explain-back.ts`), the note
 // named in the reset control's warning and announcement (`countNotes`, wired in
 // `/learn`), the "saved only in this browser" label beside the textarea, and the
 // field carried through every read-modify-write of the record.
@@ -1456,51 +1460,27 @@ export const REVIEW_COPY = {
  * the mode lasts exactly one page visit and leaves the device byte-identical.
  * (The lesson island reads the parameter; nothing writes it.)
  *
+ * ROOT-ABSOLUTE (React migration, D-01): the site deploys at one origin, so a
+ * link built in client JS is written the way every server-rendered link is —
+ * `/learn/…/`, trailing slash on the path, before the query and the fragment
+ * (amendment U-1). Before the migration the artifact was portable to any
+ * sub-path, so this joined onto a deployment root read off the header's
+ * wordmark at runtime; that runtime lookup retired with portability.
+ *
  * @param slug - Lesson slug.
- * @param root - The deployment root from {@link siteRoot}.
- * @returns The deep link, e.g. `https://host/learn/binary-search/?review=1#practice`.
+ * @returns The deep link, e.g. `/learn/binary-search/?review=1#practice`.
  */
-export function reviewHref(slug: string, root: string): string {
-  return new URL(`learn/${slug}/?review=1#practice`, root).href;
+export function reviewHref(slug: string): string {
+  return `/learn/${slug}/?review=1#practice`;
 }
 
 /**
- * Where the resume CTA points: a lesson, wherever this deployment lives.
+ * Where the resume CTA points: a lesson, root-absolute (see {@link reviewHref}
+ * for why a client-built link no longer resolves against a runtime root).
  *
  * @param slug - Lesson slug.
- * @param root - The deployment root from {@link siteRoot}.
- * @returns The lesson URL, e.g. `https://host/learndsa/learn/arrays/`.
+ * @returns The lesson URL, e.g. `/learn/arrays/`.
  */
-export function lessonHref(slug: string, root: string): string {
-  return new URL(`learn/${slug}/`, root).href;
-}
-
-/**
- * This deployment's own root, read off the site-root anchor in the header.
- *
- * WHY A DOM READ RATHER THAN A `/learn/…` LITERAL: the artifact is deployable
- * at any origin AND any sub-path (Plan D R3), which `scripts/portablize.mjs`
- * delivers by rewriting every internal URL in `dist/` to a document-relative one
- * after the build. That pass can rewrite an attribute; it cannot reach a
- * template literal inside a minified chunk. A link this file BUILT as
- * `/learn/${slug}/` would therefore stay root-absolute, and under
- * `sample.com/learndsa/` the two surfaces that use one — the resume CTA and the
- * review cards, both of which only a RETURNING reader ever sees — would leave
- * the deployment and 404 at the origin. So the runtime half resolves against
- * something the pass did rewrite: `SiteHeader`'s wordmark, which carries
- * `data-site-root` and points at the site root from every depth. The build fails
- * if a page ships without it, and fails again if any chunk regains a
- * root-absolute literal.
- *
- * Kept beside the two joiners above so one module owns "where a progress
- * surface links to"; the JOIN is pure and takes the root as an argument so the
- * node harness can test it, and only this function touches the DOM.
- *
- * @returns The absolute URL of the deployment root, or `null` when the document
- * has no site-root anchor — the caller then leaves the server-rendered DOM
- * alone rather than writing a link it cannot place.
- */
-export function siteRoot(): string | null {
-  const anchor = document.querySelector<HTMLAnchorElement>('[data-site-root]');
-  return anchor === null ? null : anchor.href;
+export function lessonHref(slug: string): string {
+  return `/learn/${slug}/`;
 }

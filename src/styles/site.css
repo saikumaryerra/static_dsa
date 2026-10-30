@@ -1,0 +1,59 @@
+/*
+ * The site stylesheet (React migration, D-10): ONE render-blocking file,
+ * linked from every page by `Document` and built to `dist/assets/site-HASH.css`.
+ *
+ * `global.css` (Tailwind layers + `tokens.css`, unchanged) first, then one file
+ * per former Astro `<style>` block, in a fixed order: layouts, components
+ * (alphabetical), pages. Each converted block is the legacy CSS verbatim plus
+ * the selector fixes `docs/migrations/css-scope-audit.md` lists for it — a
+ * scoped `.bench p` matched only the bench's own markup, an unscoped one also
+ * matches slotted prose, so the audit decides every rewrite. Never `!important`
+ * to win a cascade the scoped version won by specificity: rewrite the selector.
+ *
+ * Every file below exists from P1 on, empty until its owner ports it, so no
+ * workstream edits this list.
+ */
+@import './global.css';
+
+/* Layouts */
+@import './layouts/base.css';
+@import './layouts/lesson.css';
+
+/* Components */
+@import './components/band.css';
+@import './components/bench.css';
+@import './components/breadcrumb.css';
+@import './components/callout.css';
+@import './components/challenge.css';
+@import './components/code-tabs.css';
+@import './components/collapsible.css';
+@import './components/complexity-table.css';
+@import './components/course-card.css';
+@import './components/course-index.css';
+@import './components/difficulty-chip.css';
+@import './components/explain-back.css';
+@import './components/figure.css';
+@import './components/final-run.css';
+@import './components/ledger.css';
+@import './components/lesson-card.css';
+@import './components/mark-complete.css';
+@import './components/mastery-pips.css';
+@import './components/practice-check.css';
+@import './components/prev-next.css';
+@import './components/review-strip.css';
+@import './components/site-header.css';
+@import './components/step-link.css';
+@import './components/table-of-contents.css';
+@import './components/theme-toggle.css';
+@import './components/track-arc.css';
+@import './components/visualizer.css';
+@import './components/whats-next.css';
+
+/* Pages */
+@import './pages/about.css';
+@import './pages/course.css';
+@import './pages/dev-renderers.css';
+@import './pages/glossary.css';
+@import './pages/home.css';
+@import './pages/learn-index.css';
+@import './pages/not-found.css';

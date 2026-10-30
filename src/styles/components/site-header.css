@@ -1,0 +1,12 @@
+/* The header CONSUMES --header-h rather than restating it (M7.2 review): the
+   token used to be a hand-maintained mirror of `h-14 md:h-16` here, so editing
+   this file moved the chrome and silently left six sticky offsets and
+   scroll-margins behind in four other files.
+
+   On the <header>, not the inner bar, because --header-h is defined as the
+   BORDER-BOX height: box-sizing is border-box site-wide (Tailwind preflight),
+   so the 1px keyline sits inside the token's value and `top: var(--header-h)`
+   now lands flush on the rule instead of 1px under it. The bar takes h-full. */
+.site-header {
+  height: var(--header-h);
+}
